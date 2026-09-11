@@ -1,0 +1,5 @@
+# Inputs for the hash-locked release-build install (req.txt stays the loose
+# manifest for the test matrix). Regenerate after editing this or req.txt:
+#   uv pip compile requirements-build.in --universal --generate-hashes -o requirements-build.txt
+-r req.txt
+pyinstaller>=6.22.2
