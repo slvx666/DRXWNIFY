@@ -1602,6 +1602,30 @@ interface DatabaseDao {
     @Query("SELECT * FROM artist WHERE spotifyId = :spotifyId LIMIT 1")
     fun artistBySpotifyId(spotifyId: String): ArtistEntity?
 
+    @Query("SELECT * FROM artist WHERE spotifyId = :spotifyId LIMIT 1")
+    fun artistBySpotifyIdFlow(spotifyId: String): Flow<ArtistEntity?>
+
+    /**
+     * Resolves the DB artist row for a media artist. Spotify-sourced artists ("spotify:<id>") are
+     * keyed by the spotifyId column (canonical id "SP_<id>", same as the followed-artists sync) so
+     * the player, the mini-player subscribe button and the artist profile all hit the SAME row.
+     */
+    fun artistEntityFor(artist: MediaMetadata.Artist): ArtistEntity {
+        val id = artist.id
+        val spotifyRaw = com.metrolist.music.utils.ArtistIdentity.spotifyIdOf(id)
+        if (spotifyRaw != null) {
+            artistBySpotifyId(spotifyRaw)?.let { return it }
+            artistByName(artist.name)?.takeIf { it.spotifyId == null }?.let { byName ->
+                val linked = byName.copy(spotifyId = spotifyRaw)
+                update(linked)
+                return linked
+            }
+            return ArtistEntity(id = "SP_$spotifyRaw", name = artist.name, spotifyId = spotifyRaw)
+        }
+        val artistId = id ?: artistByName(artist.name)?.id ?: ArtistEntity.generateArtistId()
+        return ArtistEntity(id = artistId, name = artist.name, channelId = id)
+    }
+
     @Query("SELECT * FROM artist WHERE id = :id LIMIT 1")
     fun getArtistById(id: String): ArtistEntity?
 
@@ -1652,20 +1676,13 @@ interface DatabaseDao {
         if (insert(mediaMetadata.toSongEntity().let(block)) == -1L) return
 
         mediaMetadata.artists.forEachIndexed { index, artist ->
-            val artistId = artist.id ?: artistByName(artist.name)?.id ?: ArtistEntity.generateArtistId()
-
-            insert(
-                ArtistEntity(
-                    id = artistId,
-                    name = artist.name,
-                    channelId = artist.id,
-                )
-            )
+            val entity = artistEntityFor(artist)
+            insert(entity)
 
             insert(
                 SongArtistMap(
                     songId = mediaMetadata.id,
-                    artistId = artistId,
+                    artistId = entity.id,
                     position = index,
                 )
             )
@@ -1723,6 +1740,17 @@ interface DatabaseDao {
             }?.forEach(::insert)
     }
 
+    /**
+     * Insert-or-update a song from player/Spotify metadata. Plain [insert] is a no-op for songs that
+     * already exist, which left stale YouTube titles/channels/covers on re-downloads (label-as-artist,
+     * wrong cover). Downloads call this so the exporter always tags from the current metadata.
+     */
+    @Transaction
+    fun upsertMetadata(mediaMetadata: MediaMetadata) {
+        val existing = getSongByIdBlocking(mediaMetadata.id)
+        if (existing == null) insert(mediaMetadata) else update(existing, mediaMetadata)
+    }
+
     @Transaction
     fun update(
         song: Song,
@@ -1741,19 +1769,12 @@ interface DatabaseDao {
         )
         songArtistMap(song.id).forEach(::delete)
         mediaMetadata.artists.forEachIndexed { index, artist ->
-            val artistId = artist.id ?: artistByName(artist.name)?.id ?: ArtistEntity.generateArtistId()
-
-            insert(
-                ArtistEntity(
-                    id = artistId,
-                    name = artist.name,
-                    channelId = artist.id,
-                ),
-            )
+            val entity = artistEntityFor(artist)
+            insert(entity)
             insert(
                 SongArtistMap(
                     songId = song.id,
-                    artistId = artistId,
+                    artistId = entity.id,
                     position = index,
                 ),
             )
@@ -1974,6 +1995,9 @@ interface DatabaseDao {
 
     @Query("SELECT * FROM spotify_match WHERE youtubeId IN (:youtubeIds)")
     fun getSpotifyMatchesByYouTubeIds(youtubeIds: List<String>): List<SpotifyMatchEntity>
+
+    @Query("SELECT * FROM spotify_match WHERE spotifyId IN (:spotifyIds)")
+    fun getSpotifyMatchesBySpotifyIds(spotifyIds: List<String>): List<SpotifyMatchEntity>
 
     @Upsert
     fun upsertSpotifyMatch(match: SpotifyMatchEntity)

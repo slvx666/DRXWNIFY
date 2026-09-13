@@ -166,9 +166,11 @@ fun LibraryPlaylistListItem(
     menuState: MenuState,
     coroutineScope: CoroutineScope,
     playlist: Playlist,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    thumbnailSize: androidx.compose.ui.unit.Dp = com.metrolist.music.constants.ListThumbnailSize,
 ) = PlaylistListItem(
     playlist = playlist,
+    thumbnailSize = thumbnailSize,
     trailingContent = {
         androidx.compose.material3.IconButton(
             onClick = {

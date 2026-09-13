@@ -126,6 +126,24 @@ constructor(
 
     fun retry() = loadLikedSongs()
 
+    /**
+     * Removes a track from the linked Spotify account's Liked Songs. Optimistically drops it from
+     * the list so the heart/row disappears immediately; on failure it is restored on next refresh.
+     */
+    fun unlike(track: SpotifyTrack) {
+        val previous = _tracks.value
+        _tracks.value = previous.filterNot { it.id == track.id }
+        _total.value = (_total.value - 1).coerceAtLeast(0)
+        viewModelScope.launch(Dispatchers.IO) {
+            Spotify.removeTrack(track.id).onFailure { e ->
+                Timber.e(e, "Failed to unlike Spotify track ${track.id}")
+                // Restore on failure.
+                _tracks.value = previous
+                _total.value = previous.size
+            }
+        }
+    }
+
     companion object {
         private const val PAGE_SIZE = 50
         /** How many pages to fetch in parallel per batch. Keeps rate-limit risk low. */

@@ -30,7 +30,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import com.metrolist.music.LocalDownloadUtil
+import com.metrolist.innertube.models.SongItem
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -94,6 +98,7 @@ fun SpotifyTrackSectionRow(
     onTrackClick: (SpotifyTrack) -> Unit,
     onTrackLongClick: (SpotifyTrack) -> Unit,
     modifier: Modifier = Modifier,
+    likedSpotifyIds: Set<String> = emptySet(),
 ) {
     LazyHorizontalGrid(
         state = rememberLazyGridState(),
@@ -110,11 +115,21 @@ fun SpotifyTrackSectionRow(
             key = { "spotify_track_${it.id}" }
         ) { track ->
             val songItem = remember(track.id) { track.toSongItem() }
+            val spotifyLiked = likedSpotifyIds.contains(track.id)
             YouTubeListItem(
                 item = songItem,
                 isActive = false,
                 isPlaying = isPlaying,
                 isSwipeable = false,
+                // Show a heart for tracks in the user's Spotify likes (these Spotify tracks have no
+                // local `liked` row), plus explicit + downloaded, matching the default badges.
+                badges = {
+                    if (spotifyLiked) Icon.Favorite()
+                    if (songItem.explicit) Icon.Explicit()
+                    val download by LocalDownloadUtil.current.getDownload(songItem.id)
+                        .collectAsState(initial = null)
+                    Icon.Download(download?.state)
+                },
                 modifier = Modifier
                     .width(horizontalItemWidth)
                     .combinedClickable(

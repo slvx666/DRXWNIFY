@@ -9,7 +9,10 @@ import java.math.BigInteger
 import java.security.MessageDigest
 
 fun makeTimeString(duration: Long?): String {
-    if (duration == null || duration < 0) return ""
+    // P3: an unknown/zero track length must never render as "0:00". Treat <= 0 as
+    // "unknown" and return an empty string so callers (joinByBullet, list rows) drop
+    // the field entirely. The player's current-position label passes its own fallback.
+    if (duration == null || duration <= 0) return ""
     var sec = duration / 1000
     val day = sec / 86400
     sec %= 86400

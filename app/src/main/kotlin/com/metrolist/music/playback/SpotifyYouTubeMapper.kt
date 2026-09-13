@@ -6,13 +6,16 @@
 package com.metrolist.music.playback
 
 import android.util.LruCache
-import com.metrolist.innertube.YouTube
-import com.metrolist.innertube.models.SongItem
-import com.metrolist.innertube.pages.SearchSummaryPage
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.SpotifyMatchEntity
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.MediaMetadata
+import com.metrolist.music.resolver.AudioSource
+import com.metrolist.music.resolver.ResolveResult
+import com.metrolist.music.resolver.ResolverPreferences
+import com.metrolist.music.resolver.TrackResolver
+import com.metrolist.music.resolver.YouTubeTrackResolver
+import com.metrolist.music.utils.SPOTIFY_ID_PREFIX
 import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.SpotifyMapper
 import com.metrolist.spotify.models.SpotifyTrack
@@ -28,6 +31,7 @@ import timber.log.Timber
  */
 class SpotifyYouTubeMapper(
     private val database: MusicDatabase,
+    private val resolver: TrackResolver = YouTubeTrackResolver(),
 ) {
 
     private data class CachedMatch(
@@ -46,54 +50,86 @@ class SpotifyYouTubeMapper(
     suspend fun mapToYouTube(track: SpotifyTrack): MediaMetadata? = withContext(Dispatchers.IO) {
         // 1. In-memory LRU cache (zero I/O)
         memoryCache[track.id]?.let { mem ->
-            Timber.d("Spotify match memory hit: ${track.name} -> ${mem.youtubeId}")
-            return@withContext buildMediaMetadata(mem.youtubeId, track, mem.title, mem.artist)
+            if (mem.isManualOverride || isCachedMatchPlausible(track, mem.title, mem.artist)) {
+                Timber.d("Spotify match memory hit: ${track.name} -> ${mem.youtubeId}")
+                return@withContext buildMediaMetadata(mem.youtubeId, track, mem.title, mem.artist)
+            }
+            memoryCache.remove(track.id)
         }
 
-        // 2. Room DB cache
+        // 2. Room DB cache. Matches written by the older, non-strict matcher can be plain wrong
+        // (e.g. ".m0lly /bin" — not on YouTube at all — was cached to unrelated videos and then
+        // served forever). Re-check every automatic cached match against the same strict gates the
+        // resolver uses; a match that fails them is dropped and resolved again from scratch.
         val cached = database.getSpotifyMatch(track.id)
         if (cached != null) {
-            Timber.d("Spotify match cache hit: ${track.name} -> ${cached.youtubeId} (manual=${cached.isManualOverride})")
-            memoryCache.put(track.id, CachedMatch(
-                cached.youtubeId, cached.title, cached.artist, cached.isManualOverride,
-            ))
-            return@withContext buildMediaMetadata(cached.youtubeId, track, cached.title, cached.artist)
+            if (cached.isManualOverride || isCachedMatchPlausible(track, cached.title, cached.artist)) {
+                Timber.d("Spotify match cache hit: ${track.name} -> ${cached.youtubeId} (manual=${cached.isManualOverride})")
+                memoryCache.put(track.id, CachedMatch(
+                    cached.youtubeId, cached.title, cached.artist, cached.isManualOverride,
+                ))
+                return@withContext buildMediaMetadata(cached.youtubeId, track, cached.title, cached.artist)
+            }
+            Timber.w("Spotify match cache REJECTED (stale/wrong): ${track.name} -> ${cached.youtubeId} ('${cached.title}' by '${cached.artist}')")
+            database.deleteSpotifyMatch(track.id)
         }
 
-        // 3. YouTube search + fuzzy match
-        val query = SpotifyMapper.buildSearchQuery(track)
-        Timber.d("Searching YouTube for Spotify track: $query")
-
-        // Anonymous search: this is a background match, not a user-initiated
-        // search, so it must not be recorded in the user's YouTube search history.
-        val searchResult = YouTube.searchSummary(query, incognito = true).getOrNull() ?: return@withContext null
-        val bestMatch = findBestMatch(track, searchResult)
-
-        if (bestMatch != null) {
-            database.upsertSpotifyMatch(
-                SpotifyMatchEntity(
-                    spotifyId = track.id,
-                    youtubeId = bestMatch.id,
-                    title = bestMatch.title,
-                    artist = bestMatch.artists.firstOrNull()?.name ?: "",
-                    matchScore = bestMatch.score,
+        // 3. Delegate to the resolver cascade (multi-query search + strict gating). The resolver
+        // owns all search internals and returns a concrete source + confidence, or NoMatch.
+        when (val result = resolver.resolve(track)) {
+            is ResolveResult.Matched -> {
+                val youtubeId = (result.source as AudioSource.YouTube).videoId
+                database.upsertSpotifyMatch(
+                    SpotifyMatchEntity(
+                        spotifyId = track.id,
+                        youtubeId = youtubeId,
+                        title = result.title,
+                        artist = result.artist,
+                        matchScore = result.confidence,
+                    )
                 )
-            )
-            memoryCache.put(track.id, CachedMatch(
-                bestMatch.id, bestMatch.title, bestMatch.artistName,
-            ))
-            Timber.d("Spotify match found: ${track.name} -> ${bestMatch.id} (score: ${bestMatch.score})")
-            return@withContext buildMediaMetadata(
-                youtubeId = bestMatch.id,
-                spotifyTrack = track,
-                ytTitle = bestMatch.title,
-                ytArtist = bestMatch.artistName,
-                ytThumbnailUrl = bestMatch.thumbnailUrl,
-            )
+                memoryCache.put(track.id, CachedMatch(youtubeId, result.title, result.artist))
+                Timber.d("Spotify match found: ${track.name} -> $youtubeId (score: ${result.confidence})")
+                return@withContext buildMediaMetadata(
+                    youtubeId = youtubeId,
+                    spotifyTrack = track,
+                    ytTitle = result.title,
+                    ytArtist = result.artist,
+                    ytThumbnailUrl = result.thumbnailUrl,
+                )
+            }
+            ResolveResult.NoMatch -> {
+                // No confident YouTube match. If the Qobuz fallback is enabled, hand back a
+                // synthetic item whose id routes playback/download through Qobuz (by ISRC/metadata)
+                // instead of skipping the track — this is what lets YouTube-missing / underground
+                // tracks still play. NOT persisted to the match cache, so a future session re-tries
+                // YouTube first (the track may appear there later).
+                if (ResolverPreferences.qobuzFallback) {
+                    val fallbackId = SpotifyMetadataRegistry.QOBUZ_FALLBACK_PREFIX + track.id
+                    SpotifyMetadataRegistry.register(fallbackId, track)
+                    Timber.d("No YouTube match for '${track.name}' — routing to Qobuz fallback ($fallbackId)")
+                    return@withContext buildMediaMetadata(
+                        youtubeId = fallbackId,
+                        spotifyTrack = track,
+                        ytTitle = track.name,
+                        ytArtist = track.artists.firstOrNull()?.name ?: "",
+                    )
+                }
+                Timber.w("No YouTube match for Spotify track: ${track.name} by ${track.artists.firstOrNull()?.name}")
+                return@withContext null
+            }
         }
+    }
 
-        Timber.w("No YouTube match found for Spotify track: ${track.name} by ${track.artists.firstOrNull()?.name}")
-        null
+    /**
+     * Writes the Spotify-derived metadata (title, artists, album, cover) for a resolved track into the
+     * song table and registers the Spotify track, so downloads/exports are tagged from Spotify — not
+     * from whatever the YouTube upload was called.
+     */
+    suspend fun persistSpotifyMetadata(metadata: MediaMetadata, track: SpotifyTrack) = withContext(Dispatchers.IO) {
+        SpotifyMetadataRegistry.register(metadata.id, track)
+        runCatching { database.transaction { upsertMetadata(metadata) } }
+            .onFailure { Timber.w(it, "persistSpotifyMetadata failed for ${metadata.id}") }
     }
 
     /**
@@ -140,126 +176,66 @@ class SpotifyYouTubeMapper(
         return metadata.toMediaItem()
     }
 
-    private fun findBestMatch(
-        spotifyTrack: SpotifyTrack,
-        searchResult: SearchSummaryPage,
-    ): MatchCandidate? {
-        val spotifyArtist = spotifyTrack.artists.firstOrNull()?.name ?: ""
-
-        // Pre-compute normalization and bigrams for the Spotify side once
-        val precomputed = SpotifyMapper.precompute(
-            title = spotifyTrack.name,
-            artist = spotifyArtist,
-            durationMs = spotifyTrack.durationMs,
+    /**
+     * True when a cached (title, artist) pair still clears the resolver's strict gates for [track].
+     * Duration is unknown for cached rows, so only the title/artist gates + score floor apply.
+     */
+    private fun isCachedMatchPlausible(track: SpotifyTrack, title: String, artist: String): Boolean {
+        if (title.isBlank()) return false
+        val result = SpotifyMapper.selectBestMatch(
+            spotifyTitle = track.name,
+            spotifyPrimaryArtist = track.artists.firstOrNull()?.name.orEmpty(),
+            spotifyArtistsAll = track.artists.joinToString(", ") { it.name },
+            spotifyDurationMs = 0,
+            candidates = listOf(
+                SpotifyMapper.Candidate(
+                    id = "cached", title = title, artist = artist,
+                    durationSec = null, isVideo = false, thumbnailUrl = null,
+                ),
+            ),
+            loose = false,
         )
-
-        val songs = searchResult.summaries
-            .flatMap { it.items }
-            .filterIsInstance<SongItem>()
-
-        var bestCandidate: MatchCandidate? = null
-        // Ranking score = raw match score minus a penalty for non-studio variants
-        // (live/MV/karaoke/…). Kept separate from the stored `score` so the final
-        // MIN_MATCH_THRESHOLD check and DB record use the true match quality — a
-        // track that ONLY exists as a live version still resolves rather than being
-        // skipped, it's just deprioritised when a studio version is also present.
-        var bestAdjusted = Double.NEGATIVE_INFINITY
-        val spotifyTitleLower = spotifyTrack.name.lowercase()
-        val earlyExitThreshold = SpotifyMapper.earlyExitThreshold()
-
-        for (song in songs) {
-            val score = SpotifyMapper.matchScorePrecomputed(
-                precomputed = precomputed,
-                candidateTitle = song.title,
-                candidateArtist = song.artists.firstOrNull()?.name ?: "",
-                candidateDurationSec = song.duration,
-            )
-            val adjusted = score - variantPenalty(spotifyTitleLower, song.title)
-
-            if (adjusted > bestAdjusted) {
-                bestAdjusted = adjusted
-                bestCandidate = MatchCandidate(
-                    id = song.id,
-                    title = song.title,
-                    artistName = song.artists.firstOrNull()?.name ?: "",
-                    artists = song.artists.map { MediaMetadata.Artist(id = it.id, name = it.name) },
-                    duration = song.duration ?: -1,
-                    thumbnailUrl = song.thumbnail,
-                    albumId = song.album?.id,
-                    albumTitle = song.album?.name,
-                    explicit = song.explicit,
-                    score = score,
-                )
-                // Early exit: if this match is excellent, skip remaining candidates
-                if (adjusted >= earlyExitThreshold) break
-            }
-        }
-
-        return bestCandidate?.takeIf { it.score >= MIN_MATCH_THRESHOLD }
+        return result is SpotifyMapper.MatchResult.Matched
     }
 
     private fun buildMediaMetadata(
         youtubeId: String,
         spotifyTrack: SpotifyTrack,
-        ytTitle: String,
-        ytArtist: String,
+        @Suppress("UNUSED_PARAMETER") ytTitle: String,
+        @Suppress("UNUSED_PARAMETER") ytArtist: String,
         ytThumbnailUrl: String? = null,
     ): MediaMetadata {
         val thumbnail = SpotifyMapper.getTrackThumbnail(spotifyTrack)
             ?: ytThumbnailUrl
             ?: "https://i.ytimg.com/vi/$youtubeId/maxresdefault.jpg"
 
+        // Metadata ALWAYS comes from Spotify: the YouTube upload's title/channel is often a label
+        // ("Records", "Topic"), a re-upload name or missing entirely — that is what produced label-
+        // as-artist / missing-artist downloads. Artist and album ids carry the "spotify:" prefix so
+        // "View artist" / "View album" / tapping the title always have a real, routable id.
+        val spotifyArtists = spotifyTrack.artists.filter { it.name.isNotBlank() }
         return MediaMetadata(
             id = youtubeId,
-            title = ytTitle.ifEmpty { spotifyTrack.name },
-            artists = if (ytArtist.isNotEmpty()) {
-                listOf(MediaMetadata.Artist(id = null, name = ytArtist))
+            title = spotifyTrack.name.ifEmpty { ytTitle },
+            artists = if (spotifyArtists.isNotEmpty()) {
+                spotifyArtists.map {
+                    MediaMetadata.Artist(
+                        id = it.id?.takeIf { id -> id.isNotBlank() }?.let { id -> "$SPOTIFY_ID_PREFIX$id" },
+                        name = it.name,
+                    )
+                }
             } else {
-                spotifyTrack.artists.map { MediaMetadata.Artist(id = null, name = it.name) }
+                listOf(MediaMetadata.Artist(id = null, name = ytArtist))
             },
             duration = spotifyTrack.durationMs / 1000,
             thumbnailUrl = thumbnail,
-            album = spotifyTrack.album?.let {
-                MediaMetadata.Album(id = it.id, title = it.name)
+            album = spotifyTrack.album?.takeIf { it.id.isNotBlank() }?.let {
+                MediaMetadata.Album(id = "$SPOTIFY_ID_PREFIX${it.id}", title = it.name)
             },
             explicit = spotifyTrack.explicit,
             isrc = spotifyTrack.isrc,
         )
     }
-
-    /**
-     * Penalises YouTube candidates that look like a non-studio variant (live, music
-     * video, karaoke, cover, sped-up/slowed edits, …) when the Spotify track itself
-     * is not such a variant. This steers automatic matching toward the official
-     * studio audio for tracks like "As It Was", where a live/MV upload would
-     * otherwise tie on title/artist and win purely on search order (see #211).
-     *
-     * Markers are matched as whole words to avoid false positives (e.g. "live"
-     * inside "Alive"). The penalty only applies to markers present in the candidate
-     * but absent from the Spotify title, so intentional live/remix tracks are unaffected.
-     */
-    private fun variantPenalty(spotifyTitleLower: String, candidateTitle: String): Double {
-        val candMarkers = VARIANT_MARKER_REGEX.findAll(candidateTitle.lowercase())
-            .map { it.value }.toSet()
-        if (candMarkers.isEmpty()) return 0.0
-        val spotifyMarkers = VARIANT_MARKER_REGEX.findAll(spotifyTitleLower)
-            .map { it.value }.toSet()
-        val extra = candMarkers - spotifyMarkers
-        return (extra.size * VARIANT_PENALTY_PER_MARKER).coerceAtMost(MAX_VARIANT_PENALTY)
-    }
-
-    private data class MatchCandidate(
-        val id: String,
-        val title: String,
-        val artistName: String,
-        val artists: List<MediaMetadata.Artist>,
-        val duration: Int,
-        val thumbnailUrl: String?,
-        val albumId: String?,
-        val albumTitle: String?,
-        val explicit: Boolean,
-        val score: Double,
-    )
 
     /**
      * Reverse lookup: given a YouTube track's metadata, finds the corresponding
@@ -314,7 +290,7 @@ class SpotifyYouTubeMapper(
 
         if (best != null) {
             val score = bestScore
-            if (score >= MIN_MATCH_THRESHOLD) {
+            if (score >= SpotifyMapper.MIN_MATCH_THRESHOLD) {
                 val uri = best.uri ?: "spotify:track:${best.id}"
                 Timber.d("Reverse lookup found: $youtubeId -> $uri (score=$score)")
                 database.upsertSpotifyMatch(
@@ -335,18 +311,7 @@ class SpotifyYouTubeMapper(
     }
 
     companion object {
-        private const val MIN_MATCH_THRESHOLD = 0.35
         private const val MEM_CACHE_MAX_SIZE = 512
-
-        /** Per-marker ranking penalty for non-studio variants, capped by [MAX_VARIANT_PENALTY]. */
-        private const val VARIANT_PENALTY_PER_MARKER = 0.15
-        private const val MAX_VARIANT_PENALTY = 0.30
-
-        /** Whole-word markers that indicate a non-studio upload (live/MV/edit/etc.). */
-        private val VARIANT_MARKER_REGEX = Regex(
-            "\\b(live|en vivo|en directo|ao vivo|karaoke|cover|instrumental|" +
-                "sped up|spedup|slowed|nightcore|8d|music video|official video|lyric video)\\b"
-        )
 
         /**
          * Process-wide, thread-safe LRU cache of recently resolved Spotify→YouTube

@@ -41,6 +41,7 @@
     <string name="filter_albums">Альбомы</string>
     <string name="filter_artists">Исполнители</string>
     <string name="filter_playlists">Плейлисты</string>
+    <string name="filter_local">Локальные</string>
     <string name="filter_community_playlists">Плейлисты сообщества</string>
     <string name="filter_featured_playlists">Избранные плейлисты</string>
     <string name="filter_bookmarked">Добавлено в закладки</string>

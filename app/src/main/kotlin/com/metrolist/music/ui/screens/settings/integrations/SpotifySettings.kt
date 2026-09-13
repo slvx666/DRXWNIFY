@@ -72,6 +72,9 @@ import com.metrolist.music.constants.SpotifyTokenExpiryKey
 import com.metrolist.music.constants.SpotifyUserIdKey
 import com.metrolist.music.constants.SpotifyUsernameKey
 import com.metrolist.music.constants.SpotifyHomeOnlyKey
+import com.metrolist.music.constants.SpotifyLooseMatchKey
+import com.metrolist.music.constants.SpotifyQobuzFallbackKey
+import com.metrolist.music.resolver.ResolverPreferences
 import com.metrolist.music.constants.UseSpotifyHomeKey
 import com.metrolist.music.constants.UseSpotifySearchKey
 import com.metrolist.music.models.MediaMetadata
@@ -212,6 +215,35 @@ fun SpotifySettings(
                 description = stringResource(R.string.spotify_use_for_search_description),
                 checked = useSpotifySearch,
                 onCheckedChange = onUseSpotifySearchChange,
+            )
+
+            val (looseMatch, onLooseMatchChange) = rememberPreference(
+                key = SpotifyLooseMatchKey,
+                defaultValue = false,
+            )
+            SwitchPreference(
+                title = { Text(stringResource(R.string.spotify_loose_match)) },
+                description = stringResource(R.string.spotify_loose_match_description),
+                checked = looseMatch,
+                onCheckedChange = { enabled ->
+                    onLooseMatchChange(enabled)
+                    // Keep the context-free resolver holder in sync so queues/UI pick it up immediately.
+                    ResolverPreferences.looseMatch = enabled
+                },
+            )
+
+            val (qobuzFallback, onQobuzFallbackChange) = rememberPreference(
+                key = SpotifyQobuzFallbackKey,
+                defaultValue = true,
+            )
+            SwitchPreference(
+                title = { Text(stringResource(R.string.spotify_qobuz_fallback)) },
+                description = stringResource(R.string.spotify_qobuz_fallback_description),
+                checked = qobuzFallback,
+                onCheckedChange = { enabled ->
+                    onQobuzFallbackChange(enabled)
+                    ResolverPreferences.qobuzFallback = enabled
+                },
             )
 
             SwitchPreference(

@@ -112,6 +112,7 @@ import com.metrolist.music.utils.stripSpotifyPrefix
 import com.metrolist.music.utils.toSpotifyTrackStub
 import com.metrolist.music.viewmodels.OnlineSearchViewModel
 import com.metrolist.innertube.YouTube
+import com.metrolist.spotify.Spotify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.net.URLDecoder
@@ -329,15 +330,21 @@ fun OnlineSearchResult(
                                     if (item.id == mediaMetadata?.id) {
                                         playerConnection.togglePlayPause()
                                     } else if (item.id.isSpotifyId()) {
-                                        // Spotify search result: create SpotifyQueue
-                                        val spotifyTrack = item.toSpotifyTrackStub()
-                                        if (spotifyTrack != null) {
-                                            playerConnection.playQueue(
-                                                SpotifyQueue(
-                                                    initialTrack = spotifyTrack,
-                                                    mapper = viewModel.spotifyYouTubeMapper,
+                                        // Spotify search result: upgrade the lossy list stub into a
+                                        // full track (duration + ISRC) before resolving, so a tap
+                                        // matches as accurately as playing from an album. Falls back
+                                        // to the stub if the fetch fails.
+                                        coroutineScope.launch {
+                                            val full = Spotify.getTrack(item.id.stripSpotifyPrefix()).getOrNull()
+                                            val spotifyTrack = full ?: item.toSpotifyTrackStub()
+                                            if (spotifyTrack != null) {
+                                                playerConnection.playQueue(
+                                                    SpotifyQueue(
+                                                        initialTrack = spotifyTrack,
+                                                        mapper = viewModel.spotifyYouTubeMapper,
+                                                    )
                                                 )
-                                            )
+                                            }
                                         }
                                     } else {
                                         playerConnection.playQueue(
@@ -351,14 +358,9 @@ fun OnlineSearchResult(
 
                                 is AlbumItem -> {
                                     if (item.id.isSpotifyId()) {
-                                        coroutineScope.launch {
-                                            val searchQuery = "${item.title} ${item.artists?.firstOrNull()?.name.orEmpty()}"
-                                            val ytResult = YouTube.search(searchQuery, YouTube.SearchFilter.FILTER_ALBUM).getOrNull()
-                                            val ytAlbum = ytResult?.items?.firstOrNull { it is AlbumItem }
-                                            if (ytAlbum != null) {
-                                                navController.navigate("album/${ytAlbum.id}")
-                                            }
-                                        }
+                                        // Open the exact Spotify album (per-track resolution works
+                                        // there) rather than a YouTube name-search guess.
+                                        navController.navigate("spotify_album/${item.id.stripSpotifyPrefix()}")
                                     } else {
                                         navController.navigate("album/${item.id}")
                                     }
@@ -366,13 +368,10 @@ fun OnlineSearchResult(
 
                                 is ArtistItem -> {
                                     if (item.id.isSpotifyId()) {
-                                        coroutineScope.launch {
-                                            val ytResult = YouTube.search(item.title, YouTube.SearchFilter.FILTER_ARTIST).getOrNull()
-                                            val ytArtist = ytResult?.items?.firstOrNull { it is ArtistItem }
-                                            if (ytArtist != null) {
-                                                navController.navigate("artist/${ytArtist.id}")
-                                            }
-                                        }
+                                        // Route by the exact Spotify artist id, not a YouTube name
+                                        // search — the old "open first result named X" opened the
+                                        // wrong same-named artist (e.g. every "Prado").
+                                        navController.navigate("spotify_artist/${item.id.stripSpotifyPrefix()}")
                                     } else {
                                         navController.navigate("artist/${item.id}")
                                     }

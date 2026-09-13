@@ -2639,18 +2639,31 @@ fun HomeScreen(
                         item(key = "spotify_section_content_$index") {
                             when (section.type) {
                                 SectionType.TRACKS -> {
+                                    val likedSpotifyIds by com.metrolist.music.playback.SpotifyLikeCache.liked.collectAsState()
+                                    LaunchedEffect(section.tracks) {
+                                        com.metrolist.music.playback.SpotifyLikeCache
+                                            .ensureLoaded(section.tracks.map { it.id })
+                                    }
                                     SpotifyTrackSectionRow(
                                         tracks = section.tracks,
                                         horizontalItemWidth = horizontalLazyGridItemWidth,
                                         isPlaying = isPlaying,
                                         currentMediaId = mediaMetadata?.id,
+                                        likedSpotifyIds = likedSpotifyIds,
                                         onTrackClick = { track ->
+                                            // Play through the whole section (e.g. "Your Top Tracks")
+                                            // starting at the tapped track — pressing next then advances
+                                            // to the next real track in the list instead of a random
+                                            // radio song (the old single-track SpotifyQueue behaviour).
+                                            val startIndex = section.tracks
+                                                .indexOfFirst { it.id == track.id }
+                                                .coerceAtLeast(0)
                                             playerConnection.playQueue(
-                                                SpotifyQueue(
-                                                    initialTrack = track,
+                                                SpotifyPlaylistQueue(
+                                                    playlistId = "spotify_section_${section.title}",
+                                                    initialTracks = section.tracks,
+                                                    startIndex = startIndex,
                                                     mapper = spotifyMapper,
-                                                    context = viewModel.context,
-                                                    database = database,
                                                 )
                                             )
                                         },
@@ -2662,19 +2675,10 @@ fun HomeScreen(
                                     SpotifyArtistSectionRow(
                                         artists = section.artists,
                                         onArtistClick = { artist ->
-                                            scope.launch(Dispatchers.IO) {
-                                                val ytResult = YouTube.search(
-                                                    artist.name,
-                                                    YouTube.SearchFilter.FILTER_ARTIST,
-                                                ).getOrNull()
-                                                val ytArtist = ytResult?.items
-                                                    ?.firstOrNull { it is ArtistItem }
-                                                if (ytArtist != null) {
-                                                    withContext(Dispatchers.Main) {
-                                                        navController.navigate("artist/${ytArtist.id}")
-                                                    }
-                                                }
-                                            }
+                                            // Open the real Spotify artist by id (deterministic) instead
+                                            // of searching YouTube by name, which could open a wrong
+                                            // same-named artist.
+                                            navController.navigate("spotify_artist/${artist.id}")
                                         },
                                         modifier = Modifier.animateItem(),
                                     )
@@ -2870,7 +2874,8 @@ fun HomeScreen(
                     navController.navigate("recognition")
                 },
                 showRecognition = showRecognizeButton,
-                showMainAction = showPlayRandomButton,
+                // Shuffle FAB removed from Home per request; recognition FAB stays.
+                showMainAction = false,
             )
         }
     }

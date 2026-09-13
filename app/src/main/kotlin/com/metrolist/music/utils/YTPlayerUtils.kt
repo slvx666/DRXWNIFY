@@ -127,6 +127,11 @@ object YTPlayerUtils {
 
     private val MAIN_CLIENT: YouTubeClient = WEB_REMIX
 
+    /** Epoch ms until which MAIN_CLIENT is skipped after a failure (Google 403 block). */
+    @Volatile
+    private var mainClientBlockedUntil = 0L
+    private const val MAIN_CLIENT_COOLDOWN_MS = 15 * 60 * 1000L
+
     /**
      * Ordered by *measured* ability to serve a whole file, not by theory.
      *
@@ -315,12 +320,36 @@ object YTPlayerUtils {
             Fix403.w(fx, "mainClient.skipped", Fix403.kv("reason" to "poTokenUnavailable"))
         }
 
-        // Try WEB_REMIX with signature timestamp and poToken (same as before)
-        Timber.tag(logTag).d("Attempting to get player response using MAIN_CLIENT: ${MAIN_CLIENT.clientName}")
-        var mainPlayerResponse = Fix403.trapRethrow(fx, "mainClient.player") {
-            Fix403.timed(fx, "mainClient.request") {
-                YouTube.player(videoId, playlistId, MAIN_CLIENT, signatureTimestamp.timestamp, poToken?.playerRequestPoToken).getOrThrow()
+        // Try WEB_REMIX with signature timestamp and poToken.
+        // Logs showed WEB_REMIX /player failing 100% of the time with Google's 403 "automated queries"
+        // block. Because this call used to THROW, the whole resolution was retried from scratch
+        // (a track taking 3 full attempts / up to a minute before VISIONOS was ever tried). Now a
+        // failure trips a cooldown: WEB_REMIX is skipped for a while and the first fallback client's
+        // player response is used as the metadata response instead, so playback starts right away.
+        val mainClientCoolingDown = System.currentTimeMillis() < mainClientBlockedUntil
+        val mainAttempt: PlayerResponse? = if (mainClientCoolingDown) {
+            Fix403.w(fx, "mainClient.skipped", Fix403.kv("reason" to "cooldown"))
+            null
+        } else {
+            Timber.tag(logTag).d("Attempting to get player response using MAIN_CLIENT: ${MAIN_CLIENT.clientName}")
+            try {
+                Fix403.trapRethrow(fx, "mainClient.player") {
+                    Fix403.timed(fx, "mainClient.request") {
+                        YouTube.player(videoId, playlistId, MAIN_CLIENT, signatureTimestamp.timestamp, poToken?.playerRequestPoToken).getOrThrow()
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                mainClientBlockedUntil = System.currentTimeMillis() + MAIN_CLIENT_COOLDOWN_MS
+                Timber.tag(TAG).w("MAIN_CLIENT failed (${e.message?.take(80)}) — skipping it for ${MAIN_CLIENT_COOLDOWN_MS / 60000} min")
+                null
             }
+        }
+        var mainPlayerResponse: PlayerResponse = mainAttempt ?: run {
+            val substitute = STREAM_FALLBACK_CLIENTS.first()
+            Timber.tag(logTag).d("Using ${substitute.clientName} as metadata client")
+            YouTube.player(videoId, playlistId, substitute, signatureTimestamp.timestamp, null).getOrThrow()
         }
         Fix403.i(fx, "mainClient.response", describeResponse(MAIN_CLIENT, mainPlayerResponse))
 

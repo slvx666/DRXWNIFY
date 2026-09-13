@@ -42,12 +42,26 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
+ * Process-wide set of song ids whose download has finished transferring bytes but is still being
+ * assembled/transcoded into the final tagged file. The player observes this so its download button
+ * keeps showing progress until the track has fully "landed" in the user's folder.
+ */
+object DownloadExportState {
+    private val _exporting = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    val exporting: kotlinx.coroutines.flow.StateFlow<Set<String>> = _exporting
+
+    fun begin(songId: String) { _exporting.value = _exporting.value + songId }
+    fun end(songId: String) { _exporting.value = _exporting.value - songId }
+}
+
+/**
  * Assembles a completed Media3 download (stored as SimpleCache blocks in the app sandbox)
  * into a single, standalone media file the user can share or open with other apps.
  *
- * The container is copied verbatim from the cached stream — no transcoding:
- *   audio/mp4  -> .m4a
- *   audio/webm -> .webm
+ * The cached stream (AAC-in-mp4 or Opus-in-webm) is transcoded to a tagged **.mp3** with embedded
+ * cover art, so every exported file is a universally recognised music file (Telegram, car head
+ * units, etc. all treat .mp3 as a track, unlike .webm). If FFmpeg is unavailable or fails, the
+ * original container is written as a last resort so the user still gets *a* file.
  *
  * The file is written either into a user-selected SAF tree ([DownloadFolderUriKey]) or,
  * when none is set, into MediaStore under Music/Meld (API 29+).
@@ -77,9 +91,16 @@ class DownloadExporter @Inject constructor(
                 Timber.d("DownloadExporter: %s already exported, skipping", songId)
                 return@withLock Result.failure(AlreadyExportedException(songId))
             }
-            runCatching { exportInternal(songId) }
-                .onSuccess { markExported(songId) }
-                .onFailure { Timber.e(it, "DownloadExporter: export failed for %s", songId) }
+            // Publish "processing" so the UI can keep showing progress after the byte-download
+            // finishes and until the tagged file actually lands in the user's folder.
+            DownloadExportState.begin(songId)
+            try {
+                runCatching { exportInternal(songId) }
+                    .onSuccess { markExported(songId) }
+                    .onFailure { Timber.e(it, "DownloadExporter: export failed for %s", songId) }
+            } finally {
+                DownloadExportState.end(songId)
+            }
         }
     }
 
@@ -120,21 +141,32 @@ class DownloadExporter @Inject constructor(
         val (srcExt, srcMime) = when {
             mimeType.startsWith("audio/mp4") -> "m4a" to "audio/mp4"
             mimeType.startsWith("audio/webm") -> "webm" to "audio/webm"
+            // Qobuz-fallback sources: FLAC (CD/Hi-Res) or MP3 (lossy tier). FFmpeg reads both and the
+            // transcode cascade below turns them into the tagged MP3 the user's library expects.
+            mimeType.startsWith("audio/flac") || mimeType.startsWith("audio/x-flac") -> "flac" to "audio/flac"
+            mimeType.startsWith("audio/mpeg") || mimeType.startsWith("audio/mp3") -> "mp3" to "audio/mpeg"
             else -> error("Unsupported mimeType for export: $mimeType")
         }
-        val isOpus = srcMime == "audio/webm"
 
         // Resolve artist + track title. Prefer structured artists from the DB; when the track
         // has none (typically a plain YouTube video), fall back to parsing "Artist - Title" out
         // of the video title after stripping YouTube promo noise ("(Official Music Video)" etc).
-        val artists = song.orderedArtists
-        val dbPrimaryArtist = artists.firstOrNull()?.name?.trim()?.takeIf { it.isNotEmpty() }
-        val cleanedTitle = cleanTrackTitle(rawTitle)
+        // Spotify-sourced track known this session? Then Spotify is the source of truth for title,
+        // artists, album and release type — YouTube uploads often carry a label/channel as "artist".
+        val spotifyTrack = com.metrolist.music.playback.SpotifyMetadataRegistry.get(songId)
+        val spotifyArtistNames = spotifyTrack?.artists?.map { it.name.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+
+        val artistNames = spotifyArtistNames.ifEmpty { song.orderedArtists.map { it.name } }
+        val dbPrimaryArtist = artistNames.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanedTitle = spotifyTrack?.name?.takeIf { it.isNotBlank() } ?: cleanTrackTitle(rawTitle)
         val (parsedArtist, parsedTitle) = parseArtistAndTitle(cleanedTitle)
 
         val primaryArtist: String
         val title: String
-        if (dbPrimaryArtist != null) {
+        if (spotifyTrack != null && dbPrimaryArtist != null) {
+            primaryArtist = dbPrimaryArtist
+            title = cleanedTitle
+        } else if (dbPrimaryArtist != null) {
             primaryArtist = dbPrimaryArtist
             // Drop a leading "Artist - " only when it matches the known artist, so we don't
             // accidentally truncate a real title that happens to contain a dash.
@@ -153,11 +185,13 @@ class DownloadExporter @Inject constructor(
         //   <PrimaryArtist>/              when it's a standalone / single-track release
         //   Various[/<AlbumName>]/        when >2 artists or artist == "Various Artists"
         // Featured co-artists (DB only) go into the file name via "feat.", never the folder.
-        val featured = artists.drop(1).mapNotNull { it.name.trim().takeIf { n -> n.isNotEmpty() } }
+        val featured = artistNames.drop(1).mapNotNull { it.trim().takeIf { n -> n.isNotEmpty() } }
         val artistString =
             if (featured.isEmpty()) primaryArtist
             else "$primaryArtist feat. ${featured.joinToString(", ")}"
-        val albumName = song.song.albumName?.trim()?.takeIf { it.isNotEmpty() }
+        val albumName = spotifyTrack?.album?.name?.trim()?.takeIf { it.isNotEmpty() }
+            ?: song.song.albumName?.trim()?.takeIf { it.isNotEmpty() }
+        val spotifyAlbumType = spotifyTrack?.album?.albumType?.lowercase()
 
         Timber.d(
             "DownloadExporter: naming %s raw='%s' -> artist='%s' title='%s' (dbArtist=%b)",
@@ -171,6 +205,8 @@ class DownloadExporter @Inject constructor(
         // sharing the album's name still lands in the album folder.
         val albumSongCount = song.album?.songCount
         val isRealAlbum = albumName != null && when {
+            spotifyAlbumType == "single" -> false
+            spotifyAlbumType != null -> true // album / ep / compilation
             albumSongCount != null && albumSongCount > 1 -> true
             albumSongCount != null -> false // metadata says it's a 1-track release
             else -> !albumName.equals(title, ignoreCase = true)
@@ -183,8 +219,12 @@ class DownloadExporter @Inject constructor(
 
         // No dedicated album-artist column exists, so "Various" is inferred from the track's
         // own artists rather than an album-level credit.
-        val isVarious = artists.size > 2 || primaryArtist.equals("Various Artists", ignoreCase = true)
-        val topFolder = if (isVarious) "Various" else primaryArtist
+        // For Spotify tracks the album's own artist decides the folder, so every track of one album
+        // lands together (a feat.-heavy track no longer splits off into "Various").
+        val spotifyAlbumArtist = spotifyTrack?.album?.artists?.firstOrNull()?.name?.trim()?.takeIf { it.isNotEmpty() }
+        val isVarious = spotifyAlbumArtist?.equals("Various Artists", ignoreCase = true)
+            ?: (artistNames.size > 2 || primaryArtist.equals("Various Artists", ignoreCase = true))
+        val topFolder = if (isVarious) "Various" else (spotifyAlbumArtist ?: primaryArtist)
         val relativeSegments = buildList {
             add(sanitizeFileName(topFolder))
             if (isRealAlbum && albumName != null) add(sanitizeFileName(albumName))
@@ -206,7 +246,7 @@ class DownloadExporter @Inject constructor(
         val tempDir = context.cacheDir
         val tempInput = File.createTempFile("mld_in_", ".$srcExt", tempDir)
         var tempCover: File? = null
-        var tempOutput: File? = null
+        val tempOutputs = mutableListOf<File>()
         try {
             // 1) Assemble the cached resource into a single temp file.
             val bytesRead = readCacheToFile(songId, tempInput)
@@ -220,39 +260,27 @@ class DownloadExporter @Inject constructor(
                 Timber.w("DownloadExporter: no cover art for %s, file will be saved without artwork", songId)
             }
 
-            // 3) FFmpeg: transcode Opus->AAC (or copy AAC), embed cover + tags, write .m4a.
-            tempOutput = File.createTempFile("mld_out_", ".m4a", tempDir)
-            val ffmpegOk = runFfmpeg(
-                input = tempInput,
-                cover = tempCover,
-                output = tempOutput,
-                transcodeToAac = isOpus,
-                title = title,
-                artist = artistString,
-                album = albumName,
-                songId = songId,
-            )
-
-            // On FFmpeg failure fall back to the original container so the user still gets a file.
+            // 3) FFmpeg transcode cascade, embedding cover + tags each time:
+            //    MP3 (most universally recognised as music) -> M4A/AAC -> original container.
+            // Preferring MP3 but degrading to M4A means the user still gets a Telegram-recognised
+            // music file even if this FFmpeg build lacks the LAME (MP3) encoder; only a total
+            // FFmpeg failure (native lib won't load) leaves the raw .webm/.m4a.
             val sourceFile: File
             val finalExt: String
             val finalMime: String
-            if (ffmpegOk) {
-                Timber.i(
-                    "DownloadExporter: %s -> .m4a (%s, cover=%b)",
-                    songId, if (isOpus) "transcoded Opus->AAC" else "AAC stream copied", tempCover != null,
-                )
-                sourceFile = tempOutput
-                finalExt = "m4a"
-                finalMime = "audio/mp4"
+
+            val mp3Out = File.createTempFile("mld_out_", ".mp3", tempDir).also { tempOutputs.add(it) }
+            val m4aOut by lazy { File.createTempFile("mld_out_", ".m4a", tempDir).also { tempOutputs.add(it) } }
+
+            if (runFfmpeg(tempInput, tempCover, mp3Out, OutputFormat.MP3, title, artistString, albumName, songId)) {
+                Timber.i("DownloadExporter: %s -> .mp3 (from %s, cover=%b)", songId, srcMime, tempCover != null)
+                sourceFile = mp3Out; finalExt = "mp3"; finalMime = "audio/mpeg"
+            } else if (runFfmpeg(tempInput, tempCover, m4aOut, OutputFormat.M4A, title, artistString, albumName, songId)) {
+                Timber.w("DownloadExporter: %s MP3 encode unavailable, falling back to .m4a", songId)
+                sourceFile = m4aOut; finalExt = "m4a"; finalMime = "audio/mp4"
             } else {
-                Timber.w(
-                    "DownloadExporter: FFmpeg failed for %s, saving original .%s without artwork",
-                    songId, srcExt,
-                )
-                sourceFile = tempInput
-                finalExt = srcExt
-                finalMime = srcMime
+                Timber.w("DownloadExporter: FFmpeg failed for %s, saving original .%s without artwork", songId, srcExt)
+                sourceFile = tempInput; finalExt = srcExt; finalMime = srcMime
             }
 
             // 4) Write the result into the destination folder (SAF / MediaStore) — unchanged writer.
@@ -276,7 +304,7 @@ class DownloadExporter @Inject constructor(
             return target.uri
         } finally {
             runCatching { tempInput.delete() }
-            runCatching { tempOutput?.delete() }
+            tempOutputs.forEach { out -> runCatching { out.delete() } }
             runCatching { tempCover?.delete() }
         }
     }
@@ -347,11 +375,14 @@ class DownloadExporter @Inject constructor(
      * that won't load (UnsatisfiedLinkError / ExceptionInInitializerError) — returns false so the
      * caller can gracefully fall back to saving the original container.
      */
+    /** Output container/codec the exporter targets, in preference order. */
+    private enum class OutputFormat { MP3, M4A }
+
     private fun runFfmpeg(
         input: File,
         cover: File?,
         output: File,
-        transcodeToAac: Boolean,
+        format: OutputFormat,
         title: String,
         artist: String,
         album: String?,
@@ -364,19 +395,23 @@ class DownloadExporter @Inject constructor(
                 if (cover != null) { add("-i"); add(cover.absolutePath) }
                 add("-map"); add("0:a:0")
                 if (cover != null) { add("-map"); add("1:v:0") }
-                if (transcodeToAac) {
-                    add("-c:a"); add("aac"); add("-b:a"); add("192k")
-                } else {
-                    add("-c:a"); add("copy")
+                when (format) {
+                    // MP3 via LAME at CBR 320k — a real, universally recognised music file.
+                    OutputFormat.MP3 -> { add("-c:a"); add("libmp3lame"); add("-b:a"); add("320k") }
+                    // AAC at 192k — the native encoder, always present; container is mp4/.m4a.
+                    OutputFormat.M4A -> { add("-c:a"); add("aac"); add("-b:a"); add("192k") }
                 }
                 if (cover != null) {
                     add("-c:v"); add("mjpeg")
                     add("-disposition:v"); add("attached_pic")
+                    add("-metadata:s:v"); add("title=Album cover")
+                    add("-metadata:s:v"); add("comment=Cover (front)")
                 }
+                if (format == OutputFormat.MP3) { add("-id3v2_version"); add("3") }
                 add("-metadata"); add("title=$title")
                 add("-metadata"); add("artist=$artist")
                 if (album != null) { add("-metadata"); add("album=$album") }
-                add("-movflags"); add("+faststart")
+                if (format == OutputFormat.M4A) { add("-movflags"); add("+faststart") }
                 add(output.absolutePath)
             }.toTypedArray()
 

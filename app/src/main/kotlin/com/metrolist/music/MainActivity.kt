@@ -1296,6 +1296,54 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
 
+                    // Top-right "Home" shortcut: shown on deep screens where the bottom navigation bar
+                    // is hidden, so the user can jump back to the main screen. Hidden while the player
+                    // is fullscreen, on top-level screens (which already have the bottom nav), and on
+                    // screens that render their OWN top-right actions (search/sort/overflow/etc.) so it
+                    // never covers an existing button. No background behind the icon.
+                    // Routes whose screens render their own top-right actions (search / sort / overflow
+                    // / menu). The Home shortcut is suppressed on these so it never covers an existing
+                    // button. Matched by exact route or prefix.
+                    val topRightActionRoutePrefixes = listOf(
+                        "spotify_liked_songs",
+                        "online_playlist/",
+                        "local_playlist/",
+                        "auto_playlist/",
+                        "cache_playlist/",
+                        "top_playlist/",
+                        "album/",
+                        "artist/",
+                        "history",
+                    )
+                    val routeOwnsTopRight = currentRoute?.let { r ->
+                        topRightActionRoutePrefixes.any { r == it || r.startsWith(it) }
+                    } ?: true
+                    // P13: Home shortcut temporarily disabled per user request — it was overlapping
+                    // other top-right interface elements. Kept behind `false` so it can be restored.
+                    @Suppress("KotlinConstantConditions")
+                    if (false && !shouldShowNavigationBar && !playerBottomSheetState.isExpanded && !routeOwnsTopRight) {
+                        IconButton(
+                            onClick = {
+                                navController.navigate(Screens.Home.route) {
+                                    popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .windowInsetsPadding(
+                                    WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.End),
+                                )
+                                .padding(top = 4.dp, end = 4.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.home_outlined),
+                                contentDescription = stringResource(R.string.home),
+                            )
+                        }
+                    }
+
                     if (showAccountDialog) {
                         AccountSettingsDialog(
                             navController = navController,

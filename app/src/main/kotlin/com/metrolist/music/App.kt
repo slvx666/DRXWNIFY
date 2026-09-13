@@ -45,6 +45,7 @@ import com.metrolist.music.utils.SpotifyHashSync
 import com.metrolist.music.utils.SpotifyTokenManager
 import com.metrolist.music.utils.cipher.CipherDeobfuscator
 import com.metrolist.music.utils.dataStore
+import com.metrolist.music.utils.get
 import com.metrolist.music.utils.installPreferencesSnapshotCollector
 import com.metrolist.music.utils.reportException
 import dagger.hilt.android.HiltAndroidApp
@@ -116,6 +117,13 @@ class App :
         // hit disk. Kicked off before any other initialization so the snapshot is
         // populated as early as possible.
         installPreferencesSnapshotCollector(applicationScope, dataStore)
+
+        // Seed the context-free resolver holder from the saved preference so strict/loose
+        // matching behaves correctly from the first resolve after a cold start.
+        com.metrolist.music.resolver.ResolverPreferences.looseMatch =
+            dataStore.get(com.metrolist.music.constants.SpotifyLooseMatchKey, false)
+        com.metrolist.music.resolver.ResolverPreferences.qobuzFallback =
+            dataStore.get(com.metrolist.music.constants.SpotifyQobuzFallbackKey, true)
 
         // تهيئة إعدادات التطبيق عند الإقلاع
         applicationScope.launch {

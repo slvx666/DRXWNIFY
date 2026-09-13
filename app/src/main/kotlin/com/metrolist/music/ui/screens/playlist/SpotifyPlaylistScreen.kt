@@ -99,6 +99,7 @@ import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.constants.SwipeToRemoveSongKey
 import com.metrolist.music.extensions.move
+import com.metrolist.music.playback.SpotifyBatchDownload
 import com.metrolist.music.playback.SpotifyYouTubeMapper
 import com.metrolist.music.viewmodels.SpotifyPlaylistViewModel
 import com.metrolist.spotify.SpotifyMapper
@@ -123,6 +124,7 @@ fun SpotifyPlaylistScreen(
     viewModel: SpotifyPlaylistViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
     val playerConnection = LocalPlayerConnection.current ?: return
     val database = LocalDatabase.current
     val menuState = LocalMenuState.current
@@ -661,32 +663,30 @@ fun SpotifyPlaylistScreen(
                                 },
                                 onClick = {
                                     showOverflowMenu = false
-                                    Timber.d("SpotifyPlaylistDownload: started, ${tracks.size} tracks")
-                                    coroutineScope.launch {
-                                        var resolved = 0
-                                        var skipped = 0
-                                        tracks.forEach { track ->
-                                            val metadata = mapper.mapToYouTube(track)
-                                            if (metadata == null) {
-                                                skipped++
-                                                Timber.w("SpotifyPlaylistDownload: SKIP '${track.name}' — no YouTube match")
-                                                return@forEach
-                                            }
-                                            resolved++
-                                            Timber.d("SpotifyPlaylistDownload: queuing '${track.name}' -> yt:${metadata.id}")
-                                            val downloadRequest = DownloadRequest
-                                                .Builder(metadata.id, metadata.id.toUri())
-                                                .setCustomCacheKey(metadata.id)
-                                                .setData(metadata.title.toByteArray())
-                                                .build()
-                                            DownloadService.sendAddDownload(
-                                                context,
-                                                ExoDownloadService::class.java,
-                                                downloadRequest,
-                                                false,
+                                    val toDownload = tracks
+                                    if (toDownload.isNotEmpty()) {
+                                        Timber.d("SpotifyPlaylistDownload: started, ${toDownload.size} tracks")
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar(
+                                                context.getString(R.string.spotify_download_started, toDownload.size)
                                             )
                                         }
-                                        Timber.d("SpotifyPlaylistDownload: done — $resolved queued, $skipped skipped")
+                                        coroutineScope.launch {
+                                            // Shared bounded-parallel resolve + enqueue with live progress.
+                                            val result = SpotifyBatchDownload.run(
+                                                context = context,
+                                                tracks = toDownload,
+                                                mapper = mapper,
+                                                label = "",
+                                                downloads = downloadUtil.downloads,
+                                            )
+                                            snackbarHostState.showSnackbar(
+                                                context.getString(
+                                                    R.string.spotify_dl_finished,
+                                                    result.current, result.skipped, result.failed,
+                                                )
+                                            )
+                                        }
                                     }
                                 },
                             )

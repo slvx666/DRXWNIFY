@@ -317,7 +317,25 @@ constructor(
         context.dataStore.data
             .map { it[TopSize] ?: "50" }
             .distinctUntilChanged()
+
+    // Previews (count + up to 4 cover thumbnails) for the auto-playlists so the library list shows a
+    // real count and cover collage instead of a bare grey icon before you open them.
+    val likedPreview = database.likedSongs(SongSortType.CREATE_DATE, true)
+        .map { songs -> AutoPlaylistPreview(songs.size, songs.take(4).mapNotNull { it.song.thumbnailUrl }) }
+        .stateIn(viewModelScope, SharingStarted.Lazily, AutoPlaylistPreview())
+    val downloadedPreview = database.downloadedSongs(SongSortType.CREATE_DATE, true)
+        .map { songs -> AutoPlaylistPreview(songs.size, songs.take(4).mapNotNull { it.song.thumbnailUrl }) }
+        .stateIn(viewModelScope, SharingStarted.Lazily, AutoPlaylistPreview())
+    val uploadedPreview = database.uploadedSongs(SongSortType.CREATE_DATE, true)
+        .map { songs -> AutoPlaylistPreview(songs.size, songs.take(4).mapNotNull { it.song.thumbnailUrl }) }
+        .stateIn(viewModelScope, SharingStarted.Lazily, AutoPlaylistPreview())
 }
+
+/** Count + a few cover thumbnails for an auto-playlist, shown in the library list. */
+data class AutoPlaylistPreview(
+    val count: Int = 0,
+    val thumbnails: List<String> = emptyList(),
+)
 
 @HiltViewModel
 class ArtistSongsViewModel

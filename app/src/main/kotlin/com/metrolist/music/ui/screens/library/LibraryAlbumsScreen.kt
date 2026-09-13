@@ -97,7 +97,7 @@ fun LibraryAlbumsScreen(
     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
 
-    var viewType by rememberEnumPreference(AlbumViewTypeKey, LibraryViewType.GRID)
+    var viewType by rememberEnumPreference(AlbumViewTypeKey, LibraryViewType.LIST)
     var filter by rememberEnumPreference(AlbumFilterKey, AlbumFilter.LIKED)
     val (sortType, onSortTypeChange) =
         rememberEnumPreference(

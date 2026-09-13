@@ -121,7 +121,7 @@ fun LibraryPlaylistsScreen(
 
     val coroutineScope = rememberCoroutineScope()
 
-    var viewType by rememberEnumPreference(PlaylistViewTypeKey, LibraryViewType.GRID)
+    var viewType by rememberEnumPreference(PlaylistViewTypeKey, LibraryViewType.LIST)
     val (sortType, onSortTypeChange) = rememberEnumPreference(
         PlaylistSortTypeKey,
         PlaylistSortType.CREATE_DATE
@@ -166,14 +166,20 @@ fun LibraryPlaylistsScreen(
         }
     }
 
+    // Real count + cover thumbnails for the auto-playlists (so they show a count and collage in the
+    // library list instead of a bare grey icon).
+    val likedPreview by viewModel.likedPreview.collectAsState()
+    val downloadedPreview by viewModel.downloadedPreview.collectAsState()
+    val uploadedPreview by viewModel.uploadedPreview.collectAsState()
+
     val likedPlaylist =
         Playlist(
             playlist = PlaylistEntity(
                 id = UUID.randomUUID().toString(),
                 name = stringResource(R.string.liked)
             ),
-            songCount = 0,
-            songThumbnails = emptyList(),
+            songCount = likedPreview.count,
+            songThumbnails = likedPreview.thumbnails,
         )
 
     val downloadPlaylist =
@@ -182,8 +188,8 @@ fun LibraryPlaylistsScreen(
                 id = UUID.randomUUID().toString(),
                 name = stringResource(R.string.offline)
             ),
-            songCount = 0,
-            songThumbnails = emptyList(),
+            songCount = downloadedPreview.count,
+            songThumbnails = downloadedPreview.thumbnails,
         )
 
     val topPlaylist =
@@ -203,8 +209,8 @@ fun LibraryPlaylistsScreen(
                 id = UUID.randomUUID().toString(),
                 name = stringResource(R.string.uploaded_playlist)
             ),
-            songCount = 0,
-            songThumbnails = emptyList(),
+            songCount = uploadedPreview.count,
+            songThumbnails = uploadedPreview.thumbnails,
         )
 
     val cachedPlaylist =
@@ -470,10 +476,13 @@ fun LibraryPlaylistsScreen(
                         key = { it.key },
                         contentType = { CONTENT_TYPE_PLAYLIST },
                     ) { item ->
+                        // Enlarged playlist thumbnails in the library list (×1.66).
+                        val libraryPlaylistThumbSize = com.metrolist.music.constants.ListThumbnailSize * 1.66f
                         if (item.autoPlaylist) {
                             PlaylistListItem(
                                 playlist = item.playlist,
                                 autoPlaylist = true,
+                                thumbnailSize = libraryPlaylistThumbSize,
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
@@ -488,6 +497,7 @@ fun LibraryPlaylistsScreen(
                                 menuState = menuState,
                                 coroutineScope = coroutineScope,
                                 playlist = item.playlist,
+                                thumbnailSize = libraryPlaylistThumbSize,
                                 modifier = Modifier.animateItem(),
                             )
                         }

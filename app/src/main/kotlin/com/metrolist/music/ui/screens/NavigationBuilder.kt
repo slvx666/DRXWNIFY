@@ -37,6 +37,7 @@ import com.metrolist.music.ui.screens.playlist.LocalPlaylistScreen
 import com.metrolist.music.ui.screens.playlist.OnlinePlaylistScreen
 import com.metrolist.music.ui.screens.playlist.SpotifyLikedSongsScreen
 import com.metrolist.music.ui.screens.album.SpotifyAlbumScreen
+import com.metrolist.music.ui.screens.artist.SpotifyArtistScreen
 import com.metrolist.music.ui.screens.library.SpotifyFolderScreen
 import com.metrolist.music.ui.screens.playlist.SpotifyPlaylistScreen
 import com.metrolist.music.ui.screens.playlist.TopPlaylistScreen
@@ -456,6 +457,20 @@ fun NavGraphBuilder.navigationBuilder(
         ),
     ) {
         SpotifyAlbumScreen(navController, scrollBehavior)
+    }
+
+    composable(
+        route = "spotify_artist/{artistId}",
+        arguments = listOf(
+            navArgument("artistId") {
+                type = NavType.StringType
+            },
+        ),
+    ) {
+        // Use the native artist profile everywhere (banner + Subscribe/Radio/Shuffle + Top tracks).
+        // ArtistViewModel resolves the Spotify artist id to its YouTube profile by name, so both
+        // "open artist from a track" and "open artist from search" land on the same correct screen.
+        ArtistScreen(navController)
     }
 
     composable("spotify_liked_songs") {

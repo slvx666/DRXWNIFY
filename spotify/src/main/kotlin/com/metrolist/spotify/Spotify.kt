@@ -19,10 +19,12 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -36,6 +38,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -431,6 +434,32 @@ object Spotify {
     }
 
     /**
+     * Parses one release object from a queryArtistOverview discography group into a [SpotifyAlbum].
+     * [type] is the group it came from ("album" / "single" / "compilation"), used as album_type so the
+     * UI can split real albums from singles/EPs. Reads uri, name, release year, cover art and track
+     * count defensively (any may be absent).
+     */
+    private fun parseGqlRelease(release: JsonObject, type: String): SpotifyAlbum? {
+        val uri = release.str("uri")
+            ?: release.str("id")?.let { "spotify:album:$it" }
+            ?: return null
+        val id = uri.substringAfterLast(":").ifBlank { return null }
+        val name = release.str("name") ?: return null
+        val year = release.obj("date")?.int("year")?.toString()
+        val images = parseGqlImages(release.obj("coverArt")?.arr("sources"))
+        val totalTracks = release.obj("tracks")?.int("totalCount") ?: 0
+        return SpotifyAlbum(
+            id = id,
+            name = name,
+            albumType = type,
+            images = images,
+            releaseDate = year,
+            totalTracks = totalTracks,
+            uri = uri,
+        )
+    }
+
+    /**
      * Flattens the nested `images.items[].sources[]` structure used by
      * playlists in the GQL response.
      */
@@ -440,6 +469,123 @@ object Spotify {
         } ?: emptyList()
 
     // ── User Profile (GQL with REST fallback) ──────────────────────────
+
+    /**
+     * Full metadata for a single track via REST (/v1/tracks/{id}). Unlike the search GraphQL
+     * payload, this includes `duration_ms` AND `external_ids.isrc` — which the resolver's duration
+     * hard-reject and the Qobuz ISRC match depend on. Used to upgrade a lossy search-result stub
+     * into a complete track before resolving, so tapping a search result matches as well as playing
+     * from an album does.
+     */
+    suspend fun getTrack(trackId: String): Result<SpotifyTrack> =
+        runCatching { authenticatedGet<SpotifyTrack>("tracks/$trackId") }
+
+    /**
+     * Batch check whether tracks are in the linked account's Liked Songs (GET /me/tracks/contains).
+     * Returns a map trackId → saved. Chunks into groups of 50 (the API limit). Ids not returned map
+     * to false. Used to show the heart on tracks liked directly on Spotify.
+     */
+    suspend fun tracksSaved(trackIds: List<String>): Result<Map<String, Boolean>> =
+        runCatching {
+            if (trackIds.isEmpty()) return@runCatching emptyMap()
+            val result = HashMap<String, Boolean>(trackIds.size)
+            trackIds.distinct().chunked(50).forEach { chunk ->
+                val flags = authenticatedGet<List<Boolean>>(
+                    "me/tracks/contains?ids=${chunk.joinToString(",")}",
+                )
+                chunk.forEachIndexed { i, id -> result[id] = flags.getOrNull(i) ?: false }
+            }
+            result
+        }
+
+    /** Adds a track to the linked account's "Liked Songs" (PUT /me/tracks). Requires a user token. */
+    suspend fun saveTrack(trackId: String): Result<Unit> = writeSavedTracks(trackId, save = true)
+
+    /** Removes a track from the linked account's "Liked Songs" (DELETE /me/tracks). */
+    suspend fun removeTrack(trackId: String): Result<Unit> = writeSavedTracks(trackId, save = false)
+
+    /** True if the linked account already follows this artist (GET /me/following/contains). */
+    suspend fun isFollowingArtist(artistId: String): Result<Boolean> =
+        runCatching {
+            authenticatedGet<List<Boolean>>("me/following/contains?type=artist&ids=$artistId")
+                .firstOrNull() ?: false
+        }
+
+    /** Follows or unfollows an artist on the linked account (PUT/DELETE /me/following). */
+    suspend fun setFollowingArtist(artistId: String, follow: Boolean): Result<Unit> =
+        runCatching {
+            val token = accessToken ?: throw SpotifyException(401, "Not authenticated")
+            val response =
+                if (follow) {
+                    restClient.put("me/following") {
+                        header("Authorization", "Bearer $token")
+                        parameter("type", "artist")
+                        parameter("ids", artistId)
+                    }
+                } else {
+                    restClient.delete("me/following") {
+                        header("Authorization", "Bearer $token")
+                        parameter("type", "artist")
+                        parameter("ids", artistId)
+                    }
+                }
+            if (response.status.value !in 200..299) {
+                throw SpotifyException(response.status.value, "Failed to ${if (follow) "follow" else "unfollow"} artist")
+            }
+        }
+
+    /** True if the album is already saved in the linked account's library (GET /me/albums/contains). */
+    suspend fun isAlbumSaved(albumId: String): Result<Boolean> =
+        runCatching {
+            authenticatedGet<List<Boolean>>("me/albums/contains?ids=$albumId")
+                .firstOrNull() ?: false
+        }
+
+    /** Adds an album to the linked account's library (PUT /me/albums). Requires a user token. */
+    suspend fun saveAlbum(albumId: String): Result<Unit> = writeSavedAlbums(albumId, save = true)
+
+    /** Removes an album from the linked account's library (DELETE /me/albums). */
+    suspend fun removeAlbum(albumId: String): Result<Unit> = writeSavedAlbums(albumId, save = false)
+
+    private suspend fun writeSavedAlbums(albumId: String, save: Boolean): Result<Unit> =
+        runCatching {
+            val token = accessToken ?: throw SpotifyException(401, "Not authenticated")
+            val response =
+                if (save) {
+                    restClient.put("me/albums") {
+                        header("Authorization", "Bearer $token")
+                        parameter("ids", albumId)
+                    }
+                } else {
+                    restClient.delete("me/albums") {
+                        header("Authorization", "Bearer $token")
+                        parameter("ids", albumId)
+                    }
+                }
+            if (response.status.value !in 200..299) {
+                throw SpotifyException(response.status.value, "Failed to ${if (save) "save" else "remove"} album $albumId")
+            }
+        }
+
+    private suspend fun writeSavedTracks(trackId: String, save: Boolean): Result<Unit> =
+        runCatching {
+            val token = accessToken ?: throw SpotifyException(401, "Not authenticated")
+            val response =
+                if (save) {
+                    restClient.put("me/tracks") {
+                        header("Authorization", "Bearer $token")
+                        parameter("ids", trackId)
+                    }
+                } else {
+                    restClient.delete("me/tracks") {
+                        header("Authorization", "Bearer $token")
+                        parameter("ids", trackId)
+                    }
+                }
+            if (response.status.value !in 200..299) {
+                throw SpotifyException(response.status.value, "Failed to ${if (save) "save" else "remove"} track $trackId")
+            }
+        }
 
     suspend fun me(): Result<SpotifyUser> =
         runCatching {
@@ -679,6 +825,122 @@ object Spotify {
             name = name,
             totalChildren = total,
         )
+    }
+
+    // ── Full library (GQL: libraryV3, all kinds, Spotify's own order) ───
+
+    /**
+     * The whole "Your Library" in the same order the Spotify client shows it: pinned items first,
+     * then "Recents". [filter] is null for everything, or "Playlists" / "Albums" / "Artists".
+     */
+    suspend fun myLibrary(
+        filter: String? = null,
+        limit: Int = 50,
+        offset: Int = 0,
+    ): Result<SpotifyPaging<com.metrolist.spotify.models.SpotifyLibraryEntry>> =
+        runCatching {
+            val vars =
+                buildJsonObject {
+                    putJsonArray("filters") { if (filter != null) add(filter) }
+                    put("order", null as String?)
+                    put("textFilter", "")
+                    putJsonArray("features") {
+                        add("LIKED_SONGS")
+                        add("YOUR_EPISODES_V2")
+                        add("PRERELEASES")
+                        add("EVENTS")
+                    }
+                    put("limit", limit)
+                    put("offset", offset)
+                    put("flatten", false)
+                    putJsonArray("expandedFolders") {}
+                    put("folderUri", null as String?)
+                    put("includeFoldersWhenFlattening", true)
+                }
+
+            val response = graphqlPost(operationName = "libraryV3", variables = vars)
+            val libraryData =
+                response.obj("data")?.obj("me")?.obj("libraryV3")
+                    ?: throw SpotifyException(500, "Invalid libraryV3 response")
+
+            val entries = libraryData.arr("items").orEmpty().mapNotNull { itemElem ->
+                val itemObj = itemElem.jsonObject
+                val wrapper = itemObj.obj("item") ?: return@mapNotNull null
+                val typeName = wrapper.str("__typename") ?: ""
+                val uri = wrapper.str("_uri") ?: wrapper.obj("data")?.str("uri") ?: ""
+                val pinned = try {
+                    itemObj["pinned"]?.jsonPrimitive?.booleanOrNull ?: false
+                } catch (_: Exception) { false }
+                val addedAt = itemObj.obj("addedAt")?.str("isoString")
+                val data = wrapper.obj("data")
+                parseLibraryEntry(typeName, uri, data, pinned, addedAt)
+            }
+
+            SpotifyPaging(
+                items = entries,
+                total = libraryData.int("totalCount") ?: 0,
+                limit = limit,
+                offset = offset,
+            )
+        }
+
+    private fun parseLibraryEntry(
+        typeName: String,
+        uri: String,
+        data: JsonObject?,
+        pinned: Boolean,
+        addedAt: String?,
+    ): com.metrolist.spotify.models.SpotifyLibraryEntry? {
+        val id = uri.substringAfterLast(":")
+        return when {
+            uri.contains(":collection") && (typeName.contains("Pseudo", true) || uri.endsWith("collection")) ->
+                com.metrolist.spotify.models.SpotifyLibraryEntry(
+                    kind = com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.LIKED_SONGS, id = "liked_songs", uri = uri,
+                    name = data?.str("name") ?: "Liked Songs",
+                    pinned = pinned, addedAt = addedAt,
+                    totalCount = data?.int("count") ?: 0,
+                )
+            typeName.contains("Folder", true) ->
+                com.metrolist.spotify.models.SpotifyLibraryEntry(
+                    kind = com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.FOLDER, id = id, uri = uri,
+                    name = data?.str("name") ?: return null,
+                    pinned = pinned, addedAt = addedAt,
+                    totalCount = data?.int("playlistCount") ?: data?.int("totalLength") ?: 0,
+                )
+            typeName.contains("Playlist", true) -> {
+                if (data == null || data.str("__typename") != "Playlist") return null
+                com.metrolist.spotify.models.SpotifyLibraryEntry(
+                    kind = com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.PLAYLIST, id = id, uri = uri,
+                    name = data.str("name") ?: "",
+                    creator = data.obj("ownerV2")?.obj("data")?.str("name"),
+                    imageUrl = parseGqlPlaylistImages(data.obj("images")).firstOrNull()?.url,
+                    pinned = pinned, addedAt = addedAt,
+                )
+            }
+            typeName.contains("Album", true) -> {
+                data ?: return null
+                com.metrolist.spotify.models.SpotifyLibraryEntry(
+                    kind = com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.ALBUM, id = id, uri = uri,
+                    name = data.str("name") ?: "",
+                    creator = data.obj("artists")?.arr("items")
+                        ?.mapNotNull { it.jsonObject.obj("profile")?.str("name") }
+                        ?.joinToString(", "),
+                    imageUrl = parseGqlImages(data.obj("coverArt")?.arr("sources")).firstOrNull()?.url,
+                    albumType = data.str("type")?.lowercase(),
+                    pinned = pinned, addedAt = addedAt,
+                )
+            }
+            typeName.contains("Artist", true) -> {
+                data ?: return null
+                com.metrolist.spotify.models.SpotifyLibraryEntry(
+                    kind = com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.ARTIST, id = id, uri = uri,
+                    name = data.obj("profile")?.str("name") ?: data.str("name") ?: return null,
+                    imageUrl = parseGqlImages(data.obj("visuals")?.obj("avatarImage")?.arr("sources")).firstOrNull()?.url,
+                    pinned = pinned, addedAt = addedAt,
+                )
+            }
+            else -> null
+        }
     }
 
     // ── Library Artists (GQL: libraryV3 with Artists filter) ───────────
@@ -1528,6 +1790,53 @@ object Spotify {
                 name = artistData.obj("profile")?.str("name") ?: "",
                 images = parseGqlImages(artistData.obj("visuals")?.obj("avatarImage")?.arr("sources")),
                 uri = "spotify:artist:$artistId",
+                monthlyListeners = artistData.obj("stats")?.int("monthlyListeners")?.toLong(),
+            )
+        }
+
+    /**
+     * The artist's releases via REST (/v1/artists/{id}/albums). Carries `album_type` so callers can
+     * show real albums separately from singles/EPs/compilations. De-duplicated by id (Spotify lists
+     * the same release under multiple groups).
+     */
+    suspend fun artistAlbums(
+        artistId: String,
+        limit: Int = 50,
+    ): Result<List<SpotifyAlbum>> =
+        runCatching {
+            // No market filter: Spotify's `market` param hides releases not licensed in that country,
+            // which was dropping real albums (e.g. region-limited or newer releases). We want the
+            // artist's full discography regardless of market.
+            authenticatedGet<SpotifyPaging<SpotifyAlbum>>(
+                "artists/$artistId/albums?include_groups=album,single,compilation&limit=$limit",
+            ).items.distinctBy { it.id }
+        }
+
+    /**
+     * The artist's full discography via the same queryArtistOverview GQL payload that powers
+     * [artist] and [artistTopTracks]. This is the reliable source: the REST /artists/{id}/albums
+     * endpoint was silently returning nothing for some artists (leaving the artist screen showing only
+     * the top-10 tracks), whereas the GQL discography that the top tracks already came from is
+     * consistently populated. Groups are returned separately so "Albums" means albums.
+     */
+    suspend fun artistDiscography(artistId: String): Result<ArtistDiscography> =
+        runCatching {
+            val artistData = artistUnion(artistId)
+            val disco = artistData.obj("discography")
+
+            fun parseGroup(key: String, type: String): List<SpotifyAlbum> =
+                disco?.obj(key)?.arr("items")?.mapNotNull { elem ->
+                    // Each discography item wraps a `releases.items[]` list; take the primary release.
+                    val release = elem.jsonObject.obj("releases")?.arr("items")
+                        ?.firstOrNull()?.jsonObject
+                        ?: elem.jsonObject // some payloads inline the release directly
+                    parseGqlRelease(release, type)
+                }?.distinctBy { it.id } ?: emptyList()
+
+            ArtistDiscography(
+                albums = parseGroup("albums", "album"),
+                singles = parseGroup("singles", "single"),
+                compilations = parseGroup("compilations", "compilation"),
             )
         }
 
@@ -1582,6 +1891,14 @@ object Spotify {
 @kotlinx.serialization.Serializable
 data class ArtistTopTracksResponse(
     val tracks: List<SpotifyTrack> = emptyList(),
+)
+
+/** An artist's releases grouped by type, parsed from the queryArtistOverview discography. */
+@kotlinx.serialization.Serializable
+data class ArtistDiscography(
+    val albums: List<SpotifyAlbum> = emptyList(),
+    val singles: List<SpotifyAlbum> = emptyList(),
+    val compilations: List<SpotifyAlbum> = emptyList(),
 )
 
 @kotlinx.serialization.Serializable

@@ -42,6 +42,11 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withContext
+import com.metrolist.music.extensions.toMediaItem
+import com.metrolist.music.models.toMediaMetadata
 import timber.log.Timber
 import javax.inject.Inject
 import com.metrolist.music.extensions.filterVideoSongs as filterVideoSongsLocal
@@ -61,13 +66,28 @@ class ArtistViewModel @Inject constructor(
     // Track API subscription state separately
     private val _apiSubscribed = MutableStateFlow<Boolean?>(null)
 
-    val libraryArtist = database.artist(artistId)
+    /** Spotify id behind this profile ("spotify:<id>", "SP_<id>" or a raw Spotify id), if any. */
+    val spotifyArtistId: String? = com.metrolist.music.utils.ArtistIdentity.spotifyIdOf(artistId)
+
+    // The DB row for this artist. Spotify artists are keyed by spotifyId — the same row the
+    // mini-player subscribe button and the player's artist links use — so subscribing here never
+    // creates a bare-id "local" artist (which made the profile collapse to just the photo).
+    private val artistRowFlow = if (spotifyArtistId != null) {
+        database.artistBySpotifyIdFlow(spotifyArtistId)
+            .flatMapLatest { entity ->
+                if (entity == null) kotlinx.coroutines.flow.flowOf(null) else database.artist(entity.id)
+            }
+    } else {
+        database.artist(artistId)
+    }
+
+    val libraryArtist = artistRowFlow
         .stateIn(viewModelScope, SharingStarted.Lazily, null)
 
     // Combine API state with local database state - local takes precedence when not logged in
     val isChannelSubscribed = kotlinx.coroutines.flow.combine(
         _apiSubscribed,
-        database.artist(artistId),
+        artistRowFlow,
     ) { apiState, localArtist ->
         val locallyBookmarked = localArtist?.artist?.bookmarkedAt != null
         locallyBookmarked || (apiState == true)
@@ -76,7 +96,9 @@ class ArtistViewModel @Inject constructor(
         .map { (it[HideExplicitKey] ?: false) to (it[HideVideoSongsKey] ?: false) }
         .distinctUntilChanged()
         .flatMapLatest { (hideExplicit, hideVideoSongs) ->
-            database.artistSongsPreview(artistId).map { it.filterExplicit(hideExplicit).filterVideoSongsLocal(hideVideoSongs) }
+            artistRowFlow.flatMapLatest { row ->
+                database.artistSongsPreview(row?.artist?.id ?: artistId)
+            }.map { it.filterExplicit(hideExplicit).filterVideoSongsLocal(hideVideoSongs) }
         }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     val libraryAlbums = context.dataStore.data
@@ -105,10 +127,116 @@ class ArtistViewModel @Inject constructor(
                     }
             }
         } else {
-            // Non-YouTube artist (Spotify/local): wait for DB, then search YouTube by name
+            // Non-YouTube artist (Spotify/local): resolve a name, then open the native YouTube
+            // artist page (the design the user wants everywhere). The name comes from the local DB
+            // when the artist is known there, otherwise straight from Spotify by id — so a Spotify
+            // artist that was never played locally still opens the real profile instead of hanging
+            // on an empty screen.
             viewModelScope.launch {
-                libraryArtist.first { it != null }
-                resolveAndFetchByName()
+                val dbName = kotlinx.coroutines.withTimeoutOrNull(1500) {
+                    libraryArtist.first { it != null }
+                }?.artist?.name
+                val name = dbName ?: resolveSpotifyName(artistId)
+                if (name != null) {
+                    resolveAndFetchByName(name)
+                }
+            }
+        }
+    }
+
+    /** Fetches an artist's display name from Spotify by its id (for non-DB Spotify artists). */
+    private suspend fun resolveSpotifyName(id: String): String? {
+        val raw = com.metrolist.music.utils.ArtistIdentity.spotifyIdOf(id) ?: return null
+        return com.metrolist.spotify.Spotify.artist(raw).getOrNull()?.name
+    }
+
+    private val _radioLoading = MutableStateFlow(false)
+    val radioLoading = _radioLoading.asStateFlow()
+
+    /**
+     * "Radio" = music from this artist's SIMILAR artists. Uses Spotify's related artists (GQL, not the
+     * rate-limited REST endpoint) when a Spotify id is known or can be found by exact name; otherwise
+     * the YouTube artist page's "Fans might also like" section. A few top tracks from each related
+     * artist are interleaved and shuffled into one queue.
+     */
+    fun playSimilarArtistsRadio(playerConnection: com.metrolist.music.playback.PlayerConnection) {
+        if (_radioLoading.value) return
+        _radioLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val name = artistPage?.artist?.title ?: libraryArtist.value?.artist?.name
+                val spotifyId = spotifyArtistId
+                    ?: libraryArtist.value?.artist?.spotifyId
+                    ?: name?.let { n ->
+                        com.metrolist.spotify.Spotify.search(n, types = listOf("artist"), limit = 5)
+                            .getOrNull()?.artists?.items
+                            ?.firstOrNull { it.name.equals(n, ignoreCase = true) }?.id
+                    }
+
+                if (spotifyId != null) {
+                    val related = com.metrolist.spotify.Spotify.artistRelatedArtists(spotifyId)
+                        .getOrNull().orEmpty().take(10)
+                    val tracks = kotlinx.coroutines.coroutineScope {
+                        related.map { a ->
+                            async {
+                                com.metrolist.spotify.Spotify.artistTopTracks(a.id).getOrNull()
+                                    ?.tracks.orEmpty().take(3)
+                            }
+                        }.awaitAll()
+                    }.flatten().distinctBy { it.id }.shuffled()
+                    if (tracks.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            playerConnection.playQueue(
+                                com.metrolist.music.playback.queues.SpotifyPlaylistQueue(
+                                    playlistId = "artist_radio_$spotifyId",
+                                    initialTracks = tracks,
+                                    startIndex = 0,
+                                    mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database),
+                                ),
+                            )
+                        }
+                        return@launch
+                    }
+                }
+
+                // YouTube fallback: related artists from the artist page sections.
+                val relatedYt = artistPage?.sections
+                    ?.flatMap { it.items }
+                    ?.filterIsInstance<ArtistItem>()
+                    ?.distinctBy { it.id }
+                    ?.take(8)
+                    .orEmpty()
+                val songs = kotlinx.coroutines.coroutineScope {
+                    relatedYt.map { a ->
+                        async {
+                            YouTube.artist(a.id).getOrNull()?.sections
+                                ?.flatMap { it.items }
+                                ?.filterIsInstance<com.metrolist.innertube.models.SongItem>()
+                                ?.take(3)
+                                .orEmpty()
+                        }
+                    }.awaitAll()
+                }.flatten().distinctBy { it.id }.shuffled()
+                if (songs.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        playerConnection.playQueue(
+                            com.metrolist.music.playback.queues.ListQueue(
+                                title = name,
+                                items = songs.map { it.toMediaMetadata().toMediaItem() },
+                            ),
+                        )
+                    }
+                } else {
+                    artistPage?.artist?.radioEndpoint?.let { ep ->
+                        withContext(Dispatchers.Main) {
+                            playerConnection.playQueue(com.metrolist.music.playback.queues.YouTubeQueue(ep))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "Similar-artists radio failed for $artistId")
+            } finally {
+                _radioLoading.value = false
             }
         }
     }
@@ -121,21 +249,26 @@ class ArtistViewModel @Inject constructor(
 
     fun fetchArtistsFromYTM() {
         if (!isYouTubeArtistId(artistId)) {
-            resolveAndFetchByName()
+            viewModelScope.launch {
+                val name = libraryArtist.value?.artist?.name ?: resolveSpotifyName(artistId)
+                if (name != null) resolveAndFetchByName(name)
+            }
             return
         }
         fetchArtistPage(artistId)
     }
 
-    private fun resolveAndFetchByName() {
+    private fun resolveAndFetchByName(name: String) {
         viewModelScope.launch {
-            val artist = libraryArtist.value?.artist
-            val name = artist?.name ?: return@launch
-
             YouTube.search(name, YouTube.SearchFilter.FILTER_ARTIST)
                 .onSuccess { result ->
-                    val match = result.items.filterIsInstance<ArtistItem>().firstOrNull()
-                    if (match != null && isYouTubeArtistId(match.id)) {
+                    val artists = result.items.filterIsInstance<ArtistItem>()
+                        .filter { isYouTubeArtistId(it.id) }
+                    // Prefer an exact (case-insensitive) name match to avoid opening a different
+                    // same-named artist; fall back to the top result.
+                    val match = artists.firstOrNull { it.title.equals(name, ignoreCase = true) }
+                        ?: artists.firstOrNull()
+                    if (match != null) {
                         resolvedYouTubeId = match.id
                         fetchArtistPage(match.id)
                     }
@@ -160,8 +293,9 @@ class ArtistViewModel @Inject constructor(
                         .filter { section -> section.items.isNotEmpty() }
 
                     artistPage = page.copy(sections = filteredSections)
-                    // Store API subscription state
-                    _apiSubscribed.value = page.isSubscribed
+                    // Store API subscription state. For Spotify-backed profiles the YouTube
+                    // channel's subscription is irrelevant — the DB row (synced with Spotify) rules.
+                    if (spotifyArtistId == null) _apiSubscribed.value = page.isSubscribed
                 }.onFailure {
                     reportException(it)
                 }
@@ -199,26 +333,40 @@ class ArtistViewModel @Inject constructor(
                 database.update(updatedArtist)
             } else if (shouldBeSubscribed) {
                 Timber.d("[CHANNEL_TOGGLE] No existing artist, inserting new one")
-                artistPage?.artist?.let {
+                val page = artistPage?.artist
+                val name = page?.title ?: resolveSpotifyName(artistId)
+                if (name != null) {
                     database.insert(
                         ArtistEntity(
-                            id = artistId,
-                            name = it.title,
-                            channelId = it.channelId,
-                            thumbnailUrl = it.thumbnail,
+                            // Spotify artists get the canonical "SP_<id>" row with spotifyId set, so the
+                            // profile never flips into "local artist" mode after subscribing.
+                            id = spotifyArtistId?.let { "SP_$it" } ?: artistId,
+                            name = name,
+                            channelId = if (spotifyArtistId == null) page?.channelId else null,
+                            thumbnailUrl = page?.thumbnail,
                             bookmarkedAt = java.time.LocalDateTime.now(),
                             isPodcastChannel = isPodcastChannel,
+                            spotifyId = spotifyArtistId,
                         )
                     )
-                    Timber.d("[CHANNEL_TOGGLE] Inserted new artist: $artistId, isPodcastChannel=$isPodcastChannel")
-                } ?: Timber.d("[CHANNEL_TOGGLE] artistPage?.artist is null, cannot insert")
+                } else {
+                    Timber.d("[CHANNEL_TOGGLE] no artist name, cannot insert")
+                }
             } else {
                 Timber.d("[CHANNEL_TOGGLE] No artist and shouldBeSubscribed=false, nothing to do")
             }
 
-            Timber.d("[CHANNEL_TOGGLE] Calling syncUtils.subscribeChannel($channelId, $shouldBeSubscribed)")
-            // Sync with YouTube (handles login check internally)
-            syncUtils.subscribeChannel(channelId, shouldBeSubscribed)
+            val spotifyTarget = spotifyArtistId ?: libraryArtist.value?.artist?.spotifyId
+            if (spotifyTarget != null) {
+                // Spotify artist: follow/unfollow on Spotify instead of a YouTube channel.
+                if (com.metrolist.spotify.Spotify.isAuthenticated()) {
+                    com.metrolist.spotify.Spotify.setFollowingArtist(spotifyTarget, shouldBeSubscribed)
+                        .onFailure { Timber.w(it, "Spotify follow sync failed for $spotifyTarget") }
+                }
+            } else {
+                Timber.d("[CHANNEL_TOGGLE] Calling syncUtils.subscribeChannel($channelId, $shouldBeSubscribed)")
+                syncUtils.subscribeChannel(channelId, shouldBeSubscribed)
+            }
         }
     }
 }

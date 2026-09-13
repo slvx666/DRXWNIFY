@@ -64,6 +64,7 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Slider
@@ -128,6 +129,16 @@ import coil3.request.allowHardware
 import coil3.toBitmap
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalDownloadUtil
+import androidx.core.net.toUri
+import androidx.media3.exoplayer.offline.Download
+import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.DownloadService
+import com.metrolist.music.playback.ExoDownloadService
+import com.metrolist.music.playback.SpotifyMetadataRegistry
+import com.metrolist.music.utils.DownloadExportState
+import com.metrolist.music.utils.SPOTIFY_ID_PREFIX
+import com.metrolist.music.utils.isSpotifyId
+import com.metrolist.music.utils.stripSpotifyPrefix
 import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
@@ -312,6 +323,18 @@ fun BottomSheetPlayer(
     val playbackState by playerConnection.playbackState.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val currentSong by playerConnection.currentSong.collectAsState(initial = null)
+
+    // A track liked directly on Spotify (not via the app) has no local `liked` flag, so also light the
+    // heart when the current track's Spotify id is in the shared like cache.
+    val spotifyLikedSet by com.metrolist.music.playback.SpotifyLikeCache.liked.collectAsState()
+    val currentSpotifyLikeId = remember(mediaMetadata?.id) {
+        mediaMetadata?.id?.let { com.metrolist.music.playback.SpotifyMetadataRegistry.get(it)?.id }
+    }
+    LaunchedEffect(currentSpotifyLikeId) {
+        currentSpotifyLikeId?.let { com.metrolist.music.playback.SpotifyLikeCache.ensureLoaded(listOf(it)) }
+    }
+    val spotifyLiked = currentSpotifyLikeId != null && spotifyLikedSet.contains(currentSpotifyLikeId)
+
     val automix by playerConnection.service.automixItems.collectAsState()
     val repeatMode by playerConnection.repeatMode.collectAsState()
     val canSkipPrevious by playerConnection.canSkipPrevious.collectAsState()
@@ -563,6 +586,8 @@ fun BottomSheetPlayer(
     val download by LocalDownloadUtil.current
         .getDownload(mediaMetadata?.id ?: "")
         .collectAsState(initial = null)
+    val database = LocalDatabase.current
+    val exportingIds by DownloadExportState.exporting.collectAsState()
 
     val sleepTimerEnabled =
         remember(
@@ -965,9 +990,37 @@ fun BottomSheetPlayer(
                                         indication = null,
                                         interactionSource = remember { MutableInteractionSource() },
                                         onClick = {
-                                            if (mediaMetadata.album != null) {
-                                                state.collapseSoft()
-                                                navController.navigate("album/${mediaMetadata.album.id}")
+                                            // Spotify albums must open the Spotify album screen: sending a
+                                            // Spotify id to the YouTube album/ route returned browse 400
+                                            // (why tapping the title "did nothing"). When the item carries no
+                                            // album, recover it from the originating Spotify track.
+                                            val albumId = mediaMetadata.album?.id
+                                            when {
+                                                albumId != null && albumId.isSpotifyId() -> {
+                                                    state.collapseSoft()
+                                                    navController.navigate("spotify_album/${albumId.stripSpotifyPrefix()}")
+                                                }
+                                                albumId != null && albumId.startsWith("MPRE") -> {
+                                                    state.collapseSoft()
+                                                    navController.navigate("album/$albumId")
+                                                }
+                                                else -> scope.launch {
+                                                    val sid = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                        com.metrolist.music.playback.SpotifyMetadataRegistry.get(mediaMetadata.id)?.album?.id
+                                                            ?: database.getSpotifyMatchByYouTubeId(mediaMetadata.id)?.spotifyId
+                                                                ?.let { com.metrolist.spotify.Spotify.getTrack(it).getOrNull()?.album?.id }
+                                                    }?.takeIf { it.isNotBlank() }
+                                                    when {
+                                                        sid != null -> {
+                                                            state.collapseSoft()
+                                                            navController.navigate("spotify_album/$sid")
+                                                        }
+                                                        albumId != null -> {
+                                                            state.collapseSoft()
+                                                            navController.navigate("album/$albumId")
+                                                        }
+                                                    }
+                                                }
                                             }
                                         },
                                         onLongClick = {
@@ -987,17 +1040,28 @@ fun BottomSheetPlayer(
                     ) {
                         if (mediaMetadata.explicit) MIcon.Explicit()
 
-                        if (mediaMetadata.artists.any { it.name.isNotBlank() }) {
+                        // Prefer the originating Spotify track's artists (real names + Spotify ids)
+                        // for Spotify-sourced tracks, so "go to artist" opens the exact artist rather
+                        // than the YouTube-match's (id-less) artist. Falls back to the media artists.
+                        val spotifyArtists = mediaMetadata.id
+                            ?.let { SpotifyMetadataRegistry.get(it) }
+                            ?.artists
+                            ?.filter { it.name.isNotBlank() }
+                            ?.map { it.name to it.id?.let { id -> "$SPOTIFY_ID_PREFIX$id" } }
+                        val artistLinks: List<Pair<String, String?>> = spotifyArtists
+                            ?: mediaMetadata.artists.map { it.name to it.id }
+
+                        if (artistLinks.any { it.first.isNotBlank() }) {
                             val annotatedString =
                                 buildAnnotatedString {
-                                    mediaMetadata.artists.forEachIndexed { index, artist ->
-                                        val tag = "artist_${artist.id.orEmpty()}"
-                                        pushStringAnnotation(tag = tag, annotation = artist.id.orEmpty())
+                                    artistLinks.forEachIndexed { index, (name, id) ->
+                                        val tag = "artist_${id.orEmpty()}"
+                                        pushStringAnnotation(tag = tag, annotation = id.orEmpty())
                                         withStyle(SpanStyle(color = TextBackgroundColor, fontSize = 16.sp)) {
-                                            append(artist.name)
+                                            append(name)
                                         }
                                         pop()
-                                        if (index != mediaMetadata.artists.lastIndex) append(", ")
+                                        if (index != artistLinks.lastIndex) append(", ")
                                     }
                                 }
 
@@ -1044,7 +1108,11 @@ fun BottomSheetPlayer(
                                                                 val artistId = ann.item
                                                                 if (artistId.isNotBlank()) {
                                                                     state.collapseSoft()
-                                                                    navController.navigate("artist/$artistId")
+                                                                    if (artistId.isSpotifyId()) {
+                                                                        navController.navigate("spotify_artist/${artistId.stripSpotifyPrefix()}")
+                                                                    } else {
+                                                                        navController.navigate("artist/$artistId")
+                                                                    }
                                                                 }
                                                             }
                                                     }
@@ -1144,6 +1212,64 @@ fun BottomSheetPlayer(
                             }
                         }
 
+                        // Middle slot: download button (idle → downloading% → processing → done),
+                        // always visible without opening the "…" menu.
+                        run {
+                            val dlId = mediaMetadata.id
+                            val isExporting = dlId != null && dlId in exportingIds
+                            val dlState = download?.state
+                            val active = dlState == Download.STATE_DOWNLOADING ||
+                                dlState == Download.STATE_QUEUED || isExporting
+                            FilledIconButton(
+                                onClick = {
+                                    when {
+                                        active -> {} // in progress; ignore taps
+                                        dlState == Download.STATE_COMPLETED ->
+                                            dlId?.let {
+                                                DownloadService.sendRemoveDownload(
+                                                    context, ExoDownloadService::class.java, it, false,
+                                                )
+                                            }
+                                        else -> {
+                                            database.transaction { upsertMetadata(mediaMetadata) }
+                                            val req = DownloadRequest
+                                                .Builder(mediaMetadata.id, mediaMetadata.id.toUri())
+                                                .setCustomCacheKey(mediaMetadata.id)
+                                                .setData(mediaMetadata.title.toByteArray())
+                                                .build()
+                                            DownloadService.sendAddDownload(
+                                                context, ExoDownloadService::class.java, req, false,
+                                            )
+                                        }
+                                    }
+                                },
+                                shape = middleShape,
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = textButtonColor,
+                                    contentColor = iconButtonColor,
+                                ),
+                                modifier = Modifier.size(42.dp),
+                            ) {
+                                when {
+                                    active -> CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = iconButtonColor,
+                                    )
+                                    dlState == Download.STATE_COMPLETED -> Icon(
+                                        painter = painterResource(R.drawable.offline),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                    else -> Icon(
+                                        painter = painterResource(R.drawable.download),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                }
+                            }
+                        }
+
                         AnimatedContent(targetState = showInlineLyrics, label = "LikeButton") { showLyrics ->
                             if (showLyrics) {
                                 val currentLyrics by playerConnection.currentLyrics.collectAsState(initial = null)
@@ -1182,9 +1308,14 @@ fun BottomSheetPlayer(
                             } else {
                                 // For episodes, show saved state (inLibrary); for songs, show liked state
                                 val isEpisode = currentSong?.song?.isEpisode == true
-                                val isFavorite = if (isEpisode) currentSong?.song?.inLibrary != null else currentSong?.song?.liked == true
+                                val isFavorite = (if (isEpisode) currentSong?.song?.inLibrary != null else currentSong?.song?.liked == true) || spotifyLiked
                                 FilledIconButton(
-                                    onClick = playerConnection::toggleLike,
+                                    onClick = {
+                                        playerConnection.toggleLike()
+                                        currentSpotifyLikeId?.let {
+                                            com.metrolist.music.playback.SpotifyLikeCache.setLiked(it, !isFavorite)
+                                        }
+                                    },
                                     shape = favShape,
                                     colors =
                                         IconButtonDefaults.filledIconButtonColors(
@@ -1444,7 +1575,9 @@ fun BottomSheetPlayer(
                         .padding(horizontal = PlayerHorizontalPadding + 4.dp),
             ) {
                 Text(
-                    text = makeTimeString(sliderPosition ?: effectivePosition),
+                    // Current position: keep showing 0:00 at the start (makeTimeString now
+                    // returns "" for <= 0, so fall back explicitly here).
+                    text = makeTimeString(sliderPosition ?: effectivePosition).ifEmpty { "0:00" },
                     style = MaterialTheme.typography.labelMedium,
                     color = TextBackgroundColor,
                     maxLines = 1,
@@ -1762,8 +1895,9 @@ fun BottomSheetPlayer(
 
                             Box(modifier = Modifier.weight(1f)) {
                                 // For episodes, show saved state (inLibrary); for songs, show liked state
+                                // (local like OR Spotify like).
                                 val isEpisode = currentSong?.song?.isEpisode == true
-                                val isFavorite = if (isEpisode) currentSong?.song?.inLibrary != null else currentSong?.song?.liked == true
+                                val isFavorite = (if (isEpisode) currentSong?.song?.inLibrary != null else currentSong?.song?.liked == true) || spotifyLiked
                                 ResizableIconButton(
                                     icon = if (isFavorite) R.drawable.favorite else R.drawable.favorite_border,
                                     color = if (isFavorite) MaterialTheme.colorScheme.error else TextBackgroundColor,
@@ -1772,8 +1906,75 @@ fun BottomSheetPlayer(
                                             .size(32.dp)
                                             .padding(4.dp)
                                             .align(Alignment.Center),
-                                    onClick = playerConnection::toggleLike,
+                                    onClick = {
+                                        playerConnection.toggleLike()
+                                        currentSpotifyLikeId?.let {
+                                            com.metrolist.music.playback.SpotifyLikeCache.setLiked(it, !isFavorite)
+                                        }
+                                    },
                                 )
+                            }
+
+                            // Download button: idle -> download; downloading -> progress; processing
+                            // (transcode/export) -> spinner; done -> "offline" icon (tap to remove).
+                            Box(modifier = Modifier.weight(1f)) {
+                                val currentId = mediaMetadata?.id
+                                val isExporting = currentId != null && currentId in exportingIds
+                                val state = download?.state
+                                when {
+                                    state == Download.STATE_DOWNLOADING || state == Download.STATE_QUEUED || isExporting -> {
+                                        val pct = download?.percentDownloaded ?: -1f
+                                        if (!isExporting && state == Download.STATE_DOWNLOADING && pct in 0f..100f) {
+                                            CircularProgressIndicator(
+                                                progress = { pct / 100f },
+                                                modifier = Modifier.size(24.dp).align(Alignment.Center),
+                                                strokeWidth = 2.dp,
+                                                color = TextBackgroundColor,
+                                            )
+                                        } else {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(24.dp).align(Alignment.Center),
+                                                strokeWidth = 2.dp,
+                                                color = TextBackgroundColor,
+                                            )
+                                        }
+                                    }
+                                    state == Download.STATE_COMPLETED -> {
+                                        ResizableIconButton(
+                                            icon = R.drawable.offline,
+                                            color = TextBackgroundColor,
+                                            modifier = Modifier.size(32.dp).padding(4.dp).align(Alignment.Center),
+                                            onClick = {
+                                                currentId?.let {
+                                                    DownloadService.sendRemoveDownload(
+                                                        context, ExoDownloadService::class.java, it, false,
+                                                    )
+                                                }
+                                            },
+                                        )
+                                    }
+                                    else -> {
+                                        ResizableIconButton(
+                                            icon = R.drawable.download,
+                                            color = TextBackgroundColor,
+                                            modifier = Modifier.size(32.dp).padding(4.dp).align(Alignment.Center),
+                                            onClick = {
+                                                val meta = mediaMetadata
+                                                if (meta != null) {
+                                                    database.transaction { upsertMetadata(meta) }
+                                                    val req = DownloadRequest
+                                                        .Builder(meta.id, meta.id.toUri())
+                                                        .setCustomCacheKey(meta.id)
+                                                        .setData(meta.title.toByteArray())
+                                                        .build()
+                                                    DownloadService.sendAddDownload(
+                                                        context, ExoDownloadService::class.java, req, false,
+                                                    )
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

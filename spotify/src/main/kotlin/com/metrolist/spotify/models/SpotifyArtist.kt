@@ -10,4 +10,6 @@ data class SpotifyArtist(
     val genres: List<String> = emptyList(),
     val popularity: Int? = null,
     val uri: String? = null,
+    /** Spotify monthly listeners (from queryArtistOverview stats), null if unavailable. */
+    val monthlyListeners: Long? = null,
 )

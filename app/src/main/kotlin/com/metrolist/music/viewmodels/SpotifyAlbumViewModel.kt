@@ -58,7 +58,20 @@ constructor(
 
             Spotify.album(albumId).onSuccess { album ->
                 _album.value = album
-                _tracks.value = album.tracks?.items?.filter { !it.isLocal } ?: emptyList()
+                val loaded = album.tracks?.items?.filter { !it.isLocal } ?: emptyList()
+                _tracks.value = loaded
+                // Diagnostic: verify the returned album content matches the requested id. If the track
+                // names look unrelated to the album (e.g. ".m0lly /bin"), the mismatch is visible here.
+                val trackNames = loaded.take(15).joinToString(separator = " | ") { it.name }
+                val albumArtists = album.artists.joinToString { it.name }
+                // Always-on (release-visible) diagnostic: prints the exact albumId, name, artists and
+                // track names so a wrong album (e.g. ".m0lly /bin" showing unrelated tracks) can be
+                // compared against Spotify web. android.util.Log is used because Timber has no tree
+                // planted in release builds.
+                android.util.Log.i(
+                    "SpotifyAlbumDiag",
+                    "albumId=$albumId name='${album.name}' artists='$albumArtists' tracks(${loaded.size})=$trackNames",
+                )
                 _isLoading.value = false
             }.onFailure { e ->
                 Timber.e(e, "Failed to load Spotify album: $albumId")

@@ -799,4 +799,35 @@
     <string name="transparent">Прозрачный</string>
     <string name="mini_player_background_not_available">Недоступно, если отключен новый дизайн мини‑плеера</string>
     <string name="your_daily_discover">Ваши открытия дня</string>
+    <string name="spotify_download_started">Подготовка %1$d треков к скачиванию…</string>
+    <string name="spotify_download_progress">Подготовка %1$d / %2$d…</string>
+    <string name="spotify_download_done">В очередь: %1$d, пропущено: %2$d</string>
+    <string name="spotify_dl_searching">Поиск %1$d / %2$d…</string>
+    <string name="spotify_dl_downloading">Скачивание %1$d / %2$d…</string>
+    <string name="spotify_dl_formatting">Форматирование…</string>
+    <string name="spotify_dl_finished">Скачано: %1$d · пропущено: %2$d · ошибок: %3$d</string>
+    <string name="spotify_download_all">Загрузить всё</string>
+    <string name="follow">Подписаться</string>
+    <string name="following">Вы подписаны</string>
+    <string name="artist_top_tracks">Популярные треки</string>
+    <string name="singles_and_eps">Синглы и EP</string>
+    <string name="spotify_monthly_listeners">%1$s слушателей за месяц</string>
+    <string name="spotify_add_to_library">Добавить в Spotify</string>
+    <string name="spotify_remove_from_library">Добавлено в Spotify</string>
+    <string name="spotify_qobuz_fallback">Qobuz, если нет на YouTube</string>
+    <string name="spotify_qobuz_fallback_description">Если трек не найден на YouTube — проигрывать и скачивать его с Qobuz (сопоставление по универсальному коду трека). Позволяет работать редким / андеграунд-трекам и целым альбомам. Выключите, чтобы такие треки пропускались.</string>
+    <string name="spotify_loose_match">Играть похожее, если точного нет</string>
+    <string name="spotify_loose_match_description">Если точный трек не удаётся уверенно найти на YouTube — проигрывать наиболее похожий результат вместо пропуска. Улучшает покрытие для редких и не англоязычных треков, но иногда может выбрать не ту версию. Выкл. = пропускать при сомнении (никогда не играет чужой трек).</string>
+    <string name="lib_type_playlist">Плейлист</string>
+    <string name="lib_type_artist">Исполнитель</string>
+    <string name="lib_type_album">Альбом</string>
+    <string name="lib_type_single">Сингл</string>
+    <string name="lib_type_ep">Мини-альбом</string>
+    <string name="lib_type_compilation">Сборник</string>
+    <string name="lib_type_folder">Папка</string>
+    <string name="lib_sort_recents">Недавние</string>
+    <string name="lib_sort_recently_added">Недавно добавленные</string>
+    <string name="lib_sort_alphabetical">По алфавиту</string>
+    <string name="lib_sort_creator">Автор</string>
+    <string name="lib_folder_count">Плейлистов: %1$d</string>
 </resources>

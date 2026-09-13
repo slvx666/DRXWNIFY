@@ -7,6 +7,7 @@ package com.metrolist.music.ui.screens.playlist
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -87,7 +88,9 @@ import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.playback.ExoDownloadService
+import com.metrolist.music.playback.SpotifyBatchDownload
 import com.metrolist.music.playback.SpotifyYouTubeMapper
+import android.widget.Toast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -104,6 +107,7 @@ fun SpotifyLikedSongsScreen(
     viewModel: SpotifyLikedSongsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
     val playerConnection = LocalPlayerConnection.current ?: return
     val database = LocalDatabase.current
     val menuState = LocalMenuState.current
@@ -126,14 +130,38 @@ fun SpotifyLikedSongsScreen(
         }
     }
 
+    // Downloaded state per track (spotifyId → resolved youtubeId → live download map).
+    val downloads by downloadUtil.downloads.collectAsState()
+    val downloadProgress by SpotifyBatchDownload.progress.collectAsState()
+    val spotifyToYt by produceState<Map<String, String>>(initialValue = emptyMap(), tracks) {
+        value = if (tracks.isEmpty()) {
+            emptyMap()
+        } else {
+            withContext(Dispatchers.IO) {
+                database.getSpotifyMatchesBySpotifyIds(tracks.map { it.id })
+                    .associate { it.spotifyId to it.youtubeId }
+            }
+        }
+    }
+
     val (sortType, onSortTypeChange) = rememberEnumPreference(
         SpotifyLikedSortTypeKey,
         SpotifySortType.ORIGINAL,
     )
+    // Default sort: original API order (newest-added first) without reversing — the reverse of the
+    // previous default, which showed oldest-added first.
     val (sortDescending, onSortDescendingChange) = rememberPreference(
         SpotifyLikedSortDescendingKey,
-        true,
+        false,
     )
+
+    // Every track here is liked by definition — seed the shared cache so hearts also show wherever
+    // else these tracks appear (top tracks, albums, search, player).
+    LaunchedEffect(tracks) {
+        if (tracks.isNotEmpty()) {
+            com.metrolist.music.playback.SpotifyLikeCache.markLiked(tracks.map { it.id })
+        }
+    }
 
     val lazyListState = rememberLazyListState()
     val pullRefreshState = rememberPullToRefreshState()
@@ -240,6 +268,93 @@ fun SpotifyLikedSongsScreen(
                                 Spacer(modifier = Modifier.size(8.dp))
                                 Text(stringResource(R.string.play))
                             }
+
+                            // "Download all" with the staged progress bar (right of Play).
+                            // While a batch is running the button turns into a Cancel action (P14).
+                            Spacer(modifier = Modifier.size(8.dp))
+                            val isDownloading = downloadProgress != null
+                            if (isDownloading) {
+                                androidx.compose.material3.OutlinedButton(
+                                    onClick = { SpotifyBatchDownload.cancel() },
+                                ) {
+                                    Icon(
+                                        painterResource(R.drawable.close),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                    Text(stringResource(R.string.cancel))
+                                }
+                            } else {
+                                androidx.compose.material3.OutlinedButton(
+                                    onClick = {
+                                        val toDownload = sortedTracks
+                                        if (toDownload.isEmpty()) return@OutlinedButton
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.spotify_download_started, toDownload.size),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                        // Run on the batch's own scope so it keeps going if the user
+                                        // navigates away mid-download.
+                                        val appContext = context.applicationContext
+                                        SpotifyBatchDownload.start(
+                                            appContext = appContext,
+                                            tracks = toDownload,
+                                            mapper = mapper,
+                                            label = context.getString(R.string.liked_songs),
+                                            downloads = downloadUtil.downloads,
+                                            onFinished = { result ->
+                                                Toast.makeText(
+                                                    appContext,
+                                                    appContext.getString(
+                                                        R.string.spotify_dl_finished,
+                                                        result.current, result.skipped, result.failed,
+                                                    ),
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            },
+                                        )
+                                    },
+                                ) {
+                                    Icon(
+                                        painterResource(R.drawable.download),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                    Text(stringResource(R.string.spotify_download_all))
+                                }
+                            }
+                        }
+
+                        // Staged progress: Searching → Downloading → Formatting, with skipped/failed.
+                        downloadProgress?.let { p ->
+                            Spacer(modifier = Modifier.height(12.dp))
+                            val text = when (p.phase) {
+                                SpotifyBatchDownload.Phase.SEARCHING ->
+                                    stringResource(R.string.spotify_dl_searching, p.current, p.total)
+                                SpotifyBatchDownload.Phase.DOWNLOADING ->
+                                    stringResource(R.string.spotify_dl_downloading, p.current, p.total)
+                                SpotifyBatchDownload.Phase.FORMATTING ->
+                                    stringResource(R.string.spotify_dl_formatting)
+                                SpotifyBatchDownload.Phase.DONE ->
+                                    stringResource(R.string.spotify_dl_downloading, p.current, p.total)
+                            }
+                            val extra = buildList {
+                                if (p.skipped > 0) add("⃠ ${p.skipped}")
+                                if (p.failed > 0) add("✕ ${p.failed}")
+                            }.joinToString("  ")
+                            Text(
+                                text = if (extra.isEmpty()) text else "$text   $extra",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            androidx.compose.material3.LinearProgressIndicator(
+                                progress = { p.fraction },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
                     }
                 }
@@ -330,6 +445,7 @@ fun SpotifyLikedSongsScreen(
                 val originalIndex = if (isSearching) sortedTracks.indexOf(track).coerceAtLeast(0) else index
 
                 val isActive = currentSpotifyId != null && currentSpotifyId == track.id
+                val trackDownloadState = spotifyToYt[track.id]?.let { downloads[it]?.state }
                 ListItem(
                     title = track.name,
                     subtitle = joinByBullet(
@@ -337,6 +453,23 @@ fun SpotifyLikedSongsScreen(
                         makeTimeString((track.durationMs).toLong()),
                     ),
                     isActive = isActive,
+                    badges = {
+                        // Filled heart BEFORE the artist name (every track here is liked on Spotify).
+                        // Tapping it unlikes on Spotify and drops the row.
+                        Icon(
+                            painterResource(R.drawable.favorite),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .padding(end = 2.dp)
+                                .clickable { viewModel.unlike(track) },
+                        )
+                    },
+                    trailingContent = {
+                        // Downloaded badge on the right.
+                        com.metrolist.music.ui.component.Icon.Download(trackDownloadState)
+                    },
                     thumbnailContent = {
                         ItemThumbnail(
                             thumbnailUrl = thumbnailUrl,
@@ -469,32 +602,33 @@ fun SpotifyLikedSongsScreen(
                                 },
                                 onClick = {
                                     showOverflowMenu = false
-                                    Timber.d("SpotifyLikedDownload: started, ${sortedTracks.size} tracks")
-                                    coroutineScope.launch {
-                                        var resolved = 0
-                                        var skipped = 0
-                                        sortedTracks.forEach { track ->
-                                            val metadata = mapper.mapToYouTube(track)
-                                            if (metadata == null) {
-                                                skipped++
-                                                Timber.w("SpotifyLikedDownload: SKIP '${track.name}' — no YouTube match")
-                                                return@forEach
-                                            }
-                                            resolved++
-                                            Timber.d("SpotifyLikedDownload: queuing '${track.name}' -> yt:${metadata.id}")
-                                            val downloadRequest = DownloadRequest
-                                                .Builder(metadata.id, metadata.id.toUri())
-                                                .setCustomCacheKey(metadata.id)
-                                                .setData(metadata.title.toByteArray())
-                                                .build()
-                                            DownloadService.sendAddDownload(
-                                                context,
-                                                ExoDownloadService::class.java,
-                                                downloadRequest,
-                                                false,
+                                    val toDownload = sortedTracks
+                                    if (toDownload.isNotEmpty()) {
+                                        Timber.d("SpotifyLikedDownload: started, ${toDownload.size} tracks")
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.spotify_download_started, toDownload.size),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                        coroutineScope.launch {
+                                            // Shared helper: bounded-parallel resolve + enqueue with live progress,
+                                            // instead of the old silent one-by-one loop that looked frozen.
+                                            val result = SpotifyBatchDownload.run(
+                                                context = context,
+                                                tracks = toDownload,
+                                                mapper = mapper,
+                                                label = context.getString(R.string.liked_songs),
+                                                downloads = downloadUtil.downloads,
                                             )
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(
+                                                    R.string.spotify_dl_finished,
+                                                    result.current, result.skipped, result.failed,
+                                                ),
+                                                Toast.LENGTH_LONG,
+                                            ).show()
                                         }
-                                        Timber.d("SpotifyLikedDownload: done — $resolved queued, $skipped skipped")
                                     }
                                 },
                             )

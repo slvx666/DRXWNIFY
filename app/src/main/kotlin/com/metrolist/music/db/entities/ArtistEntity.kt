@@ -44,6 +44,14 @@ data class ArtistEntity(
 
     fun toggleLike() = localToggleLike().also {
         CoroutineScope(Dispatchers.IO).launch {
+            // Spotify artists follow/unfollow on Spotify; never send a Spotify id to YouTube.
+            val spotify = spotifyId ?: com.metrolist.music.utils.ArtistIdentity.spotifyIdOf(id)
+            if (spotify != null) {
+                if (com.metrolist.spotify.Spotify.isAuthenticated()) {
+                    com.metrolist.spotify.Spotify.setFollowingArtist(spotify, bookmarkedAt == null)
+                }
+                return@launch
+            }
             val targetChannelId = channelId ?: YouTube.getChannelId(id)
             if (targetChannelId.isNotEmpty()) {
                 YouTube.subscribeChannel(targetChannelId, bookmarkedAt == null)

@@ -243,8 +243,20 @@ object YouTube {
         SearchSummaryPage(summaries = mergedSummaries)
     }
 
-    suspend fun search(query: String, filter: SearchFilter): Result<SearchResult> = runCatching {
-        val response = innerTube.search(WEB_REMIX, query, filter.value).body<SearchResponse>()
+    suspend fun search(
+        query: String,
+        filter: SearchFilter,
+        incognito: Boolean = false,
+    ): Result<SearchResult> = runCatching {
+        val response = innerTube.search(
+            WEB_REMIX,
+            query,
+            filter.value,
+            // Force an anonymous search (no auth header, no dataSyncId) so the query
+            // is NOT recorded in the user's YouTube search history — used for
+            // background Spotify→YouTube matching. Mirrors [searchSummary].
+            setLogin = if (incognito) false else null,
+        ).body<SearchResponse>()
         val shelves = response.contents?.tabbedSearchResultsRenderer?.tabs?.firstOrNull()
             ?.tabRenderer?.content?.sectionListRenderer?.contents
             ?.mapNotNull { it.musicShelfRenderer }

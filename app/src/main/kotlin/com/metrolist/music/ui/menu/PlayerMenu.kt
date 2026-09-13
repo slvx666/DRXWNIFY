@@ -88,7 +88,11 @@ import com.metrolist.music.listentogether.ListenTogetherEvent
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.playback.ExoDownloadService
+import com.metrolist.music.playback.SpotifyMetadataRegistry
 import com.metrolist.music.playback.SpotifyYouTubeMapper
+import com.metrolist.music.utils.SPOTIFY_ID_PREFIX
+import com.metrolist.music.utils.isSpotifyId
+import com.metrolist.music.utils.stripSpotifyPrefix
 import com.metrolist.music.ui.component.YouTubeMatchDialog
 import com.metrolist.music.ui.component.BottomSheetState
 import com.metrolist.music.ui.component.ListDialog
@@ -142,10 +146,52 @@ fun PlayerMenu(
         .getDownload(mediaMetadata.id)
         .collectAsState(initial = null)
 
-    val artists =
-        remember(mediaMetadata.artists) {
-            mediaMetadata.artists.filter { it.id != null }
+    // Recover the originating Spotify track for the current media so "View artist" / "View album"
+    // work for Spotify-sourced tracks (whose YouTube MediaItem carries no album and often id-less
+    // artists). Prefer the in-memory registry; if it was evicted (e.g. after a process restart —
+    // this is why the buttons "often" disappeared), fall back to the spotify_match table + a one-shot
+    // Spotify.getTrack so the real album/artist ids are always available.
+    val recoveredSpotifyTrack by produceState<com.metrolist.spotify.models.SpotifyTrack?>(
+        initialValue = mediaMetadata.id?.let { SpotifyMetadataRegistry.get(it) },
+        mediaMetadata.id,
+    ) {
+        val fromRegistry = mediaMetadata.id?.let { SpotifyMetadataRegistry.get(it) }
+        if (fromRegistry != null) {
+            value = fromRegistry
+        } else {
+            value = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                val sid = database.getSpotifyMatchByYouTubeId(mediaMetadata.id)?.spotifyId
+                sid?.let { com.metrolist.spotify.Spotify.getTrack(it).getOrNull() }
+            }
         }
+    }
+
+    // Artist links for "View artist": prefer the recovered Spotify track's artists (real Spotify ids),
+    // falling back to the media artists.
+    val menuArtists: List<Pair<String, String?>> =
+        recoveredSpotifyTrack
+            ?.artists
+            ?.filter { it.name.isNotBlank() }
+            ?.map { a -> a.name to a.id?.let { "$SPOTIFY_ID_PREFIX$it" } }
+            ?.takeIf { it.isNotEmpty() }
+            ?: mediaMetadata.artists.map { it.name to it.id }
+    val navigableArtists = menuArtists.filter { it.second != null }
+
+    // Album link for "View album": prefer the recovered Spotify track's album (spotify_album/{id}),
+    // else the media's own album (album/{id}). null when neither is known.
+    val spotifyAlbumId = recoveredSpotifyTrack?.album?.id?.takeIf { it.isNotBlank() }
+        ?: mediaMetadata.album?.id?.takeIf { it.isSpotifyId() }?.stripSpotifyPrefix()
+
+    // Navigate to an artist by link id (Spotify ids open the Spotify artist screen).
+    val openArtist: (String) -> Unit = { navId ->
+        if (navId.isSpotifyId()) {
+            navController.navigate("spotify_artist/${navId.stripSpotifyPrefix()}")
+        } else {
+            navController.navigate("artist/$navId")
+        }
+        playerBottomSheetState.collapseSoft()
+        onDismiss()
+    }
 
     var showChoosePlaylistDialog by rememberSaveable {
         mutableStateOf(false)
@@ -267,7 +313,7 @@ fun PlayerMenu(
         ListDialog(
             onDismiss = { showSelectArtistDialog = false },
         ) {
-            items(artists) { artist ->
+            items(navigableArtists) { artist ->
                 Box(
                     contentAlignment = Alignment.CenterStart,
                     modifier =
@@ -275,14 +321,12 @@ fun PlayerMenu(
                             .fillParentMaxWidth()
                             .height(ListItemHeight)
                             .clickable {
-                                navController.navigate("artist/${artist.id}")
                                 showSelectArtistDialog = false
-                                playerBottomSheetState.collapseSoft()
-                                onDismiss()
+                                artist.second?.let { openArtist(it) }
                             }.padding(horizontal = 24.dp),
                 ) {
                     Text(
-                        text = artist.name,
+                        text = artist.first,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -313,57 +357,32 @@ fun PlayerMenu(
         )
     }
 
-    if (isQueueTrigger != true) {
-        Column(
+    // Optional cast indicator (only while casting). The old leading divider/volume "strip" was
+    // removed, so the menu content starts right at the top.
+    if (isCasting && castDeviceName != null) {
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
-                    .padding(top = 24.dp, bottom = 6.dp),
+                    .padding(top = 16.dp, bottom = 4.dp),
         ) {
-            // Show Cast indicator when casting
-            if (isCasting && castDeviceName != null) {
-                Row(
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.cast),
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = stringResource(R.string.casting_to, castDeviceName ?: ""),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-
-            VolumeSlider(
-                value = if (isCasting) castVolume else playerVolume.value,
-                onValueChange = { volume ->
-                    if (isCasting) {
-                        castHandler?.setVolume(volume)
-                    } else {
-                        playerConnection.service.playerVolume.value = volume
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                accentColor = MaterialTheme.colorScheme.primary,
+            Icon(
+                painter = painterResource(R.drawable.cast),
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = stringResource(R.string.casting_to, castDeviceName ?: ""),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
     }
-
-    Spacer(modifier = Modifier.height(20.dp))
-
-    HorizontalDivider()
 
     Spacer(modifier = Modifier.height(12.dp))
 
@@ -379,203 +398,7 @@ fun PlayerMenu(
                 bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
             ),
     ) {
-        item {
-            val startingRadioText = stringResource(R.string.starting_radio)
-            NewActionGrid(
-                actions =
-                    listOfNotNull(
-                        if (!isListenTogetherGuest) {
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.radio),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(32.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.start_radio),
-                                onClick = {
-                                    Toast.makeText(context, startingRadioText, Toast.LENGTH_SHORT).show()
-                                    playerConnection.startRadioSeamlessly()
-                                    onDismiss()
-                                },
-                            )
-                        } else {
-                            null
-                        },
-                        NewAction(
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.playlist_add),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(32.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                            text = stringResource(R.string.add_to_playlist),
-                            onClick = { showChoosePlaylistDialog = true },
-                        ),
-                        NewAction(
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.link),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(32.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                            text = stringResource(R.string.copy_link),
-                            onClick = {
-                                val clipboard =
-                                    context.getSystemService(
-                                        android.content.Context.CLIPBOARD_SERVICE,
-                                    ) as android.content.ClipboardManager
-                                val clip =
-                                    android.content.ClipData.newPlainText(
-                                        "Song Link",
-                                        "https://music.youtube.com/watch?v=${mediaMetadata.id}",
-                                    )
-                                clipboard.setPrimaryClip(clip)
-                                android.widget.Toast
-                                    .makeText(context, R.string.link_copied, android.widget.Toast.LENGTH_SHORT)
-                                    .show()
-                                onDismiss()
-                            },
-                        ),
-                    ) + if (com.metrolist.spotify.Spotify.isAuthenticated()) {
-                        listOf(
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.spotify),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(32.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                text = stringResource(R.string.spotify_add_to_playlist),
-                                onClick = { showAddToSpotifyPlaylist = true },
-                            ),
-                        )
-                    } else {
-                        emptyList()
-                    },
-                columns = if (isListenTogetherGuest) 2 else 3,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp),
-            )
-        }
-
-        item {
-            // Check if this is a podcast episode (album ID doesn't start with MPREb_)
-            val isPodcast = mediaMetadata.album?.let { !it.id.startsWith("MPREb_") } ?: false
-
-            Material3MenuGroup(
-                items =
-                    buildList {
-                        // Don't show "View Artist" for podcasts - only show "View Podcast"
-                        if (artists.isNotEmpty() && !isPodcast) {
-                            add(
-                                Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.view_artist)) },
-                                    description = {
-                                        Text(
-                                            text = mediaMetadata.artists.joinToString { it.name },
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    },
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(R.drawable.artist),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                        )
-                                    },
-                                    onClick = {
-                                        if (mediaMetadata.artists.size == 1) {
-                                            navController.navigate("artist/${mediaMetadata.artists[0].id}")
-                                            playerBottomSheetState.collapseSoft()
-                                            onDismiss()
-                                        } else {
-                                            showSelectArtistDialog = true
-                                        }
-                                    },
-                                ),
-                            )
-                        }
-                        if (mediaMetadata.album != null) {
-                            add(
-                                Material3MenuItemData(
-                                    title = { Text(text = stringResource(if (isPodcast) R.string.view_podcast else R.string.view_album)) },
-                                    description = {
-                                        Text(
-                                            text = mediaMetadata.album.title,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    },
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(if (isPodcast) R.drawable.mic else R.drawable.album),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                        )
-                                    },
-                                    onClick = {
-                                        if (isPodcast) {
-                                            navController.navigate("online_podcast/${mediaMetadata.album.id}")
-                                        } else {
-                                            navController.navigate("album/${mediaMetadata.album.id}")
-                                        }
-                                        playerBottomSheetState.collapseSoft()
-                                        onDismiss()
-                                    },
-                                ),
-                            )
-                        }
-                        // Add to Library option
-                        val isInLibrary = librarySong?.song?.inLibrary != null
-                        add(
-                            Material3MenuItemData(
-                                title = {
-                                    Text(
-                                        text =
-                                            stringResource(
-                                                if (isInLibrary) {
-                                                    R.string.remove_from_library
-                                                } else {
-                                                    R.string.add_to_library
-                                                },
-                                            ),
-                                    )
-                                },
-                                icon = {
-                                    Icon(
-                                        painter =
-                                            painterResource(
-                                                if (isInLibrary) {
-                                                    R.drawable.library_add_check
-                                                } else {
-                                                    R.drawable.library_add
-                                                },
-                                            ),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                },
-                                onClick = {
-                                    playerConnection.toggleLibrary()
-                                    onDismiss()
-                                },
-                            ),
-                        )
-                    },
-            )
-        }
-
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-
+        // Download is the first action in the menu.
         item {
             Material3MenuGroup(
                 items =
@@ -638,7 +461,7 @@ fun PlayerMenu(
                                     },
                                     onClick = {
                                         database.transaction {
-                                            insert(mediaMetadata)
+                                            upsertMetadata(mediaMetadata)
                                         }
                                         val downloadRequest =
                                             DownloadRequest
@@ -662,10 +485,109 @@ fun PlayerMenu(
 
         item { Spacer(modifier = Modifier.height(12.dp)) }
 
+        // View artist (right under Download) then View album.
         item {
+            val isPodcast = mediaMetadata.album?.let { !it.id.startsWith("MPREb_") } ?: false
             Material3MenuGroup(
                 items =
                     buildList {
+                        if (navigableArtists.isNotEmpty() && !isPodcast) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.view_artist)) },
+                                    description = {
+                                        Text(
+                                            text = menuArtists.joinToString { it.first },
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.artist),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        if (navigableArtists.size == 1) {
+                                            navigableArtists.first().second?.let { openArtist(it) }
+                                        } else {
+                                            showSelectArtistDialog = true
+                                        }
+                                    },
+                                ),
+                            )
+                        }
+                        // Works for Spotify tracks via the recovered album id, not only tracks that
+                        // carry a native album on the MediaItem.
+                        val albumTitle = mediaMetadata.album?.title ?: recoveredSpotifyTrack?.album?.name
+                        if ((mediaMetadata.album != null || spotifyAlbumId != null) && !isPodcast) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.view_album)) },
+                                    description = {
+                                        Text(
+                                            text = albumTitle.orEmpty(),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.album),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        val mediaAlbumId = mediaMetadata.album?.id
+                                        val nativeAlbumId = mediaAlbumId?.takeUnless { it.isSpotifyId() }
+                                        val spotifyTarget = spotifyAlbumId
+                                            ?: mediaAlbumId?.takeIf { it.isSpotifyId() }?.stripSpotifyPrefix()
+                                        when {
+                                            // Prefer the exact Spotify album when known.
+                                            spotifyTarget != null -> navController.navigate("spotify_album/$spotifyTarget")
+                                            nativeAlbumId != null -> navController.navigate("album/$nativeAlbumId")
+                                        }
+                                        playerBottomSheetState.collapseSoft()
+                                        onDismiss()
+                                    },
+                                ),
+                            )
+                        }
+                    },
+            )
+        }
+
+        item { Spacer(modifier = Modifier.height(12.dp)) }
+
+        item {
+            val startingRadioText = stringResource(R.string.starting_radio)
+            Material3MenuGroup(
+                items =
+                    buildList {
+                        // "Start radio" as a normal row (matches the buttons below), placed above
+                        // "Listen together".
+                        if (!isListenTogetherGuest) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.start_radio)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.radio),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        Toast.makeText(context, startingRadioText, Toast.LENGTH_SHORT).show()
+                                        playerConnection.startRadioSeamlessly()
+                                        onDismiss()
+                                    },
+                                ),
+                            )
+                        }
                         add(
                             Material3MenuItemData(
                                 title = { Text(text = stringResource(R.string.listen_together)) },

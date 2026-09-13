@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,6 +53,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -67,6 +69,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -78,9 +81,14 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.offline.Download
+import androidx.media3.exoplayer.offline.DownloadRequest
+import androidx.media3.exoplayer.offline.DownloadService
 import coil3.compose.AsyncImage
 import com.metrolist.music.LocalDatabase
+import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
@@ -96,6 +104,7 @@ import com.metrolist.music.db.entities.ArtistEntity
 import com.metrolist.music.listentogether.ListenTogetherManager
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.playback.CastConnectionHandler
+import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.ui.screens.settings.DarkMode
 import com.metrolist.music.ui.utils.resize
@@ -474,18 +483,11 @@ private fun NewMiniPlayer(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-// Add to playlist button - isolated composable
+// Download button - isolated composable (replaces the old add-to-playlist "+")
                 mediaMetadata?.let { metadata ->
-                    AddToPlaylistButton(
-                        onClick = {
-                            menuState.show {
-                                AddToPlaylistDialog(
-                                    isVisible = true,
-                                    onGetSong = { listOf(metadata.id) },
-                                    onDismiss = menuState::dismiss,
-                                )
-                            }
-                        },
+                    DownloadButton(
+                        mediaMetadata = metadata,
+                        primaryColor = primaryColor,
                         outlineColor = outlineColor,
                         onSurfaceColor = onSurfaceColor,
                     )
@@ -1047,8 +1049,14 @@ private fun SubscribeButton(
     onSurfaceColor: Color,
 ) {
     val database = LocalDatabase.current
-    val libraryArtist by database.artist(artistId).collectAsState(initial = null)
-    val isSubscribed = libraryArtist?.artist?.bookmarkedAt != null
+    // Same row the artist profile uses: Spotify artists are keyed by spotifyId, others by id.
+    val spotifyRaw = remember(artistId) { com.metrolist.music.utils.ArtistIdentity.spotifyIdOf(artistId) }
+    val artistFlow = remember(artistId, spotifyRaw) {
+        if (spotifyRaw != null) database.artistBySpotifyIdFlow(spotifyRaw)
+        else database.artist(artistId).map { it?.artist }
+    }
+    val artistEntity by artistFlow.collectAsState(initial = null)
+    val isSubscribed = artistEntity?.bookmarkedAt != null
 
 
     Box(
@@ -1066,17 +1074,20 @@ private fun SubscribeButton(
                     shape = CircleShape,
                 ).clickable {
                     database.transaction {
-                        val artist = libraryArtist?.artist
+                        val artist = artistEntity
                         if (artist != null) {
                             update(artist.toggleLike())
                         } else {
-                            metadata.artists.firstOrNull()?.let { artistInfo ->
+                            val artistInfo = metadata.artists.firstOrNull { it.id == artistId }
+                                ?: metadata.artists.firstOrNull()
+                            artistInfo?.let {
                                 insert(
                                     ArtistEntity(
-                                        id = artistInfo.id ?: "",
-                                        name = artistInfo.name,
+                                        id = spotifyRaw?.let { raw -> "SP_$raw" } ?: (it.id ?: ""),
+                                        name = it.name,
                                         channelId = null,
                                         thumbnailUrl = null,
+                                        spotifyId = spotifyRaw,
                                     ).toggleLike(),
                                 )
                             }
@@ -1094,12 +1105,25 @@ private fun SubscribeButton(
 }
 
 @Composable
-private fun AddToPlaylistButton(
-    onClick: () -> Unit,
+private fun DownloadButton(
+    mediaMetadata: MediaMetadata,
+    primaryColor: Color,
     outlineColor: Color,
     onSurfaceColor: Color,
 ) {
-    val contentDescription = stringResource(R.string.add_to_playlist_desc)
+    val context = LocalContext.current
+    val database = LocalDatabase.current
+    val download by LocalDownloadUtil.current
+        .getDownload(mediaMetadata.id)
+        .collectAsState(initial = null)
+    // P2: stay in sync with the fullscreen player, which also treats the post-download
+    // export/transcode phase as "in progress". Without this the mini shows "downloaded"
+    // the moment ExoPlayer finishes while the fullscreen still shows a spinner.
+    val exportingIds by com.metrolist.music.utils.DownloadExportState.exporting.collectAsState()
+    val isExporting = mediaMetadata.id in exportingIds
+    val state = download?.state
+    val isDownloaded = state == Download.STATE_COMPLETED && !isExporting
+    val isInProgress = state == Download.STATE_QUEUED || state == Download.STATE_DOWNLOADING || isExporting
 
     Box(
         contentAlignment = Alignment.Center,
@@ -1108,21 +1132,54 @@ private fun AddToPlaylistButton(
             .clip(CircleShape)
             .border(
                 width = 1.dp,
-                color = outlineColor.copy(alpha = 0.3f),
+                color = if (isDownloaded) primaryColor.copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.3f),
                 shape = CircleShape,
             )
             .background(
-                color = Color.Transparent,
+                color = if (isDownloaded) primaryColor.copy(alpha = 0.1f) else Color.Transparent,
                 shape = CircleShape,
             )
-            .clickable { onClick() },
+            .clickable {
+                when {
+                    isDownloaded || isInProgress -> {
+                        DownloadService.sendRemoveDownload(
+                            context,
+                            ExoDownloadService::class.java,
+                            mediaMetadata.id,
+                            false,
+                        )
+                    }
+                    else -> {
+                        database.transaction { upsertMetadata(mediaMetadata) }
+                        val request = DownloadRequest
+                            .Builder(mediaMetadata.id, mediaMetadata.id.toUri())
+                            .setCustomCacheKey(mediaMetadata.id)
+                            .setData(mediaMetadata.title.toByteArray())
+                            .build()
+                        DownloadService.sendAddDownload(
+                            context,
+                            ExoDownloadService::class.java,
+                            request,
+                            false,
+                        )
+                    }
+                }
+            },
     ) {
-        Icon(
-            painter = painterResource(R.drawable.add),
-            contentDescription = contentDescription,
-            tint = onSurfaceColor.copy(alpha = 0.7f),
-            modifier = Modifier.size(20.dp),
-        )
+        if (isInProgress) {
+            CircularProgressIndicator(
+                strokeWidth = 2.dp,
+                color = onSurfaceColor.copy(alpha = 0.7f),
+                modifier = Modifier.size(18.dp),
+            )
+        } else {
+            Icon(
+                painter = painterResource(if (isDownloaded) R.drawable.offline else R.drawable.download),
+                contentDescription = stringResource(R.string.action_download),
+                tint = if (isDownloaded) primaryColor else onSurfaceColor.copy(alpha = 0.7f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 

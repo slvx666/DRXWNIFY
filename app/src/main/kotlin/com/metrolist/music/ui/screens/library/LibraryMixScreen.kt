@@ -141,7 +141,7 @@ fun LibraryMixScreen(
         }
     }
 
-    var viewType by rememberEnumPreference(AlbumViewTypeKey, LibraryViewType.GRID)
+    var viewType by rememberEnumPreference(AlbumViewTypeKey, LibraryViewType.LIST)
     val (sortType, onSortTypeChange) =
         rememberEnumPreference(
             MixSortTypeKey,

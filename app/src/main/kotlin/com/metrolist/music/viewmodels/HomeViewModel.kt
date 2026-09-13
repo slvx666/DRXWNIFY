@@ -61,7 +61,6 @@ import com.metrolist.music.ui.screens.wrapped.WrappedManager
 import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
-import com.metrolist.music.playback.SpotifyProfileCache
 import com.metrolist.music.utils.reportException
 import com.metrolist.spotify.Spotify
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -658,27 +657,14 @@ class HomeViewModel @Inject constructor(
         val sections = mutableListOf<SpotifyHomeSection>()
 
         try {
-            // These three sources are independent — fetch them concurrently and then
-            // assemble the sections in a fixed display order. Previously they ran
-            // strictly sequentially (~1-2.7s of chained round-trips).
-            val (profileTracks, newReleasesResult, homeResult) = coroutineScope {
-                val topTracksDeferred = async { SpotifyProfileCache.getTopTracks(context, database, limit = 20) }
+            // "Your Top Tracks" removed per user request: it hit Spotify's /me/top/tracks endpoint,
+            // which gets rate-limited hard (429, sometimes retryAfter=86400s / 24h) and the user
+            // doesn't care about the section anyway. These two sources are independent — fetch them
+            // concurrently and then assemble the sections in a fixed display order.
+            val (newReleasesResult, homeResult) = coroutineScope {
                 val newReleasesDeferred = async { Spotify.newReleases(limit = 20) }
                 val homeDeferred = async { Spotify.home(sectionItemsLimit = 10) }
-                Triple(topTracksDeferred.await(), newReleasesDeferred.await(), homeDeferred.await())
-            }
-
-            Timber.d("spotifyHome: top tracks from profile cache = ${profileTracks.size}")
-            val topTracks = if (hideExplicit) profileTracks.filter { !it.explicit } else profileTracks
-            if (topTracks.isNotEmpty()) {
-                sections.add(SpotifyHomeSection(
-                    title = "spotify_top_tracks",
-                    type = SectionType.TRACKS,
-                    tracks = topTracks,
-                ))
-                Timber.d("spotifyHome: added pinned section 'Your Top Tracks' (${topTracks.size} tracks)")
-            } else {
-                Timber.w("spotifyHome: no top tracks — skipping pinned section")
+                newReleasesDeferred.await() to homeDeferred.await()
             }
 
             newReleasesResult.onSuccess { newReleases ->
@@ -733,10 +719,35 @@ class HomeViewModel @Inject constructor(
      * a section is heterogeneous and filters items to that type — Shorts sections
      * and episode-only sections are skipped (no title / not playable as tracks).
      */
+    // P4: keep only taste-based playlists. Spotify seeds the home feed with generic
+    // editorial playlists (charts like "Top 100…", mood/decade compilations) that are
+    // owned by the "Spotify" account and not made for this user. Personal mixes
+    // (Daily Mix, Discover Weekly, Release Radar) are Spotify-owned but carry a
+    // `madeForUsername`, so we keep those; user-owned and other-user playlists (owner
+    // != Spotify) are kept too.
+    private fun SpotifyHomeFeedItem.Playlist.isTasteBased(): Boolean {
+        val owner = ownerName?.trim()
+        // Playlists NOT owned by the Spotify editorial account are the user's own or other people's —
+        // always keep those.
+        if (!owner.equals("Spotify", ignoreCase = true)) return true
+        // Spotify-owned playlists are mostly generic editorial (charts, moods, "Happy Hits!",
+        // localized "fijne zondag!" greeting playlists) that ignore the user's taste. Keep only the
+        // genuinely personal algorithmic mixes, matched by their stable names.
+        val n = name.trim().lowercase()
+        val personalPrefixes = listOf(
+            "daily mix", "discover weekly", "release radar", "on repeat", "repeat rewind",
+            "your time capsule", "time capsule", "your top songs", "your summer rewind",
+            "made for", "blend",
+        )
+        return personalPrefixes.any { n.startsWith(it) || n.contains(it) }
+    }
+
     private fun convertHomeSection(feedSection: SpotifyHomeFeedSection): SpotifyHomeSection? {
         val title = feedSection.title ?: return null
 
-        val playlists = feedSection.items.filterIsInstance<SpotifyHomeFeedItem.Playlist>()
+        val playlists = feedSection.items
+            .filterIsInstance<SpotifyHomeFeedItem.Playlist>()
+            .filter { it.isTasteBased() }
         val albums = feedSection.items.filterIsInstance<SpotifyHomeFeedItem.Album>()
         val artists = feedSection.items.filterIsInstance<SpotifyHomeFeedItem.Artist>()
 

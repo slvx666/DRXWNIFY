@@ -378,14 +378,14 @@ fun SongListItem(
     showDownloadIcon: Boolean = true,
     subtitleOverride: String? = null,
     badges: @Composable RowScope.() -> Unit = {
+        // Track badges are unified to just Liked (heart) + Downloaded (circle-check), shown on every
+        // row. The old "in library" square-check badge was removed — that function is superseded by
+        // the like/Spotify-sync. (showInLibraryIcon is kept for source compat but no longer renders.)
         if (showLikedIcon && song.song.liked) {
             Icon.Favorite()
         }
         if (song.song.explicit) {
             Icon.Explicit()
-        }
-        if (showInLibraryIcon && song.song.inLibrary != null) {
-            Icon.Library()
         }
         if (showDownloadIcon) {
             val download by LocalDownloadUtil.current.getDownload(song.id)
@@ -447,11 +447,9 @@ fun SongGridItem(
     showInLibraryIcon: Boolean = false,
     showDownloadIcon: Boolean = true,
     badges: @Composable RowScope.() -> Unit = {
+        // Unified badges: Liked (heart) + Downloaded (circle-check) only; library square-check removed.
         if (showLikedIcon && song.song.liked) {
             Icon.Favorite()
-        }
-        if (showInLibraryIcon && song.song.inLibrary != null) {
-            Icon.Library()
         }
         if (showDownloadIcon) {
             val download by LocalDownloadUtil.current.getDownload(song.id).collectAsState(initial = null)
@@ -737,6 +735,7 @@ fun PlaylistListItem(
     playlist: Playlist,
     modifier: Modifier = Modifier,
     autoPlaylist: Boolean = false,
+    thumbnailSize: androidx.compose.ui.unit.Dp = ListThumbnailSize,
     badges: @Composable RowScope.() -> Unit = {
         val downloadUtil = LocalDownloadUtil.current
         val database = LocalDatabase.current
@@ -769,7 +768,12 @@ fun PlaylistListItem(
 ) = ListItem(
     title = playlist.playlist.name,
     subtitle = if (autoPlaylist) {
-        ""
+        // Auto-playlists (Liked / Downloaded / Cached / …) now show their track count too.
+        if (playlist.songCount > 0) {
+            pluralStringResource(R.plurals.n_song, playlist.songCount, playlist.songCount)
+        } else {
+            ""
+        }
     } else {
         if (playlist.songCount == 0 && playlist.playlist.remoteSongCount != null) {
             pluralStringResource(
@@ -789,7 +793,7 @@ fun PlaylistListItem(
     thumbnailContent = {
         PlaylistThumbnail(
             thumbnails = playlist.thumbnails,
-            size = ListThumbnailSize,
+            size = thumbnailSize,
             placeHolder = {
                 val painter = when (playlist.playlist.name) {
                     stringResource(R.string.liked) -> R.drawable.favorite_border
@@ -808,7 +812,7 @@ fun PlaylistListItem(
                     } else {
                         LocalContentColor.current.copy(alpha = 0.8f)
                     },
-                    modifier = Modifier.size(ListThumbnailSize / 2)
+                    modifier = Modifier.size(thumbnailSize / 2)
                 )
             },
             shape = RoundedCornerShape(ThumbnailCornerRadius)

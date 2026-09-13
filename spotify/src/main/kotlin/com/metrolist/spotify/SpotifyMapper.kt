@@ -16,7 +16,6 @@ object SpotifyMapper {
     private val BRACKET_PATTERN = Regex("\\[.*?]")
     private val REMASTER_PATTERN = Regex("\\(.*?remaster.*?\\)", RegexOption.IGNORE_CASE)
     private val REMIX_PATTERN = Regex("\\(.*?remix.*?\\)", RegexOption.IGNORE_CASE)
-    private val NON_ALNUM_PATTERN = Regex("[^a-z0-9\\s]")
     private val MULTI_SPACE_PATTERN = Regex("\\s+")
 
     private const val NORM_CACHE_MAX_SIZE = 256
@@ -182,6 +181,192 @@ object SpotifyMapper {
     /** Threshold above which we consider a match good enough to skip remaining candidates. */
     fun earlyExitThreshold(): Double = EARLY_EXIT_THRESHOLD
 
+    // ---------------------------------------------------------------------------------------------
+    // Strict candidate selection (ported/adapted from Sunnify's MusicScraper._select_youtube_match)
+    //
+    // Guiding principle: A WRONG track is worse than NO track. The gates below reject a candidate
+    // outright rather than shipping the closest-scoring-but-wrong result. Everything here is pure
+    // string/number logic so it is unit-testable in the `spotify` module without Android/innertube.
+    // ---------------------------------------------------------------------------------------------
+
+    /** Max Spotify-vs-candidate length gap (seconds) still treated as the same recording. */
+    const val DURATION_TOLERANCE_S = 7
+
+    /**
+     * Wider bound: right title+artist but more than this many seconds off means a
+     * remix / live / extended / sped-up edit — reject rather than ship wrong audio.
+     */
+    const val DURATION_TOLERANCE_WIDE_S = 30
+
+    /** Minimum raw match score for an accepted candidate (a floor beneath the hard gates). */
+    const val MIN_MATCH_THRESHOLD = 0.35
+
+    /** Per-marker ranking penalty for non-studio variants, capped by [MAX_VARIANT_PENALTY]. */
+    private const val VARIANT_PENALTY_PER_MARKER = 0.15
+    private const val MAX_VARIANT_PENALTY = 0.30
+
+    /** Whole-word markers that indicate a non-studio upload (live/MV/edit/cover/…). */
+    private val VARIANT_MARKER_REGEX = Regex(
+        "\\b(live|en vivo|en directo|ao vivo|karaoke|cover|instrumental|" +
+            "sped up|spedup|slowed|reverb|nightcore|8d|remix|bootleg|mashup|" +
+            "music video|official video|lyric video)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** Splits multi-artist strings on collaboration separators before normalization. */
+    private val ARTIST_SPLIT_REGEX = Regex("[,&/]+|\\s+(?:feat\\.?|ft\\.?|x|vs\\.?)\\s+", RegexOption.IGNORE_CASE)
+
+    /** A lightweight, source-agnostic candidate. The app adapter maps YouTube SongItems onto this. */
+    data class Candidate(
+        val id: String,
+        val title: String,
+        val artist: String,
+        val durationSec: Int?,
+        val isVideo: Boolean = false,
+        val thumbnailUrl: String? = null,
+    )
+
+    sealed interface MatchResult {
+        data class Matched(
+            val id: String,
+            val score: Double,
+            val title: String,
+            val artist: String,
+        ) : MatchResult
+        data object NoMatch : MatchResult
+    }
+
+    /**
+     * Drops the " - Variant" suffix Spotify adds to differentiate releases, applied ONLY to the
+     * Spotify side ("Bohemian Rhapsody - Remastered 2011" -> "Bohemian Rhapsody"). Never apply to a
+     * YouTube title: there " - " usually separates "Artist - Song" and the strip would lose the song.
+     */
+    fun spotifyTitleCore(title: String): String =
+        if (title.isBlank()) "" else title.split(" - ", limit = 2)[0]
+
+    /**
+     * True when a candidate's title could reasonably be the Spotify track. The Spotify side gets
+     * its variant suffix dropped first; both sides are normalized. Substring match for targets of
+     * >= 4 chars, whole-word match for shorter ones (so a 1–3 char song name like "i" doesn't match
+     * every video). Guards the failure mode where the top hit is a DIFFERENT song by the SAME artist.
+     */
+    fun titlePlausiblyMatches(candidateTitle: String, spotifyTitle: String): Boolean {
+        val cand = cachedNormalize(candidateTitle)
+        val target = cachedNormalize(spotifyTitleCore(spotifyTitle))
+        if (target.isEmpty() || cand.isEmpty()) return false
+        return if (target.length >= 4) target in cand else target in cand.split(' ')
+    }
+
+    /** Normalized artist tokens from a (possibly multi-artist) credit string, empties removed. */
+    fun artistTokens(spotifyArtists: String): List<String> =
+        ARTIST_SPLIT_REGEX.split(spotifyArtists)
+            .map { cachedNormalize(it) }
+            .filter { it.isNotEmpty() }
+
+    /** True when any expected artist token appears in the candidate's structured artist or its title. */
+    fun artistPlausiblyMatches(candidateTitle: String, candidateArtist: String, tokens: List<String>): Boolean {
+        if (tokens.isEmpty()) return true
+        val artistN = cachedNormalize(candidateArtist)
+        val titleN = cachedNormalize(candidateTitle)
+        return tokens.any { it in artistN || it in titleN }
+    }
+
+    private fun anyTokenHasLatin(tokens: List<String>): Boolean =
+        tokens.any { t -> t.any { it in 'a'..'z' || it in '0'..'9' } }
+
+    /**
+     * Ranking penalty for candidates that look like a non-studio variant (live/MV/cover/remix/
+     * sped-up/…) when the Spotify track itself is not such a variant. Steers ranking toward the
+     * studio audio without hard-rejecting — a track that ONLY exists as e.g. a live version still
+     * resolves, it is just deprioritised when a studio upload is also present.
+     */
+    fun variantPenalty(spotifyTitle: String, candidateTitle: String): Double {
+        val candMarkers = VARIANT_MARKER_REGEX.findAll(candidateTitle.lowercase()).map { it.value.lowercase() }.toSet()
+        if (candMarkers.isEmpty()) return 0.0
+        val spotifyMarkers = VARIANT_MARKER_REGEX.findAll(spotifyTitle.lowercase()).map { it.value.lowercase() }.toSet()
+        val extra = candMarkers - spotifyMarkers
+        return (extra.size * VARIANT_PENALTY_PER_MARKER).coerceAtMost(MAX_VARIANT_PENALTY)
+    }
+
+    /**
+     * Picks the best candidate for a Spotify track, or [MatchResult.NoMatch] when none clears the
+     * gates. Policy (strict-by-default):
+     *   1. Keep only candidates whose title plausibly matches (rules out same-artist/other-song).
+     *   2. Prefer the subset whose artist also matches; fall back to title-only when the expected
+     *      artist is entirely non-latin (romanized on YouTube) or no candidate carries the artist.
+     *   3. Rank by (score − variantPenalty), tie-broken by duration closeness.
+     *   4. Hard-reject the winner if its known duration is off by more than the wide tolerance
+     *      (a remix/live/extended edit) or it falls below the score floor.
+     *   5. [loose] (opt-in) trades the never-ship-wrong-audio guarantee for coverage, returning the
+     *      duration-closest candidate when the strict gates find nothing.
+     */
+    fun selectBestMatch(
+        spotifyTitle: String,
+        spotifyPrimaryArtist: String,
+        spotifyArtistsAll: String,
+        spotifyDurationMs: Int,
+        candidates: List<Candidate>,
+        loose: Boolean = false,
+    ): MatchResult {
+        if (candidates.isEmpty()) return MatchResult.NoMatch
+
+        val precomputed = precompute(spotifyTitle, spotifyPrimaryArtist, spotifyDurationMs)
+        fun score(c: Candidate): Double =
+            matchScorePrecomputed(precomputed, c.title, c.artist, c.durationSec)
+        fun durationOff(c: Candidate): Int? =
+            if (c.durationSec != null && spotifyDurationMs > 0) {
+                kotlin.math.abs(spotifyDurationMs / 1000 - c.durationSec)
+            } else null
+
+        val titleOk = candidates.filter { titlePlausiblyMatches(it.title, spotifyTitle) }
+        if (titleOk.isEmpty()) return if (loose) loosePick(candidates, ::durationOff) else MatchResult.NoMatch
+
+        val tokens = artistTokens(spotifyArtistsAll.ifBlank { spotifyPrimaryArtist })
+        var pool = titleOk.filter { artistPlausiblyMatches(it.title, it.artist, tokens) }
+        if (pool.isEmpty()) {
+            pool = if (!anyTokenHasLatin(tokens)) titleOk
+            else return if (loose) loosePick(titleOk, ::durationOff) else MatchResult.NoMatch
+        }
+
+        // Highest adjusted score wins; ties broken toward the duration-closest candidate.
+        val chosen = pool.minWithOrNull(
+            compareByDescending<Candidate> { score(it) - variantPenalty(spotifyTitle, it.title) }
+                .thenBy { durationOff(it) ?: Int.MAX_VALUE },
+        ) ?: return MatchResult.NoMatch
+
+        val off = durationOff(chosen)
+        if (off != null && off > DURATION_TOLERANCE_WIDE_S) return MatchResult.NoMatch
+        val chosenScore = score(chosen)
+        if (chosenScore < MIN_MATCH_THRESHOLD) return MatchResult.NoMatch
+
+        return MatchResult.Matched(chosen.id, chosenScore, chosen.title, chosen.artist)
+    }
+
+    private fun loosePick(candidates: List<Candidate>, durationOff: (Candidate) -> Int?): MatchResult {
+        if (candidates.isEmpty()) return MatchResult.NoMatch
+        val chosen = candidates.minByOrNull { durationOff(it) ?: Int.MAX_VALUE } ?: candidates.first()
+        return MatchResult.Matched(chosen.id, 0.0, chosen.title, chosen.artist)
+    }
+
+    /**
+     * Ordered, de-duplicated YouTube search queries for a track: strict → normalized → expanded.
+     * Each later variant widens the net when the earlier ones return nothing usable.
+     */
+    fun buildSearchQueries(track: SpotifyTrack): List<String> {
+        val primary = track.artists.firstOrNull()?.name.orEmpty()
+        val allArtists = track.artists.joinToString(" ") { it.name }.trim()
+        val title = track.name
+        val titleCore = spotifyTitleCore(title)
+        val bracketless = title.replace(Regex("[(\\[{][^)\\]}]*[)\\]}]"), " ").replace(MULTI_SPACE_PATTERN, " ").trim()
+
+        return listOf(
+            if (primary.isEmpty()) title else "$primary $title",       // strict, as-is
+            if (primary.isEmpty()) titleCore else "$primary $titleCore", // variant suffix dropped
+            if (allArtists.isEmpty()) bracketless else "$allArtists $bracketless", // all artists, brackets stripped
+            titleCore.ifBlank { title },                                 // title-only last resort
+        ).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    }
+
     private fun durationScore(spotifyDurationMs: Int, candidateDurationSec: Int?): Double {
         if (candidateDurationSec == null || spotifyDurationMs <= 0) return 0.5
         val diff = kotlin.math.abs(spotifyDurationMs / 1000 - candidateDurationSec)
@@ -215,15 +400,30 @@ object SpotifyMapper {
     }
 
     private fun normalizeTitle(title: String): String {
-        return title.lowercase()
+        var s = title.lowercase()
             .replace(FEAT_PATTERN, "")
             .replace(FT_PATTERN, "")
             .replace(BRACKET_PATTERN, "")
             .replace(REMASTER_PATTERN, "")
             .replace(REMIX_PATTERN, "")
-            .replace(NON_ALNUM_PATTERN, "")
-            .replace(MULTI_SPACE_PATTERN, " ")
-            .trim()
+        // NFKD + drop combining marks so diacritics fold away ("Café" -> "cafe") without
+        // deleting the base letter. Then keep letters/digits of ANY script (Cyrillic, CJK,
+        // Greek, …) — the previous `[^a-z0-9\s]` filter erased every non-Latin title to an
+        // empty string, so those tracks never matched anything. Apostrophes are dropped with
+        // no separator so "I'm" -> "im" (not "i m"); other punctuation becomes a space.
+        s = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKD)
+            .replace("'", "")
+            .replace("’", "")
+        val sb = StringBuilder(s.length)
+        for (ch in s) {
+            when {
+                ch.isWhitespace() -> sb.append(' ')
+                Character.getType(ch) == Character.NON_SPACING_MARK.toInt() -> {} // diacritic mark
+                Character.isLetterOrDigit(ch) -> sb.append(ch)
+                else -> sb.append(' ')
+            }
+        }
+        return MULTI_SPACE_PATTERN.replace(sb.toString(), " ").trim()
     }
 
     /**

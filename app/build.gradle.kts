@@ -124,7 +124,17 @@ android {
             isShrinkResources = true
             isCrunchPngs = false
             isDebuggable = false
-            signingConfig = signingConfigs.getByName("release")
+            // Use the real release key only when its credentials are provided via env (CI).
+            // For a local build (no STORE_PASSWORD) fall back to a debug keystore so the release
+            // variant is still buildable/installable for personal testing — NOT for distribution.
+            signingConfig =
+                if (System.getenv("STORE_PASSWORD") != null) {
+                    signingConfigs.getByName("release")
+                } else if (persistentDebugKeystoreFile.exists()) {
+                    signingConfigs.getByName("persistentDebug")
+                } else {
+                    signingConfigs.getByName("debug")
+                }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

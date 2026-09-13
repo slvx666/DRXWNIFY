@@ -467,6 +467,25 @@
     <string name="spotify_use_for_home_description">Home screen will show personalized content from Spotify</string>
     <string name="spotify_home_only">Spotify-only home</string>
     <string name="spotify_home_only_description">Show only Spotify content on the home screen. When disabled, local content like Speed Dial and Quick Picks will also appear.</string>
+    <string name="spotify_download_started">Preparing %1$d tracks for download…</string>
+    <string name="spotify_download_progress">Preparing %1$d / %2$d…</string>
+    <string name="spotify_download_done">Queued %1$d, skipped %2$d</string>
+    <string name="spotify_dl_searching">Searching %1$d / %2$d…</string>
+    <string name="spotify_dl_downloading">Downloading %1$d / %2$d…</string>
+    <string name="spotify_dl_formatting">Formatting…</string>
+    <string name="spotify_dl_finished">Downloaded %1$d · skipped %2$d · failed %3$d</string>
+    <string name="spotify_download_all">Download all</string>
+    <string name="follow">Follow</string>
+    <string name="following">Following</string>
+    <string name="artist_top_tracks">Top tracks</string>
+    <string name="singles_and_eps">Singles &amp; EPs</string>
+    <string name="spotify_monthly_listeners">%1$s monthly listeners</string>
+    <string name="spotify_add_to_library">Add to Spotify</string>
+    <string name="spotify_remove_from_library">Added to Spotify</string>
+    <string name="spotify_qobuz_fallback">Use Qobuz when not on YouTube</string>
+    <string name="spotify_qobuz_fallback_description">When a track can\'t be found on YouTube, play and download it from Qobuz instead (matched by its universal track code). Lets rare / underground tracks and full albums still work. Turn off to skip such tracks.</string>
+    <string name="spotify_loose_match">Play closest match when unsure</string>
+    <string name="spotify_loose_match_description">If the exact track can\'t be confidently found on YouTube, play the most similar result instead of skipping it. Improves coverage for rare or non-English tracks, but may occasionally pick the wrong version. Off = skip when unsure (never plays the wrong track).</string>
     <string name="spotify_top_tracks">Your Top Tracks</string>
     <string name="spotify_top_artists">Your Top Artists</string>
     <string name="spotify_made_for_you">All-Time Favorites</string>
@@ -1038,6 +1057,7 @@
 
     <!-- Local Files -->
     <string name="filter_local_files">Local files</string>
+    <string name="filter_local">Local</string>
     <string name="local_files">Local files</string>
     <string name="scan_local_files">Scan for local files</string>
     <string name="scanning_local_files">Scanning…</string>
@@ -1097,4 +1117,16 @@
     <string name="switch_to_list_view">Switch to list view</string>
     <string name="switch_to_grid_view">Switch to grid view</string>
     <string name="more_options">More options</string>
+    <string name="lib_type_playlist">Playlist</string>
+    <string name="lib_type_artist">Artist</string>
+    <string name="lib_type_album">Album</string>
+    <string name="lib_type_single">Single</string>
+    <string name="lib_type_ep">EP</string>
+    <string name="lib_type_compilation">Compilation</string>
+    <string name="lib_type_folder">Folder</string>
+    <string name="lib_sort_recents">Recents</string>
+    <string name="lib_sort_recently_added">Recently added</string>
+    <string name="lib_sort_alphabetical">Alphabetical</string>
+    <string name="lib_sort_creator">Creator</string>
+    <string name="lib_folder_count">%1$d playlists</string>
 </resources>

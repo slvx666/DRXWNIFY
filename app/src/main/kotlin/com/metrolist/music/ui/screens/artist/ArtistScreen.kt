@@ -179,6 +179,8 @@ fun ArtistScreen(
         val isLocal = libraryArtist?.artist?.isLocal == true
         val hasSpotifyId = libraryArtist?.artist?.spotifyId != null
         showLocal = when {
+            // A Spotify-backed profile is never a "local" artist view.
+            viewModel.spotifyArtistId != null -> false
             isLocal -> true
             hasSpotifyId && !isYouTube -> false
             libraryArtist != null && !isYouTube -> true
@@ -390,25 +392,33 @@ fun ArtistScreen(
                                     ) {
                                         // Radio Button
                                         if (!showLocal && !isGuest) {
-                                            artistPage?.artist?.radioEndpoint?.let { radioEndpoint ->
-                                                OutlinedButton(
-                                                    onClick = {
-                                                        playerConnection.playQueue(YouTubeQueue(radioEndpoint))
-                                                    },
-                                                    shape = RoundedCornerShape(50),
-                                                    modifier = Modifier.height(40.dp),
-                                                ) {
+                                            // Radio = shuffled top tracks of SIMILAR artists.
+                                            val radioLoading by viewModel.radioLoading.collectAsState()
+                                            OutlinedButton(
+                                                onClick = {
+                                                    viewModel.playSimilarArtistsRadio(playerConnection)
+                                                },
+                                                enabled = !radioLoading,
+                                                shape = RoundedCornerShape(50),
+                                                modifier = Modifier.height(40.dp),
+                                            ) {
+                                                if (radioLoading) {
+                                                    androidx.compose.material3.CircularProgressIndicator(
+                                                        strokeWidth = 2.dp,
+                                                        modifier = Modifier.size(18.dp),
+                                                    )
+                                                } else {
                                                     Icon(
                                                         painter = painterResource(R.drawable.radio),
                                                         contentDescription = null,
                                                         modifier = Modifier.size(20.dp),
                                                     )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = stringResource(R.string.radio),
-                                                        fontSize = 14.sp,
-                                                    )
                                                 }
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = stringResource(R.string.radio),
+                                                    fontSize = 14.sp,
+                                                )
                                             }
                                         }
 

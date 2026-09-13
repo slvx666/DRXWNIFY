@@ -103,6 +103,7 @@ import com.metrolist.music.constants.QobuzTryptEndpointKey
 import com.metrolist.music.qobuz.QobuzAudioProvider
 import com.metrolist.music.qobuz.QobuzMatchOverride
 import com.metrolist.music.qobuz.QobuzMatchOverrides
+import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.models.SpotifyTrack
 import com.metrolist.music.constants.AutoDownloadOnLikeKey
 import com.metrolist.music.constants.AutoLoadMoreKey
@@ -2070,6 +2071,22 @@ class MusicService :
                         )
                     }
                 }
+
+                // Mirror the like to the linked Spotify account: the heart means "add to Spotify
+                // Liked Songs". Resolve the Spotify track id from the registry (Spotify-sourced) or
+                // the reverse match cache (YouTube-native). No-ops silently when not linked or unmapped.
+                scope.launch(Dispatchers.IO) {
+                    runCatching {
+                        if (Spotify.isAuthenticated()) {
+                            val spotifyId = SpotifyMetadataRegistry.get(songEntity.id)?.id
+                                ?: database.getSpotifyMatchByYouTubeId(songEntity.id)?.spotifyId
+                            if (spotifyId != null) {
+                                if (song.liked) Spotify.saveTrack(spotifyId) else Spotify.removeTrack(spotifyId)
+                            }
+                        }
+                    }.onFailure { Timber.w(it, "Spotify like sync failed for ${songEntity.id}") }
+                }
+
                 currentMediaMetadata.value = player.currentMetadata
             }
         }
@@ -3715,12 +3732,17 @@ class MusicService :
             // Check if we need to bypass cache for quality change
             val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId)
 
-            // Qobuz lossless attempt: when toggle is on, try Qobuz for every track.
-            // Uses Spotify metadata (with ISRC) when available — registered by
+            // A "qbzfb:" media id is a Spotify track with no YouTube match, routed here to be played
+            // from Qobuz (by ISRC/metadata). For these, Qobuz is mandatory and there is NO YouTube
+            // fallback — the id is not a real video id.
+            val isQobuzFallback = SpotifyMetadataRegistry.isQobuzFallbackId(mediaId)
+
+            // Qobuz lossless attempt: when the toggle is on (or this is a Qobuz-fallback id), try
+            // Qobuz. Uses Spotify metadata (with ISRC) when available — registered by
             // SpotifyYouTubeMapper for Spotify-sourced tracks — otherwise falls back
             // to DB title/artist/album for YT-native tracks. Silently falls through
-            // to the YouTube path on any failure.
-            val qobuzEnabled = dataStore.get(EnableQobuzKey, false)
+            // to the YouTube path on any failure (except a fallback id, which errors instead).
+            val qobuzEnabled = isQobuzFallback || dataStore.get(EnableQobuzKey, false)
             if (qobuzEnabled) {
                 val qobuzQualityEnum = dataStore.get(QobuzAudioQualityKey)
                     .toEnum(QobuzAudioQuality.CD_QUALITY)
@@ -3913,6 +3935,12 @@ class MusicService :
 
                 // Reached only when Qobuz produced no playable stream — every
                 // return@Factory above is on the success path.
+                if (isQobuzFallback) {
+                    // A fallback id has no real YouTube video behind it; failing over to YouTube
+                    // would just 404. Error out so the player reports the track as unavailable.
+                    Timber.tag("Qobuz").w("fallback id %s did not resolve on Qobuz — unavailable", mediaId)
+                    error("Track not available on Qobuz: $mediaId")
+                }
                 Timber.tag("Qobuz").d("fallback → YouTube for %s (Qobuz did not resolve)", mediaId)
             }
 

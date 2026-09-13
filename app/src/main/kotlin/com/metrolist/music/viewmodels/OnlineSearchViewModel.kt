@@ -188,6 +188,31 @@ constructor(
         }
     }
 
+    /**
+     * P1: strict track relevance. Spotify's track search sometimes returns loosely
+     * related songs whose title AND artists contain nothing of the query (e.g. searching
+     * "skeler" surfaces unrelated tracks). Keep a track only when its title contains the
+     * query, or one of its artists matches it. Normalizes case/diacritics/punctuation and
+     * requires every query token to appear somewhere in "title + artists".
+     */
+    private fun normalizeForMatch(s: String): String {
+        val decomposed = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{Mn}+"), "")
+        return decomposed.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+    }
+
+    private fun trackMatchesQuery(title: String, artists: String): Boolean {
+        val q = normalizeForMatch(query)
+        if (q.isEmpty()) return true
+        val haystack = normalizeForMatch("$title $artists")
+        if (haystack.contains(q)) return true
+        val tokens = q.split(' ').filter { it.isNotBlank() }
+        return tokens.isNotEmpty() && tokens.all { haystack.contains(it) }
+    }
+
+    private fun com.metrolist.spotify.models.SpotifyTrack.isRelevant(): Boolean =
+        trackMatchesQuery(name, artists.joinToString(" ") { it.name })
+
     private suspend fun loadSpotifySummary() {
         if (summaryPage != null) return
 
@@ -218,13 +243,26 @@ constructor(
             ?.takeIf { it.isNotEmpty() }?.let { tracks ->
                 val items: List<YTItem> = tracks
                     .filter { !hideExplicit || !it.explicit }
+                    .filter { it.isRelevant() }
                     .map { it.toSongItem() }
                 if (items.isNotEmpty()) summaries.add(SearchSummary(title = "Songs", items = items))
             }
         result.albums?.items?.filter { it.id.isNotEmpty() }
             ?.takeIf { it.isNotEmpty() }?.let { albums ->
-                val items: List<YTItem> = albums.map { it.toAlbumItem() }
-                if (items.isNotEmpty()) summaries.add(SearchSummary(title = "Albums", items = items))
+                // "Albums" should mean albums — Spotify lumps singles/EPs/compilations under the same
+                // album type, so split them out into their own section (matches the artist screen).
+                // A real "Album" is album_type == "album" with more than one track. Spotify tags
+                // some 1-track releases as albums; those belong under Singles & EPs. total_tracks == 0
+                // means "unknown" (not returned by this payload) — keep those in Albums, don't drop.
+                val (realAlbums, otherReleases) = albums.partition {
+                    it.albumType.equals("album", ignoreCase = true) && it.totalTracks != 1
+                }
+                if (realAlbums.isNotEmpty()) {
+                    summaries.add(SearchSummary(title = "Albums", items = realAlbums.map { it.toAlbumItem() }))
+                }
+                if (otherReleases.isNotEmpty()) {
+                    summaries.add(SearchSummary(title = "Singles & EPs", items = otherReleases.map { it.toAlbumItem() }))
+                }
             }
         result.artists?.items?.filter { it.id.isNotEmpty() }
             ?.takeIf { it.isNotEmpty() }?.let { artists ->
@@ -256,6 +294,7 @@ constructor(
             val items: List<YTItem> = when (filterType) {
                 "track" -> result.tracks?.items
                     ?.filter { !hideExplicit || !it.explicit }
+                    ?.filter { it.isRelevant() }
                     ?.map { it.toSongItem() } ?: emptyList()
                 "album" -> result.albums?.items?.map { it.toAlbumItem() } ?: emptyList()
                 "artist" -> result.artists?.items?.map { it.toArtistItem() } ?: emptyList()
@@ -336,6 +375,7 @@ constructor(
                 val newItems: List<YTItem> = when (filterType) {
                     "track" -> result.tracks?.items
                         ?.filter { !hideExplicit || !it.explicit }
+                        ?.filter { it.isRelevant() }
                         ?.map { it.toSongItem() } ?: emptyList()
                     "album" -> result.albums?.items?.map { it.toAlbumItem() } ?: emptyList()
                     "artist" -> result.artists?.items?.map { it.toArtistItem() } ?: emptyList()
