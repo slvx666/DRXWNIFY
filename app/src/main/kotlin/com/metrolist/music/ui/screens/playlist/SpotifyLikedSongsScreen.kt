@@ -132,7 +132,9 @@ fun SpotifyLikedSongsScreen(
 
     // Downloaded state per track (spotifyId → resolved youtubeId → live download map).
     val downloads by downloadUtil.downloads.collectAsState()
-    val downloadProgress by SpotifyBatchDownload.progress.collectAsState()
+    val allDownloadProgress by SpotifyBatchDownload.progressBySource.collectAsState()
+    val downloadSourceId = "liked_songs"
+    val downloadProgress = allDownloadProgress[downloadSourceId]
     val spotifyToYt by produceState<Map<String, String>>(initialValue = emptyMap(), tracks) {
         value = if (tracks.isEmpty()) {
             emptyMap()
@@ -275,7 +277,7 @@ fun SpotifyLikedSongsScreen(
                             val isDownloading = downloadProgress != null
                             if (isDownloading) {
                                 androidx.compose.material3.OutlinedButton(
-                                    onClick = { SpotifyBatchDownload.cancel() },
+                                    onClick = { SpotifyBatchDownload.cancel(downloadSourceId) },
                                 ) {
                                     Icon(
                                         painterResource(R.drawable.close),
@@ -300,6 +302,7 @@ fun SpotifyLikedSongsScreen(
                                         val appContext = context.applicationContext
                                         SpotifyBatchDownload.start(
                                             appContext = appContext,
+                                            sourceId = downloadSourceId,
                                             tracks = toDownload,
                                             mapper = mapper,
                                             label = context.getString(R.string.liked_songs),
@@ -610,25 +613,25 @@ fun SpotifyLikedSongsScreen(
                                             context.getString(R.string.spotify_download_started, toDownload.size),
                                             Toast.LENGTH_SHORT,
                                         ).show()
-                                        coroutineScope.launch {
-                                            // Shared helper: bounded-parallel resolve + enqueue with live progress,
-                                            // instead of the old silent one-by-one loop that looked frozen.
-                                            val result = SpotifyBatchDownload.run(
-                                                context = context,
-                                                tracks = toDownload,
-                                                mapper = mapper,
-                                                label = context.getString(R.string.liked_songs),
-                                                downloads = downloadUtil.downloads,
-                                            )
-                                            Toast.makeText(
-                                                context,
-                                                context.getString(
-                                                    R.string.spotify_dl_finished,
-                                                    result.current, result.skipped, result.failed,
-                                                ),
-                                                Toast.LENGTH_LONG,
-                                            ).show()
-                                        }
+                                        val appContext = context.applicationContext
+                                        SpotifyBatchDownload.start(
+                                            appContext = appContext,
+                                            sourceId = downloadSourceId,
+                                            tracks = toDownload,
+                                            mapper = mapper,
+                                            label = context.getString(R.string.liked_songs),
+                                            downloads = downloadUtil.downloads,
+                                            onFinished = { result ->
+                                                Toast.makeText(
+                                                    appContext,
+                                                    appContext.getString(
+                                                        R.string.spotify_dl_finished,
+                                                        result.current, result.skipped, result.failed,
+                                                    ),
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            },
+                                        )
                                     }
                                 },
                             )

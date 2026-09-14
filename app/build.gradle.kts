@@ -35,7 +35,7 @@ android {
         targetSdk = 36
         versionCode = 25
         versionName = "0.8.9"
-        resValue("string", "app_name", appNameOverride ?: "Drownify")
+        resValue("string", "app_name", appNameOverride ?: "Drxwnify")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -73,14 +73,14 @@ android {
             dimension = "variant"
             isDefault = true
             buildConfigField("Boolean", "CAST_AVAILABLE", "false")
-            buildConfigField("Boolean", "UPDATER_AVAILABLE", "true")
+            buildConfigField("Boolean", "UPDATER_AVAILABLE", "false")
         }
 
         // GMS variant - with Google Cast support (requires Google Play Services)
         create("gms") {
             dimension = "variant"
             buildConfigField("Boolean", "CAST_AVAILABLE", "true")
-            buildConfigField("Boolean", "UPDATER_AVAILABLE", "true")
+            buildConfigField("Boolean", "UPDATER_AVAILABLE", "false")
         }
 
         // IzzyOnDroid variant - no Google Cast, no built-in updater (store handles updates)

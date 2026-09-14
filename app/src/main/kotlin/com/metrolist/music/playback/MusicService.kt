@@ -341,6 +341,9 @@ class MusicService :
     private lateinit var audioQuality: com.metrolist.music.constants.AudioQuality
 
     private var currentQueue: Queue = EmptyQueue
+
+    /** The in-flight initial load of [currentQueue]; cancelled when a new queue is started. */
+    private var queueLoadJob: kotlinx.coroutines.Job? = null
     var queueTitle: String? = null
 
     val currentMediaMetadata = MutableStateFlow<com.metrolist.music.models.MediaMetadata?>(null)
@@ -1535,6 +1538,10 @@ class MusicService :
             return
         }
 
+        // A new tap always wins: cancel the previous queue's resolution (it could still be searching
+        // YouTube for the last track and later overwrite this queue) and stop loading the old item
+        // right away, so the app switches to the newly chosen track immediately.
+        queueLoadJob?.cancel()
         currentQueue = queue
         queueTitle = null
         val persistShuffleAcrossQueues = dataStore.get(PersistentShuffleAcrossQueuesKey, false)
@@ -1548,8 +1555,10 @@ class MusicService :
             player.setMediaItem(queue.preloadItem!!.toMediaItem())
             player.prepare()
             player.playWhenReady = playWhenReady
+        } else if (player.mediaItemCount > 0) {
+            player.stop()
         }
-        scope.launch(SilentHandler) {
+        queueLoadJob = scope.launch(SilentHandler) {
             // Issue #143: previously, when shuffle was enabled we called getFullStatus()
             // here, which fetches every page of a Spotify playlist (227+ tracks) and
             // resolves each one to a YouTube MediaItem before playback could start.
@@ -1565,6 +1574,8 @@ class MusicService :
                         .filterExplicit(dataStore.get(HideExplicitKey, false))
                         .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
                 }
+            // Another queue was started while this one was resolving — drop the stale result.
+            if (currentQueue !== queue) return@launch
             if (queue.preloadItem != null && player.playbackState == STATE_IDLE) return@launch
             if (initialStatus.title != null) {
                 queueTitle = initialStatus.title

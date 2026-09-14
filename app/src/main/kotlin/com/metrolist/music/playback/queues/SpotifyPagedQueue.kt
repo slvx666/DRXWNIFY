@@ -121,6 +121,7 @@ abstract class SpotifyPagedQueue(
                 mediaItemIndex = mediaItemIndex,
             )
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Timber.e(e, "$logTag: Failed initial fetch")
             Queue.Status(title = null, items = emptyList(), mediaItemIndex = 0)
         }
@@ -173,6 +174,7 @@ abstract class SpotifyPagedQueue(
             Timber.d("$logTag: getFullStatus resolved ${resolvedItems.size} tracks (startIndex=$targetIndex)")
             Queue.Status(title = null, items = resolvedItems, mediaItemIndex = mediaItemIndex)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Timber.e(e, "$logTag: getFullStatus failed")
             null
         }
@@ -230,6 +232,7 @@ abstract class SpotifyPagedQueue(
             apiHasMore = apiFetchOffset < apiTotal
             Timber.d("$logTag: Fetched API page, now have ${allTracks.size} tracks")
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Timber.e(e, "$logTag: Failed to fetch next API page")
             apiHasMore = false
         }

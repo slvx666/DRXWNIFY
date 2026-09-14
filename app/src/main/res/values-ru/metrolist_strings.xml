@@ -830,4 +830,13 @@
     <string name="lib_sort_alphabetical">По алфавиту</string>
     <string name="lib_sort_creator">Автор</string>
     <string name="lib_folder_count">Плейлистов: %1$d</string>
+    <string name="welcome_title">Добро пожаловать в Drxwnify</string>
+    <string name="welcome_subtitle">Вся твоя музыка из Spotify — слушай и скачивай без Premium.</string>
+    <string name="welcome_point_connect">Привяжи аккаунт Spotify — медиатека, плейлисты, «Любимые треки» и миксы сразу появятся здесь.</string>
+    <string name="welcome_point_match">Каждый трек из Spotify автоматически находится на YouTube Music (а если его там нет — в запасных источниках, например Qobuz). Поиск строго по названию и исполнителю, чужие треки не подсунутся.</string>
+    <string name="welcome_point_download">Главная фишка — скачивание: целые альбомы, плейлисты и «Любимые треки» в один тап, в MP3 320 кбит/с с обложкой и правильными тегами из Spotify.</string>
+    <string name="welcome_point_sync">Лайки, подписки и сохранённые альбомы синхронизируются со Spotify.</string>
+    <string name="welcome_github_title">Исходный код на GitHub</string>
+    <string name="welcome_connect_spotify">Подключить Spotify</string>
+    <string name="welcome_later">Позже</string>
 </resources>

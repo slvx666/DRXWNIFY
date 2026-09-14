@@ -423,11 +423,13 @@ fun ArtistScreen(
                                         }
 
                                         // Shuffle Button
-                                        if (!showLocal && !isGuest) {
-                                            artistPage?.artist?.shuffleEndpoint?.let { shuffleEndpoint ->
+                                        if (!showLocal && !isGuest && artistPage != null) {
+                                            run {
                                                 IconButton(
                                                     onClick = {
-                                                        playerConnection.playQueue(YouTubeQueue(shuffleEndpoint))
+                                                        // Random track from the artist's full song list,
+                                                        // never the same starting track twice in a row.
+                                                        viewModel.playArtistShuffle(playerConnection)
                                                     },
                                                     modifier =
                                                         Modifier

@@ -86,7 +86,10 @@ fun SpotifyAlbumScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val downloadUtil = LocalDownloadUtil.current
-    val downloadProgress by SpotifyBatchDownload.progress.collectAsState()
+    // Only THIS album's batch — the progress bar used to appear on every album.
+    val allDownloadProgress by SpotifyBatchDownload.progressBySource.collectAsState()
+    val downloadSourceId = "album_${viewModel.albumId}"
+    val downloadProgress = allDownloadProgress[downloadSourceId]
 
     val album by viewModel.album.collectAsState()
     val tracks by viewModel.tracks.collectAsState()
@@ -226,8 +229,14 @@ fun SpotifyAlbumScreen(
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             val isDownloading = downloadProgress != null
-                            OutlinedButton(
-                                enabled = !isDownloading,
+                            if (isDownloading) {
+                                // Cancel this album's batch download.
+                                OutlinedButton(onClick = { SpotifyBatchDownload.cancel(downloadSourceId) }) {
+                                    Icon(painterResource(R.drawable.close), null, Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                    Text(stringResource(R.string.cancel))
+                                }
+                            } else OutlinedButton(
                                 onClick = {
                                     val toDownload = tracks
                                     if (toDownload.isEmpty()) return@OutlinedButton
@@ -242,6 +251,7 @@ fun SpotifyAlbumScreen(
                                     val appContext = context.applicationContext
                                     SpotifyBatchDownload.start(
                                         appContext = appContext,
+                                        sourceId = downloadSourceId,
                                         tracks = toDownload,
                                         mapper = viewModel.mapper,
                                         label = albumLabel,

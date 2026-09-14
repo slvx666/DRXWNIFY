@@ -682,7 +682,10 @@ fun YouTubeSongMenu(
 
         item {
             // Check if this is a podcast episode (album ID doesn't start with MPREb_)
-            val isPodcast = song.album?.let { !it.id.startsWith("MPREb_") } ?: false
+            // Spotify-sourced items carry "spotify:<albumId>" — those are albums, not podcasts.
+            val isPodcast = song.album?.let {
+                !it.id.startsWith("MPREb_") && !it.id.startsWith(com.metrolist.music.utils.SPOTIFY_ID_PREFIX)
+            } ?: false
 
             Material3MenuGroup(
                 items = buildList {
@@ -721,10 +724,11 @@ fun YouTubeSongMenu(
                                     )
                                 },
                                 onClick = {
-                                    if (isPodcast) {
-                                        navController.navigate("online_podcast/${album.id}")
-                                    } else {
-                                        navController.navigate("album/${album.id}")
+                                    when {
+                                        isPodcast -> navController.navigate("online_podcast/${album.id}")
+                                        album.id.startsWith(com.metrolist.music.utils.SPOTIFY_ID_PREFIX) ->
+                                            navController.navigate("spotify_album/${album.id.removePrefix(com.metrolist.music.utils.SPOTIFY_ID_PREFIX)}")
+                                        else -> navController.navigate("album/${album.id}")
                                     }
                                     onDismiss()
                                 }

@@ -172,6 +172,41 @@ fun SpotifyPlaylistScreen(
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Per-playlist batch download (progress/cancel scoped to this playlist only).
+    val allDownloadProgress by SpotifyBatchDownload.progressBySource.collectAsState()
+    val playlistDownloadSourceId = "playlist_${viewModel.playlistId}"
+    val playlistDownloadProgress = allDownloadProgress[playlistDownloadSourceId]
+    val startPlaylistDownload: () -> Unit = {
+        val toDownload = tracks
+        if (toDownload.isNotEmpty()) {
+            Timber.d("SpotifyPlaylistDownload: started, ${toDownload.size} tracks")
+            Toast.makeText(
+                context,
+                context.getString(R.string.spotify_download_started, toDownload.size),
+                Toast.LENGTH_SHORT,
+            ).show()
+            val appContext = context.applicationContext
+            SpotifyBatchDownload.start(
+                appContext = appContext,
+                sourceId = playlistDownloadSourceId,
+                tracks = toDownload,
+                mapper = mapper,
+                label = playlist?.name.orEmpty(),
+                downloads = downloadUtil.downloads,
+                onFinished = { result ->
+                    Toast.makeText(
+                        appContext,
+                        appContext.getString(
+                            R.string.spotify_dl_finished,
+                            result.current, result.skipped, result.failed,
+                        ),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                },
+            )
+        }
+    }
     val swipeRemoveEnabled by rememberPreference(SwipeToRemoveSongKey, defaultValue = false)
 
     LaunchedEffect(mutationError) {
@@ -328,6 +363,44 @@ fun SpotifyPlaylistScreen(
                                 Spacer(modifier = Modifier.size(8.dp))
                                 Text(stringResource(R.string.play))
                             }
+                            Spacer(modifier = Modifier.size(8.dp))
+                            // "Download all" for this playlist; turns into Cancel while it runs.
+                            if (playlistDownloadProgress != null) {
+                                androidx.compose.material3.OutlinedButton(
+                                    onClick = { SpotifyBatchDownload.cancel(playlistDownloadSourceId) },
+                                ) {
+                                    Icon(painterResource(R.drawable.close), null, Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                    Text(stringResource(R.string.cancel))
+                                }
+                            } else {
+                                androidx.compose.material3.OutlinedButton(onClick = { startPlaylistDownload() }) {
+                                    Icon(painterResource(R.drawable.download), null, Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                    Text(stringResource(R.string.spotify_download_all))
+                                }
+                            }
+                        }
+                        playlistDownloadProgress?.let { p ->
+                            Spacer(modifier = Modifier.height(12.dp))
+                            val text = when (p.phase) {
+                                SpotifyBatchDownload.Phase.SEARCHING ->
+                                    stringResource(R.string.spotify_dl_searching, p.current, p.total)
+                                SpotifyBatchDownload.Phase.FORMATTING ->
+                                    stringResource(R.string.spotify_dl_formatting)
+                                else ->
+                                    stringResource(R.string.spotify_dl_downloading, p.current, p.total)
+                            }
+                            Text(
+                                text = text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            androidx.compose.material3.LinearProgressIndicator(
+                                progress = { p.fraction },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
                     }
                 }
@@ -663,30 +736,10 @@ fun SpotifyPlaylistScreen(
                                 },
                                 onClick = {
                                     showOverflowMenu = false
-                                    val toDownload = tracks
-                                    if (toDownload.isNotEmpty()) {
-                                        Timber.d("SpotifyPlaylistDownload: started, ${toDownload.size} tracks")
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar(
-                                                context.getString(R.string.spotify_download_started, toDownload.size)
-                                            )
-                                        }
-                                        coroutineScope.launch {
-                                            // Shared bounded-parallel resolve + enqueue with live progress.
-                                            val result = SpotifyBatchDownload.run(
-                                                context = context,
-                                                tracks = toDownload,
-                                                mapper = mapper,
-                                                label = "",
-                                                downloads = downloadUtil.downloads,
-                                            )
-                                            snackbarHostState.showSnackbar(
-                                                context.getString(
-                                                    R.string.spotify_dl_finished,
-                                                    result.current, result.skipped, result.failed,
-                                                )
-                                            )
-                                        }
+                                    if (playlistDownloadProgress != null) {
+                                        SpotifyBatchDownload.cancel(playlistDownloadSourceId)
+                                    } else {
+                                        startPlaylistDownload()
                                     }
                                 },
                             )

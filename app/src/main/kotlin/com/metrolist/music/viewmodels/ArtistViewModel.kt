@@ -147,11 +147,71 @@ class ArtistViewModel @Inject constructor(
     /** Fetches an artist's display name from Spotify by its id (for non-DB Spotify artists). */
     private suspend fun resolveSpotifyName(id: String): String? {
         val raw = com.metrolist.music.utils.ArtistIdentity.spotifyIdOf(id) ?: return null
-        return com.metrolist.spotify.Spotify.artist(raw).getOrNull()?.name
+        return withRetry { com.metrolist.spotify.Spotify.artist(raw) }.getOrNull()?.name
     }
 
     private val _radioLoading = MutableStateFlow(false)
     val radioLoading = _radioLoading.asStateFlow()
+
+    private val _shuffleLoading = MutableStateFlow(false)
+    val shuffleLoading = _shuffleLoading.asStateFlow()
+
+    /** Artist's full song list, fetched once per profile and reused by every shuffle press. */
+    private var shufflePool: List<com.metrolist.innertube.models.SongItem>? = null
+    private var lastShuffleFirstId: String? = null
+
+    /**
+     * Real shuffle: a random track from the artist's whole song list, different from the one the
+     * previous press started with. YouTube's shuffleEndpoint always began with the same song.
+     */
+    fun playArtistShuffle(playerConnection: com.metrolist.music.playback.PlayerConnection) {
+        if (_shuffleLoading.value) return
+        _shuffleLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val pool = shufflePool ?: run {
+                    val page = artistPage
+                    val songsSection = page?.sections?.firstOrNull { s ->
+                        s.items.any { it is com.metrolist.innertube.models.SongItem }
+                    }
+                    val full = songsSection?.moreEndpoint?.let { ep ->
+                        withRetry { YouTube.artistItems(ep) }.getOrNull()?.items
+                            ?.filterIsInstance<com.metrolist.innertube.models.SongItem>()
+                    }
+                    val fromPage = page?.sections?.flatMap { it.items }
+                        ?.filterIsInstance<com.metrolist.innertube.models.SongItem>().orEmpty()
+                    (full.orEmpty() + fromPage).distinctBy { it.id }
+                }.also { shufflePool = it }
+
+                if (pool.isEmpty()) {
+                    artistPage?.artist?.shuffleEndpoint?.let { ep ->
+                        withContext(Dispatchers.Main) {
+                            playerConnection.playQueue(com.metrolist.music.playback.queues.YouTubeQueue(ep))
+                        }
+                    }
+                    return@launch
+                }
+                var order = pool.shuffled()
+                if (order.size > 1 && order.first().id == lastShuffleFirstId) {
+                    order = order.drop(1) + order.first()
+                }
+                lastShuffleFirstId = order.first().id
+                withContext(Dispatchers.Main) {
+                    playerConnection.playQueue(
+                        com.metrolist.music.playback.queues.ListQueue(
+                            title = artistPage?.artist?.title,
+                            items = order.map { it.toMediaMetadata().toMediaItem() },
+                        ),
+                    )
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Timber.w(e, "Artist shuffle failed for $artistId")
+            } finally {
+                _shuffleLoading.value = false
+            }
+        }
+    }
 
     /**
      * "Radio" = music from this artist's SIMILAR artists. Uses Spotify's related artists (GQL, not the
@@ -241,6 +301,22 @@ class ArtistViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Retries a flaky network call a few times with a growing pause. A single failed YouTube request
+     * (403/timeouts are common right now) used to leave the profile shimmering forever until the user
+     * re-opened it.
+     */
+    private suspend fun <T> withRetry(attempts: Int = 4, block: suspend () -> Result<T>): Result<T> {
+        var last: Result<T> = block()
+        var n = 1
+        while (last.isFailure && n < attempts) {
+            kotlinx.coroutines.delay(800L * n)
+            last = block()
+            n++
+        }
+        return last
+    }
+
     private fun isYouTubeArtistId(id: String): Boolean =
         id.startsWith("UC") || id.startsWith("FEmusic_library_privately_owned_artist")
 
@@ -260,7 +336,7 @@ class ArtistViewModel @Inject constructor(
 
     private fun resolveAndFetchByName(name: String) {
         viewModelScope.launch {
-            YouTube.search(name, YouTube.SearchFilter.FILTER_ARTIST)
+            withRetry { YouTube.search(name, YouTube.SearchFilter.FILTER_ARTIST) }
                 .onSuccess { result ->
                     val artists = result.items.filterIsInstance<ArtistItem>()
                         .filter { isYouTubeArtistId(it.id) }
@@ -284,7 +360,7 @@ class ArtistViewModel @Inject constructor(
             val hideExplicit = context.dataStore.get(HideExplicitKey, false)
             val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
             val hideYoutubeShorts = context.dataStore.get(HideYoutubeShortsKey, false)
-            YouTube.artist(ytArtistId)
+            withRetry { YouTube.artist(ytArtistId) }
                 .onSuccess { page ->
                     val filteredSections = page.sections
                         .map { section ->

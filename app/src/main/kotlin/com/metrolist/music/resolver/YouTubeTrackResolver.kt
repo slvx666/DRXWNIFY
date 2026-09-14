@@ -63,18 +63,27 @@ class YouTubeTrackResolver(
         }
 
         // Strict cascade exhausted. In loose mode, take the duration-closest of everything seen.
-        if (loose && seen.isNotEmpty()) {
+        // Loose mode only relaxes the score floor / duration tolerance. It must still see the right
+        // song by the right artist: the old loose pick took the duration-closest of ANYTHING, which
+        // played ".m0lly – CONCUSSION" as "Mindless Self Indulgence – Seven Minutes in Heaven".
+        val tokens = SpotifyMapper.artistTokens(allArtists.ifBlank { primaryArtist })
+        val nonLatinArtist = tokens.none { t -> t.any { it in 'a'..'z' || it in '0'..'9' } }
+        val looseCandidates = seen.values.filter { c ->
+            SpotifyMapper.titlePlausiblyMatches(c.title, track.name) &&
+                (nonLatinArtist || SpotifyMapper.artistPlausiblyMatches(c.title, c.artist, tokens))
+        }
+        if (loose && looseCandidates.isNotEmpty()) {
             val result = SpotifyMapper.selectBestMatch(
                 spotifyTitle = track.name,
                 spotifyPrimaryArtist = primaryArtist,
                 spotifyArtistsAll = allArtists,
                 spotifyDurationMs = track.durationMs,
-                candidates = seen.values.toList(),
+                candidates = looseCandidates,
                 loose = true,
             )
             if (result is SpotifyMapper.MatchResult.Matched) {
                 Timber.w("Resolver loose-matched '${track.name}' -> ${result.id}")
-                return toMatched(result, seen.values.toList())
+                return toMatched(result, looseCandidates)
             }
         }
 

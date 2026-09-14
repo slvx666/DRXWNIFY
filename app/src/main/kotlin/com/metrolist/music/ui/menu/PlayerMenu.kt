@@ -175,12 +175,20 @@ fun PlayerMenu(
             ?.map { a -> a.name to a.id?.let { "$SPOTIFY_ID_PREFIX$it" } }
             ?.takeIf { it.isNotEmpty() }
             ?: mediaMetadata.artists.map { it.name to it.id }
+                .takeIf { list -> list.any { it.second != null } }
+            // Persisted song row (Spotify metadata is written there on every resolve) — works after a
+            // restart without the rate-limited REST track lookup.
+            ?: librarySong?.orderedArtists?.map { it.name to it.id }
+            ?: mediaMetadata.artists.map { it.name to it.id }
     val navigableArtists = menuArtists.filter { it.second != null }
 
     // Album link for "View album": prefer the recovered Spotify track's album (spotify_album/{id}),
     // else the media's own album (album/{id}). null when neither is known.
     val spotifyAlbumId = recoveredSpotifyTrack?.album?.id?.takeIf { it.isNotBlank() }
         ?: mediaMetadata.album?.id?.takeIf { it.isSpotifyId() }?.stripSpotifyPrefix()
+        ?: librarySong?.song?.albumId?.takeIf { it.isSpotifyId() }?.stripSpotifyPrefix()
+        // Older rows/items carried the bare 22-char Spotify album id.
+        ?: mediaMetadata.album?.id?.takeIf { it.matches(Regex("^[0-9A-Za-z]{22}$")) }
 
     // Navigate to an artist by link id (Spotify ids open the Spotify artist screen).
     val openArtist: (String) -> Unit = { navId ->
@@ -487,7 +495,10 @@ fun PlayerMenu(
 
         // View artist (right under Download) then View album.
         item {
-            val isPodcast = mediaMetadata.album?.let { !it.id.startsWith("MPREb_") } ?: false
+            // Only real podcast episodes hide artist/album links. The old heuristic ("album id doesn't
+            // start with MPREb_") treated every Spotify-sourced track (album id "spotify:…") as a
+            // podcast — which is why "View artist" / "View album" were so often missing.
+            val isPodcast = mediaMetadata.isEpisode
             Material3MenuGroup(
                 items =
                     buildList {
@@ -522,6 +533,7 @@ fun PlayerMenu(
                         // Works for Spotify tracks via the recovered album id, not only tracks that
                         // carry a native album on the MediaItem.
                         val albumTitle = mediaMetadata.album?.title ?: recoveredSpotifyTrack?.album?.name
+                            ?: librarySong?.song?.albumName
                         if ((mediaMetadata.album != null || spotifyAlbumId != null) && !isPodcast) {
                             add(
                                 Material3MenuItemData(
@@ -542,7 +554,9 @@ fun PlayerMenu(
                                     },
                                     onClick = {
                                         val mediaAlbumId = mediaMetadata.album?.id
-                                        val nativeAlbumId = mediaAlbumId?.takeUnless { it.isSpotifyId() }
+                                        val nativeAlbumId = mediaAlbumId?.takeUnless {
+                                            it.isSpotifyId() || it.matches(Regex("^[0-9A-Za-z]{22}$"))
+                                        }
                                         val spotifyTarget = spotifyAlbumId
                                             ?: mediaAlbumId?.takeIf { it.isSpotifyId() }?.stripSpotifyPrefix()
                                         when {

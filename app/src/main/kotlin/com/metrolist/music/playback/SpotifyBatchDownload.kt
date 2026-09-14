@@ -12,16 +12,19 @@ import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import com.metrolist.music.utils.DownloadExportState
 import com.metrolist.spotify.models.SpotifyTrack
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.util.concurrent.ConcurrentHashMap
@@ -29,17 +32,21 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Resolves a batch of Spotify tracks to a playable source and downloads them, exposing a
- * human-readable, multi-stage [progress] so the user can see what is actually happening —
- * SEARCHING (Spotify→source matching) → DOWNLOADING (bytes) → FORMATTING (transcode to the tagged
- * MP3) → DONE — plus how many were skipped (no match) or failed. The byte download + MP3 export are
- * still handled by the existing Media3 [DownloadUtil] / [com.metrolist.music.utils.DownloadExporter]
- * pipeline; this monitors their state and does not touch storage itself.
+ * human-readable, multi-stage progress — SEARCHING (Spotify→source matching) → DOWNLOADING (bytes)
+ * → FORMATTING (transcode to the tagged MP3) → DONE — plus how many were skipped (no match) or
+ * failed. The byte download + MP3 export are still handled by the existing Media3 [DownloadUtil] /
+ * [com.metrolist.music.utils.DownloadExporter] pipeline; this monitors their state.
+ *
+ * Every batch is keyed by a `sourceId` (album id, playlist id, "liked_songs"): progress and
+ * cancellation are per source, so an album screen only shows ITS OWN progress bar, several albums
+ * can download at the same time, and cancelling one leaves the others running.
  */
 object SpotifyBatchDownload {
 
     enum class Phase { SEARCHING, DOWNLOADING, FORMATTING, DONE }
 
     data class Progress(
+        val sourceId: String,
         val label: String,
         val phase: Phase,
         /** Phase-relative numerator (resolved so far, or fully-downloaded so far). */
@@ -54,96 +61,87 @@ object SpotifyBatchDownload {
         val fraction: Float get() = if (total <= 0) 0f else (current.toFloat() / total).coerceIn(0f, 1f)
     }
 
-    private val _progress = MutableStateFlow<Progress?>(null)
+    private val _progressBySource = MutableStateFlow<Map<String, Progress>>(emptyMap())
 
-    /** Non-null while a batch is running (and briefly after, until [run] returns). */
-    val progress: StateFlow<Progress?> = _progress
+    /** Running batches keyed by sourceId. A screen shows `progressBySource[its id]` only. */
+    val progressBySource: StateFlow<Map<String, Progress>> = _progressBySource
 
-    /** Serializes batches so two "download all" taps don't interleave their progress. */
-    private val mutex = Mutex()
+    private val cancelled = ConcurrentHashMap.newKeySet<String>()
 
-    /**
-     * Set by [cancel] to stop the active batch: no further tracks are enqueued, the monitor loop
-     * exits, and everything this batch has already queued is removed from the download pipeline.
-     */
-    @Volatile
-    private var cancelled = false
-
-    /** Requests cancellation of the running batch (P14). No-op if nothing is running. */
-    fun cancel() {
-        cancelled = true
+    /** Cancels the batch for [sourceId]: stops enqueuing and removes what it already queued. */
+    fun cancel(sourceId: String) {
+        if (_progressBySource.value.containsKey(sourceId)) cancelled.add(sourceId)
     }
 
+    fun isRunning(sourceId: String): Boolean = _progressBySource.value.containsKey(sourceId)
+
     /** Application-lifetime scope so a batch keeps resolving/enqueuing after the user navigates away. */
-    private val bgScope = kotlinx.coroutines.CoroutineScope(
-        kotlinx.coroutines.SupervisorJob() + Dispatchers.IO,
-    )
+    private val bgScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Global cap on concurrent resolves across all batches, so parallel albums don't hammer YouTube. */
+    private val resolvePermits = Semaphore(PARALLELISM)
 
     /**
      * Fire-and-forget batch download that survives screen navigation. Pass an application context
-     * so nothing is leaked. Progress is observable via [progress]; a completion toast is posted on
-     * the main thread. Use this from screens instead of launching [run] on a composition scope,
-     * which gets cancelled the moment the user opens another album (P: background album download).
+     * so nothing is leaked. A completion callback is posted on the main thread (not called when the
+     * batch was cancelled).
      */
     fun start(
         appContext: Context,
+        sourceId: String,
         tracks: List<SpotifyTrack>,
         mapper: SpotifyYouTubeMapper,
         label: String,
         downloads: StateFlow<Map<String, Download>>,
         onFinished: ((Progress) -> Unit)? = null,
     ) {
+        if (isRunning(sourceId)) return
         bgScope.launch {
-            val result = run(appContext, tracks, mapper, label, downloads)
-            onFinished?.let { cb ->
-                withContext(Dispatchers.Main) { cb(result) }
+            val result = run(appContext, sourceId, tracks, mapper, label, downloads)
+            if (result != null) {
+                onFinished?.let { cb -> withContext(Dispatchers.Main) { cb(result) } }
             }
         }
     }
 
-    /** How many tracks to resolve concurrently. Bounded so we don't hammer the search backends. */
-    private const val PARALLELISM = 6
-
-    /** Safety cap on the download-monitor loop (500ms ticks) so it can never spin forever. */
-    private const val MAX_MONITOR_TICKS = 2 * 60 * 60 // ~1h
+    private fun publish(p: Progress) = _progressBySource.update { it + (p.sourceId to p) }
 
     /**
      * Resolves [tracks], enqueues the matches, and follows them through download + formatting.
-     * Suspends until everything has finished (or failed) and returns the final [Progress]. Safe to
-     * call from a UI coroutine; the work runs on [Dispatchers.IO]. [downloads] is the live Media3
-     * download map (e.g. `LocalDownloadUtil.current.downloads`) used to track the byte-download stage.
+     * Returns the final [Progress], or null when the batch was cancelled.
      */
     suspend fun run(
         context: Context,
+        sourceId: String,
         tracks: List<SpotifyTrack>,
         mapper: SpotifyYouTubeMapper,
         label: String,
         downloads: StateFlow<Map<String, Download>>,
-    ): Progress = mutex.withLock {
+    ): Progress? {
         val total = tracks.size
         val resolved = AtomicInteger(0)
         val skipped = AtomicInteger(0)
         val enqueuedIds = ConcurrentHashMap.newKeySet<String>()
-        cancelled = false
+        cancelled.remove(sourceId)
+        fun isCancelled() = sourceId in cancelled
 
-        fun publishSearching() {
-            _progress.value = Progress(label, Phase.SEARCHING, resolved.get(), total, skipped.get(), 0)
-        }
+        fun publishSearching() =
+            publish(Progress(sourceId, label, Phase.SEARCHING, resolved.get(), total, skipped.get(), 0))
         publishSearching()
 
         try {
-            // Stage 1 — SEARCHING: resolve + enqueue in bounded parallel.
+            // Stage 1 — SEARCHING: resolve + enqueue, bounded by the global permit pool.
             withContext(Dispatchers.IO) {
-                tracks.chunked(PARALLELISM).forEach { chunk ->
-                    if (cancelled) return@forEach
-                    coroutineScope {
-                        chunk.map { track ->
-                            async {
-                                if (cancelled) return@async
+                coroutineScope {
+                    tracks.map { track ->
+                        async {
+                            resolvePermits.withPermit {
+                                if (isCancelled()) return@withPermit
                                 val metadata = runCatching { mapper.mapToYouTube(track) }.getOrNull()
+                                if (isCancelled()) return@withPermit
                                 if (metadata != null) {
-                                    // Tag from Spotify: store the Spotify metadata before the download
-                                    // finishes so the exporter never falls back to YouTube's channel/label.
+                                    // Tag from Spotify before the download finishes so the exporter
+                                    // never falls back to YouTube's channel/label.
                                     mapper.persistSpotifyMetadata(metadata, track)
                                     enqueue(context, metadata.id, metadata.title)
                                     enqueuedIds.add(metadata.id)
@@ -154,14 +152,14 @@ object SpotifyBatchDownload {
                                 resolved.incrementAndGet()
                                 publishSearching()
                             }
-                        }.awaitAll()
-                    }
+                        }
+                    }.awaitAll()
                 }
             }
 
-            if (cancelled) {
+            if (isCancelled()) {
                 removeAll(context, enqueuedIds)
-                return@withLock Progress(label, Phase.DONE, 0, enqueuedIds.size, skipped.get(), 0)
+                return null
             }
 
             // Stage 2/3 — DOWNLOADING / FORMATTING: watch the enqueued ids until they settle.
@@ -169,9 +167,9 @@ object SpotifyBatchDownload {
             if (queued > 0) {
                 var ticks = 0
                 while (ticks++ < MAX_MONITOR_TICKS) {
-                    if (cancelled) {
+                    if (isCancelled()) {
                         removeAll(context, enqueuedIds)
-                        break
+                        return null
                     }
                     val map = downloads.value
                     val exporting = DownloadExportState.exporting.value
@@ -192,7 +190,7 @@ object SpotifyBatchDownload {
                         formatting > 0 -> Phase.FORMATTING
                         else -> Phase.DONE
                     }
-                    _progress.value = Progress(label, phase, completed, queued, skipped.get(), failed)
+                    publish(Progress(sourceId, label, phase, completed, queued, skipped.get(), failed))
                     if (completed + failed >= queued && formatting == 0 && downloading == 0) break
                     delay(500)
                 }
@@ -201,9 +199,10 @@ object SpotifyBatchDownload {
             val map = downloads.value
             val done = enqueuedIds.count { map[it]?.state == Download.STATE_COMPLETED }
             val failed = enqueuedIds.count { map[it]?.state == Download.STATE_FAILED }
-            Progress(label, Phase.DONE, done, enqueuedIds.size, skipped.get(), failed)
+            return Progress(sourceId, label, Phase.DONE, done, enqueuedIds.size, skipped.get(), failed)
         } finally {
-            _progress.value = null
+            cancelled.remove(sourceId)
+            _progressBySource.update { it - sourceId }
         }
     }
 
@@ -216,7 +215,7 @@ object SpotifyBatchDownload {
         DownloadService.sendAddDownload(context, ExoDownloadService::class.java, request, false)
     }
 
-    /** Removes every download this batch queued (used when the user cancels — P14). */
+    /** Removes every download this batch queued (used when the user cancels). */
     private fun removeAll(context: Context, ids: Set<String>) {
         for (id in ids) {
             runCatching {
@@ -224,4 +223,10 @@ object SpotifyBatchDownload {
             }
         }
     }
+
+    /** How many tracks to resolve concurrently (across all batches). */
+    private const val PARALLELISM = 6
+
+    /** Safety cap on the download-monitor loop (500ms ticks) so it can never spin forever. */
+    private const val MAX_MONITOR_TICKS = 2 * 60 * 60 // ~1h
 }

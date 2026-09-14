@@ -1129,4 +1129,13 @@
     <string name="lib_sort_alphabetical">Alphabetical</string>
     <string name="lib_sort_creator">Creator</string>
     <string name="lib_folder_count">%1$d playlists</string>
+    <string name="welcome_title">Welcome to Drxwnify</string>
+    <string name="welcome_subtitle">Your Spotify library — playable and downloadable, without Premium.</string>
+    <string name="welcome_point_connect">Link your Spotify account: your library, playlists, Liked Songs and daily mixes show up right here.</string>
+    <string name="welcome_point_match">Every Spotify track is found automatically on YouTube Music (and on backup sources like Qobuz when it is not there) — matched strictly by title and artist, so you never get a wrong song.</string>
+    <string name="welcome_point_download">The main feature: download whole albums, playlists and Liked Songs in one tap — as 320 kbps MP3 with cover art and correct tags from Spotify.</string>
+    <string name="welcome_point_sync">Likes, follows and saved albums stay in sync with Spotify.</string>
+    <string name="welcome_github_title">Source code on GitHub</string>
+    <string name="welcome_connect_spotify">Connect Spotify</string>
+    <string name="welcome_later">Maybe later</string>
 </resources>

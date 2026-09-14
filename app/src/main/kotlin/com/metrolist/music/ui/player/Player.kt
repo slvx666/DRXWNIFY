@@ -1000,6 +1000,11 @@ fun BottomSheetPlayer(
                                                     state.collapseSoft()
                                                     navController.navigate("spotify_album/${albumId.stripSpotifyPrefix()}")
                                                 }
+                                                // Older rows stored the bare 22-char Spotify album id.
+                                                albumId != null && albumId.matches(Regex("^[0-9A-Za-z]{22}$")) -> {
+                                                    state.collapseSoft()
+                                                    navController.navigate("spotify_album/$albumId")
+                                                }
                                                 albumId != null && albumId.startsWith("MPRE") -> {
                                                     state.collapseSoft()
                                                     navController.navigate("album/$albumId")
@@ -1007,6 +1012,8 @@ fun BottomSheetPlayer(
                                                 else -> scope.launch {
                                                     val sid = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                                         com.metrolist.music.playback.SpotifyMetadataRegistry.get(mediaMetadata.id)?.album?.id
+                                                            ?: database.getSongByIdBlocking(mediaMetadata.id)?.song?.albumId
+                                                                ?.takeIf { it.isSpotifyId() }?.stripSpotifyPrefix()
                                                             ?: database.getSpotifyMatchByYouTubeId(mediaMetadata.id)?.spotifyId
                                                                 ?.let { com.metrolist.spotify.Spotify.getTrack(it).getOrNull()?.album?.id }
                                                     }?.takeIf { it.isNotBlank() }

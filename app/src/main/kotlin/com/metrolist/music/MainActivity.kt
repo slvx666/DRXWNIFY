@@ -944,12 +944,7 @@ class MainActivity : ComponentActivity() {
                                                     )
                                                 }
                                             }
-                                            IconButton(onClick = { navController.navigate("stats") }) {
-                                                Icon(
-                                                    painter = painterResource(R.drawable.stats),
-                                                    contentDescription = stringResource(R.string.stats),
-                                                )
-                                            }
+                                            // Stats shortcut removed from the top bar per user request.
                                             if (listenTogetherInTopBar) {
                                                 IconButton(onClick = { navController.navigate("listen_together_from_topbar") }) {
                                                     Icon(
@@ -1352,6 +1347,21 @@ class MainActivity : ComponentActivity() {
                                 homeViewModel.refresh()
                             },
                             latestVersionName = latestVersionName,
+                        )
+                    }
+
+                    // First-launch welcome: what the app is and the author's GitHub. Shown once.
+                    var welcomeShown by rememberPreference(
+                        androidx.datastore.preferences.core.booleanPreferencesKey("welcome_shown_v1"),
+                        defaultValue = false,
+                    )
+                    if (!welcomeShown) {
+                        com.metrolist.music.ui.component.WelcomeDialog(
+                            onConnectSpotify = {
+                                welcomeShown = true
+                                navController.navigate("settings/spotify/login")
+                            },
+                            onDismiss = { welcomeShown = true },
                         )
                     }
 

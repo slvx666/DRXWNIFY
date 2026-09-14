@@ -76,7 +76,15 @@ class SpotifyYouTubeMapper(
 
         // 3. Delegate to the resolver cascade (multi-query search + strict gating). The resolver
         // owns all search internals and returns a concrete source + confidence, or NoMatch.
-        when (val result = resolver.resolve(track)) {
+        // Negative cache: a track that recently had no confident match (e.g. not on YouTube at all)
+        // is not searched again for a while — re-searching it on every open/tap was a big part of
+        // the "nothing loads" slowness.
+        val recentMiss = noMatchCache[track.id]?.let { System.currentTimeMillis() - it < NO_MATCH_TTL_MS } == true
+        val resolved = if (recentMiss) ResolveResult.NoMatch else resolver.resolve(track)
+        if (resolved is ResolveResult.NoMatch && !recentMiss) {
+            noMatchCache.put(track.id, System.currentTimeMillis())
+        }
+        when (val result = resolved) {
             is ResolveResult.Matched -> {
                 val youtubeId = (result.source as AudioSource.YouTube).videoId
                 database.upsertSpotifyMatch(
@@ -172,7 +180,10 @@ class SpotifyYouTubeMapper(
             return null
         }
         Timber.d("SpotifyMapper: resolved '${track.name}' -> YouTube ID: ${metadata.id}")
-        SpotifyMetadataRegistry.register(metadata.id, track)
+        // Registry (in-memory) + song row (persistent): the player menu / title tap read the Spotify
+        // album & artist ids from the DB, so they work after restarts without a (rate-limited) REST
+        // track lookup.
+        persistSpotifyMetadata(metadata, track)
         return metadata.toMediaItem()
     }
 
@@ -322,5 +333,8 @@ class SpotifyYouTubeMapper(
          * Bounded to 512 entries (~30 KB).
          */
         private val memoryCache = LruCache<String, CachedMatch>(MEM_CACHE_MAX_SIZE)
+
+        private const val NO_MATCH_TTL_MS = 30 * 60 * 1000L
+        private val noMatchCache = LruCache<String, Long>(MEM_CACHE_MAX_SIZE)
     }
 }
