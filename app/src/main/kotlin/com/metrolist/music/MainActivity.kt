@@ -214,6 +214,11 @@ import java.net.URLEncoder
 import java.util.Locale
 import javax.inject.Inject
 
+private const val INTRO_PREFS = "launch_intro"
+private const val INTRO_LAST_ACTIVE_KEY = "last_active_at"
+/** Reopening within this time after leaving the app opens it directly, without the intro. */
+private const val INTRO_SKIP_WINDOW_MS = 30 * 60 * 1000L
+
 @Suppress("DEPRECATION", "ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -337,6 +342,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        // Remembered so reopening the app soon after (even if the system killed the process
+        // meanwhile) skips the launch intro.
+        getSharedPreferences(INTRO_PREFS, MODE_PRIVATE).edit()
+            .putLong(INTRO_LAST_ACTIVE_KEY, System.currentTimeMillis()).apply()
         // CRITICAL FIX: Do NOT unbind service or dispose playerConnection here!
         // Just disconnect ListenTogetherManager to stop audio routing
         // This prevents UI recomposition when switching apps
@@ -604,7 +613,15 @@ class MainActivity : ComponentActivity() {
                         it.data == null && it.action != ACTION_RECOGNITION && it.getStringExtra(Intent.EXTRA_TEXT) == null
                     } ?: true
                 }
-                var introVisible by remember { mutableStateOf(!com.metrolist.music.ui.component.AppIntroState.played && launchedPlainly) }
+                // The intro is for a "fresh" start only: not again in this process, and not when the app
+                // was open recently (closing it from recents kills the process on many phones).
+                val recentlyActive = remember {
+                    val last = getSharedPreferences(INTRO_PREFS, MODE_PRIVATE).getLong(INTRO_LAST_ACTIVE_KEY, 0L)
+                    System.currentTimeMillis() - last in 0 until INTRO_SKIP_WINDOW_MS
+                }
+                var introVisible by remember {
+                    mutableStateOf(!com.metrolist.music.ui.component.AppIntroState.played && launchedPlainly && !recentlyActive)
+                }
                 val introExit = remember { androidx.compose.animation.core.Animatable(if (introVisible) 0f else 1f) }
                 var appComposed by remember { mutableStateOf(!introVisible) }
                 // Created here (activity scope) so home starts loading on the first frame; HomeScreen reuses it.
