@@ -1210,4 +1210,10 @@
     <string name="playback_action_connect_vk">Connect VK</string>
     <string name="playback_action_sources">Sources</string>
     <string name="playback_action_log">Log</string>
+    <string name="integration_sources_description">Data account and where audio comes from</string>
+    <string name="integration_spotify_description">Library, playlists and likes</string>
+    <string name="integration_yandex_description">Library, playlists and likes</string>
+    <string name="integration_lastfm_description">Scrobbles what you listen to into your Last.fm profile</string>
+    <string name="integration_discord_description">Shows the current track in your Discord status</string>
+    <string name="similar_artists">Similar artists</string>
 </resources>

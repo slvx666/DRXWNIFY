@@ -115,6 +115,12 @@ class ArtistViewModel @Inject constructor(
      * single rows whenever they are available.
      */
     val catalogReleases = MutableStateFlow<List<com.metrolist.spotify.models.SpotifyAlbum>>(emptyList())
+
+    /** Similar artists and top tracks from the same catalog (YouTube pages often lack them). */
+    val catalogRelated = MutableStateFlow<List<com.metrolist.spotify.models.SpotifyArtist>>(emptyList())
+    val catalogTopTracks = MutableStateFlow<List<com.metrolist.spotify.models.SpotifyTrack>>(emptyList())
+    var catalogArtistId: String? = null
+        private set
     private var catalogReleasesRequested = false
 
     private fun loadCatalogReleases(nameHint: String?) {
@@ -133,6 +139,9 @@ class ArtistViewModel @Inject constructor(
                 return@launch
             }
             if (known != null) catalog.ensureAuthenticated()
+            catalogArtistId = id
+            launch { catalog.relatedArtists(id).onSuccess { catalogRelated.value = it } }
+            launch { catalog.artistTopTracks(id).onSuccess { catalogTopTracks.value = it.tracks.filter { t -> t.id.isNotBlank() } } }
             catalog.artistReleases(id)
                 .onSuccess { catalogReleases.value = it }
                 .onFailure {

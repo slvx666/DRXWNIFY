@@ -169,6 +169,9 @@ object Catalog {
             }
         }
 
+    suspend fun relatedArtists(id: String): Result<List<SpotifyArtist>> =
+        if (isYandexId(id)) YandexMusic.similarArtists(id) else Spotify.artistRelatedArtists(id)
+
     suspend fun getTrack(id: String): Result<SpotifyTrack> =
         if (isYandexId(id)) YandexMusic.getTrack(id) else Spotify.getTrack(id)
 

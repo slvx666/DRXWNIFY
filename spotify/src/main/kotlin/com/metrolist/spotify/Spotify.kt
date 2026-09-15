@@ -1768,7 +1768,16 @@ object Spotify {
      * [artistTopTracks] and [artistRelatedArtists], which only differ in which
      * fields of the union they read.
      */
+    /** queryArtistOverview is shared by artist/discography/top tracks/related: reuse it for a few minutes. */
+    private val artistUnionCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, JsonObject>>()
+
     private suspend fun artistUnion(artistId: String): JsonObject {
+        artistUnionCache[artistId]?.takeIf { System.currentTimeMillis() - it.first < 5 * 60 * 1000L }?.let { return it.second }
+        if (artistUnionCache.size > 50) artistUnionCache.clear()
+        return fetchArtistUnion(artistId).also { artistUnionCache[artistId] = System.currentTimeMillis() to it }
+    }
+
+    private suspend fun fetchArtistUnion(artistId: String): JsonObject {
         val response =
             graphqlPost(
                 operationName = "queryArtistOverview",

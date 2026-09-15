@@ -211,7 +211,7 @@ fun MusicSourcesSettings(
                 AudioProviderId.BANDCAMP -> bandcamp
                 AudioProviderId.AUDIUS -> audius
             }
-            val extra = if (id == AudioProviderId.VK && vk && vkToken.isEmpty()) "\n" + stringResource(R.string.vk_login_required) else ""
+            val extra = if (id == AudioProviderId.VK && vkToken.isEmpty()) "\n" + stringResource(R.string.vk_login_required) else ""
             PreferenceEntry(
                 title = { Text("${index + 1}. ${stringResource(title)}") },
                 description = stringResource(description) + extra,
@@ -231,7 +231,9 @@ fun MusicSourcesSettings(
                             Icon(painterResource(R.drawable.arrow_downward), contentDescription = stringResource(R.string.move_down))
                         }
                         Switch(
-                            checked = checked,
+                            // VK can't work without a login: the switch stays locked until then.
+                            enabled = id != AudioProviderId.VK || vkToken.isNotEmpty(),
+                            checked = checked && (id != AudioProviderId.VK || vkToken.isNotEmpty()),
                             onCheckedChange = { enabled ->
                                 when (id) {
                                     AudioProviderId.YOUTUBE -> { setYoutube(enabled); ResolverPreferences.youtubeEnabled = enabled }
@@ -246,7 +248,7 @@ fun MusicSourcesSettings(
                     }
                 },
             )
-            if (id == AudioProviderId.VK && vk) {
+            if (id == AudioProviderId.VK) {
                 PreferenceEntry(
                     title = { Text(if (vkToken.isNotEmpty()) stringResource(R.string.vk_connected) else stringResource(R.string.vk_login)) },
                     description = (vkUserId.takeIf { vkToken.isNotEmpty() && it.isNotEmpty() }?.let { "id$it" }

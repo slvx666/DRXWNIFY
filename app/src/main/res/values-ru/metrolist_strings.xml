@@ -911,4 +911,10 @@
     <string name="playback_action_connect_vk">Подключить VK</string>
     <string name="playback_action_sources">Источники</string>
     <string name="playback_action_log">Журнал</string>
+    <string name="integration_sources_description">Аккаунт для данных и откуда берётся аудио</string>
+    <string name="integration_spotify_description">Медиатека, плейлисты и лайки</string>
+    <string name="integration_yandex_description">Медиатека, плейлисты и лайки</string>
+    <string name="integration_lastfm_description">Записывает прослушанное в профиль Last.fm (скробблинг)</string>
+    <string name="integration_discord_description">Показывает текущий трек в статусе Discord</string>
+    <string name="similar_artists">Похожие исполнители</string>
 </resources>

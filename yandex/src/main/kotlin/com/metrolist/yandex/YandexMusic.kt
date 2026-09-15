@@ -254,6 +254,12 @@ object YandexMusic {
         }
     }
 
+    suspend fun similarArtists(artistId: String): Result<List<SpotifyArtist>> = runCatching {
+        val obj = getResult("artists/${YandexIds.raw(artistId)}/similar") as? JsonObject
+            ?: throw YandexException(404, "Artist not found")
+        obj.arr("similarArtists").orEmpty().mapNotNull { it.objOrNull()?.let(YandexParser::fullArtist) }
+    }
+
     suspend fun myPlaylists(): Result<List<SpotifyPlaylist>> = runCatching {
         (getResult("users/${requireUid()}/playlists/list") as? JsonArray).orEmpty()
             .mapNotNull { it.objOrNull()?.let(YandexParser::playlist) }

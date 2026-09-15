@@ -81,6 +81,8 @@ import coil3.compose.AsyncImage
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.AlbumItem
 import com.metrolist.music.utils.toAlbumItem
+import com.metrolist.music.utils.toArtistItem
+import com.metrolist.music.utils.toSongItem
 import com.metrolist.innertube.models.ArtistItem
 import com.metrolist.innertube.models.EpisodeItem
 import com.metrolist.innertube.models.PlaylistItem
@@ -152,6 +154,8 @@ fun ArtistScreen(
     val librarySongs by viewModel.librarySongs.collectAsState()
     val libraryAlbums by viewModel.libraryAlbums.collectAsState()
     val catalogReleases by viewModel.catalogReleases.collectAsState()
+    val catalogRelated by viewModel.catalogRelated.collectAsState()
+    val catalogTopTracks by viewModel.catalogTopTracks.collectAsState()
     val isChannelSubscribed by viewModel.isChannelSubscribed.collectAsState()
     val hideExplicit by rememberPreference(key = HideExplicitKey, defaultValue = false)
     val showArtistDescription by rememberPreference(key = ShowArtistDescriptionKey, defaultValue = true)
@@ -710,12 +714,48 @@ fun ArtistScreen(
                             }
                         }
                     }
+                    // Top tracks from the catalog when the YouTube page has none (or didn't load).
+                    val youtubeHasSongs = artistPage?.sections?.any { sec -> sec.items.any { it is SongItem } } == true
+                    if (!youtubeHasSongs && catalogTopTracks.isNotEmpty()) {
+                        item(key = "catalog_top_title") {
+                            NavigationTitle(title = stringResource(R.string.artist_top_tracks), modifier = Modifier.animateItem())
+                        }
+                        val topTracks = catalogTopTracks.take(10)
+                        items(items = topTracks, key = { "catalog_top_${it.id}" }) { track ->
+                            val songItem = remember(track.id) { track.toSongItem() }
+                            YouTubeListItem(
+                                item = songItem,
+                                isActive = false,
+                                isPlaying = isPlaying,
+                                modifier = Modifier
+                                    .combinedClickable(
+                                        onClick = {
+                                            if (!isGuest) {
+                                                playerConnection.playQueue(
+                                                    com.metrolist.music.playback.queues.SpotifyPlaylistQueue(
+                                                        playlistId = "artist_top_${viewModel.catalogArtistId}",
+                                                        initialTracks = topTracks,
+                                                        startIndex = topTracks.indexOf(track),
+                                                        mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database),
+                                                    ),
+                                                )
+                                            }
+                                        },
+                                    )
+                                    .animateItem(),
+                            )
+                        }
+                        catalogRows()
+                    }
                     artistPage?.sections?.fastForEach { section ->
                         val isReleaseRow = section.items.isNotEmpty() && section.items.all { it is AlbumItem }
                         if (isReleaseRow && catalogReleases.isNotEmpty()) {
                             catalogRows()
                             return@fastForEach
                         }
+                        // Similar artists come from the catalog (they open the same profile layout).
+                        val isArtistRow = section.items.isNotEmpty() && section.items.all { it is ArtistItem }
+                        if (isArtistRow && catalogRelated.isNotEmpty()) return@fastForEach
                         if (section.items.isNotEmpty()) {
                             item(key = "section_${section.title}") {
                                 NavigationTitle(
@@ -916,6 +956,32 @@ fun ArtistScreen(
                         }
                     }
                     catalogRows()
+                    if (catalogRelated.isNotEmpty()) {
+                        item(key = "catalog_related_title") {
+                            NavigationTitle(title = stringResource(R.string.similar_artists), modifier = Modifier.animateItem())
+                        }
+                        item(key = "catalog_related_list") {
+                            LazyRow(
+                                contentPadding = WindowInsets.systemBars.only(WindowInsetsSides.Horizontal).asPaddingValues(),
+                            ) {
+                                items(items = catalogRelated, key = { "catalog_related_${it.id}" }) { related ->
+                                    val artistItem = remember(related.id) { related.toArtistItem() }
+                                    YouTubeGridItem(
+                                        item = artistItem,
+                                        isActive = false,
+                                        isPlaying = isPlaying,
+                                        coroutineScope = coroutineScope,
+                                        thumbnailRatio = 1f,
+                                        modifier = Modifier
+                                            .combinedClickable(
+                                                onClick = { navController.navigate("spotify_artist/${related.id}") },
+                                            )
+                                            .animateItem(),
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
