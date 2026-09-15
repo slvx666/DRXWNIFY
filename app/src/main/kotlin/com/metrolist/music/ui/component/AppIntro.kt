@@ -61,35 +61,39 @@ object AppIntroState {
 
 private val MetalMania = FontFamily(Font(R.font.metal_mania))
 
+/** Decelerating curve so letters glide into place instead of stopping abruptly. */
+private val RiseEasing = CubicBezierEasing(0.2f, 0.8f, 0.3f, 1f)
+
 private val IconSize = 168.dp
-private const val ICON_MS = 750
-private const val LETTERS_START_MS = 550L
-private const val LETTER_STAGGER_MS = 90L
-private const val LETTER_FADE_MS = 650
-private const val SHIMMER_MS = 1_000
+private const val ICON_IN_MS = 400
+private const val ICON_OUT_MS = 400
+private const val LETTERS_START_MS = 280L
+private const val LETTER_STAGGER_MS = 60L
+private const val LETTER_FADE_MS = 450
+private const val LETTER_OUT_MS = 300
+private const val LETTER_OUT_STAGGER_MS = 30L
+private const val SHIMMER_MS = 900
 /** After the shimmer pass, wait at most this long for home/library before opening anyway. */
 private const val READY_GRACE_MS = 1_000L
-/** Cap on waiting for the main thread to settle (first composition of the app) before animating. */
-private const val SETTLE_MAX_MS = 900L
-private const val EXIT_MS = 650
-
-/** Decelerating curve so letters glide into place instead of stopping abruptly. */
-private val RiseEasing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+/** If everything is already loaded this quickly, the intro is skipped. */
+private const val SKIP_IF_READY_MS = 200L
+private const val APP_FADE_IN_MS = 1_000
 
 /**
  * Launch intro drawn over the app while home and library load underneath.
  *
- * The screen stays black until the main thread settles (the app's own first composition happens
- * then, not during the animation), then: the icon fades/scales in, the name's letters rise from
- * below and fade in one after another (Metal Mania), a single shimmer passes over the name, and the
- * app cross-fades in — as soon as the content is ready, or at most [READY_GRACE_MS] after the shimmer.
+ * Icon fades/scales in, the name's letters rise and fade in one after another (Metal Mania), one
+ * shimmer passes over the name. Then the app is composed ([onComposeApp]) while the intro still
+ * covers it, letters fade out left→right and the icon fades out (the reverse of their entrance),
+ * and the app fades in over [APP_FADE_IN_MS]. Content ready within [SKIP_IF_READY_MS] → no intro.
  *
- * @param exitProgress 0 → 1 while the intro fades out; the host fades its content in with it.
+ * @param exitProgress 0 → 1 while the app fades in; the host applies it to its content.
  */
 @Composable
 fun AppIntro(
     exitProgress: Animatable<Float, AnimationVector1D>,
     awaitReady: suspend () -> Unit,
+    onComposeApp: () -> Unit,
     onFinished: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -112,25 +116,27 @@ fun AppIntro(
         // Content starts loading right away, in parallel with everything below.
         val ready = async { awaitReady() }
 
-        // Hold on black until frames come in on time, so the animation itself runs smoothly.
-        withTimeoutOrNull(SETTLE_MAX_MS) {
-            var last = withFrameNanos { it }
-            var smooth = 0
-            while (smooth < 4) {
-                val now = withFrameNanos { it }
-                smooth = if (now - last <= 22_000_000L) smooth + 1 else 0
-                last = now
-            }
+        suspend fun openApp(fadeMs: Int) {
+            onComposeApp()
+            // Let the app's first (heavy) composition happen while the screen is still static.
+            withFrameNanos { }
+            withFrameNanos { }
+            exitProgress.animateTo(1f, tween(fadeMs, easing = FastOutSlowInEasing))
+            onFinished()
         }
 
-        launch { iconProgress.animateTo(1f, tween(ICON_MS, easing = FastOutSlowInEasing)) }
-        val letterJobs = letters.mapIndexed { i, anim ->
+        if (withTimeoutOrNull(SKIP_IF_READY_MS) { ready.await() } != null) {
+            openApp(fadeMs = 300)
+            return@LaunchedEffect
+        }
+
+        launch { iconProgress.animateTo(1f, tween(ICON_IN_MS, easing = FastOutSlowInEasing)) }
+        letters.mapIndexed { i, anim ->
             launch {
                 delay(LETTERS_START_MS + i * LETTER_STAGGER_MS)
                 anim.animateTo(1f, tween(LETTER_FADE_MS, easing = RiseEasing))
             }
-        }
-        letterJobs.forEach { it.join() }
+        }.forEach { it.join() }
 
         // One shimmer pass, never repeated.
         shimmer.snapTo(-0.4f)
@@ -138,7 +144,20 @@ fun AppIntro(
         shimmer.snapTo(-1f)
 
         withTimeoutOrNull(READY_GRACE_MS) { ready.await() }
-        exitProgress.animateTo(1f, tween(EXIT_MS, easing = FastOutSlowInEasing))
+
+        // Compose the app underneath now (it stays invisible), then play the entrance in reverse.
+        onComposeApp()
+        withFrameNanos { }
+        withFrameNanos { }
+        val outJobs = letters.mapIndexed { i, anim ->
+            launch {
+                delay(i * LETTER_OUT_STAGGER_MS)
+                anim.animateTo(0f, tween(LETTER_OUT_MS, easing = FastOutSlowInEasing))
+            }
+        } + launch { iconProgress.animateTo(0f, tween(ICON_OUT_MS, easing = FastOutSlowInEasing)) }
+        outJobs.forEach { it.join() }
+
+        exitProgress.animateTo(1f, tween(APP_FADE_IN_MS, easing = FastOutSlowInEasing))
         onFinished()
     }
 
@@ -209,7 +228,7 @@ private fun IntroLetters(
     color: Color,
     modifier: Modifier = Modifier,
 ) {
-    val rise = with(LocalDensity.current) { 42.dp.toPx() }
+    val rise = with(LocalDensity.current) { 18.dp.toPx() }
     Row(modifier = modifier) {
         name.forEachIndexed { i, ch ->
             Text(

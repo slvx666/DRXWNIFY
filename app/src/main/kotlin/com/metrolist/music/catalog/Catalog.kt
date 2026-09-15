@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.withLock
 
 /**
@@ -72,6 +73,9 @@ object Catalog {
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
+    /** True once the accounts were read from preferences (before that [state] is just the default). */
+    private val stateLoaded = MutableStateFlow(false)
+
     /** Localized title of the Liked Songs pseudo-playlist for Yandex Music. */
     @Volatile
     var likedSongsName: String = "Liked Songs"
@@ -97,6 +101,7 @@ object Catalog {
                 .collect { s ->
                     if (s.source != _state.value.source) invalidateCaches()
                     _state.value = s
+                    stateLoaded.value = true
                 }
         }
     }
@@ -262,6 +267,8 @@ object Catalog {
     /** One page of the library for [filter] ("Playlists" / "Albums" / "Artists" / null = all). */
     /** Loads the whole library ahead of time (e.g. during the launch intro) so the Library tab opens instantly. */
     suspend fun prewarmLibrary(): List<SpotifyLibraryEntry> {
+        // At app start the accounts may not be read yet; without this the prewarm saw "no account".
+        stateLoaded.first { it }
         if (source == null || !ensureAuthenticated()) return emptyList()
         // Same paging as the library screen, so every page it asks for is already cached.
         val all = mutableListOf<SpotifyLibraryEntry>()

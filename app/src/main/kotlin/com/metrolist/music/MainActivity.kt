@@ -592,6 +592,20 @@ class MainActivity : ComponentActivity() {
 
                 val navController = rememberNavController()
 
+                // Launch intro. While it plays, the app itself is not composed at all (so the animation
+                // gets the main thread); home loads in its activity-scoped view model and the library
+                // is prewarmed. Opening from a link/share/recognition intent skips the intro.
+                val launchedPlainly = remember {
+                    intent?.let {
+                        it.data == null && it.action != ACTION_RECOGNITION && it.getStringExtra(Intent.EXTRA_TEXT) == null
+                    } ?: true
+                }
+                var introVisible by remember { mutableStateOf(!com.metrolist.music.ui.component.AppIntroState.played && launchedPlainly) }
+                val introExit = remember { androidx.compose.animation.core.Animatable(if (introVisible) 0f else 1f) }
+                var appComposed by remember { mutableStateOf(!introVisible) }
+                // Created here (activity scope) so home starts loading on the first frame; HomeScreen reuses it.
+                val startupHomeViewModel: HomeViewModel = hiltViewModel()
+
                 LaunchedEffect(Unit) {
                     val lastSeenVersion = dataStore.data.first()[LastSeenVersionKey] ?: ""
                     val currentVersion = BuildConfig.VERSION_NAME
@@ -858,7 +872,8 @@ class MainActivity : ComponentActivity() {
                 }
                 val snackbarHostState = remember { SnackbarHostState() }
 
-                LaunchedEffect(Unit) {
+                LaunchedEffect(appComposed) {
+                    if (!appComposed) return@LaunchedEffect
                     if (pendingIntent != null) {
                         handleRecognitionIntent(pendingIntent!!, navController)
                         handleDeepLinkIntent(pendingIntent!!, navController)
@@ -872,6 +887,11 @@ class MainActivity : ComponentActivity() {
                 DisposableEffect(Unit) {
                     val listener =
                         Consumer<Intent> { intent ->
+                            if (!appComposed) {
+                                // Navigation graph isn't there yet; handled once the app is composed.
+                                pendingIntent = intent
+                                return@Consumer
+                            }
                             handleRecognitionIntent(intent, navController)
                             handleDeepLinkIntent(intent, navController)
                         }
@@ -912,15 +932,11 @@ class MainActivity : ComponentActivity() {
                     LocalListenTogetherManager provides listenTogetherManager,
                     LocalChangelogState provides showChangelog,
                 ) {
-                    if (showChangelog.value) {
+                    if (showChangelog.value && !introVisible) {
                         ChangelogScreen(onDismiss = { showChangelog.value = false })
                     }
 
-                    // Launch intro: drawn over the app while home and library load underneath. The app
-                    // stays invisible (skipped by the renderer) until the intro fades it in.
-                    var introVisible by remember { mutableStateOf(!com.metrolist.music.ui.component.AppIntroState.played) }
-                    val introExit = remember { androidx.compose.animation.core.Animatable(if (introVisible) 0f else 1f) }
-
+                    if (appComposed) {
                     Scaffold(
                         snackbarHost = { SnackbarHost(snackbarHostState) },
                         topBar = {
@@ -1286,6 +1302,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    }
 
                     BottomSheetMenu(
                         state = LocalMenuState.current,
@@ -1369,6 +1386,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
+                            onComposeApp = { appComposed = true },
                             onFinished = {
                                 com.metrolist.music.ui.component.AppIntroState.played = true
                                 introVisible = false

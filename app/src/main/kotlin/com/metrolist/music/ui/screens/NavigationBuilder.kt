@@ -85,7 +85,14 @@ fun NavGraphBuilder.navigationBuilder(
     snackbarHostState: SnackbarHostState,
 ) {
     composable(Screens.Home.route) {
-        HomeScreen(navController = navController, snackbarHostState = snackbarHostState)
+        // Activity-scoped: the launch intro starts loading home before the navigation graph exists.
+        HomeScreen(
+            navController = navController,
+            snackbarHostState = snackbarHostState,
+            viewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel(
+                viewModelStoreOwner = activity as androidx.activity.ComponentActivity,
+            ),
+        )
     }
 
     composable(Screens.Search.route) { backStackEntry ->
