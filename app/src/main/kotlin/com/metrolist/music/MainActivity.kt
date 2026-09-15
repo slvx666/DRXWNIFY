@@ -216,6 +216,7 @@ import javax.inject.Inject
 
 private const val INTRO_PREFS = "launch_intro"
 private const val INTRO_LAST_ACTIVE_KEY = "last_active_at"
+private const val INTRO_FULL_SHOWN_KEY = "full_intro_shown"
 /** Reopening within this time after leaving the app opens it directly, without the intro. */
 private const val INTRO_SKIP_WINDOW_MS = 30 * 60 * 1000L
 
@@ -621,6 +622,10 @@ class MainActivity : ComponentActivity() {
                 }
                 var introVisible by remember {
                     mutableStateOf(!com.metrolist.music.ui.component.AppIntroState.played && launchedPlainly && !recentlyActive)
+                }
+                // Full intro (icon + name + shimmer) only until it has been shown once; afterwards the quick one.
+                val introQuick = remember {
+                    getSharedPreferences(INTRO_PREFS, MODE_PRIVATE).getBoolean(INTRO_FULL_SHOWN_KEY, false)
                 }
                 val introExit = remember { androidx.compose.animation.core.Animatable(if (introVisible) 0f else 1f) }
                 var appComposed by remember { mutableStateOf(!introVisible) }
@@ -1386,6 +1391,7 @@ class MainActivity : ComponentActivity() {
                     if (introVisible) {
                         com.metrolist.music.ui.component.AppIntro(
                             exitProgress = introExit,
+                            quick = introQuick,
                             awaitReady = {
                                 kotlinx.coroutines.coroutineScope {
                                     launch { HomeViewModel.firstLoadDone.first { it } }
@@ -1410,6 +1416,10 @@ class MainActivity : ComponentActivity() {
                             onComposeApp = { appComposed = true },
                             onFinished = {
                                 com.metrolist.music.ui.component.AppIntroState.played = true
+                                if (!introQuick) {
+                                    getSharedPreferences(INTRO_PREFS, MODE_PRIVATE).edit()
+                                        .putBoolean(INTRO_FULL_SHOWN_KEY, true).apply()
+                                }
                                 introVisible = false
                             },
                         )

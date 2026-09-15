@@ -85,7 +85,8 @@ private const val SKIP_IF_READY_MS = 200L
 private const val APP_FADE_IN_MS = 1_000
 
 /**
- * Launch intro drawn over the app while home and library load underneath.
+ * Launch intro drawn over the app while home and library load underneath. The full version (below)
+ * plays only on the very first launch; later launches use the [quick] icon-only variant.
  *
  * Icon fades/scales in, the name's letters rise and fade in one after another (Metal Mania), one
  * shimmer passes over the name. Then the app is composed ([onComposeApp]) while the intro still
@@ -98,6 +99,8 @@ private const val APP_FADE_IN_MS = 1_000
 fun AppIntro(
     exitProgress: Animatable<Float, AnimationVector1D>,
     awaitReady: suspend () -> Unit,
+    /** Quick variant for later launches: icon only, then straight into a 1 s fade. */
+    quick: Boolean,
     onComposeApp: () -> Unit,
     onFinished: () -> Unit,
 ) {
@@ -129,6 +132,19 @@ fun AppIntro(
             withFrameNanos { }
             exitProgress.animateTo(1f, tween(fadeMs, easing = FastOutSlowInEasing))
             onFinished()
+        }
+
+        if (quick) {
+            iconProgress.animateTo(1f, tween(ICON_IN_MS, easing = FastOutSlowInEasing))
+            onComposeApp()
+            // Let the app's first composition land while the icon is still static.
+            withFrameNanos { }
+            withFrameNanos { }
+            val iconOut = launch { iconProgress.animateTo(0f, tween(ICON_OUT_MS, easing = FastOutSlowInEasing)) }
+            exitProgress.animateTo(1f, tween(APP_FADE_IN_MS, easing = FastOutSlowInEasing))
+            iconOut.join()
+            onFinished()
+            return@LaunchedEffect
         }
 
         if (withTimeoutOrNull(SKIP_IF_READY_MS) { ready.await() } != null) {
@@ -208,8 +224,8 @@ fun AppIntro(
                         },
                 )
             }
-            Spacer(Modifier.height(18.dp))
-            Box {
+            if (!quick) Spacer(Modifier.height(18.dp))
+            if (!quick) Box {
                 IntroLetters(name, letters, nameStyle, Color.White.copy(alpha = 0.78f), exiting = { exiting.value })
                 // Highlight copy, visible only inside the moving band.
                 IntroLetters(
