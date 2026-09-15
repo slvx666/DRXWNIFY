@@ -842,7 +842,7 @@
     <!-- Источники метаданных (Spotify / Яндекс Музыка) и аудио-фолбеки -->
     <string name="welcome_subtitle_sources">Твоя медиатека из Spotify или Яндекс Музыки — слушай и скачивай без подписки.</string>
     <string name="welcome_point_connect_sources">Подключи Spotify или Яндекс Музыку — медиатека, плейлисты, лайки и миксы появятся здесь.</string>
-    <string name="welcome_point_match_sources">Аудио для каждого трека ищется параллельно на SoundCloud, YouTube, VK Музыке и Qobuz — строго по названию, исполнителю и длительности, чужие треки не подсунутся.</string>
+    <string name="welcome_point_match_sources">Аудио для каждого трека ищется параллельно на SoundCloud, YouTube, VK Музыке, Bandcamp, Audius и Qobuz — строго по названию, исполнителю и длительности, чужие треки не подсунутся.</string>
     <string name="welcome_point_download_sources">Скачивай альбомы, плейлисты и лайки в один тап — MP3 с обложкой и правильными тегами из твоего сервиса.</string>
     <string name="welcome_point_sync_sources">Лайки, подписки и сохранённые альбомы синхронизируются с аккаунтом.</string>
     <string name="welcome_choose_account">Выбери аккаунт для подключения</string>
@@ -884,4 +884,31 @@
     <string name="audio_search_log_clear">Очистить</string>
     <string name="audio_search_log_share">Отправить</string>
     <string name="audio_search_log_empty">Пока пусто — включи или скачай трек.</string>
+    <string name="audio_source_bandcamp">Bandcamp</string>
+    <string name="audio_source_bandcamp_description">Независимые и андеграунд-артисты публикуются здесь сами; большинство релизов слушается целиком бесплатно. Мало крупных лейблов, часть релизов — только превью.</string>
+    <string name="audio_source_audius">Audius</string>
+    <string name="audio_source_audius_description">Открытая сеть треков от самих артистов (электроника, фонк, хип-хоп, SoundCloud-сцена). Полные треки без аккаунта; мейнстрима мало.</string>
+    <string name="vk_privacy_note">Всё локально: токен хранится только в приложении на этом устройстве, запросы идут напрямую в VK — никаких сторонних серверов.</string>
+    <string name="playback_err_not_found_title">Трек не найден</string>
+    <string name="playback_err_not_found">Его нет ни в одном включённом источнике. Возможно, релиз есть только в платных сервисах.</string>
+    <string name="playback_err_yt_restricted_title">YouTube ограничил этот трек</string>
+    <string name="playback_err_yt_restricted">У видео возрастное или региональное ограничение, а в других источниках трека нет.</string>
+    <string name="playback_err_yt_unreachable_title">YouTube недоступен</string>
+    <string name="playback_err_yt_unreachable">YouTube не открывается в этой сети, а в других источниках трека нет.</string>
+    <string name="playback_err_all_disabled_title">Все источники аудио выключены</string>
+    <string name="playback_err_all_disabled">Включи хотя бы один источник.</string>
+    <string name="playback_err_network_title">Нет соединения</string>
+    <string name="playback_err_network">Проверь интернет или VPN и нажми «Повторить».</string>
+    <string name="playback_err_file_title">Не получилось воспроизвести файл</string>
+    <string name="playback_err_file">Нажми «Повторить» — будет взята другая загрузка или источник.</string>
+    <string name="playback_err_http_title">Источник не отдал трек</string>
+    <string name="playback_err_http">Ссылка могла устареть. Нажми «Повторить».</string>
+    <string name="playback_err_generic_title">Не удалось воспроизвести трек</string>
+    <string name="playback_err_generic">Нажми «Повторить». Подробности — в журнале поиска аудио.</string>
+    <string name="playback_hint_connect_vk">В VK Музыке есть многое, чего нет на YouTube и SoundCloud.</string>
+    <string name="playback_hint_enable_sources">Часть источников аудио выключена.</string>
+    <string name="playback_hint_youtube_login">Вход в аккаунт YouTube снимает возрастные ограничения.</string>
+    <string name="playback_action_connect_vk">Подключить VK</string>
+    <string name="playback_action_sources">Источники</string>
+    <string name="playback_action_log">Журнал</string>
 </resources>

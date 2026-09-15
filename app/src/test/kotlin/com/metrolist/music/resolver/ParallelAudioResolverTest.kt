@@ -131,7 +131,10 @@ class ParallelAudioResolverTest {
     @Test
     fun storedOrderIsParsedAndCompleted() {
         assertEquals(
-            listOf(AudioProviderId.VK, AudioProviderId.YOUTUBE, AudioProviderId.SOUNDCLOUD, AudioProviderId.QOBUZ),
+            listOf(
+                AudioProviderId.VK, AudioProviderId.YOUTUBE, AudioProviderId.SOUNDCLOUD,
+                AudioProviderId.BANDCAMP, AudioProviderId.AUDIUS, AudioProviderId.QOBUZ,
+            ),
             AudioProviderId.parseOrder("VK,YOUTUBE,BOGUS"),
         )
         assertEquals(AudioProviderId.DEFAULT_ORDER, AudioProviderId.parseOrder(null))

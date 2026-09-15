@@ -3779,14 +3779,21 @@ class MusicService :
         val query = AudioFallbackEngine.queryFor(mediaId, dbSong)
         if (youtubeRescue && query == null) {
             AudioDiagnostics.warn("YouTube failed for $mediaId and it has no catalog metadata to search elsewhere")
+            if (youtubeError != null) {
+                if (isNetworkFailure(youtubeError)) AudioDiagnostics.recordYouTubeUnreachable(mediaId)
+                else AudioDiagnostics.recordYouTubeRestricted(mediaId)
+            }
+            AudioDiagnostics.recordFailure(mediaId, AudioDiagnostics.FailureKind.NO_METADATA)
             return null
         }
         if (youtubeRescue && depth == 0 && (youtubeError != null || !fallbackServing.containsKey(mediaId))) {
             if (youtubeError != null && !isNetworkFailure(youtubeError)) {
                 AudioDiagnostics.warn("YouTube can't play $mediaId (${youtubeError.message?.take(160)}) — trying another upload/source")
+                AudioDiagnostics.recordYouTubeRestricted(mediaId)
                 markFallbackFailed(mediaId, trackId = mediaId)
                 AudioFallbackEngine.markYouTubeVideoUnplayable(mediaId, query?.catalogId)
             } else {
+                if (youtubeError != null) AudioDiagnostics.recordYouTubeUnreachable(mediaId)
                 markFallbackFailed(mediaId, provider = AudioProviderId.YOUTUBE)
             }
         }
@@ -3841,9 +3848,11 @@ class MusicService :
                 val data = playback.getOrElse { error ->
                     if (isNetworkFailure(error)) {
                         AudioDiagnostics.warn("YouTube unreachable for ${plan.videoId}: ${error.message?.take(160)}")
+                        AudioDiagnostics.recordYouTubeUnreachable(mediaId)
                         markFallbackFailed(mediaId, provider = AudioProviderId.YOUTUBE)
                     } else {
                         AudioDiagnostics.warn("YouTube video ${plan.videoId} can't play: ${error.message?.take(160)}")
+                        AudioDiagnostics.recordYouTubeRestricted(mediaId)
                         markFallbackFailed(mediaId, trackId = plan.videoId)
                         AudioFallbackEngine.markYouTubeVideoUnplayable(plan.videoId, query?.catalogId)
                     }

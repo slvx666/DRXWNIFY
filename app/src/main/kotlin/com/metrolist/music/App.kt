@@ -133,6 +133,8 @@ class App :
                     qobuzFallback = prefs[com.metrolist.music.constants.AudioSourceQobuzKey] ?: true
                     vkEnabled = prefs[com.metrolist.music.constants.AudioSourceVkKey] ?: true
                     soundCloudEnabled = prefs[com.metrolist.music.constants.AudioSourceSoundCloudKey] ?: true
+                    bandcampEnabled = prefs[com.metrolist.music.constants.AudioSourceBandcampKey] ?: true
+                    audiusEnabled = prefs[com.metrolist.music.constants.AudioSourceAudiusKey] ?: true
                     order = com.metrolist.music.resolver.AudioProviderId.parseOrder(
                         prefs[com.metrolist.music.constants.AudioSourceOrderKey],
                     )

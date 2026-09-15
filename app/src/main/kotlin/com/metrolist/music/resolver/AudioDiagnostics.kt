@@ -43,6 +43,48 @@ object AudioDiagnostics {
         }
     }
 
+    /** Why audio could not be found for a track — turned into a short explanation on the player cover. */
+    enum class FailureKind {
+        /** No enabled source had the track. */
+        NOT_FOUND,
+
+        /** Every audio source is switched off. */
+        ALL_SOURCES_DISABLED,
+
+        /** No catalog metadata to search other sources with (plain YouTube item). */
+        NO_METADATA,
+    }
+
+    data class TrackProblems(
+        val failure: FailureKind? = null,
+        /** YouTube refused the video (age restriction, region, removed). */
+        val youtubeRestricted: Boolean = false,
+        /** YouTube could not be reached at all (network / VPN). */
+        val youtubeUnreachable: Boolean = false,
+        val at: Long = System.currentTimeMillis(),
+    )
+
+    private val problems = java.util.concurrent.ConcurrentHashMap<String, TrackProblems>()
+
+    private fun update(mediaId: String, change: (TrackProblems) -> TrackProblems) {
+        problems.compute(mediaId) { _, old -> change(old ?: TrackProblems()).copy(at = System.currentTimeMillis()) }
+        if (problems.size > 500) problems.entries.minByOrNull { it.value.at }?.let { problems.remove(it.key) }
+    }
+
+    fun recordFailure(mediaId: String, kind: FailureKind) = update(mediaId) { it.copy(failure = kind) }
+
+    fun recordYouTubeRestricted(mediaId: String) = update(mediaId) { it.copy(youtubeRestricted = true) }
+
+    fun recordYouTubeUnreachable(mediaId: String) = update(mediaId) { it.copy(youtubeUnreachable = true) }
+
+    /** Problems recorded for [mediaId] in the last 30 minutes. */
+    fun problemsFor(mediaId: String?): TrackProblems? =
+        mediaId?.let { problems[it] }?.takeIf { System.currentTimeMillis() - it.at < 30 * 60 * 1000L }
+
+    fun clearProblems(mediaId: String) {
+        problems.remove(mediaId)
+    }
+
     fun clear() {
         synchronized(this) { _lines.value = emptyList() }
     }

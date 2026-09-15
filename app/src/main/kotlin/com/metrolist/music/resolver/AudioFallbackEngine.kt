@@ -76,6 +76,8 @@ object AudioFallbackEngine {
             YouTubeAudioProvider(),
             QobuzFallbackProvider(settings = ::qobuzSettings),
             VkAudioProvider(token = { appContext.dataStore.get(VkAccessTokenKey, "") }),
+            com.metrolist.music.resolver.providers.BandcampAudioProvider(),
+            com.metrolist.music.resolver.providers.AudiusAudioProvider(),
             SoundCloudAudioProvider(
                 loadClientId = { appContext.dataStore.get(SoundCloudClientIdKey, "") },
                 saveClientId = { id -> scope.launch { appContext.dataStore.edit { it[SoundCloudClientIdKey] = id } } },
@@ -249,6 +251,7 @@ object AudioFallbackEngine {
     ): StreamPlan? = withContext(Dispatchers.IO) {
         val base = queryFor(mediaId, dbSong) ?: run {
             AudioDiagnostics.warn("no metadata to find audio for $mediaId")
+            AudioDiagnostics.recordFailure(mediaId, AudioDiagnostics.FailureKind.NO_METADATA)
             return@withContext null
         }
         val query = base.copy(excludedTrackIds = base.excludedTrackIds + excludedTrackIds)
@@ -262,7 +265,10 @@ object AudioFallbackEngine {
         for (match in stored) {
             if (!match.usableFor(query.copy(excludedTrackIds = badTracks), tried)) continue
             val plan = planFor(query, match)
-            if (plan != null) return@withContext plan
+            if (plan != null) {
+                AudioDiagnostics.clearProblems(mediaId)
+                return@withContext plan
+            }
             badTracks += match.trackId
             forget(query, match)
         }
@@ -271,10 +277,18 @@ object AudioFallbackEngine {
         repeat(6) {
             val match = resolve(query.copy(excludedTrackIds = badTracks), exclude = tried) ?: run {
                 AudioDiagnostics.warn("no playable audio for ${query.label()} (failed providers=$tried, bad uploads=${badTracks.size})")
+                AudioDiagnostics.recordFailure(
+                    mediaId,
+                    if (activeProviders().isEmpty()) AudioDiagnostics.FailureKind.ALL_SOURCES_DISABLED
+                    else AudioDiagnostics.FailureKind.NOT_FOUND,
+                )
                 return@withContext null
             }
             val plan = planFor(query, match)
-            if (plan != null) return@withContext plan
+            if (plan != null) {
+                AudioDiagnostics.clearProblems(mediaId)
+                return@withContext plan
+            }
             badTracks += match.trackId
             forget(query, match)
             // A provider whose best match can't stream is unlikely to have a second playable upload.

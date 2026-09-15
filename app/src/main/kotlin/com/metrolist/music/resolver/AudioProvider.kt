@@ -22,10 +22,12 @@ enum class AudioProviderId {
     QOBUZ,
     VK,
     SOUNDCLOUD,
+    BANDCAMP,
+    AUDIUS,
     ;
 
     companion object {
-        val DEFAULT_ORDER = listOf(SOUNDCLOUD, YOUTUBE, VK, QOBUZ)
+        val DEFAULT_ORDER = listOf(SOUNDCLOUD, YOUTUBE, VK, BANDCAMP, AUDIUS, QOBUZ)
 
         /** Parses a stored "A,B,C" order; unknown names are dropped, missing providers appended. */
         fun parseOrder(value: String?): List<AudioProviderId> {

@@ -176,6 +176,8 @@ fun MusicSourcesSettings(
         val (qobuz, setQobuz) = rememberPreference(AudioSourceQobuzKey, true)
         val (vk, setVk) = rememberPreference(AudioSourceVkKey, true)
         val (soundcloud, setSoundcloud) = rememberPreference(AudioSourceSoundCloudKey, true)
+        val (bandcamp, setBandcamp) = rememberPreference(com.metrolist.music.constants.AudioSourceBandcampKey, true)
+        val (audius, setAudius) = rememberPreference(com.metrolist.music.constants.AudioSourceAudiusKey, true)
         var orderPref by rememberPreference(AudioSourceOrderKey, "")
         var vkToken by rememberPreference(VkAccessTokenKey, "")
         var vkUserId by rememberPreference(VkUserIdKey, "")
@@ -198,12 +200,16 @@ fun MusicSourcesSettings(
                 AudioProviderId.QOBUZ -> Triple(R.string.audio_source_qobuz, R.string.audio_source_qobuz_description, R.drawable.graphic_eq)
                 AudioProviderId.VK -> Triple(R.string.audio_source_vk, R.string.audio_source_vk_description, R.drawable.music_note)
                 AudioProviderId.SOUNDCLOUD -> Triple(R.string.audio_source_soundcloud, R.string.audio_source_soundcloud_description, R.drawable.cloud)
+                AudioProviderId.BANDCAMP -> Triple(R.string.audio_source_bandcamp, R.string.audio_source_bandcamp_description, R.drawable.album)
+                AudioProviderId.AUDIUS -> Triple(R.string.audio_source_audius, R.string.audio_source_audius_description, R.drawable.graphic_eq)
             }
             val checked = when (id) {
                 AudioProviderId.YOUTUBE -> youtube
                 AudioProviderId.QOBUZ -> qobuz
                 AudioProviderId.VK -> vk
                 AudioProviderId.SOUNDCLOUD -> soundcloud
+                AudioProviderId.BANDCAMP -> bandcamp
+                AudioProviderId.AUDIUS -> audius
             }
             val extra = if (id == AudioProviderId.VK && vk && vkToken.isEmpty()) "\n" + stringResource(R.string.vk_login_required) else ""
             PreferenceEntry(
@@ -232,6 +238,8 @@ fun MusicSourcesSettings(
                                     AudioProviderId.QOBUZ -> { setQobuz(enabled); ResolverPreferences.qobuzFallback = enabled }
                                     AudioProviderId.VK -> { setVk(enabled); ResolverPreferences.vkEnabled = enabled }
                                     AudioProviderId.SOUNDCLOUD -> { setSoundcloud(enabled); ResolverPreferences.soundCloudEnabled = enabled }
+                                    AudioProviderId.BANDCAMP -> { setBandcamp(enabled); ResolverPreferences.bandcampEnabled = enabled }
+                                    AudioProviderId.AUDIUS -> { setAudius(enabled); ResolverPreferences.audiusEnabled = enabled }
                                 }
                             },
                         )
@@ -241,8 +249,8 @@ fun MusicSourcesSettings(
             if (id == AudioProviderId.VK && vk) {
                 PreferenceEntry(
                     title = { Text(if (vkToken.isNotEmpty()) stringResource(R.string.vk_connected) else stringResource(R.string.vk_login)) },
-                    description = vkUserId.takeIf { vkToken.isNotEmpty() && it.isNotEmpty() }?.let { "id$it" }
-                        ?: stringResource(R.string.vk_login_hint),
+                    description = (vkUserId.takeIf { vkToken.isNotEmpty() && it.isNotEmpty() }?.let { "id$it" }
+                        ?: stringResource(R.string.vk_login_hint)) + "\n" + stringResource(R.string.vk_privacy_note),
                     icon = { Spacer(Modifier.size(24.dp)) },
                     trailingContent = {
                         if (vkToken.isNotEmpty()) {
@@ -260,7 +268,7 @@ fun MusicSourcesSettings(
             }
         }
 
-        if (!youtube && !qobuz && !vk && !soundcloud) {
+        if (!youtube && !qobuz && !vk && !soundcloud && !bandcamp && !audius) {
             Text(
                 text = stringResource(R.string.audio_sources_all_disabled),
                 color = MaterialTheme.colorScheme.error,

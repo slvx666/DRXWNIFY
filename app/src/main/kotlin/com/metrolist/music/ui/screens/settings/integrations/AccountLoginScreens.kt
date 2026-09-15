@@ -104,6 +104,7 @@ fun VkLoginScreen(navController: NavController) {
         navController = navController,
         title = stringResource(R.string.vk_login),
         startUrl = VkAudioProvider.OAUTH_URL,
+        note = stringResource(R.string.vk_privacy_note),
         onToken = { params ->
             val token = params["access_token"] ?: return@OAuthTokenLoginScreen "no token"
             context.dataStore.edit { prefs ->
@@ -127,6 +128,7 @@ private fun OAuthTokenLoginScreen(
     navController: NavController,
     title: String,
     startUrl: String,
+    note: String? = null,
     onToken: suspend (Map<String, String>) -> String?,
 ) {
     val context = LocalContext.current
@@ -177,6 +179,14 @@ private fun OAuthTokenLoginScreen(
                 }
             },
         )
+        if (note != null) {
+            Text(
+                text = note,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
         if (loading || processing) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
         }

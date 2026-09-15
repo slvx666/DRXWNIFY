@@ -7,6 +7,7 @@ package com.metrolist.music.ui.player
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,157 +19,151 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.media3.common.PlaybackException
 import com.metrolist.music.R
+import com.metrolist.music.constants.AudioSourceVkKey
+import com.metrolist.music.constants.VkAccessTokenKey
+import com.metrolist.music.resolver.AudioDiagnostics
+import com.metrolist.music.resolver.AudioProviderId
+import com.metrolist.music.resolver.ResolverPreferences
+import com.metrolist.music.utils.rememberPreference
+
+/** What the user sees on the cover when a track can't play: a plain reason and, if possible, a fix. */
+private data class Explanation(
+    val title: Int,
+    val message: Int,
+    val hint: Int? = null,
+    val action: Int? = null,
+    val actionRoute: String? = null,
+)
+
+private const val ROUTE_SOURCES = "settings/integrations/sources"
+private const val ROUTE_VK_LOGIN = "settings/vk/login"
+private const val ROUTE_LOG = "settings/integrations/sources/log"
 
 @Composable
 fun PlaybackError(
     error: PlaybackException,
     isLoggedIn: Boolean,
     retry: () -> Unit,
+    mediaId: String? = null,
+    onNavigate: ((String) -> Unit)? = null,
 ) {
-    val rawErrorMessage = error.cause?.cause?.message 
-        ?: error.cause?.message 
-        ?: error.message 
-        ?: stringResource(R.string.error_unknown)
-    
-    val isRestricted = rawErrorMessage.contains("age", ignoreCase = true) ||
-            rawErrorMessage.contains("Sign in to confirm your age", ignoreCase = true) ||
-            rawErrorMessage.contains("LOGIN_REQUIRED", ignoreCase = true) ||
-            rawErrorMessage.contains("confirm your age", ignoreCase = true) ||
-            rawErrorMessage.contains("AGE_CHECK_REQUIRED", ignoreCase = true) ||
-            rawErrorMessage.contains("AGE_VERIFICATION_REQUIRED", ignoreCase = true) ||
-            rawErrorMessage.contains("CONTENT_CHECK_REQUIRED", ignoreCase = true) ||
-            rawErrorMessage.contains("country", ignoreCase = true) ||
-            error.errorCode == PlaybackException.ERROR_CODE_REMOTE_ERROR
-    
-    val errorMessage = when {
-        isRestricted && !isLoggedIn -> stringResource(R.string.error_restricted_not_logged_in)
-        isRestricted && isLoggedIn -> stringResource(R.string.error_restricted_logged_in)
-        else -> rawErrorMessage
+    val (vkEnabled) = rememberPreference(AudioSourceVkKey, true)
+    val (vkToken) = rememberPreference(VkAccessTokenKey, "")
+    val problems = AudioDiagnostics.problemsFor(mediaId)
+
+    val rawMessage = error.cause?.cause?.message ?: error.cause?.message ?: error.message.orEmpty()
+    val rawRestricted = listOf("age", "LOGIN_REQUIRED", "AGE_CHECK_REQUIRED", "AGE_VERIFICATION_REQUIRED", "CONTENT_CHECK_REQUIRED", "country")
+        .any { rawMessage.contains(it, ignoreCase = true) } || error.errorCode == PlaybackException.ERROR_CODE_REMOTE_ERROR
+    val someSourcesOff = AudioProviderId.entries.any { !ResolverPreferences.isEnabled(it) }
+    val canConnectVk = vkEnabled && vkToken.isEmpty()
+
+    // A way to fix it, best first: connect VK (large catalog) → enable disabled sources → YouTube login.
+    fun withFix(base: Explanation, restricted: Boolean): Explanation = when {
+        canConnectVk -> base.copy(hint = R.string.playback_hint_connect_vk, action = R.string.playback_action_connect_vk, actionRoute = ROUTE_VK_LOGIN)
+        someSourcesOff -> base.copy(hint = R.string.playback_hint_enable_sources, action = R.string.playback_action_sources, actionRoute = ROUTE_SOURCES)
+        restricted && !isLoggedIn -> base.copy(hint = R.string.playback_hint_youtube_login)
+        else -> base
     }
-    
+
+    val explanation = when {
+        problems?.failure == AudioDiagnostics.FailureKind.ALL_SOURCES_DISABLED ->
+            Explanation(R.string.playback_err_all_disabled_title, R.string.playback_err_all_disabled,
+                action = R.string.playback_action_sources, actionRoute = ROUTE_SOURCES)
+        problems?.youtubeRestricted == true || (problems == null && rawRestricted) ->
+            withFix(Explanation(R.string.playback_err_yt_restricted_title, R.string.playback_err_yt_restricted), restricted = true)
+        problems?.youtubeUnreachable == true && problems.failure != null ->
+            withFix(Explanation(R.string.playback_err_yt_unreachable_title, R.string.playback_err_yt_unreachable), restricted = false)
+        problems?.failure != null ->
+            withFix(Explanation(R.string.playback_err_not_found_title, R.string.playback_err_not_found), restricted = false)
+        error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+            error.errorCode == PlaybackException.ERROR_CODE_TIMEOUT ->
+            Explanation(R.string.playback_err_network_title, R.string.playback_err_network)
+        error.errorCode in 3000..4999 ->
+            Explanation(R.string.playback_err_file_title, R.string.playback_err_file)
+        error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ->
+            withFix(Explanation(R.string.playback_err_http_title, R.string.playback_err_http), restricted = false)
+        else -> Explanation(R.string.playback_err_generic_title, R.string.playback_err_generic)
+    }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp)
+            .padding(16.dp),
     ) {
-        // Error icon
         Icon(
             painter = painterResource(R.drawable.error),
             contentDescription = null,
             tint = MaterialTheme.colorScheme.error,
-            modifier = Modifier.size(48.dp)
+            modifier = Modifier.size(44.dp),
         )
-        
-        Spacer(modifier = Modifier.height(12.dp))
-        
-        // Main error message
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
-            text = stringResource(R.string.error_playback_failed),
+            text = stringResource(explanation.title),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.error,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
         )
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        // Error details
+        Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = errorMessage,
+            text = stringResource(explanation.message),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             maxLines = 3,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
-        
-        Spacer(modifier = Modifier.height(4.dp))
-        
-        // Error code
-        Text(
-            text = "Code: ${getErrorCodeName(error.errorCode)} (${error.errorCode})",
-            style = MaterialTheme.typography.bodySmall.copy(
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            textAlign = TextAlign.Center
-        )
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        // Retry button
-        Button(
-            onClick = retry,
-            shape = RoundedCornerShape(20.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
+        explanation.hint?.let {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = stringResource(it),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.replay),
-                contentDescription = null,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(text = stringResource(R.string.retry))
         }
-    }
-}
-
-/**
- * Get human-readable error code name from PlaybackException error code
- */
-private fun getErrorCodeName(errorCode: Int): String {
-    return when (errorCode) {
-        PlaybackException.ERROR_CODE_UNSPECIFIED -> "UNSPECIFIED"
-        PlaybackException.ERROR_CODE_REMOTE_ERROR -> "REMOTE_ERROR"
-        PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> "BEHIND_LIVE_WINDOW"
-        PlaybackException.ERROR_CODE_TIMEOUT -> "TIMEOUT"
-        PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK -> "FAILED_RUNTIME_CHECK"
-        PlaybackException.ERROR_CODE_IO_UNSPECIFIED -> "IO_UNSPECIFIED"
-        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "IO_NETWORK_CONNECTION_FAILED"
-        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "IO_NETWORK_CONNECTION_TIMEOUT"
-        PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE -> "IO_INVALID_HTTP_CONTENT_TYPE"
-        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "IO_BAD_HTTP_STATUS"
-        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "IO_FILE_NOT_FOUND"
-        PlaybackException.ERROR_CODE_IO_NO_PERMISSION -> "IO_NO_PERMISSION"
-        PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED -> "IO_CLEARTEXT_NOT_PERMITTED"
-        PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE -> "IO_READ_POSITION_OUT_OF_RANGE"
-        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> "PARSING_CONTAINER_MALFORMED"
-        PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> "PARSING_MANIFEST_MALFORMED"
-        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "PARSING_CONTAINER_UNSUPPORTED"
-        PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED -> "PARSING_MANIFEST_UNSUPPORTED"
-        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "DECODER_INIT_FAILED"
-        PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED -> "DECODER_QUERY_FAILED"
-        PlaybackException.ERROR_CODE_DECODING_FAILED -> "DECODING_FAILED"
-        PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES -> "DECODING_FORMAT_EXCEEDS_CAPABILITIES"
-        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> "DECODING_FORMAT_UNSUPPORTED"
-        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED -> "AUDIO_TRACK_INIT_FAILED"
-        PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED -> "AUDIO_TRACK_WRITE_FAILED"
-        PlaybackException.ERROR_CODE_DRM_UNSPECIFIED -> "DRM_UNSPECIFIED"
-        PlaybackException.ERROR_CODE_DRM_SCHEME_UNSUPPORTED -> "DRM_SCHEME_UNSUPPORTED"
-        PlaybackException.ERROR_CODE_DRM_PROVISIONING_FAILED -> "DRM_PROVISIONING_FAILED"
-        PlaybackException.ERROR_CODE_DRM_CONTENT_ERROR -> "DRM_CONTENT_ERROR"
-        PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED -> "DRM_LICENSE_ACQUISITION_FAILED"
-        PlaybackException.ERROR_CODE_DRM_DISALLOWED_OPERATION -> "DRM_DISALLOWED_OPERATION"
-        PlaybackException.ERROR_CODE_DRM_SYSTEM_ERROR -> "DRM_SYSTEM_ERROR"
-        PlaybackException.ERROR_CODE_DRM_DEVICE_REVOKED -> "DRM_DEVICE_REVOKED"
-        PlaybackException.ERROR_CODE_DRM_LICENSE_EXPIRED -> "DRM_LICENSE_EXPIRED"
-        else -> "UNKNOWN_ERROR_$errorCode"
+        Spacer(modifier = Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = retry,
+                shape = RoundedCornerShape(20.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            ) {
+                Icon(painter = painterResource(R.drawable.replay), contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(text = stringResource(R.string.retry))
+            }
+            val route = explanation.actionRoute
+            val action = explanation.action
+            if (route != null && action != null && onNavigate != null) {
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedButton(onClick = { onNavigate(route) }, shape = RoundedCornerShape(20.dp)) {
+                    Text(text = stringResource(action), maxLines = 1)
+                }
+            }
+        }
+        if (onNavigate != null) {
+            TextButton(onClick = { onNavigate(ROUTE_LOG) }) {
+                Text(text = stringResource(R.string.playback_action_log), style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }

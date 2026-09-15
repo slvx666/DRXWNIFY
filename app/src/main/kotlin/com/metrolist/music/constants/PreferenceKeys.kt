@@ -247,6 +247,8 @@ enum class MetadataSource {
 val AudioSourceYouTubeKey = booleanPreferencesKey("audioSourceYouTube")
 val AudioSourceSoundCloudKey = booleanPreferencesKey("audioSourceSoundCloud")
 val AudioSourceVkKey = booleanPreferencesKey("audioSourceVk")
+val AudioSourceBandcampKey = booleanPreferencesKey("audioSourceBandcamp")
+val AudioSourceAudiusKey = booleanPreferencesKey("audioSourceAudius")
 // Qobuz reuses the historical "Qobuz fallback" key so the user's earlier choice is kept.
 val AudioSourceQobuzKey = SpotifyQobuzFallbackKey
 

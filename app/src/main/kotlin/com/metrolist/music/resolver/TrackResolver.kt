@@ -55,6 +55,14 @@ object ResolverPreferences {
     @Volatile
     var soundCloudEnabled: Boolean = true
 
+    /** Bandcamp: independent / underground releases, full free streams. */
+    @Volatile
+    var bandcampEnabled: Boolean = true
+
+    /** Audius: open network of self-published tracks (electronic, phonk, hip-hop). */
+    @Volatile
+    var audiusEnabled: Boolean = true
+
     /** Provider ranking used to choose between matches, best first. */
     @Volatile
     var order: List<AudioProviderId> = AudioProviderId.DEFAULT_ORDER
@@ -64,6 +72,8 @@ object ResolverPreferences {
         AudioProviderId.QOBUZ -> qobuzFallback
         AudioProviderId.VK -> vkEnabled
         AudioProviderId.SOUNDCLOUD -> soundCloudEnabled
+        AudioProviderId.BANDCAMP -> bandcampEnabled
+        AudioProviderId.AUDIUS -> audiusEnabled
     }
 }
 

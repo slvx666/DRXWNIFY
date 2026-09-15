@@ -1141,7 +1141,7 @@
     <!-- Metadata sources (Spotify / Yandex Music) and audio fallbacks -->
     <string name="welcome_subtitle_sources">Your Spotify or Yandex Music library — playable and downloadable, without a subscription.</string>
     <string name="welcome_point_connect_sources">Link Spotify or Yandex Music: your library, playlists, liked songs and mixes show up right here.</string>
-    <string name="welcome_point_match_sources">Audio for every track is searched in parallel on SoundCloud, YouTube, VK Music and Qobuz — strictly by title, artist and length, so you never get a wrong song.</string>
+    <string name="welcome_point_match_sources">Audio for every track is searched in parallel on SoundCloud, YouTube, VK Music, Bandcamp, Audius and Qobuz — strictly by title, artist and length, so you never get a wrong song.</string>
     <string name="welcome_point_download_sources">Download whole albums, playlists and liked songs in one tap — MP3 with cover art and correct tags from your music service.</string>
     <string name="welcome_point_sync_sources">Likes, follows and saved albums stay in sync with your account.</string>
     <string name="welcome_choose_account">Choose an account to connect</string>
@@ -1183,4 +1183,31 @@
     <string name="audio_search_log_clear">Clear</string>
     <string name="audio_search_log_share">Share</string>
     <string name="audio_search_log_empty">Nothing yet — play or download a track.</string>
+    <string name="audio_source_bandcamp">Bandcamp</string>
+    <string name="audio_source_bandcamp_description">Independent and underground artists publish here directly; most releases stream in full for free. Few major-label releases; some are preview-only.</string>
+    <string name="audio_source_audius">Audius</string>
+    <string name="audio_source_audius_description">Open network of self-published tracks (electronic, phonk, hip-hop, the SoundCloud scene). Full streams, no account; thin mainstream catalog.</string>
+    <string name="vk_privacy_note">Everything stays on this device: the token is stored only in the app, and requests go straight to VK — no third-party servers.</string>
+    <string name="playback_err_not_found_title">Track not found</string>
+    <string name="playback_err_not_found">None of the enabled sources has it. The release may only be available on paid services.</string>
+    <string name="playback_err_yt_restricted_title">YouTube restricted this track</string>
+    <string name="playback_err_yt_restricted">The video is age- or region-restricted, and no other source has the track.</string>
+    <string name="playback_err_yt_unreachable_title">YouTube is unreachable</string>
+    <string name="playback_err_yt_unreachable">YouTube doesn\'t open in this network, and other sources don\'t have the track.</string>
+    <string name="playback_err_all_disabled_title">All audio sources are off</string>
+    <string name="playback_err_all_disabled">Turn on at least one source.</string>
+    <string name="playback_err_network_title">No connection</string>
+    <string name="playback_err_network">Check the internet or VPN and tap Retry.</string>
+    <string name="playback_err_file_title">Couldn\'t play the file</string>
+    <string name="playback_err_file">Tap Retry — another upload or source will be used.</string>
+    <string name="playback_err_http_title">The source didn\'t return the track</string>
+    <string name="playback_err_http">The link may have expired. Tap Retry.</string>
+    <string name="playback_err_generic_title">Couldn\'t play the track</string>
+    <string name="playback_err_generic">Tap Retry. Details are in the audio search log.</string>
+    <string name="playback_hint_connect_vk">VK Music has a lot that isn\'t on YouTube or SoundCloud.</string>
+    <string name="playback_hint_enable_sources">Some audio sources are turned off.</string>
+    <string name="playback_hint_youtube_login">Signing in to YouTube lifts age restrictions.</string>
+    <string name="playback_action_connect_vk">Connect VK</string>
+    <string name="playback_action_sources">Sources</string>
+    <string name="playback_action_log">Log</string>
 </resources>

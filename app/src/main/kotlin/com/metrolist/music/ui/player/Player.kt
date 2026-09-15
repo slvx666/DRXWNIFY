@@ -2038,6 +2038,10 @@ fun BottomSheetPlayer(
                                     isPlayerExpanded = isExpandedProvider,
                                     isLandscape = true,
                                     isListenTogetherGuest = isListenTogetherGuest,
+                                    onNavigate = { route ->
+                                        state.collapseSoft()
+                                        navController.navigate(route)
+                                    },
                                 )
                             }
                         }
@@ -2100,6 +2104,10 @@ fun BottomSheetPlayer(
                                     modifier = Modifier.nestedScroll(state.preUpPostDownNestedScrollConnection),
                                     isPlayerExpanded = isExpandedProvider,
                                     isListenTogetherGuest = isListenTogetherGuest,
+                                    onNavigate = { route ->
+                                        state.collapseSoft()
+                                        navController.navigate(route)
+                                    },
                                 )
                             }
                         }

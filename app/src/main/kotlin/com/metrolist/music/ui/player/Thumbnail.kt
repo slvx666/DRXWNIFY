@@ -209,6 +209,7 @@ fun Thumbnail(
     isPlayerExpanded: () -> Boolean = { true },
     isLandscape: Boolean = false,
     isListenTogetherGuest: Boolean = false,
+    onNavigate: ((String) -> Unit)? = null,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val context = LocalContext.current
@@ -329,6 +330,8 @@ fun Thumbnail(
                     error = playbackError,
                     isLoggedIn = isYouTubeLoggedIn,
                     retry = playerConnection.player::prepare,
+                    mediaId = mediaMetadata?.id,
+                    onNavigate = onNavigate,
                 )
             }
         }
