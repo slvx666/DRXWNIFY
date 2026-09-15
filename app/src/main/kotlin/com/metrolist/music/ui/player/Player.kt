@@ -1177,8 +1177,8 @@ fun BottomSheetPlayer(
                                     shape = shareShape,
                                     colors =
                                         IconButtonDefaults.filledIconButtonColors(
-                                            containerColor = textButtonColor,
-                                            contentColor = iconButtonColor,
+                                            containerColor = sideButtonContainerColor,
+                                            contentColor = sideButtonContentColor,
                                         ),
                                     modifier = Modifier.size(42.dp),
                                 ) {
@@ -1205,8 +1205,8 @@ fun BottomSheetPlayer(
                                     shape = shareShape,
                                     colors =
                                         IconButtonDefaults.filledIconButtonColors(
-                                            containerColor = textButtonColor,
-                                            contentColor = iconButtonColor,
+                                            containerColor = sideButtonContainerColor,
+                                            contentColor = sideButtonContentColor,
                                         ),
                                     modifier = Modifier.size(42.dp),
                                 ) {
@@ -1252,8 +1252,8 @@ fun BottomSheetPlayer(
                                 },
                                 shape = middleShape,
                                 colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = textButtonColor,
-                                    contentColor = iconButtonColor,
+                                    containerColor = sideButtonContainerColor,
+                                    contentColor = sideButtonContentColor,
                                 ),
                                 modifier = Modifier.size(42.dp),
                             ) {
@@ -1261,7 +1261,7 @@ fun BottomSheetPlayer(
                                     active -> CircularProgressIndicator(
                                         modifier = Modifier.size(20.dp),
                                         strokeWidth = 2.dp,
-                                        color = iconButtonColor,
+                                        color = sideButtonContentColor,
                                     )
                                     dlState == Download.STATE_COMPLETED -> Icon(
                                         painter = painterResource(R.drawable.offline),
@@ -1301,8 +1301,8 @@ fun BottomSheetPlayer(
                                     shape = favShape,
                                     colors =
                                         IconButtonDefaults.filledIconButtonColors(
-                                            containerColor = textButtonColor,
-                                            contentColor = iconButtonColor,
+                                            containerColor = sideButtonContainerColor,
+                                            contentColor = sideButtonContentColor,
                                         ),
                                     modifier = Modifier.size(42.dp),
                                 ) {
@@ -1326,8 +1326,8 @@ fun BottomSheetPlayer(
                                     shape = favShape,
                                     colors =
                                         IconButtonDefaults.filledIconButtonColors(
-                                            containerColor = textButtonColor,
-                                            contentColor = iconButtonColor,
+                                            containerColor = sideButtonContainerColor,
+                                            contentColor = sideButtonContentColor,
                                         ),
                                     modifier = Modifier.size(42.dp),
                                 ) {
@@ -1355,13 +1355,13 @@ fun BottomSheetPlayer(
                                     Modifier
                                         .size(40.dp)
                                         .clip(RoundedCornerShape(24.dp))
-                                        .background(textButtonColor)
+                                        .background(sideButtonContainerColor)
                                         .clickable { isFullScreen = !isFullScreen },
                             ) {
                                 Icon(
                                     painter = painterResource(R.drawable.fullscreen),
                                     contentDescription = null,
-                                    tint = iconButtonColor,
+                                    tint = sideButtonContentColor,
                                     modifier =
                                         Modifier
                                             .align(Alignment.Center)
@@ -1374,7 +1374,7 @@ fun BottomSheetPlayer(
                                     Modifier
                                         .size(40.dp)
                                         .clip(RoundedCornerShape(24.dp))
-                                        .background(textButtonColor)
+                                        .background(sideButtonContainerColor)
                                         .clickable {
                                             val intent =
                                                 Intent().apply {
@@ -1391,7 +1391,7 @@ fun BottomSheetPlayer(
                                 Icon(
                                     painter = painterResource(R.drawable.share),
                                     contentDescription = null,
-                                    tint = iconButtonColor,
+                                    tint = sideButtonContentColor,
                                     modifier =
                                         Modifier
                                             .align(Alignment.Center)
@@ -1411,7 +1411,7 @@ fun BottomSheetPlayer(
                                     Modifier
                                         .size(40.dp)
                                         .clip(RoundedCornerShape(24.dp))
-                                        .background(textButtonColor)
+                                        .background(sideButtonContainerColor)
                                         .clickable {
                                             menuState.show {
                                                 com.metrolist.music.ui.menu.LyricsMenu(
@@ -1433,7 +1433,7 @@ fun BottomSheetPlayer(
                                 Icon(
                                     painter = painterResource(R.drawable.more_horiz),
                                     contentDescription = null,
-                                    tint = iconButtonColor,
+                                    tint = sideButtonContentColor,
                                     modifier =
                                         Modifier
                                             .align(Alignment.Center)
@@ -1445,8 +1445,8 @@ fun BottomSheetPlayer(
                                 mediaMetadata = mediaMetadata,
                                 navController = navController,
                                 state = state,
-                                textButtonColor = textButtonColor,
-                                iconButtonColor = iconButtonColor,
+                                textButtonColor = sideButtonContainerColor,
+                                iconButtonColor = sideButtonContentColor,
                             )
                         }
                     }
@@ -2139,8 +2139,8 @@ fun BottomSheetPlayer(
                     },
                 onBackgroundColor = onBackgroundColor,
                 TextBackgroundColor = TextBackgroundColor,
-                textButtonColor = textButtonColor,
-                iconButtonColor = iconButtonColor,
+                textButtonColor = sideButtonContainerColor,
+                iconButtonColor = sideButtonContentColor,
                 pureBlack = pureBlack,
                 showInlineLyrics = showInlineLyrics,
                 playerBackground = playerBackground,

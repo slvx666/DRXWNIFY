@@ -517,6 +517,7 @@ class HomeViewModel @Inject constructor(
             loadSections()
         } finally {
             isLoading.value = false
+            firstLoadDone.value = true
         }
     }
 
@@ -971,6 +972,11 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             syncUtils.tryAutoSync()
         }
+    }
+
+    companion object {
+        /** Set once the home page finished its first load; the launch intro waits for it. */
+        val firstLoadDone = MutableStateFlow(false)
     }
 
     init {

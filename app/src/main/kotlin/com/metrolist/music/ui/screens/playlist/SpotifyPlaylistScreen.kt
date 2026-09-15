@@ -320,6 +320,19 @@ fun SpotifyPlaylistScreen(
                         .fillMaxWidth()
                         .padding(16.dp),
                 ) {
+                    val coverUrl = playlist?.images
+                        ?.firstOrNull { (it.width ?: 0) >= 300 }?.url
+                        ?: playlist?.images?.firstOrNull()?.url
+                    if (coverUrl != null) {
+                        com.metrolist.music.ui.component.GlowingCover(
+                            url = coverUrl,
+                            size = 240.dp,
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(com.metrolist.music.constants.ThumbnailCornerRadius),
+                            contentDescription = playlist?.name,
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
                     Text(
                         text = playlist?.name ?: "",
                         style = MaterialTheme.typography.headlineSmall,

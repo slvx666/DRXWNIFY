@@ -149,13 +149,11 @@ fun SpotifyAlbumScreen(
                         ?: album?.images?.firstOrNull()?.url
 
                     if (thumbnailUrl != null) {
-                        AsyncImage(
-                            model = thumbnailUrl,
+                        com.metrolist.music.ui.component.GlowingCover(
+                            url = thumbnailUrl,
+                            size = 240.dp,
+                            shape = RoundedCornerShape(ThumbnailCornerRadius),
                             contentDescription = album?.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(240.dp)
-                                .clip(RoundedCornerShape(ThumbnailCornerRadius)),
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                     }

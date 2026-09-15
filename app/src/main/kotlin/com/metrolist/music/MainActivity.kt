@@ -630,8 +630,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val homeViewModel: HomeViewModel = hiltViewModel()
-                val accountImageUrl by homeViewModel.accountImageUrl.collectAsState()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val (previousTab, setPreviousTab) = rememberSaveable { mutableStateOf("home") }
 
@@ -1334,6 +1332,26 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // Launch intro over the app while home and the library's first page load underneath.
+                    var introVisible by remember { mutableStateOf(!com.metrolist.music.ui.component.AppIntroState.played) }
+                    if (introVisible) {
+                        com.metrolist.music.ui.component.AppIntro(
+                            background = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surface,
+                            awaitReady = {
+                                kotlinx.coroutines.coroutineScope {
+                                    launch { HomeViewModel.firstLoadDone.first { it } }
+                                    launch(Dispatchers.IO) {
+                                        runCatching { com.metrolist.music.catalog.Catalog.prewarmLibrary() }
+                                    }
+                                }
+                            },
+                            onFinished = {
+                                com.metrolist.music.ui.component.AppIntroState.played = true
+                                introVisible = false
+                            },
+                        )
+                    }
+
                     // First-launch welcome: what the app is, the account picker (Spotify / Yandex
                     // Music) and the author's GitHub. Shown once; never to someone already connected.
                     var welcomeShown by rememberPreference(
@@ -1345,7 +1363,7 @@ class MainActivity : ComponentActivity() {
                     val (spotifyTokenForWelcome) = rememberPreference(com.metrolist.music.constants.SpotifyAccessTokenKey, "")
                     val anyAccountLinked = catalogState.isActive ||
                         yandexTokenForWelcome.isNotEmpty() || spotifyTokenForWelcome.isNotEmpty()
-                    if (!welcomeShown && !anyAccountLinked) {
+                    if (!welcomeShown && !anyAccountLinked && !introVisible) {
                         com.metrolist.music.ui.component.WelcomeDialog(
                             onConnectSpotify = {
                                 welcomeShown = true

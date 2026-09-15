@@ -245,8 +245,12 @@ object Catalog {
     private val libraryMutex = Mutex()
     private val yandexLibrary = HashMap<String, Pair<Long, List<SpotifyLibraryEntry>>>()
 
+    /** Spotify library pages fetched recently (e.g. warmed up during the launch intro). */
+    private val spotifyLibraryPages = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, SpotifyPaging<SpotifyLibraryEntry>>>()
+
     fun invalidateCaches() {
         yandexLibrary.clear()
+        spotifyLibraryPages.clear()
     }
 
     suspend fun likedSongs(limit: Int, offset: Int): Result<SpotifyPaging<SpotifySavedTrack>> = when (source) {
@@ -256,9 +260,20 @@ object Catalog {
     }
 
     /** One page of the library for [filter] ("Playlists" / "Albums" / "Artists" / null = all). */
+    /** Loads the first library page ahead of time so the Library tab opens instantly. */
+    suspend fun prewarmLibrary() {
+        if (source == null || !ensureAuthenticated()) return
+        myLibrary(filter = null, limit = 50, offset = 0)
+    }
+
     suspend fun myLibrary(filter: String?, limit: Int, offset: Int): Result<SpotifyPaging<SpotifyLibraryEntry>> =
         when (source) {
-            MetadataSource.SPOTIFY -> Spotify.myLibrary(filter, limit, offset)
+            MetadataSource.SPOTIFY -> {
+                val key = "$filter|$limit|$offset"
+                val cached = spotifyLibraryPages[key]?.takeIf { System.currentTimeMillis() - it.first < LIBRARY_TTL_MS }
+                if (cached != null) Result.success(cached.second)
+                else Spotify.myLibrary(filter, limit, offset).onSuccess { spotifyLibraryPages[key] = System.currentTimeMillis() to it }
+            }
             MetadataSource.YANDEX -> runCatching {
                 val key = filter ?: "*"
                 val all = libraryMutex.withLock {
