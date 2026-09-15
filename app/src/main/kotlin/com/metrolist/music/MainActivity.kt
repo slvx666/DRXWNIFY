@@ -164,7 +164,6 @@ import com.metrolist.music.playback.MusicService
 import com.metrolist.music.playback.MusicService.MusicBinder
 import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.playback.queues.YouTubeQueue
-import com.metrolist.music.ui.component.AccountSettingsDialog
 import com.metrolist.music.ui.component.AppNavigationBar
 import com.metrolist.music.ui.component.AppNavigationRail
 import com.metrolist.music.ui.component.BottomSheetMenu
@@ -893,7 +892,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                var showAccountDialog by remember { mutableStateOf(false) }
 
                 val pauseListenHistory by rememberPreference(PauseListenHistoryKey, defaultValue = false)
                 val eventCount by database.eventCount().collectAsState(initial = 0)
@@ -953,28 +951,25 @@ class MainActivity : ComponentActivity() {
                                                     )
                                                 }
                                             }
-                                            IconButton(onClick = { showAccountDialog = true }) {
+                                            // Integrations and settings are two separate entry points.
+                                            IconButton(onClick = { navController.navigate("settings/integrations") }) {
+                                                Icon(
+                                                    painter = painterResource(R.drawable.integration),
+                                                    contentDescription = stringResource(R.string.integrations),
+                                                    modifier = Modifier.size(24.dp),
+                                                )
+                                            }
+                                            IconButton(onClick = { navController.navigate("settings") }) {
                                                 BadgedBox(badge = {
-                                                    if (latestVersionName != BuildConfig.VERSION_NAME) {
+                                                    if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.VERSION_NAME) {
                                                         Badge()
                                                     }
                                                 }) {
-                                                    if (accountImageUrl != null) {
-                                                        AsyncImage(
-                                                            model = accountImageUrl,
-                                                            contentDescription = stringResource(R.string.account),
-                                                            modifier =
-                                                                Modifier
-                                                                    .size(24.dp)
-                                                                    .clip(CircleShape),
-                                                        )
-                                                    } else {
-                                                        Icon(
-                                                            painter = painterResource(R.drawable.account),
-                                                            contentDescription = stringResource(R.string.account),
-                                                            modifier = Modifier.size(24.dp),
-                                                        )
-                                                    }
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.settings),
+                                                        contentDescription = stringResource(R.string.settings),
+                                                        modifier = Modifier.size(24.dp),
+                                                    )
                                                 }
                                             }
                                         },
@@ -1337,17 +1332,6 @@ class MainActivity : ComponentActivity() {
                                 contentDescription = stringResource(R.string.home),
                             )
                         }
-                    }
-
-                    if (showAccountDialog) {
-                        AccountSettingsDialog(
-                            navController = navController,
-                            onDismiss = {
-                                showAccountDialog = false
-                                homeViewModel.refresh()
-                            },
-                            latestVersionName = latestVersionName,
-                        )
                     }
 
                     // First-launch welcome: what the app is, the account picker (Spotify / Yandex
