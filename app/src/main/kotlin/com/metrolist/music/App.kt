@@ -124,6 +124,29 @@ class App :
             dataStore.get(com.metrolist.music.constants.SpotifyLooseMatchKey, false)
         com.metrolist.music.resolver.ResolverPreferences.qobuzFallback =
             dataStore.get(com.metrolist.music.constants.SpotifyQobuzFallbackKey, true)
+        // Audio fallback providers (all enabled by default) are kept in sync with the settings.
+        applicationScope.launch(Dispatchers.IO) {
+            dataStore.data.collect { prefs ->
+                com.metrolist.music.resolver.ResolverPreferences.apply {
+                    looseMatch = prefs[com.metrolist.music.constants.SpotifyLooseMatchKey] ?: false
+                    youtubeEnabled = prefs[com.metrolist.music.constants.AudioSourceYouTubeKey] ?: true
+                    qobuzFallback = prefs[com.metrolist.music.constants.AudioSourceQobuzKey] ?: true
+                    vkEnabled = prefs[com.metrolist.music.constants.AudioSourceVkKey] ?: true
+                    soundCloudEnabled = prefs[com.metrolist.music.constants.AudioSourceSoundCloudKey] ?: true
+                    order = com.metrolist.music.resolver.AudioProviderId.parseOrder(
+                        prefs[com.metrolist.music.constants.AudioSourceOrderKey],
+                    )
+                }
+            }
+        }
+        com.metrolist.music.resolver.AudioFallbackEngine.init(this, database)
+        com.metrolist.music.resolver.AudioFallbackEngine.onYouTubeVideoUnplayable = { videoId ->
+            applicationScope.launch(Dispatchers.IO) {
+                com.metrolist.music.playback.SpotifyYouTubeMapper.forgetYouTubeVideo(database, videoId)
+            }
+        }
+        // Metadata/library catalog: Spotify and/or Yandex Music, per the connected accounts.
+        com.metrolist.music.catalog.Catalog.init(dataStore, applicationScope, getString(R.string.liked_songs))
 
         // تهيئة إعدادات التطبيق عند الإقلاع
         applicationScope.launch {

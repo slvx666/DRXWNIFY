@@ -11,7 +11,7 @@ import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.playback.SpotifyRecommendationEngine
 import com.metrolist.music.playback.SpotifyYouTubeMapper
-import com.metrolist.spotify.Spotify
+import com.metrolist.music.catalog.Catalog
 import com.metrolist.spotify.models.SpotifyTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -89,6 +89,12 @@ class SpotifyQueue(
     private suspend fun ensureRecommendations() {
         if (recommendationsGenerated) return
         recommendationsGenerated = true
+        if (Catalog.isYandexId(initialTrack.id)) {
+            // The recommendation engine is built on Spotify's taste profile; for a Yandex Music track
+            // use the catalog-agnostic queue (artist top tracks + the rest of the album).
+            buildFallbackQueue()
+            return
+        }
         try {
             val recommendations = withTimeoutOrNull(RECOMMENDATION_TIMEOUT_MS) {
                 SpotifyRecommendationEngine.getRecommendations(
@@ -126,7 +132,7 @@ class SpotifyQueue(
         val seenIds = mutableSetOf(initialTrack.id)
 
         for (artistId in initialTrack.artists.mapNotNull { it.id }.take(2)) {
-            val topTracks = Spotify.artistTopTracks(artistId).getOrNull()
+            val topTracks = Catalog.artistTopTracks(artistId).getOrNull()
             if (topTracks != null) {
                 val newTracks = topTracks.tracks.filter {
                     it.id.isNotEmpty() && it.id !in seenIds
@@ -137,7 +143,7 @@ class SpotifyQueue(
         }
 
         initialTrack.album?.id?.let { albumId ->
-            val album = Spotify.album(albumId).getOrNull()
+            val album = Catalog.album(albumId).getOrNull()
             album?.tracks?.items
                 ?.filter { it.id.isNotEmpty() && it.id !in seenIds }
                 ?.let { albumTracks ->

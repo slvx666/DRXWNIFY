@@ -10,7 +10,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.playback.SpotifyYouTubeMapper
-import com.metrolist.spotify.Spotify
+import com.metrolist.music.catalog.Catalog
 import com.metrolist.spotify.models.SpotifyTrack
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -55,6 +55,7 @@ constructor(
     fun refresh() {
         viewModelScope.launch(Dispatchers.IO) {
             _isRefreshing.value = true
+            Catalog.invalidateCaches()
             loadLikedSongsInternal()
             _isRefreshing.value = false
         }
@@ -70,7 +71,8 @@ constructor(
     private suspend fun loadLikedSongsInternal() {
         _error.value = null
 
-        Spotify.likedSongs(limit = PAGE_SIZE, offset = 0).onSuccess { paging ->
+        // Liked songs of the connected account(s): Spotify, Yandex Music, or both merged without duplicates.
+        Catalog.likedSongs(limit = PAGE_SIZE, offset = 0).onSuccess { paging ->
             val firstPage = paging.items
                 .map { it.track }
                 .filter { !it.isLocal }
@@ -96,7 +98,7 @@ constructor(
             for (batch in offsets.chunked(PARALLEL_GROUP_SIZE)) {
                 val results = coroutineScope {
                     batch.map { offset ->
-                        async { Spotify.likedSongs(limit = PAGE_SIZE, offset = offset) }
+                        async { Catalog.likedSongs(limit = PAGE_SIZE, offset = offset) }
                     }.awaitAll()
                 }
 
@@ -135,7 +137,7 @@ constructor(
         _tracks.value = previous.filterNot { it.id == track.id }
         _total.value = (_total.value - 1).coerceAtLeast(0)
         viewModelScope.launch(Dispatchers.IO) {
-            Spotify.removeTrack(track.id).onFailure { e ->
+            Catalog.removeTrack(track.id).onFailure { e ->
                 Timber.e(e, "Failed to unlike Spotify track ${track.id}")
                 // Restore on failure.
                 _tracks.value = previous

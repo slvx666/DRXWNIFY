@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -23,10 +24,10 @@ import com.metrolist.music.utils.rememberEnumPreference
 
 @Composable
 fun LibraryScreen(navController: NavController) {
-    // With a linked Spotify account the library mirrors Spotify's "My Library" exactly.
-    val (spotifyEnabled) = com.metrolist.music.utils.rememberPreference(com.metrolist.music.constants.EnableSpotifyKey, false)
-    val (spotifyToken) = com.metrolist.music.utils.rememberPreference(com.metrolist.music.constants.SpotifyAccessTokenKey, "")
-    if (spotifyEnabled && spotifyToken.isNotEmpty()) {
+    // With a linked Spotify and/or Yandex Music account the library mirrors that account's "My Library"
+    // (both merged without duplicates when both are linked and combined).
+    val catalogState by com.metrolist.music.catalog.Catalog.state.collectAsState()
+    if (catalogState.isActive) {
         var showLocal by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
         Box(modifier = Modifier.fillMaxSize()) {
             if (showLocal) {

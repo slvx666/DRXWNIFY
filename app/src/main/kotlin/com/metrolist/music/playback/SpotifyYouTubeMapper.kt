@@ -10,11 +10,11 @@ import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.SpotifyMatchEntity
 import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.MediaMetadata
-import com.metrolist.music.resolver.AudioSource
-import com.metrolist.music.resolver.ResolveResult
+import com.metrolist.music.resolver.AudioFallbackEngine
+import com.metrolist.music.resolver.AudioProviderId
+import com.metrolist.music.resolver.AudioQuery
+import com.metrolist.music.resolver.FallbackIds
 import com.metrolist.music.resolver.ResolverPreferences
-import com.metrolist.music.resolver.TrackResolver
-import com.metrolist.music.resolver.YouTubeTrackResolver
 import com.metrolist.music.utils.SPOTIFY_ID_PREFIX
 import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.SpotifyMapper
@@ -24,14 +24,15 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 /**
- * Handles the matching of Spotify tracks to YouTube Music equivalents.
- * Uses fuzzy matching on title, artist, and duration to find the best result.
- * Caches successful matches in the local Room database and an in-memory LRU
- * cache to avoid repeated DB queries for recently resolved tracks.
+ * Turns a catalog track (Spotify or Yandex Music metadata) into a playable queue item.
+ *
+ * Resolution order: in-memory cache → Room match cache → parallel search across every enabled audio
+ * provider ([AudioFallbackEngine]). A YouTube result keeps the plain video id; any other provider
+ * yields a `mfb:<catalogId>` id whose stream is fetched at playback/download time. The catalog's
+ * metadata is always what the user sees.
  */
 class SpotifyYouTubeMapper(
     private val database: MusicDatabase,
-    private val resolver: TrackResolver = YouTubeTrackResolver(),
 ) {
 
     private data class CachedMatch(
@@ -48,6 +49,12 @@ class SpotifyYouTubeMapper(
      * Resolution order: in-memory cache → Room DB → YouTube search.
      */
     suspend fun mapToYouTube(track: SpotifyTrack): MediaMetadata? = withContext(Dispatchers.IO) {
+        // With YouTube switched off (e.g. unreachable without a VPN) cached YouTube matches are useless:
+        // go straight to the other audio providers.
+        if (!ResolverPreferences.youtubeEnabled) {
+            return@withContext resolveViaProviders(track, exclude = setOf(AudioProviderId.YOUTUBE))
+        }
+
         // 1. In-memory LRU cache (zero I/O)
         memoryCache[track.id]?.let { mem ->
             if (mem.isManualOverride || isCachedMatchPlausible(track, mem.title, mem.artist)) {
@@ -74,59 +81,53 @@ class SpotifyYouTubeMapper(
             database.deleteSpotifyMatch(track.id)
         }
 
-        // 3. Delegate to the resolver cascade (multi-query search + strict gating). The resolver
-        // owns all search internals and returns a concrete source + confidence, or NoMatch.
-        // Negative cache: a track that recently had no confident match (e.g. not on YouTube at all)
-        // is not searched again for a while — re-searching it on every open/tap was a big part of
-        // the "nothing loads" slowness.
-        val recentMiss = noMatchCache[track.id]?.let { System.currentTimeMillis() - it < NO_MATCH_TTL_MS } == true
-        val resolved = if (recentMiss) ResolveResult.NoMatch else resolver.resolve(track)
-        if (resolved is ResolveResult.NoMatch && !recentMiss) {
-            noMatchCache.put(track.id, System.currentTimeMillis())
+        // 3. Nothing cached: all enabled audio providers (YouTube, Qobuz, VK, SoundCloud) search in
+        // parallel; see ParallelAudioResolver for the selection policy. Every provider applies the
+        // same strict title/artist/duration gates, so this never trades correctness for speed.
+        resolveViaProviders(track, exclude = emptySet())
+    }
+
+    /**
+     * Resolves [track] through the audio fallback engine. A YouTube winner keeps the classic plain
+     * video-id item (and is cached in spotify_match); any other provider yields a `mfb:` item whose
+     * stream is resolved at playback/download time. Metadata always stays the catalog's.
+     */
+    private suspend fun resolveViaProviders(track: SpotifyTrack, exclude: Set<AudioProviderId>): MediaMetadata? {
+        val match = AudioFallbackEngine.resolve(AudioQuery.from(track), exclude)
+        if (match == null) {
+            Timber.w("No audio source for '${track.name}' by ${track.artists.firstOrNull()?.name}")
+            return null
         }
-        when (val result = resolved) {
-            is ResolveResult.Matched -> {
-                val youtubeId = (result.source as AudioSource.YouTube).videoId
-                database.upsertSpotifyMatch(
-                    SpotifyMatchEntity(
-                        spotifyId = track.id,
-                        youtubeId = youtubeId,
-                        title = result.title,
-                        artist = result.artist,
-                        matchScore = result.confidence,
-                    )
-                )
-                memoryCache.put(track.id, CachedMatch(youtubeId, result.title, result.artist))
-                Timber.d("Spotify match found: ${track.name} -> $youtubeId (score: ${result.confidence})")
-                return@withContext buildMediaMetadata(
+        if (match.provider == AudioProviderId.YOUTUBE) {
+            val youtubeId = match.trackId
+            database.upsertSpotifyMatch(
+                SpotifyMatchEntity(
+                    spotifyId = track.id,
                     youtubeId = youtubeId,
-                    spotifyTrack = track,
-                    ytTitle = result.title,
-                    ytArtist = result.artist,
-                    ytThumbnailUrl = result.thumbnailUrl,
+                    title = match.title,
+                    artist = match.artist,
+                    matchScore = match.confidence,
                 )
-            }
-            ResolveResult.NoMatch -> {
-                // No confident YouTube match. If the Qobuz fallback is enabled, hand back a
-                // synthetic item whose id routes playback/download through Qobuz (by ISRC/metadata)
-                // instead of skipping the track — this is what lets YouTube-missing / underground
-                // tracks still play. NOT persisted to the match cache, so a future session re-tries
-                // YouTube first (the track may appear there later).
-                if (ResolverPreferences.qobuzFallback) {
-                    val fallbackId = SpotifyMetadataRegistry.QOBUZ_FALLBACK_PREFIX + track.id
-                    SpotifyMetadataRegistry.register(fallbackId, track)
-                    Timber.d("No YouTube match for '${track.name}' — routing to Qobuz fallback ($fallbackId)")
-                    return@withContext buildMediaMetadata(
-                        youtubeId = fallbackId,
-                        spotifyTrack = track,
-                        ytTitle = track.name,
-                        ytArtist = track.artists.firstOrNull()?.name ?: "",
-                    )
-                }
-                Timber.w("No YouTube match for Spotify track: ${track.name} by ${track.artists.firstOrNull()?.name}")
-                return@withContext null
-            }
+            )
+            memoryCache.put(track.id, CachedMatch(youtubeId, match.title, match.artist))
+            Timber.d("Audio for '${track.name}' -> YouTube $youtubeId (score: ${match.confidence})")
+            return buildMediaMetadata(
+                youtubeId = youtubeId,
+                spotifyTrack = track,
+                ytTitle = match.title,
+                ytArtist = match.artist,
+                ytThumbnailUrl = match.thumbnailUrl,
+            )
         }
+        val fallbackId = FallbackIds.of(track.id)
+        SpotifyMetadataRegistry.register(fallbackId, track)
+        Timber.d("Audio for '${track.name}' -> ${match.provider} (${match.trackId}) as $fallbackId")
+        return buildMediaMetadata(
+            youtubeId = fallbackId,
+            spotifyTrack = track,
+            ytTitle = track.name,
+            ytArtist = track.artists.firstOrNull()?.name ?: "",
+        )
     }
 
     /**
@@ -334,7 +335,16 @@ class SpotifyYouTubeMapper(
          */
         private val memoryCache = LruCache<String, CachedMatch>(MEM_CACHE_MAX_SIZE)
 
-        private const val NO_MATCH_TTL_MS = 30 * 60 * 1000L
-        private val noMatchCache = LruCache<String, Long>(MEM_CACHE_MAX_SIZE)
+        /**
+         * Drops every cached catalog→YouTube match pointing at [videoId] (memory + DB, manual overrides
+         * included) — used when that video turned out unplayable (age restriction, removed, region lock),
+         * so the next resolution picks another upload or provider instead of failing again.
+         */
+        fun forgetYouTubeVideo(database: MusicDatabase, videoId: String) {
+            memoryCache.snapshot().filterValues { it.youtubeId == videoId }.keys.forEach { memoryCache.remove(it) }
+            runCatching {
+                database.getSpotifyMatchByYouTubeId(videoId)?.let { database.deleteSpotifyMatch(it.spotifyId) }
+            }
+        }
     }
 }

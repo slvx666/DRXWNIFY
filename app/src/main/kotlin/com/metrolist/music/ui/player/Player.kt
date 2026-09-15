@@ -1015,7 +1015,7 @@ fun BottomSheetPlayer(
                                                             ?: database.getSongByIdBlocking(mediaMetadata.id)?.song?.albumId
                                                                 ?.takeIf { it.isSpotifyId() }?.stripSpotifyPrefix()
                                                             ?: database.getSpotifyMatchByYouTubeId(mediaMetadata.id)?.spotifyId
-                                                                ?.let { com.metrolist.spotify.Spotify.getTrack(it).getOrNull()?.album?.id }
+                                                                ?.let { com.metrolist.music.catalog.Catalog.getTrack(it).getOrNull()?.album?.id }
                                                     }?.takeIf { it.isNotBlank() }
                                                     when {
                                                         sid != null -> {

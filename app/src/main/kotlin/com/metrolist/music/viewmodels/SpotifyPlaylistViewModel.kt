@@ -11,6 +11,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.playback.SpotifyYouTubeMapper
+import com.metrolist.music.catalog.Catalog
 import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.models.SpotifyPlaylist
 import com.metrolist.spotify.models.SpotifyPlaylistTrack
@@ -87,14 +88,14 @@ constructor(
     private suspend fun loadPlaylistInternal() {
         _error.value = null
 
-        Spotify.playlist(playlistId).onSuccess { pl ->
+        Catalog.playlist(playlistId).onSuccess { pl ->
             _playlist.value = pl
         }.onFailure { e ->
             Timber.e(e, "Failed to load Spotify playlist metadata")
             _error.value = e.message ?: "Failed to load playlist info"
         }
 
-        Spotify.playlistTracks(playlistId, limit = PAGE_SIZE, offset = 0).onSuccess { paging ->
+        Catalog.playlistTracks(playlistId, limit = PAGE_SIZE, offset = 0).onSuccess { paging ->
             val firstItems = paging.items
                 .filter { it.track != null && !it.isLocal }
 
@@ -114,7 +115,7 @@ constructor(
             for (batch in offsets.chunked(PARALLEL_GROUP_SIZE)) {
                 val results = coroutineScope {
                     batch.map { offset ->
-                        async { Spotify.playlistTracks(playlistId, limit = PAGE_SIZE, offset = offset) }
+                        async { Catalog.playlistTracks(playlistId, limit = PAGE_SIZE, offset = offset) }
                     }.awaitAll()
                 }
 
@@ -149,7 +150,17 @@ constructor(
      * the track is removed from the UI immediately, then the GQL mutation
      * is fired. On failure the track list is rolled back.
      */
+    /** Playlists of a Yandex Music account are read-only here: reorder/rename/remove are Spotify-only. */
+    val isEditable: Boolean get() = Catalog.isEditablePlaylist(playlistId)
+
+    private fun rejectReadOnly(): Boolean {
+        if (isEditable) return false
+        _mutationError.value = context.getString(com.metrolist.music.R.string.catalog_read_only_playlist)
+        return true
+    }
+
     fun removeTrack(track: SpotifyTrack) {
+        if (rejectReadOnly()) return
         val matchingItem = _playlistItems.value.firstOrNull { it.track?.id == track.id }
         val uid = matchingItem?.uid
         val uri = track.uri ?: "spotify:track:${track.id}"
@@ -183,6 +194,7 @@ constructor(
      * Renames the playlist. Uses optimistic update on the local name.
      */
     fun renamePlaylist(newName: String) {
+        if (rejectReadOnly()) return
         val previousPlaylist = _playlist.value ?: return
         if (newName.isBlank() || newName == previousPlaylist.name) return
 
@@ -205,6 +217,7 @@ constructor(
      * Adds tracks to the playlist (for "Add to Spotify playlist" flow).
      */
     fun addTracks(trackUris: List<String>) {
+        if (rejectReadOnly()) return
         viewModelScope.launch(Dispatchers.IO) {
             Spotify.addTracksToPlaylist(playlistId, trackUris)
                 .onSuccess {
@@ -224,6 +237,7 @@ constructor(
      */
     fun moveTrack(fromIndex: Int, toIndex: Int) {
         if (fromIndex == toIndex) return
+        if (rejectReadOnly()) return
         val currentItems = _playlistItems.value.toMutableList()
         val currentTracks = _tracks.value.toMutableList()
         if (fromIndex !in currentItems.indices || toIndex !in currentItems.indices) return

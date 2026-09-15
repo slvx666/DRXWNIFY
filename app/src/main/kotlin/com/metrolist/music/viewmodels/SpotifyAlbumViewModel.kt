@@ -11,7 +11,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.playback.SpotifyYouTubeMapper
-import com.metrolist.spotify.Spotify
+import com.metrolist.music.catalog.Catalog
 import com.metrolist.spotify.models.SpotifyAlbum
 import com.metrolist.spotify.models.SpotifyTrack
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -56,7 +56,7 @@ constructor(
             _isLoading.value = true
             _error.value = null
 
-            Spotify.album(albumId).onSuccess { album ->
+            Catalog.album(albumId).onSuccess { album ->
                 _album.value = album
                 val loaded = album.tracks?.items?.filter { !it.isLocal } ?: emptyList()
                 _tracks.value = loaded

@@ -37,7 +37,7 @@ import com.metrolist.music.utils.toPlaylistItem
 import com.metrolist.music.utils.toSongItem
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.playback.SpotifyYouTubeMapper
-import com.metrolist.spotify.Spotify
+import com.metrolist.music.catalog.Catalog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -111,12 +111,17 @@ constructor(
         }
     }
 
+    /**
+     * Catalog search (Spotify and/or Yandex Music, merged without duplicates) whenever a music account
+     * owns the metadata: always for Yandex Music, and for Spotify when "use Spotify for search" is on.
+     */
     private suspend fun shouldUseSpotifySearch(): Boolean {
         val prefs = context.dataStore.data.first()
         val enabled = prefs[EnableSpotifyKey] ?: false
         val useForSearch = prefs[UseSpotifySearchKey] ?: false
         val hasToken = (prefs[SpotifyAccessTokenKey] ?: "").isNotEmpty()
-        return enabled && useForSearch && hasToken
+        val hasYandex = (prefs[com.metrolist.music.constants.YandexAccessTokenKey] ?: "").isNotEmpty()
+        return (enabled && useForSearch && hasToken) || hasYandex
     }
 
     private fun initYouTubeSearch() {
@@ -169,7 +174,7 @@ constructor(
 
     private fun initSpotifySearch() {
         viewModelScope.launch(Dispatchers.IO) {
-            if (!SpotifyTokenManager.ensureAuthenticated()) {
+            if (!Catalog.ensureAuthenticated()) {
                 Timber.w("SearchVM: Spotify auth failed, falling back to YouTube")
                 isSpotifySearch.value = false
                 initYouTubeSearch()
@@ -189,29 +194,21 @@ constructor(
     }
 
     /**
-     * P1: strict track relevance. Spotify's track search sometimes returns loosely
-     * related songs whose title AND artists contain nothing of the query (e.g. searching
-     * "skeler" surfaces unrelated tracks). Keep a track only when its title contains the
-     * query, or one of its artists matches it. Normalizes case/diacritics/punctuation and
-     * requires every query token to appear somewhere in "title + artists".
+     * Relevance: results are ordered by how literally they match the query (exact name > prefix >
+     * whole word > substring) and unrelated "similar" items are dropped when real matches exist —
+     * see [com.metrolist.spotify.SearchRelevance].
      */
-    private fun normalizeForMatch(s: String): String {
-        val decomposed = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{Mn}+"), "")
-        return decomposed.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
-    }
+    private fun List<com.metrolist.spotify.models.SpotifyTrack>.ranked() =
+        com.metrolist.spotify.SearchRelevance.rankTracks(query, this)
 
-    private fun trackMatchesQuery(title: String, artists: String): Boolean {
-        val q = normalizeForMatch(query)
-        if (q.isEmpty()) return true
-        val haystack = normalizeForMatch("$title $artists")
-        if (haystack.contains(q)) return true
-        val tokens = q.split(' ').filter { it.isNotBlank() }
-        return tokens.isNotEmpty() && tokens.all { haystack.contains(it) }
-    }
+    private fun List<com.metrolist.spotify.models.SpotifyAlbum>.rankedAlbums() =
+        com.metrolist.spotify.SearchRelevance.rankAlbums(query, this)
 
-    private fun com.metrolist.spotify.models.SpotifyTrack.isRelevant(): Boolean =
-        trackMatchesQuery(name, artists.joinToString(" ") { it.name })
+    private fun List<com.metrolist.spotify.models.SpotifyArtist>.rankedArtists() =
+        com.metrolist.spotify.SearchRelevance.rankArtists(query, this)
+
+    private fun List<com.metrolist.spotify.models.SpotifyPlaylist>.rankedPlaylists() =
+        com.metrolist.spotify.SearchRelevance.rankPlaylists(query, this)
 
     private suspend fun loadSpotifySummary() {
         if (summaryPage != null) return
@@ -220,13 +217,13 @@ constructor(
 
         // Try full search first; if deserialization fails (e.g. null playlist items),
         // retry without playlists as a fallback
-        val result = Spotify.search(
+        val result = Catalog.search(
             query = query,
             types = listOf("track", "album", "artist", "playlist"),
             limit = 10,
         ).getOrElse { firstError ->
             Timber.w(firstError, "SearchVM: Full Spotify search failed, retrying without playlists")
-            Spotify.search(
+            Catalog.search(
                 query = query,
                 types = listOf("track", "album", "artist"),
                 limit = 10,
@@ -243,7 +240,7 @@ constructor(
             ?.takeIf { it.isNotEmpty() }?.let { tracks ->
                 val items: List<YTItem> = tracks
                     .filter { !hideExplicit || !it.explicit }
-                    .filter { it.isRelevant() }
+                    .ranked()
                     .map { it.toSongItem() }
                 if (items.isNotEmpty()) summaries.add(SearchSummary(title = "Songs", items = items))
             }
@@ -254,7 +251,7 @@ constructor(
                 // A real "Album" is album_type == "album" with more than one track. Spotify tags
                 // some 1-track releases as albums; those belong under Singles & EPs. total_tracks == 0
                 // means "unknown" (not returned by this payload) — keep those in Albums, don't drop.
-                val (realAlbums, otherReleases) = albums.partition {
+                val (realAlbums, otherReleases) = albums.rankedAlbums().partition {
                     it.albumType.equals("album", ignoreCase = true) && it.totalTracks != 1
                 }
                 if (realAlbums.isNotEmpty()) {
@@ -266,12 +263,21 @@ constructor(
             }
         result.artists?.items?.filter { it.id.isNotEmpty() }
             ?.takeIf { it.isNotEmpty() }?.let { artists ->
-                val items: List<YTItem> = artists.map { it.toArtistItem() }
-                if (items.isNotEmpty()) summaries.add(SearchSummary(title = "Artists", items = items))
+                val rankedArtists = artists.rankedArtists()
+                val items: List<YTItem> = rankedArtists.map { it.toArtistItem() }
+                if (items.isNotEmpty()) {
+                    // Typing an artist's exact name shows that artist first, above songs.
+                    val section = SearchSummary(title = "Artists", items = items)
+                    if (com.metrolist.spotify.SearchRelevance.isArtistQuery(query, rankedArtists)) {
+                        summaries.add(0, section)
+                    } else {
+                        summaries.add(section)
+                    }
+                }
             }
         result.playlists?.items?.filter { it.id.isNotEmpty() }
             ?.takeIf { it.isNotEmpty() }?.let { playlists ->
-                val items: List<YTItem> = playlists.map { it.toPlaylistItem() }
+                val items: List<YTItem> = playlists.rankedPlaylists().map { it.toPlaylistItem() }
                 if (items.isNotEmpty()) summaries.add(SearchSummary(title = "Playlists", items = items))
             }
 
@@ -285,7 +291,7 @@ constructor(
         val offset = 0
         val limit = 20
 
-        Spotify.search(
+        Catalog.search(
             query = query,
             types = listOf(filterType),
             limit = limit,
@@ -294,11 +300,11 @@ constructor(
             val items: List<YTItem> = when (filterType) {
                 "track" -> result.tracks?.items
                     ?.filter { !hideExplicit || !it.explicit }
-                    ?.filter { it.isRelevant() }
+                    ?.ranked()
                     ?.map { it.toSongItem() } ?: emptyList()
-                "album" -> result.albums?.items?.map { it.toAlbumItem() } ?: emptyList()
-                "artist" -> result.artists?.items?.map { it.toArtistItem() } ?: emptyList()
-                "playlist" -> result.playlists?.items?.map { it.toPlaylistItem() } ?: emptyList()
+                "album" -> result.albums?.items?.rankedAlbums()?.map { it.toAlbumItem() } ?: emptyList()
+                "artist" -> result.artists?.items?.rankedArtists()?.map { it.toArtistItem() } ?: emptyList()
+                "playlist" -> result.playlists?.items?.rankedPlaylists()?.map { it.toPlaylistItem() } ?: emptyList()
                 else -> emptyList()
             }
 
@@ -364,9 +370,9 @@ constructor(
             val limit = 20
             val hideExplicit = context.dataStore.get(HideExplicitKey, false)
 
-            if (!SpotifyTokenManager.ensureAuthenticated()) return@launch
+            if (!Catalog.ensureAuthenticated()) return@launch
 
-            Spotify.search(
+            Catalog.search(
                 query = query,
                 types = listOf(filterType),
                 limit = limit,
@@ -375,11 +381,11 @@ constructor(
                 val newItems: List<YTItem> = when (filterType) {
                     "track" -> result.tracks?.items
                         ?.filter { !hideExplicit || !it.explicit }
-                        ?.filter { it.isRelevant() }
+                        ?.ranked()
                         ?.map { it.toSongItem() } ?: emptyList()
-                    "album" -> result.albums?.items?.map { it.toAlbumItem() } ?: emptyList()
-                    "artist" -> result.artists?.items?.map { it.toArtistItem() } ?: emptyList()
-                    "playlist" -> result.playlists?.items?.map { it.toPlaylistItem() } ?: emptyList()
+                    "album" -> result.albums?.items?.rankedAlbums()?.map { it.toAlbumItem() } ?: emptyList()
+                    "artist" -> result.artists?.items?.rankedArtists()?.map { it.toArtistItem() } ?: emptyList()
+                    "playlist" -> result.playlists?.items?.rankedPlaylists()?.map { it.toPlaylistItem() } ?: emptyList()
                     else -> emptyList()
                 }
 

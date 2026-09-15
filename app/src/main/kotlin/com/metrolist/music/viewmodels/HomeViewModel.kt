@@ -498,7 +498,29 @@ class HomeViewModel @Inject constructor(
         communityPlaylists.value = playlists.shuffled()
     }
 
+    /**
+     * Runs one home section loader in isolation: a failing section (network error, blocked YouTube,
+     * unexpected payload, a queue item that isn't a YouTube id…) must never wipe out the whole home page.
+     */
+    private suspend fun <T> section(name: String, fallback: T, block: suspend () -> T): T =
+        try {
+            block()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Timber.w(e, "home: section '$name' failed")
+            fallback
+        }
+
     private suspend fun load() {
+        try {
+            loadSections()
+        } finally {
+            isLoading.value = false
+        }
+    }
+
+    private suspend fun loadSections() {
         isLoading.value = true
         val hideExplicit = context.dataStore.get(HideExplicitKey, false)
         val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
@@ -523,10 +545,12 @@ class HomeViewModel @Inject constructor(
 
         // When Spotify-only mode is active, skip all YouTube-based content
         if (!isSpotifyOnly) {
-            getQuickPicks()
-            getDailyDiscover()
-            getCommunityPlaylists()
-            forgottenFavorites.value = database.forgottenFavorites().first().filterVideoSongs(hideVideoSongs).shuffled().take(20)
+            section("quickPicks", Unit) { getQuickPicks() }
+            section("dailyDiscover", Unit) { getDailyDiscover() }
+            section("communityPlaylists", Unit) { getCommunityPlaylists() }
+            section("forgottenFavorites", Unit) {
+                forgottenFavorites.value = database.forgottenFavorites().first().filterVideoSongs(hideVideoSongs).shuffled().take(20)
+            }
 
             val keepListeningSongs = database.mostPlayedSongs(fromTimeStamp, limit = 15, offset = 5).first().filterVideoSongs(hideVideoSongs).shuffled().take(10)
             val keepListeningAlbums = database.mostPlayedAlbums(fromTimeStamp, limit = 8, offset = 2).first().filter { it.album.thumbnailUrl != null }.shuffled().take(5)
@@ -537,7 +561,7 @@ class HomeViewModel @Inject constructor(
                 loadAccountPlaylists()
             }
 
-            val artistRecommendations = database.mostPlayedArtists(fromTimeStamp, limit = 15).first()
+            val artistRecommendations = section("artistRecommendations", emptyList<SimilarRecommendation>()) { database.mostPlayedArtists(fromTimeStamp, limit = 15).first()
                 .filter { it.artist.isYouTubeArtist }
                 .shuffled().take(4)
                 .mapNotNull {
@@ -559,7 +583,9 @@ class HomeViewModel @Inject constructor(
                     )
                 }
 
-            val songRecommendations = database.mostPlayedSongs(fromTimeStamp, limit = 15).first()
+            }
+
+            val songRecommendations = section("songRecommendations", emptyList<SimilarRecommendation>()) { database.mostPlayedSongs(fromTimeStamp, limit = 15).first()
                 .filter { it.album != null }
                 .shuffled().take(3)
                 .mapNotNull { song ->
@@ -579,7 +605,9 @@ class HomeViewModel @Inject constructor(
                     )
                 }
 
-            val albumRecommendations = database.mostPlayedAlbums(fromTimeStamp, limit = 10).first()
+            }
+
+            val albumRecommendations = section("albumRecommendations", emptyList<SimilarRecommendation>()) { database.mostPlayedAlbums(fromTimeStamp, limit = 10).first()
                 .filter { it.album.thumbnailUrl != null && !it.id.startsWith("spotify:") }
                 .shuffled().take(2)
                 .mapNotNull { album ->
@@ -604,15 +632,23 @@ class HomeViewModel @Inject constructor(
                     )
                 }
 
+            }
+
             similarRecommendations.value = (artistRecommendations + songRecommendations + albumRecommendations).shuffled()
         }
 
         // Load remote content: Spotify or YouTube depending on preference
         Timber.d("spotifyHome: gate isSpotifyHome=$isSpotifyHome isSpotifyOnly=$isSpotifyOnly")
-        if (isSpotifyHome && SpotifyTokenManager.ensureAuthenticated()) {
-            Timber.d("spotifyHome: auth OK, loading Spotify sections")
-            loadSpotifyHomeSections(hideExplicit)
-        } else if (!isSpotifyOnly) {
+        val spotifyLoaded = isSpotifyHome && section("spotifyHome", false) {
+            if (SpotifyTokenManager.ensureAuthenticated()) {
+                Timber.d("spotifyHome: auth OK, loading Spotify sections")
+                loadSpotifyHomeSections(hideExplicit)
+                !spotifyHomeSections.value.isNullOrEmpty()
+            } else {
+                false
+            }
+        }
+        if (!spotifyLoaded && (!isSpotifyOnly || isSpotifyHome)) {
             Timber.d("spotifyHome: falling back to YouTube home (auth failed or not enabled)")
             spotifyHomeSections.value = null
 

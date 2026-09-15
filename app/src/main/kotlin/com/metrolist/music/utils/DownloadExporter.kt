@@ -145,6 +145,10 @@ class DownloadExporter @Inject constructor(
             // transcode cascade below turns them into the tagged MP3 the user's library expects.
             mimeType.startsWith("audio/flac") || mimeType.startsWith("audio/x-flac") -> "flac" to "audio/flac"
             mimeType.startsWith("audio/mpeg") || mimeType.startsWith("audio/mp3") -> "mp3" to "audio/mpeg"
+            // SoundCloud Opus streams (concatenated Ogg segments).
+            mimeType.startsWith("audio/ogg") || mimeType.startsWith("audio/opus") -> "ogg" to "audio/ogg"
+            // SoundCloud HLS AAC, transmuxed to ADTS.
+            mimeType.startsWith("audio/aac") || mimeType.startsWith("audio/aacp") -> "aac" to "audio/aac"
             else -> error("Unsupported mimeType for export: $mimeType")
         }
 

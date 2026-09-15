@@ -307,6 +307,7 @@ dependencies {
     implementation(project(":betterlyrics"))
     implementation(project(":shazamkit"))
     implementation(project(":spotify"))
+    implementation(project(":yandex"))
     implementation(project(":paxsenix"))
 
     implementation(libs.ktor.client.core)

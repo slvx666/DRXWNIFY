@@ -42,8 +42,43 @@ constructor(
     // surface an error state instead of an endless spinner (issue #131).
     val fetchError = MutableStateFlow<String?>(null)
 
+    /**
+     * The same album in the connected catalog (Spotify / Yandex Music). When found, the screen opens the
+     * catalog album page instead, so the whole app uses one album layout.
+     */
+    val catalogAlbumId = MutableStateFlow<String?>(null)
+
+    /** True while the catalog lookup runs (the screen shows a spinner instead of flashing this page). */
+    val redirectPending = MutableStateFlow(albumId.isSpotifyId() || com.metrolist.music.catalog.Catalog.isActive)
+
     init {
         fetchAlbum()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { resolveCatalogAlbum() }
+    }
+
+    private suspend fun resolveCatalogAlbum() {
+        try {
+            if (albumId.isSpotifyId()) {
+                catalogAlbumId.value = albumId.removePrefix(com.metrolist.music.utils.SPOTIFY_ID_PREFIX)
+                return
+            }
+            val catalog = com.metrolist.music.catalog.Catalog
+            if (!catalog.isActive) return
+            val local = kotlinx.coroutines.withTimeoutOrNull(6_000) { albumWithSongs.first { it != null } } ?: return
+            val title = local.album.title
+            val artist = local.artists.firstOrNull()?.name
+            if (!catalog.ensureAuthenticated()) return
+            val found = kotlinx.coroutines.withTimeoutOrNull(6_000) {
+                catalog.search(listOfNotNull(artist, title).joinToString(" "), types = listOf("album"), limit = 10).getOrNull()
+            }?.albums?.items.orEmpty()
+            val relevance = com.metrolist.spotify.SearchRelevance
+            found.firstOrNull { candidate ->
+                relevance.score(title, candidate.name) == 100 &&
+                    (artist == null || candidate.artists.any { relevance.score(artist, it.name) == 100 })
+            }?.let { catalogAlbumId.value = it.id }
+        } finally {
+            redirectPending.value = false
+        }
     }
 
     fun fetchAlbum() {

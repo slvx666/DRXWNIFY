@@ -109,6 +109,39 @@ class ArtistViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    /**
+     * The artist's full discography from the account that owns the metadata (Spotify / Yandex Music).
+     * YouTube artist pages miss many EPs and older albums, so these rows replace YouTube's album and
+     * single rows whenever they are available.
+     */
+    val catalogReleases = MutableStateFlow<List<com.metrolist.spotify.models.SpotifyAlbum>>(emptyList())
+    private var catalogReleasesRequested = false
+
+    private fun loadCatalogReleases(nameHint: String?) {
+        if (catalogReleasesRequested) return
+        catalogReleasesRequested = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val catalog = com.metrolist.music.catalog.Catalog
+            val known = spotifyArtistId ?: libraryArtist.value?.artist?.spotifyId
+            val id = known ?: run {
+                if (nameHint.isNullOrBlank() || !catalog.ensureAuthenticated()) return@run null
+                catalog.search(nameHint, types = listOf("artist"), limit = 10).getOrNull()?.artists?.items
+                    ?.firstOrNull { com.metrolist.spotify.SearchRelevance.score(nameHint, it.name) == 100 }?.id
+            }
+            if (id == null) {
+                catalogReleasesRequested = false
+                return@launch
+            }
+            if (known != null) catalog.ensureAuthenticated()
+            catalog.artistReleases(id)
+                .onSuccess { catalogReleases.value = it }
+                .onFailure {
+                    Timber.w(it, "Catalog releases failed for $id")
+                    catalogReleasesRequested = false
+                }
+        }
+    }
+
     init {
         if (isYouTubeArtistId(artistId)) {
             // YouTube artist: load page directly, reload when settings change
@@ -137,6 +170,7 @@ class ArtistViewModel @Inject constructor(
                     libraryArtist.first { it != null }
                 }?.artist?.name
                 val name = dbName ?: resolveSpotifyName(artistId)
+                loadCatalogReleases(name)
                 if (name != null) {
                     resolveAndFetchByName(name)
                 }
@@ -147,7 +181,7 @@ class ArtistViewModel @Inject constructor(
     /** Fetches an artist's display name from Spotify by its id (for non-DB Spotify artists). */
     private suspend fun resolveSpotifyName(id: String): String? {
         val raw = com.metrolist.music.utils.ArtistIdentity.spotifyIdOf(id) ?: return null
-        return withRetry { com.metrolist.spotify.Spotify.artist(raw) }.getOrNull()?.name
+        return withRetry { com.metrolist.music.catalog.Catalog.artist(raw) }.getOrNull()?.name
     }
 
     private val _radioLoading = MutableStateFlow(false)
@@ -369,6 +403,7 @@ class ArtistViewModel @Inject constructor(
                         .filter { section -> section.items.isNotEmpty() }
 
                     artistPage = page.copy(sections = filteredSections)
+                    loadCatalogReleases(page.artist.title)
                     // Store API subscription state. For Spotify-backed profiles the YouTube
                     // channel's subscription is irrelevant — the DB row (synced with Spotify) rules.
                     if (spotifyArtistId == null) _apiSubscribed.value = page.isSubscribed
@@ -435,8 +470,8 @@ class ArtistViewModel @Inject constructor(
             val spotifyTarget = spotifyArtistId ?: libraryArtist.value?.artist?.spotifyId
             if (spotifyTarget != null) {
                 // Spotify artist: follow/unfollow on Spotify instead of a YouTube channel.
-                if (com.metrolist.spotify.Spotify.isAuthenticated()) {
-                    com.metrolist.spotify.Spotify.setFollowingArtist(spotifyTarget, shouldBeSubscribed)
+                if (com.metrolist.music.catalog.Catalog.canWrite(spotifyTarget)) {
+                    com.metrolist.music.catalog.Catalog.setFollowingArtist(spotifyTarget, shouldBeSubscribed)
                         .onFailure { Timber.w(it, "Spotify follow sync failed for $spotifyTarget") }
                 }
             } else {

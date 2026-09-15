@@ -7,7 +7,7 @@ package com.metrolist.music.playback.queues
 
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.playback.SpotifyYouTubeMapper
-import com.metrolist.spotify.Spotify
+import com.metrolist.music.catalog.Catalog
 import com.metrolist.spotify.models.SpotifyTrack
 
 /**
@@ -33,7 +33,7 @@ class SpotifyLikedSongsQueue(
     override val providedTracks: List<SpotifyTrack>? = tracks?.filter { !it.isLocal }
 
     override suspend fun fetchPage(offset: Int, limit: Int): PageResult {
-        val result = Spotify.likedSongs(limit = limit, offset = offset).getOrThrow()
+        val result = Catalog.likedSongs(limit = limit, offset = offset).getOrThrow()
         return PageResult(
             tracks = result.items.map { it.track }.filter { !it.isLocal },
             total = result.total,

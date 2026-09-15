@@ -19,14 +19,7 @@ import com.metrolist.spotify.models.SpotifyTrack
 object SpotifyMetadataRegistry {
     private const val MAX_ENTRIES = 1024
 
-    /**
-     * Media id prefix for a Spotify track that had no confident YouTube match and is played/downloaded
-     * from Qobuz instead (resolved by ISRC/metadata at playback time). Distinct from the "qobuz:" cache
-     * key prefix. A media id `QOBUZ_FALLBACK_PREFIX + spotifyId` never hits the YouTube path.
-     */
-    const val QOBUZ_FALLBACK_PREFIX = "qbzfb:"
-
-    fun isQobuzFallbackId(mediaId: String): Boolean = mediaId.startsWith(QOBUZ_FALLBACK_PREFIX)
+    // Fallback media ids ("mfb:<catalogId>", legacy "qbzfb:") live in resolver.FallbackIds.
 
     private val byYoutubeId = LruCache<String, SpotifyTrack>(MAX_ENTRIES)
 

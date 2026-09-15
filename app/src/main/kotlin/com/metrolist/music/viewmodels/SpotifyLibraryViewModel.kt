@@ -7,8 +7,7 @@ package com.metrolist.music.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.metrolist.music.utils.SpotifyTokenManager
-import com.metrolist.spotify.Spotify
+import com.metrolist.music.catalog.Catalog
 import com.metrolist.spotify.models.SpotifyLibraryEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +66,7 @@ class SpotifyLibraryViewModel @Inject constructor() : ViewModel() {
     }
 
     fun refresh() {
+        Catalog.invalidateCaches()
         cache.value = emptyMap()
         load(_filter.value, force = true)
     }
@@ -76,11 +76,12 @@ class SpotifyLibraryViewModel @Inject constructor() : ViewModel() {
         loadJob = viewModelScope.launch(Dispatchers.IO) {
             _loading.value = true
             try {
-                if (!SpotifyTokenManager.ensureAuthenticated()) return@launch
+                // The library of the connected account(s): Spotify, Yandex Music or both merged.
+                if (!Catalog.ensureAuthenticated()) return@launch
                 val all = mutableListOf<SpotifyLibraryEntry>()
                 var offset = 0
                 while (offset < MAX_ITEMS) {
-                    val page = Spotify.myLibrary(filter = f.gql, limit = PAGE, offset = offset).getOrElse {
+                    val page = Catalog.myLibrary(filter = f.gql, limit = PAGE, offset = offset).getOrElse {
                         Timber.w(it, "SpotifyLibrary: page failed (filter=$f offset=$offset)")
                         null
                     } ?: break

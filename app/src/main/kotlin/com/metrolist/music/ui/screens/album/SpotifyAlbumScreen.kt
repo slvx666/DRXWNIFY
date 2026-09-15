@@ -113,16 +113,6 @@ fun SpotifyAlbumScreen(
         }
     }
 
-    // "Add to Spotify" state: reflects whether the album is in the linked account's library.
-    val spotifyAuthed = remember { com.metrolist.spotify.Spotify.isAuthenticated() }
-    var isAlbumSaved by remember { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(album?.id, spotifyAuthed) {
-        val id = album?.id
-        if (spotifyAuthed && id != null) {
-            com.metrolist.spotify.Spotify.isAlbumSaved(id).onSuccess { isAlbumSaved = it }
-        }
-    }
-
     // Which album tracks are in the user's Spotify likes (for the heart badge).
     val likedTracks by com.metrolist.music.playback.SpotifyLikeCache.liked.collectAsState()
     LaunchedEffect(tracks) {
@@ -278,46 +268,6 @@ fun SpotifyAlbumScreen(
                                 Text(stringResource(R.string.action_download))
                             }
 
-                            // Add-to-Spotify toggle (only when a Spotify account is linked).
-                            // P11: always render the toggle once authed — previously it was hidden
-                            // until the saved-state probe returned, so on a slow/failed probe the
-                            // user had no way to save the album. Default to "not saved" until known.
-                            if (spotifyAuthed) {
-                                val saved = isAlbumSaved ?: false
-                                Spacer(modifier = Modifier.width(8.dp))
-                                OutlinedButton(
-                                    onClick = {
-                                        val id = album?.id ?: return@OutlinedButton
-                                        val target = !saved
-                                        isAlbumSaved = target
-                                        coroutineScope.launch {
-                                            val res = if (target) {
-                                                com.metrolist.spotify.Spotify.saveAlbum(id)
-                                            } else {
-                                                com.metrolist.spotify.Spotify.removeAlbum(id)
-                                            }
-                                            res.onFailure {
-                                                // Revert and surface the failure so a silent
-                                                // sync error is visible instead of a stuck icon.
-                                                isAlbumSaved = saved
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "Spotify: ${it.message ?: "sync failed"}",
-                                                    android.widget.Toast.LENGTH_SHORT,
-                                                ).show()
-                                            }
-                                        }
-                                    },
-                                ) {
-                                    Icon(
-                                        painterResource(
-                                            if (saved) R.drawable.library_add_check else R.drawable.library_add,
-                                        ),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
-                            }
                         }
 
                         // Staged progress: Searching → Downloading → Formatting, with skipped/failed.

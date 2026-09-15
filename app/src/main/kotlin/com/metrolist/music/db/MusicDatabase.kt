@@ -41,6 +41,7 @@ import com.metrolist.music.db.entities.SongAlbumMap
 import com.metrolist.music.db.entities.SongArtistMap
 import com.metrolist.music.db.entities.SongEntity
 import com.metrolist.music.db.entities.QobuzMatchEntity
+import com.metrolist.music.db.entities.AudioFallbackMatchEntity
 import com.metrolist.music.db.entities.SpotifyMatchEntity
 import com.metrolist.music.db.entities.SortedSongAlbumMap
 import com.metrolist.music.db.entities.SortedSongArtistMap
@@ -113,13 +114,14 @@ class MusicDatabase(
         PodcastEntity::class,
         SpotifyMatchEntity::class,
         QobuzMatchEntity::class,
+        AudioFallbackMatchEntity::class,
     ],
     views = [
         SortedSongArtistMap::class,
         SortedSongAlbumMap::class,
         PlaylistSongMapPreview::class,
     ],
-    version = 39,
+    version = 40,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 2, to = 3),
@@ -159,6 +161,7 @@ class MusicDatabase(
         AutoMigration(from = 36, to = 37),
         AutoMigration(from = 37, to = 38),
         AutoMigration(from = 38, to = 39),
+        AutoMigration(from = 39, to = 40),
     ],
 )
 @TypeConverters(Converters::class)

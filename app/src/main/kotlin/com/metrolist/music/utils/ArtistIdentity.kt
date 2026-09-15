@@ -13,12 +13,18 @@ package com.metrolist.music.utils
 object ArtistIdentity {
     private val RAW_SPOTIFY_ID = Regex("^[0-9A-Za-z]{22}$")
 
+    /**
+     * The CATALOG artist id (Spotify id, or a `ym_` Yandex Music id — both are served by
+     * [com.metrolist.music.catalog.Catalog]) behind any of the app's artist id shapes, or null for a
+     * YouTube / local artist.
+     */
     fun spotifyIdOf(id: String?): String? {
         if (id.isNullOrBlank()) return null
         return when {
             id.startsWith(SPOTIFY_ID_PREFIX) -> id.removePrefix(SPOTIFY_ID_PREFIX).takeIf { it.isNotBlank() }
             id.startsWith("SP_") -> id.removePrefix("SP_").takeIf { it.isNotBlank() }
             RAW_SPOTIFY_ID.matches(id) -> id
+            com.metrolist.yandex.YandexIds.isYandex(id) -> id
             else -> null
         }
     }

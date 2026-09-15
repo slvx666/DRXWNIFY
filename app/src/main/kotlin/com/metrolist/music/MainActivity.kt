@@ -1350,16 +1350,26 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // First-launch welcome: what the app is and the author's GitHub. Shown once.
+                    // First-launch welcome: what the app is, the account picker (Spotify / Yandex
+                    // Music) and the author's GitHub. Shown once; never to someone already connected.
                     var welcomeShown by rememberPreference(
-                        androidx.datastore.preferences.core.booleanPreferencesKey("welcome_shown_v1"),
+                        androidx.datastore.preferences.core.booleanPreferencesKey("welcome_shown_v2"),
                         defaultValue = false,
                     )
-                    if (!welcomeShown) {
+                    val catalogState by com.metrolist.music.catalog.Catalog.state.collectAsState()
+                    val (yandexTokenForWelcome) = rememberPreference(com.metrolist.music.constants.YandexAccessTokenKey, "")
+                    val (spotifyTokenForWelcome) = rememberPreference(com.metrolist.music.constants.SpotifyAccessTokenKey, "")
+                    val anyAccountLinked = catalogState.isActive ||
+                        yandexTokenForWelcome.isNotEmpty() || spotifyTokenForWelcome.isNotEmpty()
+                    if (!welcomeShown && !anyAccountLinked) {
                         com.metrolist.music.ui.component.WelcomeDialog(
                             onConnectSpotify = {
                                 welcomeShown = true
                                 navController.navigate("settings/spotify/login")
+                            },
+                            onConnectYandex = {
+                                welcomeShown = true
+                                navController.navigate("settings/yandex/login")
                             },
                             onDismiss = { welcomeShown = true },
                         )

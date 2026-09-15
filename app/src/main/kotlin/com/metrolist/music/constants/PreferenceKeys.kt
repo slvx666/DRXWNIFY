@@ -230,6 +230,33 @@ enum class MusicSource {
     SPOTIFY,
 }
 
+// Yandex Music integration (metadata + library source, like Spotify)
+val YandexAccessTokenKey = stringPreferencesKey("yandexAccessToken")
+val YandexUidKey = stringPreferencesKey("yandexUid")
+val YandexUsernameKey = stringPreferencesKey("yandexUsername")
+
+/** Which account provides metadata/library when both are signed in (Spotify by default). Never mixed. */
+val PrimaryMetadataSourceKey = stringPreferencesKey("primaryMetadataSource")
+
+enum class MetadataSource {
+    SPOTIFY,
+    YANDEX,
+}
+
+// Audio fallbacks: where the audio for a catalog track may come from. All enabled by default.
+val AudioSourceYouTubeKey = booleanPreferencesKey("audioSourceYouTube")
+val AudioSourceSoundCloudKey = booleanPreferencesKey("audioSourceSoundCloud")
+val AudioSourceVkKey = booleanPreferencesKey("audioSourceVk")
+// Qobuz reuses the historical "Qobuz fallback" key so the user's earlier choice is kept.
+val AudioSourceQobuzKey = SpotifyQobuzFallbackKey
+
+/** Provider ranking, comma-separated AudioProviderId names, best first. */
+val AudioSourceOrderKey = stringPreferencesKey("audioSourceOrder")
+
+val VkAccessTokenKey = stringPreferencesKey("vkAccessToken")
+val VkUserIdKey = stringPreferencesKey("vkUserId")
+val SoundCloudClientIdKey = stringPreferencesKey("soundCloudClientId")
+
 val EnableQobuzKey = booleanPreferencesKey("enableQobuz")
 val QobuzAudioQualityKey = stringPreferencesKey("qobuzAudioQuality")
 val QobuzBackendKey = stringPreferencesKey("qobuzBackend")

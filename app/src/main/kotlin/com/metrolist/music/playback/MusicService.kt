@@ -101,6 +101,11 @@ import com.metrolist.music.constants.QobuzMatchOverridesKey
 import com.metrolist.music.constants.QobuzSquidEndpointKey
 import com.metrolist.music.constants.QobuzTryptEndpointKey
 import com.metrolist.music.qobuz.QobuzAudioProvider
+import com.metrolist.music.resolver.AudioDiagnostics
+import com.metrolist.music.resolver.AudioFallbackEngine
+import com.metrolist.music.resolver.AudioProviderId
+import com.metrolist.music.resolver.FallbackIds
+import com.metrolist.music.resolver.ResolverPreferences
 import com.metrolist.music.qobuz.QobuzMatchOverride
 import com.metrolist.music.qobuz.QobuzMatchOverrides
 import com.metrolist.spotify.Spotify
@@ -197,6 +202,7 @@ import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.alarm.MusicAlarmScheduler
 import com.metrolist.music.playback.alarm.MusicAlarmStore
 import com.metrolist.music.playback.audio.SilenceDetectorAudioProcessor
+import com.metrolist.music.playback.datasource.HlsConcatDataSource
 import com.metrolist.music.playback.queues.EmptyQueue
 import com.metrolist.music.playback.queues.ListQueue
 import com.metrolist.music.playback.queues.Queue
@@ -2083,19 +2089,23 @@ class MusicService :
                     }
                 }
 
-                // Mirror the like to the linked Spotify account: the heart means "add to Spotify
-                // Liked Songs". Resolve the Spotify track id from the registry (Spotify-sourced) or
-                // the reverse match cache (YouTube-native). No-ops silently when not linked or unmapped.
+                // Mirror the like to the account that owns the track's metadata: the heart means
+                // "add to Liked Songs" on Spotify or Yandex Music. Resolve the catalog track id from the
+                // registry (catalog-sourced), the fallback id itself, or the reverse match cache
+                // (YouTube-native). No-ops silently when not linked or unmapped.
                 scope.launch(Dispatchers.IO) {
                     runCatching {
-                        if (Spotify.isAuthenticated()) {
-                            val spotifyId = SpotifyMetadataRegistry.get(songEntity.id)?.id
-                                ?: database.getSpotifyMatchByYouTubeId(songEntity.id)?.spotifyId
-                            if (spotifyId != null) {
-                                if (song.liked) Spotify.saveTrack(spotifyId) else Spotify.removeTrack(spotifyId)
+                        val catalogId = SpotifyMetadataRegistry.get(songEntity.id)?.id
+                            ?: FallbackIds.catalogIdOf(songEntity.id)
+                            ?: database.getSpotifyMatchByYouTubeId(songEntity.id)?.spotifyId
+                        if (catalogId != null && com.metrolist.music.catalog.Catalog.canWrite(catalogId)) {
+                            if (song.liked) {
+                                com.metrolist.music.catalog.Catalog.saveTrack(catalogId)
+                            } else {
+                                com.metrolist.music.catalog.Catalog.removeTrack(catalogId)
                             }
                         }
-                    }.onFailure { Timber.w(it, "Spotify like sync failed for ${songEntity.id}") }
+                    }.onFailure { Timber.w(it, "Catalog like sync failed for ${songEntity.id}") }
                 }
 
                 currentMediaMetadata.value = player.currentMetadata
@@ -3071,6 +3081,15 @@ class MusicService :
 
         // Clear URL cache
         songUrlCache.remove(mediaId)
+        songUrlCache.remove(RESCUE_CACHE_PREFIX + mediaId)
+
+        // The audio provider serving a fallback / rescued track just failed: the next attempt skips it
+        // and switches to another provider that has the track.
+        fallbackServing[mediaId]?.let { serving ->
+            AudioDiagnostics.warn("playback of $mediaId via ${serving.provider} (${serving.trackId}) failed — switching upload/source")
+            markFallbackFailed(mediaId, trackId = serving.trackId)
+            runCatching { playerCache.removeResource(RESCUE_CACHE_PREFIX + mediaId) }
+        }
 
         // Clear player cache
         try {
@@ -3413,6 +3432,11 @@ class MusicService :
                 Timber.tag(PRECACHE_TAG).d("[PRECACHE] Skip local track [$i]: $title ($mediaId)")
                 continue
             }
+            // Pre-cache fetches YouTube streams only; fallback-provider tracks resolve at play time.
+            if (FallbackIds.isFallbackId(mediaId) || fallbackServing.containsKey(mediaId)) {
+                Timber.tag(PRECACHE_TAG).d("[PRECACHE] Skip fallback-provider track [$i]: $title ($mediaId)")
+                continue
+            }
             // Skip if already fully cached in download or player cache
             val inDownload = downloadCache.isCached(mediaId, 0, CHUNK_LENGTH)
             val inPlayer = playerCache.isCached(mediaId, 0, CHUNK_LENGTH)
@@ -3541,19 +3565,22 @@ class MusicService :
                     .setUpstreamDataSourceFactory(
                         DefaultDataSource.Factory(
                             this,
-                            OkHttpDataSource.Factory(
-                                OkHttpClient
-                                    .Builder()
-                                    .proxy(YouTube.proxy)
-                                    .proxyAuthenticator { _, response ->
-                                        YouTube.proxyAuth?.let { auth ->
-                                            response.request
-                                                .newBuilder()
-                                                .header("Proxy-Authorization", auth)
-                                                .build()
-                                        } ?: response.request
-                                    }.build(),
-                            ),
+                            // meldhls:// streams (HLS-only providers such as SoundCloud) are served
+                            // as one progressive stream; every other uri goes straight to OkHttp.
+                            OkHttpClient
+                                .Builder()
+                                .proxy(YouTube.proxy)
+                                .proxyAuthenticator { _, response ->
+                                    YouTube.proxyAuth?.let { auth ->
+                                        response.request
+                                            .newBuilder()
+                                            .header("Proxy-Authorization", auth)
+                                            .build()
+                                    } ?: response.request
+                                }.build()
+                                .let { client ->
+                                    HlsConcatDataSource.Factory(OkHttpDataSource.Factory(client), client)
+                                },
                         ),
                     ),
             ).setCacheWriteDataSinkFactory(null)
@@ -3669,9 +3696,206 @@ class MusicService :
         "qobuz:$qualityCode:$mediaId"
 
     private fun stripQobuzCacheKeyPrefix(key: String): String {
+        if (key.startsWith(RESCUE_CACHE_PREFIX)) return key.removePrefix(RESCUE_CACHE_PREFIX)
         if (!key.startsWith("qobuz:")) return key
         val parts = key.split(":", limit = 3)
         return if (parts.size == 3) parts[2] else key
+    }
+
+    /** What currently serves a fallback / rescued media id, so a failure can switch upload or provider. */
+    private data class FallbackServing(val provider: AudioProviderId, val trackId: String)
+
+    private val fallbackServing = java.util.concurrent.ConcurrentHashMap<String, FallbackServing>()
+
+    /** Providers / uploads that failed for a media id recently, skipped by the next resolution. */
+    private data class FallbackFailures(
+        val providers: Set<AudioProviderId> = emptySet(),
+        val tracks: Set<String> = emptySet(),
+        val at: Long = System.currentTimeMillis(),
+    )
+
+    private val fallbackFailures = java.util.concurrent.ConcurrentHashMap<String, FallbackFailures>()
+
+    private fun currentFailures(mediaId: String): FallbackFailures =
+        fallbackFailures[mediaId]?.takeIf { System.currentTimeMillis() - it.at < FALLBACK_FAILED_TTL_MS } ?: FallbackFailures()
+
+    private fun markFallbackFailed(mediaId: String, provider: AudioProviderId? = null, trackId: String? = null) {
+        val previous = currentFailures(mediaId)
+        fallbackFailures[mediaId] = FallbackFailures(
+            providers = previous.providers + listOfNotNull(provider),
+            tracks = previous.tracks + listOfNotNull(trackId),
+        )
+        fallbackServing.remove(mediaId)
+    }
+
+    /** Network-level failures mean "YouTube unreachable"; anything else is about this particular video. */
+    private fun isNetworkFailure(error: Throwable?): Boolean {
+        var e = error
+        while (e != null) {
+            if (e is java.net.UnknownHostException || e is java.net.ConnectException ||
+                e is java.io.InterruptedIOException || e is javax.net.ssl.SSLException
+            ) {
+                return true
+            }
+            e = e.cause
+        }
+        return false
+    }
+
+    /**
+     * Resolves audio for [mediaId] through the audio fallback engine.
+     *
+     * - Fallback ids (`mfb:`): the cache key stays the media id itself.
+     * - [youtubeRescue] for a regular YouTube id: the failed video is excluded (or all of YouTube, when
+     *   [youtubeError] is a network failure or YouTube is bypassed) and the rescued audio is cached under
+     *   a separate key so it never mixes with (partial) YouTube bytes of the same id.
+     *
+     * Returns null when no enabled provider can serve the track.
+     */
+    private fun resolveFallbackDataSpec(
+        dataSpec: DataSpec,
+        mediaId: String,
+        bypassCache: Boolean,
+        youtubeRescue: Boolean,
+        youtubeError: Throwable? = null,
+        depth: Int = 0,
+    ): DataSpec? {
+        val cacheKey = if (youtubeRescue) RESCUE_CACHE_PREFIX + mediaId else mediaId
+        val usePlayerCache = dataStore.get(EnableSongCacheKey, true)
+        if (!bypassCache && (
+                downloadCache.isCached(cacheKey, dataSpec.position, if (dataSpec.length >= 0) dataSpec.length else 1) ||
+                    (usePlayerCache && playerCache.isCached(cacheKey, dataSpec.position, CHUNK_LENGTH))
+                )
+        ) {
+            return dataSpec.buildUpon().setKey(cacheKey).build()
+        }
+        songUrlCache[cacheKey]?.takeIf { it.second > System.currentTimeMillis() }?.let { (url, _) ->
+            val spec = dataSpec.buildUpon().setUri(url.toUri()).setKey(cacheKey).build()
+            return if (fallbackServing[mediaId]?.provider == AudioProviderId.YOUTUBE) spec.subrange(0, CHUNK_LENGTH) else spec
+        }
+        if (depth > 4) return null
+
+        val dbSong = runBlocking(Dispatchers.IO) { database.getSongById(mediaId) }
+        val query = AudioFallbackEngine.queryFor(mediaId, dbSong)
+        if (youtubeRescue && query == null) {
+            AudioDiagnostics.warn("YouTube failed for $mediaId and it has no catalog metadata to search elsewhere")
+            return null
+        }
+        if (youtubeRescue && depth == 0 && (youtubeError != null || !fallbackServing.containsKey(mediaId))) {
+            if (youtubeError != null && !isNetworkFailure(youtubeError)) {
+                AudioDiagnostics.warn("YouTube can't play $mediaId (${youtubeError.message?.take(160)}) — trying another upload/source")
+                markFallbackFailed(mediaId, trackId = mediaId)
+                AudioFallbackEngine.markYouTubeVideoUnplayable(mediaId, query?.catalogId)
+            } else {
+                markFallbackFailed(mediaId, provider = AudioProviderId.YOUTUBE)
+            }
+        }
+        val failures = currentFailures(mediaId)
+
+        val plan = runCatching {
+            runBlocking(Dispatchers.IO) {
+                withTimeout(FALLBACK_RESOLVE_TIMEOUT_MS) {
+                    AudioFallbackEngine.streamPlan(mediaId, dbSong, failures.providers, failures.tracks)
+                }
+            }
+        }.onFailure { AudioDiagnostics.warn("audio resolve for $mediaId failed: ${it.message}") }
+            .getOrNull() ?: return null
+
+        return when (plan) {
+            is AudioFallbackEngine.StreamPlan.Direct -> {
+                fallbackServing[mediaId] = FallbackServing(plan.provider, plan.trackId)
+                val stream = plan.stream
+                database.query {
+                    upsert(
+                        FormatEntity(
+                            id = mediaId,
+                            itag = -1,
+                            mimeType = stream.mimeType,
+                            codecs = stream.codecs,
+                            bitrate = stream.bitrate,
+                            sampleRate = stream.sampleRate,
+                            contentLength = stream.contentLength ?: 0L,
+                            loudnessDb = null,
+                            perceptualLoudnessDb = null,
+                            playbackUrl = null,
+                        ),
+                    )
+                }
+                songUrlCache[cacheKey] = stream.uri to (stream.expiresAtMs - 60_000L)
+                AudioDiagnostics.info("playing $mediaId via ${plan.provider} (${plan.trackId})")
+                dataSpec.buildUpon().setUri(stream.uri.toUri()).setKey(cacheKey).build()
+            }
+
+            is AudioFallbackEngine.StreamPlan.YouTube -> {
+                val playback = runBlocking(Dispatchers.IO) {
+                    runCatching {
+                        withTimeout(30_000L) {
+                            YTPlayerUtils.playerResponseForPlayback(
+                                plan.videoId,
+                                audioQuality = audioQuality,
+                                connectivityManager = connectivityManager,
+                            ).getOrThrow()
+                        }
+                    }
+                }
+                val data = playback.getOrElse { error ->
+                    if (isNetworkFailure(error)) {
+                        AudioDiagnostics.warn("YouTube unreachable for ${plan.videoId}: ${error.message?.take(160)}")
+                        markFallbackFailed(mediaId, provider = AudioProviderId.YOUTUBE)
+                    } else {
+                        AudioDiagnostics.warn("YouTube video ${plan.videoId} can't play: ${error.message?.take(160)}")
+                        markFallbackFailed(mediaId, trackId = plan.videoId)
+                        AudioFallbackEngine.markYouTubeVideoUnplayable(plan.videoId, query?.catalogId)
+                    }
+                    return resolveFallbackDataSpec(dataSpec, mediaId, bypassCache, youtubeRescue, depth = depth + 1)
+                }
+                fallbackServing[mediaId] = FallbackServing(AudioProviderId.YOUTUBE, plan.videoId)
+                database.query {
+                    upsert(
+                        FormatEntity(
+                            id = mediaId,
+                            itag = data.format.itag,
+                            mimeType = data.format.mimeType.split(";")[0],
+                            codecs = data.format.mimeType.substringAfter("codecs=", "").removeSurrounding("\""),
+                            bitrate = data.format.bitrate,
+                            sampleRate = data.format.audioSampleRate,
+                            contentLength = data.format.contentLength ?: 0L,
+                            loudnessDb = data.audioConfig?.loudnessDb,
+                            perceptualLoudnessDb = data.audioConfig?.perceptualLoudnessDb,
+                            playbackUrl = null,
+                        ),
+                    )
+                }
+                songUrlCache[cacheKey] =
+                    data.streamUrl to System.currentTimeMillis() + (data.streamExpiresInSeconds * 1000L)
+                AudioDiagnostics.info("playing $mediaId via YOUTUBE (${plan.videoId})")
+                dataSpec.buildUpon().setUri(data.streamUrl.toUri()).setKey(cacheKey).build()
+                    .subrange(0, CHUNK_LENGTH)
+            }
+        }
+    }
+
+    /**
+     * Circuit breaker for networks where YouTube is blocked (e.g. without a VPN): after a few
+     * network-level YouTube failures in a short window, catalog tracks go straight to the other
+     * providers for a while instead of paying YouTube's timeout on every track.
+     */
+    @Volatile
+    private var youtubeUnavailableUntilMs = 0L
+    private val recentYouTubeRescues = java.util.concurrent.ConcurrentLinkedDeque<Long>()
+
+    private fun noteYouTubeRescue(error: Throwable) {
+        if (!isNetworkFailure(error)) return
+        val now = System.currentTimeMillis()
+        recentYouTubeRescues.addLast(now)
+        while ((recentYouTubeRescues.peekFirst() ?: now) < now - YOUTUBE_RESCUE_WINDOW_MS) {
+            recentYouTubeRescues.pollFirst()
+        }
+        if (recentYouTubeRescues.size >= YOUTUBE_RESCUES_TO_TRIP) {
+            youtubeUnavailableUntilMs = now + YOUTUBE_BYPASS_MS
+            recentYouTubeRescues.clear()
+            AudioDiagnostics.warn("YouTube looks unreachable — other sources first for ${YOUTUBE_BYPASS_MS / 60_000} min")
+        }
     }
 
     private fun buildQobuzQuery(
@@ -3743,17 +3967,33 @@ class MusicService :
             // Check if we need to bypass cache for quality change
             val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId)
 
-            // A "qbzfb:" media id is a Spotify track with no YouTube match, routed here to be played
-            // from Qobuz (by ISRC/metadata). For these, Qobuz is mandatory and there is NO YouTube
-            // fallback — the id is not a real video id.
-            val isQobuzFallback = SpotifyMetadataRegistry.isQobuzFallbackId(mediaId)
+            // A fallback id ("mfb:" / legacy "qbzfb:") is a catalog track whose audio comes from a
+            // non-YouTube provider (Qobuz / VK / SoundCloud). It is not a video id: resolve it only
+            // through the audio fallback engine, which also switches provider when one fails.
+            if (FallbackIds.isFallbackId(mediaId)) {
+                return@Factory resolveFallbackDataSpec(dataSpec, mediaId, shouldBypassCache, youtubeRescue = false)
+                    ?: throw DataSourceException(
+                        getString(R.string.error_no_audio_source),
+                        null,
+                        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+                    )
+            }
 
-            // Qobuz lossless attempt: when the toggle is on (or this is a Qobuz-fallback id), try
-            // Qobuz. Uses Spotify metadata (with ISRC) when available — registered by
-            // SpotifyYouTubeMapper for Spotify-sourced tracks — otherwise falls back
-            // to DB title/artist/album for YT-native tracks. Silently falls through
-            // to the YouTube path on any failure (except a fallback id, which errors instead).
-            val qobuzEnabled = isQobuzFallback || dataStore.get(EnableQobuzKey, false)
+            // A YouTube id that an earlier open already had to rescue from another provider (YouTube
+            // unreachable / removed): keep serving the rescue instead of re-trying YouTube per chunk.
+            // The same applies when the user switched YouTube off entirely.
+            if (fallbackServing.containsKey(mediaId) || !ResolverPreferences.youtubeEnabled ||
+                System.currentTimeMillis() < youtubeUnavailableUntilMs
+            ) {
+                resolveFallbackDataSpec(dataSpec, mediaId, shouldBypassCache, youtubeRescue = true)
+                    ?.let { return@Factory it }
+            }
+
+            // Qobuz lossless attempt: when the toggle is on, try Qobuz. Uses Spotify metadata (with
+            // ISRC) when available — registered by SpotifyYouTubeMapper for catalog tracks —
+            // otherwise falls back to DB title/artist/album for YT-native tracks. Silently falls
+            // through to the YouTube path on any failure.
+            val qobuzEnabled = dataStore.get(EnableQobuzKey, false)
             if (qobuzEnabled) {
                 val qobuzQualityEnum = dataStore.get(QobuzAudioQualityKey)
                     .toEnum(QobuzAudioQuality.CD_QUALITY)
@@ -3946,12 +4186,6 @@ class MusicService :
 
                 // Reached only when Qobuz produced no playable stream — every
                 // return@Factory above is on the success path.
-                if (isQobuzFallback) {
-                    // A fallback id has no real YouTube video behind it; failing over to YouTube
-                    // would just 404. Error out so the player reports the track as unavailable.
-                    Timber.tag("Qobuz").w("fallback id %s did not resolve on Qobuz — unavailable", mediaId)
-                    error("Track not available on Qobuz: $mediaId")
-                }
                 Timber.tag("Qobuz").d("fallback → YouTube for %s (Qobuz did not resolve)", mediaId)
             }
 
@@ -4016,6 +4250,14 @@ class MusicService :
                         Result.failure(java.net.SocketTimeoutException("Stream resolution timed out"))
                     }
                 }.getOrElse { throwable ->
+                    // YouTube could not serve this track (blocked network, removed/region-locked
+                    // video, …). For a catalog track, rescue it from another enabled audio provider
+                    // before surfacing the error.
+                    if (throwable !is kotlinx.coroutines.CancellationException) {
+                        noteYouTubeRescue(throwable)
+                        resolveFallbackDataSpec(dataSpec, mediaId, shouldBypassCache, youtubeRescue = true, youtubeError = throwable)
+                            ?.let { return@Factory it }
+                    }
                     /*
                      * Everything thrown from here travels through Media3's Loader, and Loader
                      * only preserves an error code when the exception is a DataSourceException
@@ -4119,7 +4361,11 @@ class MusicService :
     private fun createMediaSourceFactory() =
         DefaultMediaSourceFactory(
             createDataSourceFactory(),
-            DefaultExtractorsFactory(),
+            // Constant-bitrate seeking lets fallback streams without a seek table (SoundCloud AAC
+            // transmuxed to ADTS, plain MP3) show a duration and seek.
+            DefaultExtractorsFactory()
+                .setAdtsExtractorFlags(androidx.media3.extractor.ts.AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
+                .setMp3ExtractorFlags(androidx.media3.extractor.mp3.Mp3Extractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING),
         )
 
     private fun createRenderersFactory(
@@ -4965,6 +5211,14 @@ class MusicService :
         const val NOTIFICATION_ID = 888
         const val ERROR_CODE_NO_STREAM = 1000001
         const val CHUNK_LENGTH = 512 * 1024L
+
+        /** Cache-key prefix for audio rescued from another provider for a regular YouTube id. */
+        const val RESCUE_CACHE_PREFIX = "fbrescue:"
+        private const val FALLBACK_FAILED_TTL_MS = 10 * 60 * 1000L
+        private const val FALLBACK_RESOLVE_TIMEOUT_MS = 25_000L
+        private const val YOUTUBE_RESCUE_WINDOW_MS = 3 * 60 * 1000L
+        private const val YOUTUBE_RESCUES_TO_TRIP = 2
+        private const val YOUTUBE_BYPASS_MS = 5 * 60 * 1000L
         const val PERSISTENT_QUEUE_FILE = "persistent_queue.data"
         const val PERSISTENT_AUTOMIX_FILE = "persistent_automix.data"
         const val PERSISTENT_PLAYER_STATE_FILE = "persistent_player_state.data"

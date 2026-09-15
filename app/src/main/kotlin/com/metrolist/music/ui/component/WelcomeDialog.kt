@@ -48,15 +48,17 @@ import com.metrolist.music.R
 
 const val DRXWNIFY_GITHUB_URL = "https://github.com/DrxwnSlvt/Drxwnify"
 private val SpotifyGreen = Color(0xFF1ED760)
+val YandexMusicYellow = Color(0xFFFFCC00)
 
 /**
- * First-launch welcome: explains what the app is for (a Spotify-first player whose main feature is
- * finding every Spotify track on YouTube Music / fallback sources and downloading it with proper
- * tags) and links the author's GitHub.
+ * First-launch welcome: explains what the app is for (metadata + library from Spotify or Yandex Music,
+ * audio found in parallel across YouTube / Qobuz / VK / SoundCloud, one-tap downloads with proper tags),
+ * lets the user pick which account to connect and links the author's GitHub.
  */
 @Composable
 fun WelcomeDialog(
     onConnectSpotify: () -> Unit,
+    onConnectYandex: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -98,17 +100,17 @@ fun WelcomeDialog(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = stringResource(R.string.welcome_subtitle),
+                    text = stringResource(R.string.welcome_subtitle_sources),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(20.dp))
 
-                WelcomePoint(R.drawable.spotify, R.string.welcome_point_connect)
-                WelcomePoint(R.drawable.search, R.string.welcome_point_match)
-                WelcomePoint(R.drawable.download, R.string.welcome_point_download)
-                WelcomePoint(R.drawable.favorite, R.string.welcome_point_sync)
+                WelcomePoint(R.drawable.library_music, R.string.welcome_point_connect_sources)
+                WelcomePoint(R.drawable.search, R.string.welcome_point_match_sources)
+                WelcomePoint(R.drawable.download, R.string.welcome_point_download_sources)
+                WelcomePoint(R.drawable.favorite, R.string.welcome_point_sync_sources)
 
                 Spacer(Modifier.height(16.dp))
 
@@ -155,13 +157,34 @@ fun WelcomeDialog(
                 }
 
                 Spacer(Modifier.height(20.dp))
+                Text(
+                    text = stringResource(R.string.welcome_choose_account),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = onConnectSpotify,
                     colors = ButtonDefaults.buttonColors(containerColor = SpotifyGreen, contentColor = Color.Black),
                     shape = RoundedCornerShape(50),
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                 ) {
+                    Icon(painterResource(R.drawable.spotify), null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.welcome_connect_spotify), fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = onConnectYandex,
+                    colors = ButtonDefaults.buttonColors(containerColor = YandexMusicYellow, contentColor = Color.Black),
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                ) {
+                    YandexMusicBadge(size = 20.dp, background = Color.Black, foreground = YandexMusicYellow)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.welcome_connect_yandex), fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(4.dp))
                 TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
@@ -169,6 +192,30 @@ fun WelcomeDialog(
                 }
             }
         }
+    }
+}
+
+/** Small round "Я" badge standing in for the Yandex Music logo (no brand asset is bundled). */
+@Composable
+fun YandexMusicBadge(
+    size: androidx.compose.ui.unit.Dp = 24.dp,
+    background: Color = YandexMusicYellow,
+    foreground: Color = Color.Black,
+) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(background),
+    ) {
+        Text(
+            text = "Я",
+            color = foreground,
+            fontWeight = FontWeight.Black,
+            fontSize = androidx.compose.ui.unit.TextUnit(size.value * 0.6f, androidx.compose.ui.unit.TextUnitType.Sp),
+            lineHeight = androidx.compose.ui.unit.TextUnit(size.value * 0.6f, androidx.compose.ui.unit.TextUnitType.Sp),
+        )
     }
 }
 

@@ -161,7 +161,7 @@ fun PlayerMenu(
         } else {
             value = kotlinx.coroutines.withContext(Dispatchers.IO) {
                 val sid = database.getSpotifyMatchByYouTubeId(mediaMetadata.id)?.spotifyId
-                sid?.let { com.metrolist.spotify.Spotify.getTrack(it).getOrNull() }
+                sid?.let { com.metrolist.music.catalog.Catalog.getTrack(it).getOrNull() }
             }
         }
     }

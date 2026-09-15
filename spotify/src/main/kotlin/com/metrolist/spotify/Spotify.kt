@@ -1802,13 +1802,14 @@ object Spotify {
     suspend fun artistAlbums(
         artistId: String,
         limit: Int = 50,
+        offset: Int = 0,
     ): Result<List<SpotifyAlbum>> =
         runCatching {
             // No market filter: Spotify's `market` param hides releases not licensed in that country,
             // which was dropping real albums (e.g. region-limited or newer releases). We want the
             // artist's full discography regardless of market.
             authenticatedGet<SpotifyPaging<SpotifyAlbum>>(
-                "artists/$artistId/albums?include_groups=album,single,compilation&limit=$limit",
+                "artists/$artistId/albums?include_groups=album,single,compilation&limit=$limit&offset=$offset",
             ).items.distinctBy { it.id }
         }
 

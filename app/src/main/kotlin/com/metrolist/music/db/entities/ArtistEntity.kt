@@ -47,8 +47,8 @@ data class ArtistEntity(
             // Spotify artists follow/unfollow on Spotify; never send a Spotify id to YouTube.
             val spotify = spotifyId ?: com.metrolist.music.utils.ArtistIdentity.spotifyIdOf(id)
             if (spotify != null) {
-                if (com.metrolist.spotify.Spotify.isAuthenticated()) {
-                    com.metrolist.spotify.Spotify.setFollowingArtist(spotify, bookmarkedAt == null)
+                if (com.metrolist.music.catalog.Catalog.canWrite(spotify)) {
+                    com.metrolist.music.catalog.Catalog.setFollowingArtist(spotify, bookmarkedAt == null)
                 }
                 return@launch
             }

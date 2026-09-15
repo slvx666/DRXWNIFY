@@ -232,18 +232,12 @@ fun SpotifySettings(
                 },
             )
 
-            val (qobuzFallback, onQobuzFallbackChange) = rememberPreference(
-                key = SpotifyQobuzFallbackKey,
-                defaultValue = true,
-            )
-            SwitchPreference(
-                title = { Text(stringResource(R.string.spotify_qobuz_fallback)) },
-                description = stringResource(R.string.spotify_qobuz_fallback_description),
-                checked = qobuzFallback,
-                onCheckedChange = { enabled ->
-                    onQobuzFallbackChange(enabled)
-                    ResolverPreferences.qobuzFallback = enabled
-                },
+            // Audio fallbacks (YouTube / Qobuz / VK / SoundCloud) are configured on one screen.
+            PreferenceEntry(
+                title = { Text(stringResource(R.string.audio_sources_title)) },
+                description = stringResource(R.string.audio_sources_info),
+                icon = { Icon(painterResource(R.drawable.music_note), null) },
+                onClick = { navController.navigate("settings/integrations/sources") },
             )
 
             SwitchPreference(

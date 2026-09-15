@@ -792,6 +792,14 @@ private fun extractAndFetchToken(
             context.dataStore.edit { prefs ->
                 prefs[SpotifyAccessTokenKey] = token.accessToken
                 prefs[SpotifyTokenExpiryKey] = token.accessTokenExpirationTimestampMs
+                // Connecting the account means using it as the metadata/library source right away
+                // (the first-launch "connect an account" flow relies on this).
+                prefs[com.metrolist.music.constants.EnableSpotifyKey] = true
+                prefs[com.metrolist.music.constants.UseSpotifySearchKey] = true
+                if (prefs[com.metrolist.music.constants.YandexAccessTokenKey].isNullOrEmpty()) {
+                    prefs[com.metrolist.music.constants.PrimaryMetadataSourceKey] =
+                        com.metrolist.music.constants.MetadataSource.SPOTIFY.name
+                }
             }
 
             withContext(Dispatchers.Main) {

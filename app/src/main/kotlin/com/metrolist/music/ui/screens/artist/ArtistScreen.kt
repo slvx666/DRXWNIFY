@@ -80,6 +80,7 @@ import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.AlbumItem
+import com.metrolist.music.utils.toAlbumItem
 import com.metrolist.innertube.models.ArtistItem
 import com.metrolist.innertube.models.EpisodeItem
 import com.metrolist.innertube.models.PlaylistItem
@@ -150,6 +151,7 @@ fun ArtistScreen(
     val libraryArtist by viewModel.libraryArtist.collectAsState()
     val librarySongs by viewModel.librarySongs.collectAsState()
     val libraryAlbums by viewModel.libraryAlbums.collectAsState()
+    val catalogReleases by viewModel.catalogReleases.collectAsState()
     val isChannelSubscribed by viewModel.isChannelSubscribed.collectAsState()
     val hideExplicit by rememberPreference(key = HideExplicitKey, defaultValue = false)
     val showArtistDescription by rememberPreference(key = ShowArtistDescriptionKey, defaultValue = true)
@@ -663,7 +665,57 @@ fun ArtistScreen(
                         }
                     }
                 } else {
+                    // Full discography from Spotify / Yandex Music (YouTube pages miss many EPs and
+                    // older albums). Shown right after the top songs; YouTube's own album/single rows
+                    // are hidden while it is available, so nothing appears twice.
+                    val releaseAlbums = catalogReleases.filter {
+                        it.albumType.equals("album", ignoreCase = true) || it.albumType.equals("compilation", ignoreCase = true)
+                    }
+                    val releaseSingles = catalogReleases.filterNot { it in releaseAlbums }
+                    var catalogRowsShown = catalogReleases.isEmpty()
+                    fun catalogRows() {
+                        if (catalogRowsShown) return
+                        catalogRowsShown = true
+                        listOf(
+                            "catalog_albums" to releaseAlbums,
+                            "catalog_singles" to releaseSingles,
+                        ).forEach { (key, releases) ->
+                            if (releases.isEmpty()) return@forEach
+                            item(key = "${key}_title") {
+                                NavigationTitle(
+                                    title = if (key == "catalog_albums") stringResource(R.string.albums) else stringResource(R.string.singles_and_eps),
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
+                            item(key = "${key}_list") {
+                                LazyRow(
+                                    contentPadding = WindowInsets.systemBars.only(WindowInsetsSides.Horizontal).asPaddingValues(),
+                                ) {
+                                    items(items = releases, key = { "${key}_${it.id}" }) { release ->
+                                        val albumItem = remember(release.id) { release.toAlbumItem() }
+                                        YouTubeGridItem(
+                                            item = albumItem,
+                                            isActive = mediaMetadata?.album?.id == albumItem.id,
+                                            isPlaying = isPlaying,
+                                            coroutineScope = coroutineScope,
+                                            thumbnailRatio = 1f,
+                                            modifier = Modifier
+                                                .combinedClickable(
+                                                    onClick = { navController.navigate("spotify_album/${release.id}") },
+                                                )
+                                                .animateItem(),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     artistPage?.sections?.fastForEach { section ->
+                        val isReleaseRow = section.items.isNotEmpty() && section.items.all { it is AlbumItem }
+                        if (isReleaseRow && catalogReleases.isNotEmpty()) {
+                            catalogRows()
+                            return@fastForEach
+                        }
                         if (section.items.isNotEmpty()) {
                             item(key = "section_${section.title}") {
                                 NavigationTitle(
@@ -738,6 +790,7 @@ fun ArtistScreen(
                                             ).animateItem(),
                                 )
                             }
+                            catalogRows()
                         } else {
                             item(key = "section_list_${section.title}") {
                                 LazyRow(
@@ -862,6 +915,7 @@ fun ArtistScreen(
                             }
                         }
                     }
+                    catalogRows()
                 }
             }
         }

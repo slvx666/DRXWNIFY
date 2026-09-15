@@ -2695,7 +2695,7 @@ fun HomeScreen(
                                             // existing playlist queue with initialTracks
                                             // so we don't need a dedicated album queue.
                                             scope.launch(Dispatchers.IO) {
-                                                val tracks = Spotify.album(album.id)
+                                                val tracks = com.metrolist.music.catalog.Catalog.album(album.id)
                                                     .getOrNull()
                                                     ?.tracks
                                                     ?.items

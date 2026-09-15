@@ -52,6 +52,7 @@ import com.metrolist.music.db.entities.SongArtistMap
 import com.metrolist.music.db.entities.SongEntity
 import com.metrolist.music.db.entities.SongWithStats
 import com.metrolist.music.db.entities.QobuzMatchEntity
+import com.metrolist.music.db.entities.AudioFallbackMatchEntity
 import com.metrolist.music.db.entities.SpotifyMatchEntity
 import com.metrolist.music.extensions.reversed
 import com.metrolist.music.extensions.toSQLiteQuery
@@ -2027,4 +2028,18 @@ interface DatabaseDao {
 
     @Query("DELETE FROM qobuz_match WHERE youtubeId = :youtubeId")
     fun deleteQobuzMatch(youtubeId: String)
+
+    // Audio fallback resolution cache
+
+    @Query("SELECT * FROM audio_fallback_match WHERE catalogId = :catalogId ORDER BY selected DESC, confidence DESC")
+    fun getAudioFallbackMatches(catalogId: String): List<AudioFallbackMatchEntity>
+
+    @Upsert
+    fun upsertAudioFallbackMatches(matches: List<AudioFallbackMatchEntity>)
+
+    @Query("UPDATE audio_fallback_match SET selected = 0 WHERE catalogId = :catalogId")
+    fun clearAudioFallbackSelection(catalogId: String)
+
+    @Query("DELETE FROM audio_fallback_match WHERE catalogId = :catalogId AND provider = :provider")
+    fun deleteAudioFallbackMatch(catalogId: String, provider: String)
 }

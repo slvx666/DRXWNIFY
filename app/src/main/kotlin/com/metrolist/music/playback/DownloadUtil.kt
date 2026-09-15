@@ -20,23 +20,21 @@ import androidx.media3.exoplayer.offline.DownloadNotificationHelper
 import com.metrolist.innertube.YouTube
 import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.constants.AudioQualityKey
-import com.metrolist.music.constants.QobuzAudioQuality
-import com.metrolist.music.constants.QobuzAudioQualityKey
-import com.metrolist.music.constants.QobuzBackend
-import com.metrolist.music.constants.QobuzBackendKey
-import com.metrolist.music.constants.QobuzCountryKey
+import androidx.media3.datasource.DataSpec
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.FormatEntity
 import com.metrolist.music.db.entities.SongEntity
 import com.metrolist.music.di.DownloadCache
 import com.metrolist.music.di.PlayerCache
-import com.metrolist.music.extensions.toEnum
-import com.metrolist.music.qobuz.QobuzAudioProvider
+import com.metrolist.music.playback.datasource.HlsConcatDataSource
+import com.metrolist.music.resolver.AudioDiagnostics
+import com.metrolist.music.resolver.AudioFallbackEngine
+import com.metrolist.music.resolver.AudioProviderId
+import com.metrolist.music.resolver.FallbackIds
+import com.metrolist.music.resolver.ResolverPreferences
 import com.metrolist.music.utils.DownloadExporter
 import com.metrolist.music.utils.YTPlayerUtils
-import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.enumPreference
-import com.metrolist.music.utils.get
 import com.metrolist.spotify.SpotifyMapper
 import kotlinx.coroutines.withTimeout
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -86,78 +84,42 @@ constructor(
                 .Factory()
                 .setCache(playerCache)
                 .setUpstreamDataSourceFactory(
-                    OkHttpDataSource.Factory(
-                        OkHttpClient.Builder()
-                            // Bound stalled connections so a hung download eventually FAILS instead
-                            // of running forever — a never-ending download kept the dataSync
-                            // foreground service alive past Android 14's limit and crashed the app
-                            // (ForegroundServiceDidNotStopInTimeException). readTimeout is per-read
-                            // (between bytes), so it doesn't cut off legitimately long downloads.
-                            .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-                            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                            .writeTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-                            .proxy(YouTube.proxy)
-                            .proxyAuthenticator { _, response ->
-                                YouTube.proxyAuth?.let { auth ->
-                                    response.request.newBuilder()
-                                        .header("Proxy-Authorization", auth)
-                                        .build()
-                                } ?: response.request
-                            }
-                            .build(),
-                    ),
+                    OkHttpClient.Builder()
+                        // Bound stalled connections so a hung download eventually FAILS instead
+                        // of running forever — a never-ending download kept the dataSync
+                        // foreground service alive past Android 14's limit and crashed the app
+                        // (ForegroundServiceDidNotStopInTimeException). readTimeout is per-read
+                        // (between bytes), so it doesn't cut off legitimately long downloads.
+                        .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                        .writeTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                        .proxy(YouTube.proxy)
+                        .proxyAuthenticator { _, response ->
+                            YouTube.proxyAuth?.let { auth ->
+                                response.request.newBuilder()
+                                    .header("Proxy-Authorization", auth)
+                                    .build()
+                            } ?: response.request
+                        }
+                        .build()
+                        .let { client ->
+                            // meldhls:// (HLS-only providers such as SoundCloud) → one progressive stream.
+                            HlsConcatDataSource.Factory(OkHttpDataSource.Factory(client), client)
+                        },
                 ),
         ) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
             val length = if (dataSpec.length >= 0) dataSpec.length else 1
 
-            // Qobuz-fallback track (no YouTube match): resolve the Qobuz stream and record a
-            // FormatEntity/SongEntity so the exporter can transcode it to MP3 afterwards. Keyed on
-            // the synthetic "qbzfb:" id, so ordinary YouTube downloads are untouched.
-            if (SpotifyMetadataRegistry.isQobuzFallbackId(mediaId)) {
+            // Fallback track (audio from Qobuz / VK / SoundCloud, or a YouTube alternate): resolve the
+            // stream through the audio fallback engine and record FormatEntity/SongEntity rows so the
+            // exporter can transcode it to MP3 afterwards. Ordinary YouTube downloads are untouched.
+            if (FallbackIds.isFallbackId(mediaId)) {
                 if (playerCache.isCached(mediaId, dataSpec.position, length)) return@Factory dataSpec
                 songUrlCache[mediaId]?.takeIf { it.second > System.currentTimeMillis() }?.let {
                     return@Factory dataSpec.withUri(it.first.toUri())
                 }
-                val resolved = resolveQobuzFallback(mediaId)
-                    ?: error("Qobuz fallback: cannot resolve $mediaId for download")
-                val track = SpotifyMetadataRegistry.get(mediaId)
-                database.query {
-                    upsert(
-                        FormatEntity(
-                            id = mediaId,
-                            itag = -1,
-                            mimeType = resolved.mimeType.substringBefore(';').trim(),
-                            codecs = resolved.codecs,
-                            bitrate = resolved.bitrate,
-                            sampleRate = resolved.sampleRate,
-                            // Unknown up front for Qobuz; the exporter's preflight only needs the
-                            // first byte, and Media3 discovers the real length from HTTP headers.
-                            contentLength = 0L,
-                            loudnessDb = null,
-                            perceptualLoudnessDb = null,
-                            playbackUrl = null,
-                        ),
-                    )
-                    val now = LocalDateTime.now()
-                    val existing = getSongByIdBlocking(mediaId)?.song
-                    val updatedSong = if (existing != null) {
-                        if (existing.dateDownload == null) existing.copy(dateDownload = now) else existing
-                    } else {
-                        SongEntity(
-                            id = mediaId,
-                            title = track?.name ?: "Unknown",
-                            duration = ((track?.durationMs ?: 0) / 1000),
-                            thumbnailUrl = track?.let { SpotifyMapper.getTrackThumbnail(it) },
-                            dateDownload = now,
-                            isDownloaded = false,
-                        )
-                    }
-                    upsert(updatedSong)
-                }
-                val expiresAt = (resolved.expiresAtMs - 60_000L).coerceAtLeast(System.currentTimeMillis())
-                songUrlCache[mediaId] = resolved.mediaUri to expiresAt
-                return@Factory dataSpec.withUri(resolved.mediaUri.toUri())
+                return@Factory resolveFallbackDownload(dataSpec, mediaId)
             }
 
             if (playerCache.isCached(mediaId, dataSpec.position, length)) {
@@ -168,6 +130,11 @@ constructor(
                 return@Factory dataSpec.withUri(it.first.toUri())
             }
 
+            // YouTube switched off: download a catalog track from another audio provider directly.
+            if (!ResolverPreferences.youtubeEnabled) {
+                rescueYouTubeDownload(dataSpec, mediaId, youtubeError = null)?.let { return@Factory it }
+            }
+
             val playbackData = runBlocking(Dispatchers.IO) {
                 YTPlayerUtils.playerResponseForPlayback(
                     mediaId,
@@ -176,7 +143,11 @@ constructor(
                     // Prefer AAC for downloads so the exporter can copy the stream without transcoding.
                     preferAac = true,
                 )
-            }.getOrThrow()
+            }.getOrElse { error ->
+                // YouTube unreachable / video gone: take the catalog track from another provider.
+                rescueYouTubeDownload(dataSpec, mediaId, youtubeError = error)?.let { return@Factory it }
+                throw error
+            }
             val format = playbackData.format
 
             database.query {
@@ -327,43 +298,158 @@ constructor(
         downloads.value = result
     }
 
-    /**
-     * Resolves the Qobuz stream for a "qbzfb:" fallback download, building the query from the
-     * Spotify metadata registered by [SpotifyYouTubeMapper] plus the user's Qobuz backend/country/
-     * quality settings. Returns null when metadata is missing or Qobuz has no match.
-     */
-    private fun resolveQobuzFallback(mediaId: String): QobuzAudioProvider.Resolved? {
-        val track = SpotifyMetadataRegistry.get(mediaId) ?: return null
-        val artists = track.artists.map { it.name }.filter { it.isNotBlank() }
-        if (artists.isEmpty()) return null
-
-        val backendPref = appContext.dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.MONOKENNY)
-        val resolverBackend = when (backendPref) {
-            QobuzBackend.MONOKENNY -> QobuzAudioProvider.ResolverBackend.MONOKENNY
-            QobuzBackend.JUMO -> QobuzAudioProvider.ResolverBackend.JUMO
-            QobuzBackend.SQUID -> QobuzAudioProvider.ResolverBackend.SQUID
-            QobuzBackend.TRYPT -> QobuzAudioProvider.ResolverBackend.TRYPT
+    /** Network-level failures mean "YouTube unreachable"; anything else is about this particular video. */
+    private fun isNetworkFailure(error: Throwable?): Boolean {
+        var e = error
+        while (e != null) {
+            if (e is java.net.UnknownHostException || e is java.net.ConnectException ||
+                e is java.io.InterruptedIOException || e is javax.net.ssl.SSLException
+            ) {
+                return true
+            }
+            e = e.cause
         }
-        val country = appContext.dataStore.get(QobuzCountryKey, "US")
-            .trim().uppercase().takeIf { it.matches(Regex("[A-Z]{2}")) } ?: "US"
-        val quality = appContext.dataStore.get(QobuzAudioQualityKey).toEnum(QobuzAudioQuality.CD_QUALITY)
+        return false
+    }
 
-        val query = QobuzAudioProvider.Query(
-            mediaId = mediaId,
-            title = track.name,
-            artists = artists,
-            album = track.album?.name,
-            isrc = track.isrc?.takeIf { it.isNotBlank() },
-            durationMs = track.durationMs.toLong().takeIf { it > 0 },
-            countryCode = country,
-            backend = resolverBackend,
-            qualityCode = QobuzAudioProvider.qualityCodeFor(quality),
-        )
-        return runCatching {
-            runBlocking(Dispatchers.IO) { withTimeout(20_000L) { QobuzAudioProvider.resolve(query) } }
-        }.onFailure { e ->
-            Timber.tag(TAG).w("Qobuz fallback download resolve failed for %s: %s", mediaId, e.message)
-        }.getOrNull()
+    /**
+     * For a regular YouTube id whose YouTube stream is unavailable: when the song is a catalog track
+     * (metadata known), fetch it from another upload or another enabled audio provider.
+     * Returns null when not possible.
+     */
+    private fun rescueYouTubeDownload(dataSpec: DataSpec, mediaId: String, youtubeError: Throwable?): DataSpec? {
+        val dbSong = database.getSongByIdBlocking(mediaId)
+        val query = AudioFallbackEngine.queryFor(mediaId, dbSong)
+        if (query == null) {
+            AudioDiagnostics.warn("download: YouTube failed for $mediaId and it has no catalog metadata")
+            return null
+        }
+        val failedProviders = mutableSetOf<AudioProviderId>()
+        val badTracks = mutableSetOf<String>()
+        if (youtubeError == null || isNetworkFailure(youtubeError)) {
+            failedProviders += AudioProviderId.YOUTUBE
+        } else {
+            AudioDiagnostics.warn("download: YouTube can't serve $mediaId (${youtubeError.message?.take(160)})")
+            badTracks += mediaId
+            AudioFallbackEngine.markYouTubeVideoUnplayable(mediaId, query.catalogId)
+        }
+        // Never append another source's bytes to partial YouTube bytes of the same id.
+        runCatching { playerCache.removeResource(mediaId) }
+        return downloadViaEngine(dataSpec, mediaId, dbSong, failedProviders, badTracks)
+    }
+
+    /**
+     * Resolves the stream of a fallback ("mfb:" / legacy "qbzfb:") download through the audio
+     * fallback engine — remembered provider first, other uploads / providers when one fails — and
+     * records FormatEntity/SongEntity rows for the exporter. Tags come from the catalog metadata, never
+     * from the provider's upload. Fails fast (no hang of the dataSync service) when nothing can serve it.
+     */
+    private fun resolveFallbackDownload(dataSpec: DataSpec, mediaId: String): DataSpec {
+        val dbSong = database.getSongByIdBlocking(mediaId)
+        return downloadViaEngine(dataSpec, mediaId, dbSong, mutableSetOf(), mutableSetOf())
+            ?: error("No audio source for $mediaId")
+    }
+
+    private fun downloadViaEngine(
+        dataSpec: DataSpec,
+        mediaId: String,
+        dbSong: com.metrolist.music.db.entities.Song?,
+        failedProviders: MutableSet<AudioProviderId>,
+        badTracks: MutableSet<String>,
+    ): DataSpec? {
+        val query = AudioFallbackEngine.queryFor(mediaId, dbSong)
+        repeat(5) {
+            val plan = runCatching {
+                runBlocking(Dispatchers.IO) {
+                    withTimeout(30_000L) { AudioFallbackEngine.streamPlan(mediaId, dbSong, failedProviders, badTracks) }
+                }
+            }.onFailure { AudioDiagnostics.warn("download: resolve for $mediaId failed: ${it.message}") }
+                .getOrNull() ?: return null
+
+            val streamUri: String
+            val format: FormatEntity
+            val expiresAt: Long
+            when (plan) {
+                is AudioFallbackEngine.StreamPlan.Direct -> {
+                    val s = plan.stream
+                    streamUri = s.uri
+                    expiresAt = s.expiresAtMs - 60_000L
+                    format = FormatEntity(
+                        id = mediaId,
+                        itag = -1,
+                        mimeType = s.mimeType,
+                        codecs = s.codecs,
+                        bitrate = s.bitrate,
+                        sampleRate = s.sampleRate,
+                        // The exporter's preflight needs only the first byte; Media3 learns the real length.
+                        contentLength = s.contentLength ?: 0L,
+                        loudnessDb = null,
+                        perceptualLoudnessDb = null,
+                        playbackUrl = null,
+                    )
+                }
+                is AudioFallbackEngine.StreamPlan.YouTube -> {
+                    val playback = runBlocking(Dispatchers.IO) {
+                        YTPlayerUtils.playerResponseForPlayback(
+                            plan.videoId,
+                            audioQuality = audioQuality,
+                            connectivityManager = connectivityManager,
+                            preferAac = true,
+                        )
+                    }.getOrElse { error ->
+                        if (isNetworkFailure(error)) {
+                            failedProviders += AudioProviderId.YOUTUBE
+                        } else {
+                            badTracks += plan.videoId
+                            AudioFallbackEngine.markYouTubeVideoUnplayable(plan.videoId, query?.catalogId)
+                        }
+                        AudioDiagnostics.warn("download: YouTube ${plan.videoId} failed: ${error.message?.take(160)}")
+                        return@repeat
+                    }
+                    val f = playback.format
+                    streamUri = "${playback.streamUrl}&range=0-${f.contentLength ?: 10000000}"
+                    expiresAt = System.currentTimeMillis() +
+                        ((playback.streamExpiresInSeconds - 60).coerceAtLeast(0)) * 1000L
+                    format = FormatEntity(
+                        id = mediaId,
+                        itag = f.itag,
+                        mimeType = f.mimeType.split(";")[0],
+                        codecs = f.mimeType.substringAfter("codecs=", "").removeSurrounding("\""),
+                        bitrate = f.bitrate,
+                        sampleRate = f.audioSampleRate,
+                        contentLength = f.contentLength ?: 0L,
+                        loudnessDb = playback.audioConfig?.loudnessDb,
+                        perceptualLoudnessDb = playback.audioConfig?.perceptualLoudnessDb,
+                        playbackUrl = null,
+                    )
+                }
+            }
+            AudioDiagnostics.info("download: $mediaId via ${plan.provider}")
+
+            val track = SpotifyMetadataRegistry.get(mediaId)
+            database.query {
+                upsert(format)
+                val now = LocalDateTime.now()
+                val existing = getSongByIdBlocking(mediaId)?.song
+                val updatedSong = if (existing != null) {
+                    if (existing.dateDownload == null) existing.copy(dateDownload = now) else existing
+                } else {
+                    SongEntity(
+                        id = mediaId,
+                        title = track?.name ?: query?.title ?: "Unknown",
+                        duration = ((track?.durationMs?.toLong() ?: query?.durationMs ?: 0L) / 1000).toInt(),
+                        thumbnailUrl = track?.let { SpotifyMapper.getTrackThumbnail(it) },
+                        dateDownload = now,
+                        isDownloaded = false,
+                    )
+                }
+                upsert(updatedSong)
+            }
+            songUrlCache[mediaId] = streamUri to expiresAt.coerceAtLeast(System.currentTimeMillis())
+            return dataSpec.withUri(streamUri.toUri())
+        }
+        AudioDiagnostics.warn("download: gave up on $mediaId after several sources failed")
+        return null
     }
 
     fun getDownload(songId: String): Flow<Download?> = downloads.map { it[songId] }

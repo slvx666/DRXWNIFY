@@ -37,18 +37,41 @@ object ResolverPreferences {
     var looseMatch: Boolean = false
 
     /**
-     * When a Spotify track has no confident YouTube match, resolve it from Qobuz instead (by
-     * ISRC/metadata) so underground / YouTube-missing tracks still play and download. On by default.
+     * Audio providers the user allows. All on by default; each can be switched off in
+     * Settings → Integrations → Music sources.
      */
     @Volatile
+    var youtubeEnabled: Boolean = true
+
+    /** Qobuz: lossless / Hi-Res streams (third-party backends, availability varies). */
+    @Volatile
     var qobuzFallback: Boolean = true
+
+    /** VK Music: Russian-language catalog and some underground; needs a VK login to work. */
+    @Volatile
+    var vkEnabled: Boolean = true
+
+    /** SoundCloud: underground, remixes and rare releases. */
+    @Volatile
+    var soundCloudEnabled: Boolean = true
+
+    /** Provider ranking used to choose between matches, best first. */
+    @Volatile
+    var order: List<AudioProviderId> = AudioProviderId.DEFAULT_ORDER
+
+    fun isEnabled(id: AudioProviderId): Boolean = when (id) {
+        AudioProviderId.YOUTUBE -> youtubeEnabled
+        AudioProviderId.QOBUZ -> qobuzFallback
+        AudioProviderId.VK -> vkEnabled
+        AudioProviderId.SOUNDCLOUD -> soundCloudEnabled
+    }
 }
 
 /**
- * A concrete, playable audio source for a resolved track. Kept extensible for multiple backends,
- * but note: Meld's player/cache/download pipeline is keyed on the YouTube video id, so [YouTube] is
- * the id that flows downstream. Lossless (Qobuz) remains a playback-time substitution layered on top
- * of that same id — it is not a distinct source at resolution time.
+ * The YouTube side of resolution. Other providers (Qobuz, VK, SoundCloud) are modelled by
+ * [AudioProvider] / [ProviderMatch] and reach the player through `mfb:` fallback ids
+ * ([FallbackIds]); the optional "lossless Qobuz" setting still substitutes the stream of a YouTube id
+ * at playback time.
  */
 sealed interface AudioSource {
     data class YouTube(val videoId: String) : AudioSource

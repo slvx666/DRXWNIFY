@@ -26,6 +26,7 @@ include(":lastfm")
 include(":betterlyrics")
 include(":shazamkit")
 include(":spotify")
+include(":yandex")
 include(":paxsenix")
 
 // Use a local copy of NewPipe Extractor by uncommenting the lines below.

@@ -121,6 +121,27 @@ fun AlbumScreen(
     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
 
+    // One album layout for the whole app: an album that exists in the connected catalog opens the
+    // catalog album page instead of this YouTube one.
+    val catalogAlbumId by viewModel.catalogAlbumId.collectAsState()
+    val redirectPending by viewModel.redirectPending.collectAsState()
+    LaunchedEffect(catalogAlbumId) {
+        val target = catalogAlbumId ?: return@LaunchedEffect
+        val current = navController.currentBackStackEntry?.destination?.route
+        navController.navigate("spotify_album/$target") {
+            if (current != null) popUpTo(current) { inclusive = true }
+        }
+    }
+    if (redirectPending || catalogAlbumId != null) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.material3.CircularProgressIndicator()
+        }
+        return
+    }
+
     val playlistId by viewModel.playlistId.collectAsState()
     val albumWithSongs by viewModel.albumWithSongs.collectAsState()
     val otherVersions by viewModel.otherVersions.collectAsState()

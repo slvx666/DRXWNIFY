@@ -335,7 +335,7 @@ fun OnlineSearchResult(
                                         // matches as accurately as playing from an album. Falls back
                                         // to the stub if the fetch fails.
                                         coroutineScope.launch {
-                                            val full = Spotify.getTrack(item.id.stripSpotifyPrefix()).getOrNull()
+                                            val full = com.metrolist.music.catalog.Catalog.getTrack(item.id.stripSpotifyPrefix()).getOrNull()
                                             val spotifyTrack = full ?: item.toSpotifyTrackStub()
                                             if (spotifyTrack != null) {
                                                 playerConnection.playQueue(

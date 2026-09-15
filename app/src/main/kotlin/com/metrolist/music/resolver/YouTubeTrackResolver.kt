@@ -29,7 +29,10 @@ class YouTubeTrackResolver(
     private val looseProvider: () -> Boolean = { ResolverPreferences.looseMatch },
 ) : TrackResolver {
 
-    override suspend fun resolve(track: SpotifyTrack): ResolveResult {
+    override suspend fun resolve(track: SpotifyTrack): ResolveResult = resolve(track, emptySet())
+
+    /** Like [resolve], never returning a video in [excludedIds] (e.g. one that is age-restricted). */
+    suspend fun resolve(track: SpotifyTrack, excludedIds: Set<String>): ResolveResult {
         val loose = looseProvider()
         val primaryArtist = track.artists.firstOrNull()?.name.orEmpty()
         val allArtists = track.artists.joinToString(", ") { it.name }
@@ -40,7 +43,7 @@ class YouTubeTrackResolver(
         val seen = LinkedHashMap<String, SpotifyMapper.Candidate>()
 
         for ((index, query) in queries.withIndex()) {
-            val batch = fetchCandidates(query, includeVideos = index == 0)
+            val batch = fetchCandidates(query, includeVideos = index == 0).filter { it.id !in excludedIds }
             for (c in batch) seen.putIfAbsent(c.id, c)
 
             when (val result = SpotifyMapper.selectBestMatch(

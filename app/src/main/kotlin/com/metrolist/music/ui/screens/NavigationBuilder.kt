@@ -68,6 +68,9 @@ import com.metrolist.music.ui.screens.settings.integrations.LastFMSettings
 import com.metrolist.music.ui.screens.settings.integrations.ListenTogetherSettings
 import com.metrolist.music.ui.screens.settings.integrations.SpotifyPreloadScreen
 import com.metrolist.music.ui.screens.settings.integrations.SpotifySettings
+import com.metrolist.music.ui.screens.settings.integrations.MusicSourcesSettings
+import com.metrolist.music.ui.screens.settings.integrations.VkLoginScreen
+import com.metrolist.music.ui.screens.settings.integrations.YandexLoginScreen
 import com.metrolist.music.ui.screens.recognition.RecognitionScreen
 import com.metrolist.music.ui.screens.recognition.RecognitionHistoryScreen
 import com.metrolist.music.ui.screens.wrapped.WrappedScreen
@@ -435,6 +438,22 @@ fun NavGraphBuilder.navigationBuilder(
 
     composable("settings/spotify/login") {
         SpotifyLoginScreen(navController)
+    }
+
+    composable("settings/integrations/sources") {
+        MusicSourcesSettings(navController, scrollBehavior)
+    }
+
+    composable("settings/integrations/sources/log") {
+        com.metrolist.music.ui.screens.settings.integrations.AudioSearchLogScreen(navController)
+    }
+
+    composable("settings/yandex/login") {
+        YandexLoginScreen(navController)
+    }
+
+    composable("settings/vk/login") {
+        VkLoginScreen(navController)
     }
 
     composable(
