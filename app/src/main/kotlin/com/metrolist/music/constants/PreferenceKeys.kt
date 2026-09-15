@@ -249,6 +249,11 @@ val AudioSourceSoundCloudKey = booleanPreferencesKey("audioSourceSoundCloud")
 val AudioSourceVkKey = booleanPreferencesKey("audioSourceVk")
 val AudioSourceBandcampKey = booleanPreferencesKey("audioSourceBandcamp")
 val AudioSourceAudiusKey = booleanPreferencesKey("audioSourceAudius")
+val AudioSourceSoulseekKey = booleanPreferencesKey("audioSourceSoulseek")
+val SoulseekUsernameKey = stringPreferencesKey("soulseekUsername")
+val SoulseekPasswordKey = stringPreferencesKey("soulseekPassword")
+/** Soulseek only on unmetered networks (Wi-Fi): it downloads whole files from peers. On by default. */
+val SoulseekWifiOnlyKey = booleanPreferencesKey("soulseekWifiOnly")
 // Qobuz reuses the historical "Qobuz fallback" key so the user's earlier choice is kept.
 val AudioSourceQobuzKey = SpotifyQobuzFallbackKey
 

@@ -361,7 +361,7 @@ constructor(
         repeat(5) {
             val plan = runCatching {
                 runBlocking(Dispatchers.IO) {
-                    withTimeout(30_000L) { AudioFallbackEngine.streamPlan(mediaId, dbSong, failedProviders, badTracks) }
+                    withTimeout(210_000L) { AudioFallbackEngine.streamPlan(mediaId, dbSong, failedProviders, badTracks) }
                 }
             }.onFailure { AudioDiagnostics.warn("download: resolve for $mediaId failed: ${it.message}") }
                 .getOrNull() ?: return null

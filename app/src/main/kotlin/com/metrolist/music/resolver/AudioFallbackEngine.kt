@@ -78,6 +78,17 @@ object AudioFallbackEngine {
             VkAudioProvider(token = { appContext.dataStore.get(VkAccessTokenKey, "") }),
             com.metrolist.music.resolver.providers.BandcampAudioProvider(),
             com.metrolist.music.resolver.providers.AudiusAudioProvider(),
+            com.metrolist.music.resolver.providers.SoulseekAudioProvider(
+                credentials = {
+                    val user = appContext.dataStore.get(com.metrolist.music.constants.SoulseekUsernameKey, "")
+                    val pass = appContext.dataStore.get(com.metrolist.music.constants.SoulseekPasswordKey, "")
+                    if (user.isNotBlank() && pass.isNotBlank()) user to pass else null
+                },
+                allowedNow = {
+                    !appContext.dataStore.get(com.metrolist.music.constants.SoulseekWifiOnlyKey, true) || isUnmeteredNetwork()
+                },
+                cacheDir = { appContext.cacheDir },
+            ),
             SoundCloudAudioProvider(
                 loadClientId = { appContext.dataStore.get(SoundCloudClientIdKey, "") },
                 saveClientId = { id -> scope.launch { appContext.dataStore.edit { it[SoundCloudClientIdKey] = id } } },
@@ -86,6 +97,12 @@ object AudioFallbackEngine {
     }
 
     fun provider(id: AudioProviderId): AudioProvider? = providers[id]
+
+    private fun isUnmeteredNetwork(): Boolean {
+        val cm = appContext.getSystemService(android.net.ConnectivityManager::class.java) ?: return false
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+    }
 
     private fun qobuzSettings(): QobuzFallbackProvider.Settings {
         val backend = when (appContext.dataStore.get(QobuzBackendKey).toEnum(QobuzBackend.MONOKENNY)) {
@@ -348,5 +365,5 @@ object AudioFallbackEngine {
         )
     }
 
-    private const val ARTIST_SEPARATOR = ""
+    private const val ARTIST_SEPARATOR = "\u001F"
 }

@@ -64,7 +64,6 @@ import com.metrolist.music.ui.screens.settings.ThemeScreen
 import com.metrolist.music.ui.screens.settings.UpdaterScreen
 import com.metrolist.music.ui.screens.settings.integrations.DiscordSettings
 import com.metrolist.music.ui.screens.settings.integrations.IntegrationScreen
-import com.metrolist.music.ui.screens.settings.integrations.LastFMSettings
 import com.metrolist.music.ui.screens.settings.integrations.ListenTogetherSettings
 import com.metrolist.music.ui.screens.settings.integrations.SpotifyPreloadScreen
 import com.metrolist.music.ui.screens.settings.integrations.SpotifySettings
@@ -420,10 +419,6 @@ fun NavGraphBuilder.navigationBuilder(
         DiscordSettings(navController, snackbarHostState)
     }
 
-    composable("settings/integrations/lastfm") {
-        LastFMSettings(navController)
-    }
-
     composable(route = "settings/integrations/listen_together") {
         ListenTogetherSettings(navController)
     }
@@ -442,6 +437,10 @@ fun NavGraphBuilder.navigationBuilder(
 
     composable("settings/integrations/sources") {
         MusicSourcesSettings(navController, scrollBehavior)
+    }
+
+    composable("settings/integrations/youtube") {
+        com.metrolist.music.ui.screens.settings.integrations.YouTubeIntegrationScreen(navController)
     }
 
     composable("settings/integrations/sources/log") {

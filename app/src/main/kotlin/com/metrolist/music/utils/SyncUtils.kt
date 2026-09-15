@@ -155,7 +155,7 @@ class SyncUtils @Inject constructor(
                 pendingRemovals.any { (_, set) -> set.any { it.third == playlistId } }
     init {
         context.dataStore.data
-            .map { it[LastFMUseSendLikes] ?: false }
+            .map { false } // Last.fm integration removed
             .distinctUntilChanged()
             .collectLatest(syncScope) {
                 lastfmSendLikes = it

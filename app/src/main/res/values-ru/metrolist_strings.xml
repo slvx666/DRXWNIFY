@@ -917,4 +917,18 @@
     <string name="integration_lastfm_description">Записывает прослушанное в профиль Last.fm (скробблинг)</string>
     <string name="integration_discord_description">Показывает текущий трек в статусе Discord</string>
     <string name="similar_artists">Похожие исполнители</string>
+    <string name="youtube_music">YouTube Music</string>
+    <string name="integration_youtube_description">Необязательный Google-аккаунт для YouTube как источника аудио</string>
+    <string name="youtube_integration_info">YouTube — один из источников аудио, он работает и без аккаунта. Вход в Google-аккаунт снимает возрастные ограничения видео и позволяет синхронизировать лайки и плейлисты YouTube Music. Медиатека, поиск и метаданные по-прежнему берутся из Spotify или Яндекс Музыки.</string>
+    <string name="album_like_failed">Не удалось обновить альбом: %s</string>
+    <string name="audio_source_soulseek">Soulseek</string>
+    <string name="audio_source_soulseek_description">P2P-сеть с огромным покрытием, включая лейбловые релизы и lossless. Крайний вариант: нужен аккаунт, файл целиком скачивается у другого пользователя перед воспроизведением (от секунд до минут), тратит трафик и батарею.</string>
+    <string name="soulseek_login_required">Укажи аккаунт Soulseek, чтобы использовать этот источник</string>
+    <string name="soulseek_login">Аккаунт Soulseek</string>
+    <string name="soulseek_login_hint">Хранится только на этом устройстве. Приложение подключается напрямую к сети Soulseek и ничего не раздаёт.</string>
+    <string name="soulseek_username">Имя пользователя</string>
+    <string name="soulseek_password">Пароль</string>
+    <string name="soulseek_account_note">Нет аккаунта? Введи новое имя и пароль — Soulseek создаст аккаунт при первом входе.</string>
+    <string name="soulseek_wifi_only">Soulseek только по Wi-Fi</string>
+    <string name="soulseek_wifi_only_description">Экономит мобильный трафик и батарею: на мобильном интернете Soulseek пропускается.</string>
 </resources>

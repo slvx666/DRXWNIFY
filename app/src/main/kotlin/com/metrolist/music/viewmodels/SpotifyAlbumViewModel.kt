@@ -82,4 +82,37 @@ constructor(
     }
 
     fun retry() = loadAlbum()
+
+    /** Whether the linked account has this album saved; null while unknown. */
+    val isSaved = MutableStateFlow<Boolean?>(null)
+
+    /** The album can be liked only when the account that owns it is signed in. */
+    val canSave: Boolean get() = Catalog.canWrite(albumId)
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!canSave) return@launch
+            Catalog.isAlbumSaved(albumId)
+                .onSuccess { isSaved.value = it }
+                .onFailure {
+                    Timber.w(it, "Album saved-state check failed for $albumId")
+                    isSaved.value = false
+                }
+        }
+    }
+
+    /** Two-way like: saves/removes the album in the account and reverts on failure. */
+    fun toggleSaved(onError: (String) -> Unit) {
+        val current = isSaved.value ?: return
+        val target = !current
+        isSaved.value = target
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = if (target) Catalog.saveAlbum(albumId) else Catalog.removeAlbum(albumId)
+            result.onFailure { e ->
+                isSaved.value = current
+                val message = e.message ?: "sync failed"
+                kotlinx.coroutines.withContext(Dispatchers.Main) { onError(message) }
+            }
+        }
+    }
 }

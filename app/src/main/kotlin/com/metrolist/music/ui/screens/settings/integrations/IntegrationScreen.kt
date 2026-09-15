@@ -29,7 +29,8 @@ import com.metrolist.music.ui.component.IntegrationCardItem
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.constants.DiscordTokenKey
-import com.metrolist.music.constants.LastFMSessionKey
+import com.metrolist.music.constants.InnerTubeCookieKey
+import com.metrolist.innertube.utils.parseCookieString
 import com.metrolist.music.constants.SpotifyAccessTokenKey
 import com.metrolist.music.constants.YandexAccessTokenKey
 
@@ -45,7 +46,7 @@ fun IntegrationScreen(
             .padding(horizontal = 16.dp),
     ) {
         val (discordToken) = rememberPreference(DiscordTokenKey, "")
-        val (lastFmSession) = rememberPreference(LastFMSessionKey, "")
+        val (ytCookie) = rememberPreference(InnerTubeCookieKey, "")
         val (spotifyToken) = rememberPreference(SpotifyAccessTokenKey, "")
         val (yandexToken) = rememberPreference(YandexAccessTokenKey, "")
 
@@ -90,12 +91,12 @@ fun IntegrationScreen(
                     }
                 ),
                 IntegrationCardItem(
-                    icon = painterResource(R.drawable.music_note),
-                    title = { Text(stringResource(R.string.lastfm_integration)) },
-                    description = { Text(stringResource(R.string.integration_lastfm_description)) },
-                    trailingContent = if (lastFmSession.isNotEmpty()) connected else null,
+                    icon = painterResource(R.drawable.youtube_music),
+                    title = { Text(stringResource(R.string.youtube_music)) },
+                    description = { Text(stringResource(R.string.integration_youtube_description)) },
+                    trailingContent = if ("SAPISID" in parseCookieString(ytCookie)) connected else null,
                     onClick = {
-                        navController.navigate("settings/integrations/lastfm")
+                        navController.navigate("settings/integrations/youtube")
                     }
                 ),
                 IntegrationCardItem(

@@ -982,7 +982,7 @@ class MusicService :
             }
 
         dataStore.data
-            .map { it[EnableLastFMScrobblingKey] ?: false }
+            .map { false } // Last.fm integration removed: scrobbling stays off
             .debounce(300)
             .distinctUntilChanged()
             .collect(scope) { enabled ->
@@ -5224,7 +5224,8 @@ class MusicService :
         /** Cache-key prefix for audio rescued from another provider for a regular YouTube id. */
         const val RESCUE_CACHE_PREFIX = "fbrescue:"
         private const val FALLBACK_FAILED_TTL_MS = 10 * 60 * 1000L
-        private const val FALLBACK_RESOLVE_TIMEOUT_MS = 25_000L
+        // Generous: a Soulseek last-resort download has to finish before the track can start.
+        private const val FALLBACK_RESOLVE_TIMEOUT_MS = 210_000L
         private const val YOUTUBE_RESCUE_WINDOW_MS = 3 * 60 * 1000L
         private const val YOUTUBE_RESCUES_TO_TRIP = 2
         private const val YOUTUBE_BYPASS_MS = 5 * 60 * 1000L

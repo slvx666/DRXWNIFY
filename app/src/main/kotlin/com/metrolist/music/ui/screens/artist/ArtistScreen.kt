@@ -156,6 +156,11 @@ fun ArtistScreen(
     val catalogReleases by viewModel.catalogReleases.collectAsState()
     val catalogRelated by viewModel.catalogRelated.collectAsState()
     val catalogTopTracks by viewModel.catalogTopTracks.collectAsState()
+    val catalogArtist by viewModel.catalogArtist.collectAsState()
+    val monthlyListenersTemplate = stringResource(R.string.spotify_monthly_listeners)
+    // With a linked Spotify / Yandex Music account the whole profile (photo, name, tracks, releases,
+    // similar artists) comes from that catalog; the YouTube page is only a fallback.
+    val useCatalog = catalogArtist != null || catalogTopTracks.isNotEmpty() || catalogReleases.isNotEmpty()
     val isChannelSubscribed by viewModel.isChannelSubscribed.collectAsState()
     val hideExplicit by rememberPreference(key = HideExplicitKey, defaultValue = false)
     val showArtistDescription by rememberPreference(key = ShowArtistDescriptionKey, defaultValue = true)
@@ -201,7 +206,7 @@ fun ArtistScreen(
             state = lazyListState,
             contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
         ) {
-            if (artistPage == null && !showLocal) {
+            if (artistPage == null && !showLocal && !useCatalog) {
                 item(key = "shimmer") {
                     ShimmerHost(
                         modifier =
@@ -295,8 +300,9 @@ fun ArtistScreen(
                 }
             } else {
                 item(key = "header") {
-                    val thumbnail = artistPage?.artist?.thumbnail ?: libraryArtist?.artist?.thumbnailUrl
-                    val artistName = artistPage?.artist?.title ?: libraryArtist?.artist?.name
+                    val catalogImage = catalogArtist?.images?.maxByOrNull { it.width ?: 0 }?.url
+                    val thumbnail = catalogImage ?: artistPage?.artist?.thumbnail ?: libraryArtist?.artist?.thumbnailUrl
+                    val artistName = catalogArtist?.name?.takeIf { it.isNotBlank() } ?: artistPage?.artist?.title ?: libraryArtist?.artist?.name
 
                     Box {
                         // Artist Image with offset
@@ -429,7 +435,7 @@ fun ArtistScreen(
                                         }
 
                                         // Shuffle Button
-                                        if (!showLocal && !isGuest && artistPage != null) {
+                                        if (!showLocal && !isGuest && (artistPage != null || catalogTopTracks.isNotEmpty())) {
                                             run {
                                                 IconButton(
                                                     onClick = {
@@ -467,7 +473,9 @@ fun ArtistScreen(
                     val description = artistPage?.description
                     val descriptionRuns = artistPage?.descriptionRuns
                     val subscriberCount = artistPage?.subscriberCountText
-                    val monthlyListeners = artistPage?.monthlyListenerCount
+                    val monthlyListeners = catalogArtist?.monthlyListeners
+                        ?.let { String.format(monthlyListenersTemplate, java.text.NumberFormat.getIntegerInstance().format(it)) }
+                        ?: artistPage?.monthlyListenerCount
 
                     if ((showArtistDescription && !description.isNullOrEmpty()) ||
                         (showArtistSubscriberCount && !subscriberCount.isNullOrEmpty()) ||
@@ -715,7 +723,7 @@ fun ArtistScreen(
                         }
                     }
                     // Top tracks from the catalog when the YouTube page has none (or didn't load).
-                    val youtubeHasSongs = artistPage?.sections?.any { sec -> sec.items.any { it is SongItem } } == true
+                    val youtubeHasSongs = !useCatalog && artistPage?.sections?.any { sec -> sec.items.any { it is SongItem } } == true
                     if (!youtubeHasSongs && catalogTopTracks.isNotEmpty()) {
                         item(key = "catalog_top_title") {
                             NavigationTitle(title = stringResource(R.string.artist_top_tracks), modifier = Modifier.animateItem())
@@ -747,7 +755,7 @@ fun ArtistScreen(
                         }
                         catalogRows()
                     }
-                    artistPage?.sections?.fastForEach { section ->
+                    artistPage?.sections?.takeIf { !useCatalog }?.fastForEach { section ->
                         val isReleaseRow = section.items.isNotEmpty() && section.items.all { it is AlbumItem }
                         if (isReleaseRow && catalogReleases.isNotEmpty()) {
                             catalogRows()

@@ -121,7 +121,9 @@ constructor(
         val useForSearch = prefs[UseSpotifySearchKey] ?: false
         val hasToken = (prefs[SpotifyAccessTokenKey] ?: "").isNotEmpty()
         val hasYandex = (prefs[com.metrolist.music.constants.YandexAccessTokenKey] ?: "").isNotEmpty()
-        return (enabled && useForSearch && hasToken) || hasYandex
+        // Metadata always comes from the linked account (Spotify by default, else Yandex Music);
+        // YouTube search is only used when no music account is connected.
+        return (enabled && hasToken) || hasYandex
     }
 
     private fun initYouTubeSearch() {

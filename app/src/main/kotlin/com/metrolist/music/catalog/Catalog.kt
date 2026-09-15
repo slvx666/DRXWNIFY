@@ -187,14 +187,48 @@ object Catalog {
     suspend fun removeTrack(id: String): Result<Unit> =
         if (isYandexId(id)) YandexMusic.setTrackLiked(id, false) else Spotify.removeTrack(id)
 
+    // Spotify albums are saved/checked through "Your Library" (the web player's GQL operations). The
+    // public REST /me/albums endpoints reject the web-player token, which is why the old "+" always failed.
+
+    private const val SAVED_ALBUMS_TTL_MS = 2 * 60 * 1000L
+
+    @Volatile
+    private var spotifySavedAlbums: Pair<Long, MutableSet<String>>? = null
+    private val savedAlbumsMutex = Mutex()
+
+    private suspend fun spotifySavedAlbumIds(): MutableSet<String> = savedAlbumsMutex.withLock {
+        spotifySavedAlbums?.takeIf { System.currentTimeMillis() - it.first < SAVED_ALBUMS_TTL_MS }?.let { return it.second }
+        SpotifyTokenManager.ensureAuthenticated()
+        val ids = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        var offset = 0
+        while (offset < 2000) {
+            val page = Spotify.myLibrary(filter = "Albums", limit = 50, offset = offset).getOrThrow()
+            page.items.filter { it.kind == SpotifyLibraryEntry.Kind.ALBUM }.forEach { ids += it.id }
+            offset += 50
+            if (page.items.isEmpty() || offset >= page.total) break
+        }
+        spotifySavedAlbums = System.currentTimeMillis() to ids
+        ids
+    }
+
     suspend fun isAlbumSaved(id: String): Result<Boolean> =
-        if (isYandexId(id)) YandexMusic.isAlbumLiked(id) else Spotify.isAlbumSaved(id)
+        if (isYandexId(id)) YandexMusic.isAlbumLiked(id) else runCatching { id in spotifySavedAlbumIds() }
 
     suspend fun saveAlbum(id: String): Result<Unit> =
-        if (isYandexId(id)) YandexMusic.setAlbumLiked(id, true) else Spotify.saveAlbum(id)
+        if (isYandexId(id)) {
+            YandexMusic.setAlbumLiked(id, true)
+        } else {
+            SpotifyTokenManager.ensureAuthenticated()
+            Spotify.addToLibrary(listOf("spotify:album:$id")).onSuccess { spotifySavedAlbums?.second?.add(id) }
+        }.also { invalidateCaches() }
 
     suspend fun removeAlbum(id: String): Result<Unit> =
-        if (isYandexId(id)) YandexMusic.setAlbumLiked(id, false) else Spotify.removeAlbum(id)
+        if (isYandexId(id)) {
+            YandexMusic.setAlbumLiked(id, false)
+        } else {
+            SpotifyTokenManager.ensureAuthenticated()
+            Spotify.removeFromLibrary(listOf("spotify:album:$id")).onSuccess { spotifySavedAlbums?.second?.remove(id) }
+        }.also { invalidateCaches() }
 
     suspend fun isFollowingArtist(id: String): Result<Boolean> =
         if (isYandexId(id)) YandexMusic.isArtistLiked(id) else Spotify.isFollowingArtist(id)

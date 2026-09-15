@@ -65,6 +65,7 @@ class HlsConcatDataSource(
     }
 
     private var delegating = false
+    private var fileSource: androidx.media3.datasource.FileDataSource? = null
     private var uri: Uri? = null
     private var layout: Layout? = null
     private var partIndex = 0
@@ -80,6 +81,12 @@ class HlsConcatDataSource(
     private var bufferPos = 0
 
     override fun open(dataSpec: DataSpec): Long {
+        if (dataSpec.uri.scheme == "file") {
+            // Files fetched by the Soulseek provider (download pipeline has no DefaultDataSource).
+            delegating = true
+            fileSource = androidx.media3.datasource.FileDataSource()
+            return fileSource!!.open(dataSpec)
+        }
         if (dataSpec.uri.scheme != SCHEME) {
             delegating = true
             return upstream.open(dataSpec)
@@ -120,7 +127,7 @@ class HlsConcatDataSource(
     }
 
     override fun read(target: ByteArray, offset: Int, length: Int): Int {
-        if (delegating) return upstream.read(target, offset, length)
+        if (delegating) return fileSource?.read(target, offset, length) ?: upstream.read(target, offset, length)
         if (length == 0) return 0
         if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
         val l = layout ?: return C.RESULT_END_OF_INPUT
@@ -155,7 +162,7 @@ class HlsConcatDataSource(
         }
     }
 
-    override fun getUri(): Uri? = if (delegating) upstream.uri else uri
+    override fun getUri(): Uri? = if (delegating) fileSource?.uri ?: upstream.uri else uri
 
     override fun getResponseHeaders(): Map<String, List<String>> =
         if (delegating) upstream.responseHeaders else emptyMap()
@@ -163,6 +170,11 @@ class HlsConcatDataSource(
     override fun close() {
         if (delegating) {
             delegating = false
+            fileSource?.let {
+                fileSource = null
+                it.close()
+                return
+            }
             upstream.close()
             return
         }

@@ -119,6 +119,7 @@ class ArtistViewModel @Inject constructor(
     /** Similar artists and top tracks from the same catalog (YouTube pages often lack them). */
     val catalogRelated = MutableStateFlow<List<com.metrolist.spotify.models.SpotifyArtist>>(emptyList())
     val catalogTopTracks = MutableStateFlow<List<com.metrolist.spotify.models.SpotifyTrack>>(emptyList())
+    val catalogArtist = MutableStateFlow<com.metrolist.spotify.models.SpotifyArtist?>(null)
     var catalogArtistId: String? = null
         private set
     private var catalogReleasesRequested = false
@@ -140,6 +141,7 @@ class ArtistViewModel @Inject constructor(
             }
             if (known != null) catalog.ensureAuthenticated()
             catalogArtistId = id
+            launch { catalog.artist(id).onSuccess { catalogArtist.value = it } }
             launch { catalog.relatedArtists(id).onSuccess { catalogRelated.value = it } }
             launch { catalog.artistTopTracks(id).onSuccess { catalogTopTracks.value = it.tracks.filter { t -> t.id.isNotBlank() } } }
             catalog.artistReleases(id)
@@ -212,6 +214,24 @@ class ArtistViewModel @Inject constructor(
         _shuffleLoading.value = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                // Catalog profile: shuffle the artist's catalog tracks, never starting with the same one twice.
+                val catalogTracks = catalogTopTracks.value
+                if (catalogTracks.isNotEmpty()) {
+                    var order = catalogTracks.shuffled()
+                    if (order.size > 1 && order.first().id == lastShuffleFirstId) order = order.drop(1) + order.first()
+                    lastShuffleFirstId = order.first().id
+                    withContext(Dispatchers.Main) {
+                        playerConnection.playQueue(
+                            com.metrolist.music.playback.queues.SpotifyPlaylistQueue(
+                                playlistId = "artist_shuffle_$catalogArtistId",
+                                initialTracks = order,
+                                startIndex = 0,
+                                mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database),
+                            ),
+                        )
+                    }
+                    return@launch
+                }
                 val pool = shufflePool ?: run {
                     val page = artistPage
                     val songsSection = page?.sections?.firstOrNull { s ->

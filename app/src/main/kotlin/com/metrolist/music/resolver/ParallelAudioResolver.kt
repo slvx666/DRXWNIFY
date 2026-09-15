@@ -142,6 +142,6 @@ class ParallelAudioResolver(
         const val SOFT_DEADLINE_MS = 2_500L
 
         /** Absolute cap when nothing matched yet. */
-        const val HARD_DEADLINE_MS = 10_000L
+        const val HARD_DEADLINE_MS = 14_000L
     }
 }

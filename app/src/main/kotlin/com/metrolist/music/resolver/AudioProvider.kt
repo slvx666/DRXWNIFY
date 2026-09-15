@@ -24,16 +24,18 @@ enum class AudioProviderId {
     SOUNDCLOUD,
     BANDCAMP,
     AUDIUS,
+    SOULSEEK,
     ;
 
     companion object {
-        val DEFAULT_ORDER = listOf(SOUNDCLOUD, YOUTUBE, VK, BANDCAMP, AUDIUS, QOBUZ)
+        val DEFAULT_ORDER = listOf(SOUNDCLOUD, YOUTUBE, VK, BANDCAMP, AUDIUS, QOBUZ, SOULSEEK)
 
         /** Parses a stored "A,B,C" order; unknown names are dropped, missing providers appended. */
         fun parseOrder(value: String?): List<AudioProviderId> {
             val parsed = value.orEmpty().split(',')
                 .mapNotNull { name -> entries.firstOrNull { it.name == name.trim() } }
                 .distinct()
+            // Soulseek is the slow last resort: a stored order never moves it ahead of new providers.
             return parsed + DEFAULT_ORDER.filter { it !in parsed }
         }
     }

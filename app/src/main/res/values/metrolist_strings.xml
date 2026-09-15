@@ -1216,4 +1216,18 @@
     <string name="integration_lastfm_description">Scrobbles what you listen to into your Last.fm profile</string>
     <string name="integration_discord_description">Shows the current track in your Discord status</string>
     <string name="similar_artists">Similar artists</string>
+    <string name="youtube_music">YouTube Music</string>
+    <string name="integration_youtube_description">Optional Google account for YouTube as an audio source</string>
+    <string name="youtube_integration_info">YouTube is one of the audio sources and works without an account. Signing in with a Google account lifts age restrictions on videos and lets you sync YouTube Music likes and playlists. Library, search and metadata still come from Spotify or Yandex Music.</string>
+    <string name="album_like_failed">Could not update the album: %s</string>
+    <string name="audio_source_soulseek">Soulseek</string>
+    <string name="audio_source_soulseek_description">Peer-to-peer network with huge coverage, including label releases and lossless. Last resort: needs an account, the whole file downloads from another user before playing (seconds to minutes), uses traffic and battery.</string>
+    <string name="soulseek_login_required">Set a Soulseek account to use this source</string>
+    <string name="soulseek_login">Soulseek account</string>
+    <string name="soulseek_login_hint">Stored only on this device. Meld connects straight to the Soulseek network and shares nothing.</string>
+    <string name="soulseek_username">Username</string>
+    <string name="soulseek_password">Password</string>
+    <string name="soulseek_account_note">No account yet? Enter a new name and password: Soulseek creates the account on first login.</string>
+    <string name="soulseek_wifi_only">Soulseek only on Wi-Fi</string>
+    <string name="soulseek_wifi_only_description">Saves mobile traffic and battery: on mobile data Soulseek is skipped.</string>
 </resources>

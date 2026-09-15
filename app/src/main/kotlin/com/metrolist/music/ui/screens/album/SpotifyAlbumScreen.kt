@@ -268,6 +268,28 @@ fun SpotifyAlbumScreen(
                                 Text(stringResource(R.string.action_download))
                             }
 
+                            // Like = album saved in the account's library (Spotify "Your Library" /
+                            // Yandex likes). State is read from the account, so saving elsewhere shows here.
+                            val albumSaved by viewModel.isSaved.collectAsState()
+                            if (viewModel.canSave) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                androidx.compose.material3.IconButton(
+                                    onClick = {
+                                        viewModel.toggleSaved { error ->
+                                            android.widget.Toast.makeText(context, error, android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    enabled = albumSaved != null,
+                                ) {
+                                    Icon(
+                                        painterResource(if (albumSaved == true) R.drawable.favorite else R.drawable.favorite_border),
+                                        contentDescription = stringResource(
+                                            if (albumSaved == true) R.string.remove_from_library else R.string.add_to_library,
+                                        ),
+                                        tint = if (albumSaved == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
                         }
 
                         // Staged progress: Searching → Downloading → Formatting, with skipped/failed.

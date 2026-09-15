@@ -135,6 +135,7 @@ class App :
                     soundCloudEnabled = prefs[com.metrolist.music.constants.AudioSourceSoundCloudKey] ?: true
                     bandcampEnabled = prefs[com.metrolist.music.constants.AudioSourceBandcampKey] ?: true
                     audiusEnabled = prefs[com.metrolist.music.constants.AudioSourceAudiusKey] ?: true
+                    soulseekEnabled = prefs[com.metrolist.music.constants.AudioSourceSoulseekKey] ?: true
                     order = com.metrolist.music.resolver.AudioProviderId.parseOrder(
                         prefs[com.metrolist.music.constants.AudioSourceOrderKey],
                     )
@@ -302,19 +303,6 @@ class App :
                     } catch (e: Exception) {
                         Timber.e(e, "Could not parse cookie. Clearing existing cookie.")
                         forgetAccount(this@App)
-                    }
-                }
-        }
-
-        applicationScope.launch(Dispatchers.IO) {
-            dataStore.data
-                .map { it[LastFMSessionKey] }
-                .distinctUntilChanged()
-                .collect { session ->
-                    try {
-                        LastFM.sessionKey = session
-                    } catch (e: Exception) {
-                        Timber.e("Error while loading last.fm session key. %s", e.message)
                     }
                 }
         }

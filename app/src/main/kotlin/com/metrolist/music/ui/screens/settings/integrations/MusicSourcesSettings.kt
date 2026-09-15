@@ -178,8 +178,20 @@ fun MusicSourcesSettings(
         val (soundcloud, setSoundcloud) = rememberPreference(AudioSourceSoundCloudKey, true)
         val (bandcamp, setBandcamp) = rememberPreference(com.metrolist.music.constants.AudioSourceBandcampKey, true)
         val (audius, setAudius) = rememberPreference(com.metrolist.music.constants.AudioSourceAudiusKey, true)
+        val (soulseek, setSoulseek) = rememberPreference(com.metrolist.music.constants.AudioSourceSoulseekKey, true)
+        var slskUser by rememberPreference(com.metrolist.music.constants.SoulseekUsernameKey, "")
+        var slskPass by rememberPreference(com.metrolist.music.constants.SoulseekPasswordKey, "")
+        val (slskWifiOnly, setSlskWifiOnly) = rememberPreference(com.metrolist.music.constants.SoulseekWifiOnlyKey, true)
+        var showSlskLogin by remember { mutableStateOf(false) }
+        val slskReady = slskUser.isNotBlank() && slskPass.isNotBlank()
         var orderPref by rememberPreference(AudioSourceOrderKey, "")
         var vkToken by rememberPreference(VkAccessTokenKey, "")
+        // Sources that need an account stay switched off (and locked) until the account is set.
+        fun needsAccount(id: AudioProviderId) = when (id) {
+            AudioProviderId.VK -> vkToken.isEmpty()
+            AudioProviderId.SOULSEEK -> !slskReady
+            else -> false
+        }
         var vkUserId by rememberPreference(VkUserIdKey, "")
         val order = AudioProviderId.parseOrder(orderPref)
 
@@ -202,6 +214,7 @@ fun MusicSourcesSettings(
                 AudioProviderId.SOUNDCLOUD -> Triple(R.string.audio_source_soundcloud, R.string.audio_source_soundcloud_description, R.drawable.cloud)
                 AudioProviderId.BANDCAMP -> Triple(R.string.audio_source_bandcamp, R.string.audio_source_bandcamp_description, R.drawable.album)
                 AudioProviderId.AUDIUS -> Triple(R.string.audio_source_audius, R.string.audio_source_audius_description, R.drawable.graphic_eq)
+                AudioProviderId.SOULSEEK -> Triple(R.string.audio_source_soulseek, R.string.audio_source_soulseek_description, R.drawable.download)
             }
             val checked = when (id) {
                 AudioProviderId.YOUTUBE -> youtube
@@ -210,8 +223,13 @@ fun MusicSourcesSettings(
                 AudioProviderId.SOUNDCLOUD -> soundcloud
                 AudioProviderId.BANDCAMP -> bandcamp
                 AudioProviderId.AUDIUS -> audius
+                AudioProviderId.SOULSEEK -> soulseek
             }
-            val extra = if (id == AudioProviderId.VK && vkToken.isEmpty()) "\n" + stringResource(R.string.vk_login_required) else ""
+            val extra = when {
+                id == AudioProviderId.VK && vkToken.isEmpty() -> "\n" + stringResource(R.string.vk_login_required)
+                id == AudioProviderId.SOULSEEK && !slskReady -> "\n" + stringResource(R.string.soulseek_login_required)
+                else -> ""
+            }
             PreferenceEntry(
                 title = { Text("${index + 1}. ${stringResource(title)}") },
                 description = stringResource(description) + extra,
@@ -231,9 +249,9 @@ fun MusicSourcesSettings(
                             Icon(painterResource(R.drawable.arrow_downward), contentDescription = stringResource(R.string.move_down))
                         }
                         Switch(
-                            // VK can't work without a login: the switch stays locked until then.
-                            enabled = id != AudioProviderId.VK || vkToken.isNotEmpty(),
-                            checked = checked && (id != AudioProviderId.VK || vkToken.isNotEmpty()),
+                            // VK and Soulseek can't work without an account: locked until it is set.
+                            enabled = !needsAccount(id),
+                            checked = checked && !needsAccount(id),
                             onCheckedChange = { enabled ->
                                 when (id) {
                                     AudioProviderId.YOUTUBE -> { setYoutube(enabled); ResolverPreferences.youtubeEnabled = enabled }
@@ -242,12 +260,36 @@ fun MusicSourcesSettings(
                                     AudioProviderId.SOUNDCLOUD -> { setSoundcloud(enabled); ResolverPreferences.soundCloudEnabled = enabled }
                                     AudioProviderId.BANDCAMP -> { setBandcamp(enabled); ResolverPreferences.bandcampEnabled = enabled }
                                     AudioProviderId.AUDIUS -> { setAudius(enabled); ResolverPreferences.audiusEnabled = enabled }
+                                    AudioProviderId.SOULSEEK -> { setSoulseek(enabled); ResolverPreferences.soulseekEnabled = enabled }
                                 }
                             },
                         )
                     }
                 },
             )
+            if (id == AudioProviderId.SOULSEEK) {
+                PreferenceEntry(
+                    title = { Text(if (slskReady) slskUser else stringResource(R.string.soulseek_login)) },
+                    description = stringResource(R.string.soulseek_login_hint),
+                    icon = { Spacer(Modifier.size(24.dp)) },
+                    trailingContent = {
+                        if (slskReady) {
+                            OutlinedButton(onClick = {
+                                slskUser = ""
+                                slskPass = ""
+                            }) { Text(stringResource(R.string.action_logout)) }
+                        } else {
+                            OutlinedButton(onClick = { showSlskLogin = true }) { Text(stringResource(R.string.action_login)) }
+                        }
+                    },
+                )
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.soulseek_wifi_only)) },
+                    description = stringResource(R.string.soulseek_wifi_only_description),
+                    icon = { Spacer(Modifier.size(24.dp)) },
+                    trailingContent = { Switch(checked = slskWifiOnly, onCheckedChange = setSlskWifiOnly) },
+                )
+            }
             if (id == AudioProviderId.VK) {
                 PreferenceEntry(
                     title = { Text(if (vkToken.isNotEmpty()) stringResource(R.string.vk_connected) else stringResource(R.string.vk_login)) },
@@ -270,7 +312,44 @@ fun MusicSourcesSettings(
             }
         }
 
-        if (!youtube && !qobuz && !vk && !soundcloud && !bandcamp && !audius) {
+        if (showSlskLogin) {
+            val userLabel = stringResource(R.string.soulseek_username)
+            val passLabel = stringResource(R.string.soulseek_password)
+            var fields by remember {
+                mutableStateOf(
+                    listOf(
+                        userLabel to androidx.compose.ui.text.input.TextFieldValue(slskUser),
+                        passLabel to androidx.compose.ui.text.input.TextFieldValue(""),
+                    ),
+                )
+            }
+            com.metrolist.music.ui.component.TextFieldDialog(
+                title = { Text(stringResource(R.string.soulseek_login)) },
+                textFields = fields,
+                onTextFieldsChange = { index, value ->
+                    fields = fields.mapIndexed { i, pair -> if (i == index) pair.first to value else pair }
+                },
+                onDoneMultiple = { values ->
+                    val user = values.getOrNull(0)?.trim().orEmpty()
+                    val pass = values.getOrNull(1).orEmpty()
+                    if (user.isNotBlank() && pass.isNotBlank()) {
+                        slskUser = user
+                        slskPass = pass
+                    }
+                },
+                onDismiss = { showSlskLogin = false },
+                extraContent = {
+                    Text(
+                        text = stringResource(R.string.soulseek_account_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 18.dp),
+                    )
+                },
+            )
+        }
+
+        if (!youtube && !qobuz && !vk && !soundcloud && !bandcamp && !audius && !soulseek) {
             Text(
                 text = stringResource(R.string.audio_sources_all_disabled),
                 color = MaterialTheme.colorScheme.error,

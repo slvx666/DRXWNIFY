@@ -63,6 +63,10 @@ object ResolverPreferences {
     @Volatile
     var audiusEnabled: Boolean = true
 
+    /** Soulseek: P2P last resort (account required, slow, traffic/battery heavy). */
+    @Volatile
+    var soulseekEnabled: Boolean = true
+
     /** Provider ranking used to choose between matches, best first. */
     @Volatile
     var order: List<AudioProviderId> = AudioProviderId.DEFAULT_ORDER
@@ -74,6 +78,7 @@ object ResolverPreferences {
         AudioProviderId.SOUNDCLOUD -> soundCloudEnabled
         AudioProviderId.BANDCAMP -> bandcampEnabled
         AudioProviderId.AUDIUS -> audiusEnabled
+        AudioProviderId.SOULSEEK -> soulseekEnabled
     }
 }
 
