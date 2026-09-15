@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui.screens.playlist
 
+import com.metrolist.music.ui.component.coverGlow
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -845,12 +846,8 @@ private fun AutoPlaylistHeader(
             androidx.compose.material3.Surface(
                 modifier =
                     Modifier
-                        .size(240.dp)
-                        .shadow(
-                            elevation = 24.dp,
-                            shape = RoundedCornerShape(3.dp),
-                            spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
-                        ),
+                        .coverGlow(songs[0].song.thumbnailUrl)
+                        .size(240.dp),
                 shape = RoundedCornerShape(3.dp),
             ) {
                 AsyncImage(

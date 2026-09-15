@@ -1,5 +1,6 @@
 package com.metrolist.music.ui.screens.podcast
 
+import com.metrolist.music.ui.component.coverGlow
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -322,6 +323,7 @@ private fun PodcastHeader(
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
+                .coverGlow(podcast.thumbnail)
                 .size(200.dp)
                 .clip(RoundedCornerShape(8.dp))
         )

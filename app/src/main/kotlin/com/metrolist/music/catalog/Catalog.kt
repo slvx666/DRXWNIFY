@@ -260,10 +260,19 @@ object Catalog {
     }
 
     /** One page of the library for [filter] ("Playlists" / "Albums" / "Artists" / null = all). */
-    /** Loads the first library page ahead of time so the Library tab opens instantly. */
-    suspend fun prewarmLibrary() {
-        if (source == null || !ensureAuthenticated()) return
-        myLibrary(filter = null, limit = 50, offset = 0)
+    /** Loads the whole library ahead of time (e.g. during the launch intro) so the Library tab opens instantly. */
+    suspend fun prewarmLibrary(): List<SpotifyLibraryEntry> {
+        if (source == null || !ensureAuthenticated()) return emptyList()
+        // Same paging as the library screen, so every page it asks for is already cached.
+        val all = mutableListOf<SpotifyLibraryEntry>()
+        var offset = 0
+        while (offset < 1000) {
+            val page = myLibrary(filter = null, limit = 50, offset = offset).getOrNull() ?: break
+            all += page.items
+            offset += 50
+            if (page.items.isEmpty() || offset >= page.total) break
+        }
+        return all
     }
 
     suspend fun myLibrary(filter: String?, limit: Int, offset: Int): Result<SpotifyPaging<SpotifyLibraryEntry>> =

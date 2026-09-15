@@ -200,6 +200,7 @@ import com.metrolist.music.viewmodels.HomeViewModel
 import com.valentinilk.shimmer.LocalShimmerTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -915,6 +916,11 @@ class MainActivity : ComponentActivity() {
                         ChangelogScreen(onDismiss = { showChangelog.value = false })
                     }
 
+                    // Launch intro: drawn over the app while home and library load underneath. The app
+                    // stays invisible (skipped by the renderer) until the intro fades it in.
+                    var introVisible by remember { mutableStateOf(!com.metrolist.music.ui.component.AppIntroState.played) }
+                    val introExit = remember { androidx.compose.animation.core.Animatable(if (introVisible) 0f else 1f) }
+
                     Scaffold(
                         snackbarHost = { SnackbarHost(snackbarHostState) },
                         topBar = {
@@ -1137,6 +1143,13 @@ class MainActivity : ComponentActivity() {
                         modifier =
                             Modifier
                                 .fillMaxSize()
+                                .graphicsLayer {
+                                    val p = introExit.value
+                                    alpha = p
+                                    val scale = 0.97f + 0.03f * p
+                                    scaleX = scale
+                                    scaleY = scale
+                                }
                                 .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
                     ) {
                         Row(Modifier.fillMaxSize()) {
@@ -1332,16 +1345,27 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // Launch intro over the app while home and the library's first page load underneath.
-                    var introVisible by remember { mutableStateOf(!com.metrolist.music.ui.component.AppIntroState.played) }
                     if (introVisible) {
                         com.metrolist.music.ui.component.AppIntro(
-                            background = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surface,
+                            exitProgress = introExit,
                             awaitReady = {
                                 kotlinx.coroutines.coroutineScope {
                                     launch { HomeViewModel.firstLoadDone.first { it } }
                                     launch(Dispatchers.IO) {
-                                        runCatching { com.metrolist.music.catalog.Catalog.prewarmLibrary() }
+                                        runCatching {
+                                            val entries = com.metrolist.music.catalog.Catalog.prewarmLibrary()
+                                            // Decode the first rows' covers too, so the library opens without pop-in.
+                                            val loader = coil3.SingletonImageLoader.get(this@MainActivity)
+                                            entries.mapNotNull { it.imageUrl }.take(24).map { url ->
+                                                async {
+                                                    runCatching {
+                                                        loader.execute(
+                                                            ImageRequest.Builder(this@MainActivity).data(url).size(256).build(),
+                                                        )
+                                                    }
+                                                }
+                                            }.forEach { it.await() }
+                                        }
                                     }
                                 }
                             },

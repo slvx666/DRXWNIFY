@@ -6,18 +6,15 @@
 package com.metrolist.music.ui.component
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,14 +22,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -54,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.graphics.drawable.toBitmap
 import com.metrolist.music.R
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -66,29 +61,41 @@ object AppIntroState {
 
 private val MetalMania = FontFamily(Font(R.font.metal_mania))
 
-private const val ICON_MS = 550
-private const val LETTERS_START_MS = 420L
-private const val LETTER_STAGGER_MS = 55L
-private const val LETTER_FADE_MS = 380
-private const val MIN_TOTAL_MS = 1_700L
-private const val MAX_TOTAL_MS = 3_000L
-private const val EXIT_MS = 350
+private val IconSize = 168.dp
+private const val ICON_MS = 750
+private const val LETTERS_START_MS = 550L
+private const val LETTER_STAGGER_MS = 90L
+private const val LETTER_FADE_MS = 650
+private const val SHIMMER_MS = 1_000
+/** After the shimmer pass, wait at most this long for home/library before opening anyway. */
+private const val READY_GRACE_MS = 1_000L
+/** Cap on waiting for the main thread to settle (first composition of the app) before animating. */
+private const val SETTLE_MAX_MS = 900L
+private const val EXIT_MS = 650
+
+/** Decelerating curve so letters glide into place instead of stopping abruptly. */
+private val RiseEasing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
 
 /**
- * Launch intro drawn over the app while home and library load underneath: the app icon fades in,
- * then the name's letters fade in one after another (slightly staggered, in Metal Mania), and a
- * shimmer runs across the name until the content is ready (or [MAX_TOTAL_MS] passes).
+ * Launch intro drawn over the app while home and library load underneath.
+ *
+ * The screen stays black until the main thread settles (the app's own first composition happens
+ * then, not during the animation), then: the icon fades/scales in, the name's letters rise from
+ * below and fade in one after another (Metal Mania), a single shimmer passes over the name, and the
+ * app cross-fades in — as soon as the content is ready, or at most [READY_GRACE_MS] after the shimmer.
+ *
+ * @param exitProgress 0 → 1 while the intro fades out; the host fades its content in with it.
  */
 @Composable
 fun AppIntro(
-    background: Color,
+    exitProgress: Animatable<Float, AnimationVector1D>,
     awaitReady: suspend () -> Unit,
     onFinished: () -> Unit,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
     val name = stringResource(R.string.app_name)
-    val iconSizePx = with(density) { 112.dp.roundToPx() }
+    val iconSizePx = with(density) { IconSize.roundToPx() }
     val icon = remember {
         runCatching {
             ResourcesCompat.getDrawable(context.resources, R.mipmap.ic_launcher, context.theme)
@@ -98,48 +105,51 @@ fun AppIntro(
 
     val iconProgress = remember { Animatable(0f) }
     val letters = remember(name) { name.map { Animatable(0f) } }
-    val overlayAlpha = remember { Animatable(1f) }
-    var shimmerOn by remember { mutableStateOf(false) }
+    // -1 = shimmer not running; otherwise the band position across the name (0..1 plus overshoot).
+    val shimmer = remember { Animatable(-1f) }
 
     LaunchedEffect(Unit) {
-        val start = System.currentTimeMillis()
-        launch { iconProgress.animateTo(1f, tween(ICON_MS, easing = FastOutSlowInEasing)) }
-        letters.forEachIndexed { i, anim ->
-            launch {
-                delay(LETTERS_START_MS + i * LETTER_STAGGER_MS)
-                anim.animateTo(1f, tween(LETTER_FADE_MS, easing = FastOutSlowInEasing))
+        // Content starts loading right away, in parallel with everything below.
+        val ready = async { awaitReady() }
+
+        // Hold on black until frames come in on time, so the animation itself runs smoothly.
+        withTimeoutOrNull(SETTLE_MAX_MS) {
+            var last = withFrameNanos { it }
+            var smooth = 0
+            while (smooth < 4) {
+                val now = withFrameNanos { it }
+                smooth = if (now - last <= 22_000_000L) smooth + 1 else 0
+                last = now
             }
         }
-        val lettersDone = LETTERS_START_MS + (letters.size - 1).coerceAtLeast(0) * LETTER_STAGGER_MS + LETTER_FADE_MS
-        launch {
-            delay(lettersDone)
-            shimmerOn = true
+
+        launch { iconProgress.animateTo(1f, tween(ICON_MS, easing = FastOutSlowInEasing)) }
+        val letterJobs = letters.mapIndexed { i, anim ->
+            launch {
+                delay(LETTERS_START_MS + i * LETTER_STAGGER_MS)
+                anim.animateTo(1f, tween(LETTER_FADE_MS, easing = RiseEasing))
+            }
         }
-        // Content loads in the background from the very first frame; wait for it within the budget.
-        withTimeoutOrNull(MAX_TOTAL_MS) { awaitReady() }
-        val elapsed = System.currentTimeMillis() - start
-        if (elapsed < MIN_TOTAL_MS) delay(MIN_TOTAL_MS - elapsed)
-        overlayAlpha.animateTo(0f, tween(EXIT_MS, easing = LinearEasing))
+        letterJobs.forEach { it.join() }
+
+        // One shimmer pass, never repeated.
+        shimmer.snapTo(-0.4f)
+        shimmer.animateTo(1.4f, tween(SHIMMER_MS, easing = LinearEasing))
+        shimmer.snapTo(-1f)
+
+        withTimeoutOrNull(READY_GRACE_MS) { ready.await() }
+        exitProgress.animateTo(1f, tween(EXIT_MS, easing = FastOutSlowInEasing))
         onFinished()
     }
 
-    val shimmerTransition = rememberInfiniteTransition(label = "introShimmer")
-    val shimmerX by shimmerTransition.animateFloat(
-        initialValue = -0.4f,
-        targetValue = 1.4f,
-        animationSpec = infiniteRepeatable(tween(1_200, easing = LinearEasing), RepeatMode.Restart),
-        label = "introShimmerX",
-    )
-
-    val textColor = MaterialTheme.colorScheme.onSurface
-    val nameStyle = TextStyle(fontFamily = MetalMania, fontSize = 46.sp, letterSpacing = 1.sp)
+    val nameStyle = remember { TextStyle(fontFamily = MetalMania, fontSize = 48.sp, letterSpacing = 1.sp) }
 
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxSize()
-            .graphicsLayer { alpha = overlayAlpha.value }
-            .background(background)
+            .graphicsLayer { alpha = 1f - exitProgress.value }
+            .background(Color.Black)
             // Swallow touches so nothing underneath reacts while the intro is visible.
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
     ) {
@@ -149,41 +159,43 @@ fun AppIntro(
                     bitmap = icon,
                     contentDescription = null,
                     modifier = Modifier
-                        .size(112.dp)
+                        .size(IconSize)
                         .graphicsLayer {
                             val p = iconProgress.value
                             alpha = p
-                            val scale = 0.82f + 0.18f * p
+                            val scale = 0.85f + 0.15f * p
                             scaleX = scale
                             scaleY = scale
                         },
                 )
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(18.dp))
             Box {
-                // Base letters.
-                IntroLetters(name, letters, nameStyle, textColor.copy(alpha = 0.72f))
+                IntroLetters(name, letters, nameStyle, Color.White.copy(alpha = 0.78f))
                 // Highlight copy, visible only inside the moving band.
-                if (shimmerOn) {
-                    IntroLetters(
-                        name, letters, nameStyle, textColor,
-                        modifier = Modifier
-                            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                            .drawWithContent {
-                                drawContent()
-                                val band = size.width * 0.35f
-                                val x = size.width * shimmerX
-                                drawRect(
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(Color.Transparent, Color.Black, Color.Transparent),
-                                        start = Offset(x - band, 0f),
-                                        end = Offset(x + band, size.height),
-                                    ),
-                                    blendMode = BlendMode.DstIn,
-                                )
-                            },
-                    )
-                }
+                IntroLetters(
+                    name, letters, nameStyle, Color.White,
+                    modifier = Modifier
+                        .graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                            alpha = if (shimmer.value < -0.5f) 0f else 1f
+                        }
+                        .drawWithContent {
+                            val position = shimmer.value
+                            if (position < -0.5f) return@drawWithContent
+                            drawContent()
+                            val band = size.width * 0.3f
+                            val x = size.width * position
+                            drawRect(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(Color.Transparent, Color.Black, Color.Transparent),
+                                    start = Offset(x - band, 0f),
+                                    end = Offset(x + band, size.height),
+                                ),
+                                blendMode = BlendMode.DstIn,
+                            )
+                        },
+                )
             }
         }
     }
@@ -192,14 +204,13 @@ fun AppIntro(
 @Composable
 private fun IntroLetters(
     name: String,
-    letters: List<Animatable<Float, *>>,
+    letters: List<Animatable<Float, AnimationVector1D>>,
     style: TextStyle,
     color: Color,
     modifier: Modifier = Modifier,
 ) {
-    val density = LocalDensity.current
-    val rise = with(density) { 8.dp.toPx() }
-    Row(horizontalArrangement = Arrangement.Center, modifier = modifier) {
+    val rise = with(LocalDensity.current) { 42.dp.toPx() }
+    Row(modifier = modifier) {
         name.forEachIndexed { i, ch ->
             Text(
                 text = ch.toString(),
