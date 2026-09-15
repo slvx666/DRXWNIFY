@@ -69,8 +69,8 @@ fun GlowingCover(
 }
 
 /** How far the glow spreads past the cover edge, and its strength. */
-private val GlowSpread = 18.dp
-private const val GLOW_ALPHA = 0.5f
+private val GlowSpread = 24.dp
+private const val GLOW_ALPHA = 0.4f
 private const val SAMPLE_PX = 64
 
 private val colorCache = ConcurrentHashMap<String, Color>()

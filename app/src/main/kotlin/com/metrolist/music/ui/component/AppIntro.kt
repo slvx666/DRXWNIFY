@@ -66,15 +66,20 @@ private val RiseEasing = CubicBezierEasing(0.2f, 0.8f, 0.3f, 1f)
 
 private val IconSize = 168.dp
 private const val ICON_IN_MS = 400
-private const val ICON_OUT_MS = 400
+private const val ICON_OUT_MS = 600
 private const val LETTERS_START_MS = 280L
 private const val LETTER_STAGGER_MS = 60L
 private const val LETTER_FADE_MS = 450
-private const val LETTER_OUT_MS = 300
+private const val LETTER_OUT_MS = 450
 private const val LETTER_OUT_STAGGER_MS = 30L
 private const val SHIMMER_MS = 900
 /** After the shimmer pass, wait at most this long for home/library before opening anyway. */
 private const val READY_GRACE_MS = 1_000L
+/** Pause after the shimmer before the letters start leaving; the icon and app fade follow later. */
+private const val LETTERS_OUT_DELAY_MS = 200L
+private const val ICON_OUT_DELAY_MS = 400L
+/** Extra wait (first launch only, in practice) until the freshly composed app renders smoothly. */
+private const val SMOOTH_WAIT_MAX_MS = 600L
 /** If everything is already loaded this quickly, the intro is skipped. */
 private const val SKIP_IF_READY_MS = 200L
 private const val APP_FADE_IN_MS = 1_000
@@ -111,6 +116,7 @@ fun AppIntro(
     val letters = remember(name) { name.map { Animatable(0f) } }
     // -1 = shimmer not running; otherwise the band position across the name (0..1 plus overshoot).
     val shimmer = remember { Animatable(-1f) }
+    val exiting = remember { androidx.compose.runtime.mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         // Content starts loading right away, in parallel with everything below.
@@ -143,21 +149,35 @@ fun AppIntro(
         shimmer.animateTo(1.4f, tween(SHIMMER_MS, easing = LinearEasing))
         shimmer.snapTo(-1f)
 
-        withTimeoutOrNull(READY_GRACE_MS) { ready.await() }
-
-        // Compose the app underneath now (it stays invisible), then play the entrance in reverse.
+        // Compose the app underneath right away (still invisible): its first, heavy frames happen
+        // during this pause, not during the fade-out.
+        val shimmerEnd = System.currentTimeMillis()
         onComposeApp()
-        withFrameNanos { }
-        withFrameNanos { }
+        delay(LETTERS_OUT_DELAY_MS)
+        val waitedForReady = System.currentTimeMillis() - shimmerEnd
+        withTimeoutOrNull((READY_GRACE_MS - waitedForReady).coerceAtLeast(0)) { ready.await() }
+        withTimeoutOrNull(SMOOTH_WAIT_MAX_MS) {
+            var last = withFrameNanos { it }
+            var smooth = 0
+            while (smooth < 3) {
+                val now = withFrameNanos { it }
+                smooth = if (now - last <= 22_000_000L) smooth + 1 else 0
+                last = now
+            }
+        }
+
+        // Reverse of the entrance: letters left→right, then icon, while the app fades in.
+        exiting.value = true
         val outJobs = letters.mapIndexed { i, anim ->
             launch {
                 delay(i * LETTER_OUT_STAGGER_MS)
-                anim.animateTo(0f, tween(LETTER_OUT_MS, easing = FastOutSlowInEasing))
+                anim.animateTo(0f, tween(LETTER_OUT_MS, easing = LinearEasing))
             }
-        } + launch { iconProgress.animateTo(0f, tween(ICON_OUT_MS, easing = FastOutSlowInEasing)) }
-        outJobs.forEach { it.join() }
-
+        }
+        delay(ICON_OUT_DELAY_MS - LETTERS_OUT_DELAY_MS)
+        val iconOut = launch { iconProgress.animateTo(0f, tween(ICON_OUT_MS, easing = FastOutSlowInEasing)) }
         exitProgress.animateTo(1f, tween(APP_FADE_IN_MS, easing = FastOutSlowInEasing))
+        (outJobs + iconOut).forEach { it.join() }
         onFinished()
     }
 
@@ -190,10 +210,11 @@ fun AppIntro(
             }
             Spacer(Modifier.height(18.dp))
             Box {
-                IntroLetters(name, letters, nameStyle, Color.White.copy(alpha = 0.78f))
+                IntroLetters(name, letters, nameStyle, Color.White.copy(alpha = 0.78f), exiting = { exiting.value })
                 // Highlight copy, visible only inside the moving band.
                 IntroLetters(
                     name, letters, nameStyle, Color.White,
+                    exiting = { exiting.value },
                     modifier = Modifier
                         .graphicsLayer {
                             compositingStrategy = CompositingStrategy.Offscreen
@@ -226,6 +247,7 @@ private fun IntroLetters(
     letters: List<Animatable<Float, AnimationVector1D>>,
     style: TextStyle,
     color: Color,
+    exiting: () -> Boolean,
     modifier: Modifier = Modifier,
 ) {
     val rise = with(LocalDensity.current) { 18.dp.toPx() }
@@ -237,8 +259,14 @@ private fun IntroLetters(
                 color = color,
                 modifier = Modifier.graphicsLayer {
                     val p = letters[i].value
-                    alpha = p
-                    translationY = (1f - p) * rise
+                    if (exiting()) {
+                        // Leaving: dim out faster than it moves, so the letter dissolves in place.
+                        alpha = p * p * p
+                        translationY = (1f - p) * rise * 0.5f
+                    } else {
+                        alpha = p
+                        translationY = (1f - p) * rise
+                    }
                 },
             )
         }
