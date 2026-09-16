@@ -942,4 +942,11 @@
     <string name="download_keep_open_hint">Можно свернуть приложение: загрузка продолжится, а всё незаписанное дозапишется при следующем запуске.</string>
     <string name="download_list_loading">Загрузка списка, %1$d из %2$d</string>
     <string name="spotify_dl_formatting_count">Запись файлов… в папке %1$d из %2$d</string>
+    <string name="vk_login_phone_or_email">Телефон или почта</string>
+    <string name="vk_password_note">Логин и пароль отправляются напрямую в VK и нигде не сохраняются, на устройстве остаётся только токен доступа.</string>
+    <string name="vk_code">Код подтверждения</string>
+    <string name="vk_code_hint_sms">VK отправил код в SMS %1$s</string>
+    <string name="vk_code_hint_app">Введите код из приложения-аутентификатора или из уведомления VK</string>
+    <string name="vk_captcha_hint">Введите символы с картинки</string>
+    <string name="vk_login_via_page">Войти через страницу VK</string>
 </resources>

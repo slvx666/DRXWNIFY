@@ -141,6 +141,18 @@ class ArtistViewModel @Inject constructor(
             }
             if (known != null) catalog.ensureAuthenticated()
             catalogArtistId = id
+            if (catalog.canWrite(id)) {
+                launch {
+                    // Two-way: an artist followed/unfollowed in the Spotify (or Yandex) app shows so here.
+                    catalog.isFollowingArtist(id).onSuccess { following ->
+                        _apiSubscribed.value = following
+                        val row = libraryArtist.value?.artist
+                        if (!following && row?.bookmarkedAt != null && (row.spotifyId == null || row.spotifyId == id)) {
+                            database.update(row.copy(bookmarkedAt = null))
+                        }
+                    }
+                }
+            }
             launch { catalog.artist(id).onSuccess { catalogArtist.value = it } }
             launch { catalog.relatedArtists(id).onSuccess { catalogRelated.value = it } }
             launch { catalog.artistTopTracks(id).onSuccess { catalogTopTracks.value = it.tracks.filter { t -> t.id.isNotBlank() } } }
@@ -467,6 +479,7 @@ class ArtistViewModel @Inject constructor(
                 // Also set isPodcastChannel if subscribing from podcast context
                 val updatedArtist = artist.copy(
                     bookmarkedAt = newBookmark,
+                    spotifyId = artist.spotifyId ?: catalogArtistId,
                     isPodcastChannel = if (shouldBeSubscribed && isPodcastChannel) true else artist.isPodcastChannel
                 )
                 Timber.d("[CHANNEL_TOGGLE] Updating existing artist: ${artist.id} -> bookmarkedAt=$newBookmark, isPodcastChannel=${updatedArtist.isPodcastChannel}")
@@ -486,7 +499,9 @@ class ArtistViewModel @Inject constructor(
                             thumbnailUrl = page?.thumbnail,
                             bookmarkedAt = java.time.LocalDateTime.now(),
                             isPodcastChannel = isPodcastChannel,
-                            spotifyId = spotifyArtistId,
+                            // Remember the catalog artist so un-following from the library also
+                            // reaches the account.
+                            spotifyId = spotifyArtistId ?: catalogArtistId,
                         )
                     )
                 } else {
@@ -496,7 +511,7 @@ class ArtistViewModel @Inject constructor(
                 Timber.d("[CHANNEL_TOGGLE] No artist and shouldBeSubscribed=false, nothing to do")
             }
 
-            val spotifyTarget = spotifyArtistId ?: libraryArtist.value?.artist?.spotifyId
+            val spotifyTarget = spotifyArtistId ?: libraryArtist.value?.artist?.spotifyId ?: catalogArtistId
             if (spotifyTarget != null) {
                 // Spotify artist: follow/unfollow on Spotify instead of a YouTube channel.
                 if (com.metrolist.music.catalog.Catalog.canWrite(spotifyTarget)) {

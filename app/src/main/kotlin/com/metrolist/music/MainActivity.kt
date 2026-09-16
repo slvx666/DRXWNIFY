@@ -333,14 +333,19 @@ class MainActivity : ComponentActivity() {
                 BIND_AUTO_CREATE,
             )
             isServiceBound = true
+        } else {
+            // Already bound (onServiceConnected won't fire again): make sure Listen Together still
+            // has the player, whatever happened while the activity was stopped.
+            playerConnection?.let { listenTogetherManager.setPlayerConnection(it) }
         }
     }
 
     override fun onStop() {
-        // CRITICAL FIX: Do NOT unbind service or dispose playerConnection here!
-        // Just disconnect ListenTogetherManager to stop audio routing
-        // This prevents UI recomposition when switching apps
-        listenTogetherManager.setPlayerConnection(null)
+        // Do NOT unbind the service, dispose playerConnection or detach Listen Together here.
+        // Detaching Listen Together on every onStop broke rooms for good: onStart doesn't rebind
+        // (the service is still bound), so the manager never got the player back. Leaving the app
+        // for a moment - e.g. to send the room code in a messenger - left the host broadcasting
+        // nothing and the guest ignoring every sync, each phone playing its own music.
         super.onStop()
     }
 

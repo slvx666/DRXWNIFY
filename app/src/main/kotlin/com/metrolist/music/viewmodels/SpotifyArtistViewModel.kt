@@ -107,8 +107,8 @@ constructor(
 
             // Reflect the real Spotify follow state so the button doesn't say "Follow" for an artist
             // the user already follows.
-            if (Spotify.isAuthenticated()) {
-                Spotify.isFollowingArtist(artistId).onSuccess { _isFollowing.value = it }
+            if (com.metrolist.music.catalog.Catalog.canWrite(artistId)) {
+                com.metrolist.music.catalog.Catalog.isFollowingArtist(artistId).onSuccess { _isFollowing.value = it }
             }
 
             _isLoading.value = false
@@ -132,7 +132,7 @@ constructor(
     fun toggleFollow() {
         val target = !(_isFollowing.value ?: false)
         viewModelScope.launch(Dispatchers.IO) {
-            Spotify.setFollowingArtist(artistId, target)
+            com.metrolist.music.catalog.Catalog.setFollowingArtist(artistId, target)
                 .onSuccess { _isFollowing.value = target }
                 .onFailure { Timber.w(it, "toggleFollow failed for $artistId") }
         }

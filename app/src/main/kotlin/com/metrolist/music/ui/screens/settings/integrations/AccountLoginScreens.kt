@@ -13,6 +13,23 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import coil3.compose.AsyncImage
+import com.metrolist.music.resolver.providers.VkDirectAuth
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -97,24 +114,204 @@ fun YandexLoginScreen(navController: NavController) {
     )
 }
 
-/** Connects VK so VK Music can serve as an audio fallback (the audio API requires a user token). */
+/**
+ * Connects VK so VK Music can serve as an audio fallback (the audio API requires a user token).
+ *
+ * A native form is the default: typing into VK's own page inside the embedded browser inserts the
+ * characters in reverse order on some phones. The page login stays available as an alternative.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VkLoginScreen(navController: NavController) {
     val context = LocalContext.current
-    OAuthTokenLoginScreen(
-        navController = navController,
-        title = stringResource(R.string.vk_login),
-        startUrl = VkAudioProvider.OAUTH_URL,
-        note = stringResource(R.string.vk_privacy_note),
-        onToken = { params ->
-            val token = params["access_token"] ?: return@OAuthTokenLoginScreen "no token"
-            context.dataStore.edit { prefs ->
-                prefs[VkAccessTokenKey] = token
-                params["user_id"]?.let { prefs[VkUserIdKey] = it }
+    var useWebLogin by rememberSaveable { mutableStateOf(false) }
+
+    suspend fun saveToken(token: String, userId: String?) {
+        context.dataStore.edit { prefs ->
+            prefs[VkAccessTokenKey] = token
+            userId?.let { prefs[VkUserIdKey] = it }
+        }
+    }
+
+    if (useWebLogin) {
+        OAuthTokenLoginScreen(
+            navController = navController,
+            title = stringResource(R.string.vk_login),
+            startUrl = VkAudioProvider.OAUTH_URL,
+            note = stringResource(R.string.vk_privacy_note),
+            onToken = { params ->
+                val token = params["access_token"] ?: return@OAuthTokenLoginScreen "no token"
+                saveToken(token, params["user_id"])
+                null
+            },
+        )
+        return
+    }
+
+    val scope = rememberCoroutineScope()
+    var login by rememberSaveable { mutableStateOf("") }
+    // Deliberately not saveable: the password never goes into saved instance state.
+    var password by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    var captchaKey by remember { mutableStateOf("") }
+    var needCode by remember { mutableStateOf<VkDirectAuth.Result.NeedCode?>(null) }
+    var captcha by remember { mutableStateOf<VkDirectAuth.Result.NeedCaptcha?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    fun submit() {
+        if (busy || login.isBlank() || password.isEmpty()) return
+        busy = true
+        error = null
+        scope.launch {
+            val result = VkDirectAuth.login(
+                username = login,
+                password = password,
+                code = code.takeIf { needCode != null },
+                captchaSid = captcha?.captchaSid,
+                captchaKey = captchaKey.takeIf { captcha != null },
+            )
+            when (result) {
+                is VkDirectAuth.Result.Success -> {
+                    saveToken(result.token, result.userId)
+                    password = ""
+                    Toast.makeText(context, context.getString(R.string.login_connected), Toast.LENGTH_SHORT).show()
+                    navController.navigateUp()
+                }
+                is VkDirectAuth.Result.NeedCode -> {
+                    needCode = result
+                    captcha = null
+                }
+                is VkDirectAuth.Result.NeedCaptcha -> {
+                    captcha = result
+                    captchaKey = ""
+                }
+                is VkDirectAuth.Result.Error -> error = result.message
             }
-            null
-        },
-    )
+            busy = false
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text(stringResource(R.string.vk_login)) },
+            navigationIcon = {
+                IconButton(onClick = navController::navigateUp, onLongClick = navController::backToMain) {
+                    Icon(painterResource(R.drawable.arrow_back), contentDescription = null)
+                }
+            },
+        )
+        Column(
+            Modifier
+                .fillMaxSize()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.vk_password_note) + "\n" + stringResource(R.string.vk_privacy_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(16.dp))
+            OutlinedTextField(
+                value = login,
+                onValueChange = { login = it },
+                label = { Text(stringResource(R.string.vk_login_phone_or_email)) },
+                singleLine = true,
+                enabled = !busy,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text(stringResource(R.string.password)) },
+                singleLine = true,
+                enabled = !busy,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = if (needCode == null && captcha == null) ImeAction.Done else ImeAction.Next,
+                ),
+                keyboardActions = KeyboardActions(onDone = { submit() }),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            needCode?.let { request ->
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = if (request.viaApp) {
+                        stringResource(R.string.vk_code_hint_app)
+                    } else {
+                        stringResource(R.string.vk_code_hint_sms, request.phoneMask.orEmpty())
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it },
+                    label = { Text(stringResource(R.string.vk_code)) },
+                    singleLine = true,
+                    enabled = !busy,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            captcha?.let { request ->
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = stringResource(R.string.vk_captcha_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                AsyncImage(
+                    model = request.imageUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .height(56.dp)
+                        .fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = captchaKey,
+                    onValueChange = { captchaKey = it },
+                    singleLine = true,
+                    enabled = !busy,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            error?.let {
+                Spacer(Modifier.height(12.dp))
+                Text(text = it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Button(
+                onClick = ::submit,
+                enabled = !busy && login.isNotBlank() && password.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Text(stringResource(R.string.action_login))
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = { useWebLogin = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.vk_login_via_page))
+            }
+        }
+    }
 }
 
 /**

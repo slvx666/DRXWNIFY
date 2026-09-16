@@ -359,6 +359,12 @@ class ListenTogetherManager
                     stopVolumeSyncObservation()
                 }
                 updateGuestMuteState()
+
+                // A guest whose player (re)attached while already in a room missed what the host did
+                // meanwhile: ask the room for the current state.
+                if (connection != null && oldConnection !== connection && isInRoom && !isHost) {
+                    requestSync()
+                }
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "Error in setPlayerConnection")
             }
@@ -440,6 +446,9 @@ class ListenTogetherManager
 
                 is ListenTogetherEvent.RoomCreated -> {
                     Timber.tag(TAG).d("Room created: ${event.roomCode}")
+                    // The connection was attached before we were in a room, so the player listener
+                    // and skip hooks for the host were never installed. Attach again now.
+                    playerConnection?.let { setPlayerConnection(it) }
                     try {
                         // Register player listener for host
                         val connection = playerConnection
@@ -488,6 +497,11 @@ class ListenTogetherManager
 
                 is ListenTogetherEvent.JoinApproved -> {
                     Timber.tag(TAG).d("Join approved for room: ${event.roomCode}")
+                    // Same as for the host: install the guest's playback blocking and hooks now.
+                    playerConnection?.let { setPlayerConnection(it) }
+                    if (playerConnection == null) {
+                        Timber.tag(TAG).w("Joined a room without a player connection - sync will apply once it attaches")
+                    }
                     // Save current mute state before joining as guest so we can restore it on leave
                     saveMuteStateOnJoin()
                     // Apply the full initial state including queue

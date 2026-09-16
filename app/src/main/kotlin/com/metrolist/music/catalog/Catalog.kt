@@ -235,11 +235,53 @@ object Catalog {
             Spotify.removeFromLibrary(listOf("spotify:album:$id")).onSuccess { spotifySavedAlbums?.second?.remove(id) }
         }.also { invalidateCaches() }
 
-    suspend fun isFollowingArtist(id: String): Result<Boolean> =
-        if (isYandexId(id)) YandexMusic.isArtistLiked(id) else Spotify.isFollowingArtist(id)
+    @Volatile
+    private var spotifyFollowedArtists: Pair<Long, MutableSet<String>>? = null
+    private val followedArtistsMutex = Mutex()
 
+    /** Artists in the Spotify library ("Your Library" -> Artists = the artists the user follows). */
+    private suspend fun spotifyFollowedArtistIds(): MutableSet<String> = followedArtistsMutex.withLock {
+        spotifyFollowedArtists?.takeIf { System.currentTimeMillis() - it.first < SAVED_ALBUMS_TTL_MS }?.let { return it.second }
+        SpotifyTokenManager.ensureAuthenticated()
+        val ids = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        var offset = 0
+        while (offset < 5000) {
+            val page = Spotify.myLibrary(filter = "Artists", limit = 50, offset = offset).getOrThrow()
+            page.items.filter { it.kind == SpotifyLibraryEntry.Kind.ARTIST }.forEach { ids += it.id }
+            offset += 50
+            if (page.items.isEmpty() || offset >= page.total) break
+        }
+        spotifyFollowedArtists = System.currentTimeMillis() to ids
+        ids
+    }
+
+    suspend fun isFollowingArtist(id: String): Result<Boolean> =
+        if (isYandexId(id)) {
+            YandexMusic.isArtistLiked(id)
+        } else {
+            runCatching { id in spotifyFollowedArtistIds() }
+                .recoverCatching { Spotify.isFollowingArtist(id).getOrThrow() }
+        }
+
+    /**
+     * Follow / unfollow. On Spotify this goes through the library API the web player itself uses
+     * (the REST /me/following endpoint rejects the web-player token, so following in the app never
+     * reached the account); REST stays as a fallback.
+     */
     suspend fun setFollowingArtist(id: String, follow: Boolean): Result<Unit> =
-        if (isYandexId(id)) YandexMusic.setArtistLiked(id, follow) else Spotify.setFollowingArtist(id, follow)
+        if (isYandexId(id)) {
+            YandexMusic.setArtistLiked(id, follow)
+        } else {
+            SpotifyTokenManager.ensureAuthenticated()
+            val uris = listOf("spotify:artist:$id")
+            (if (follow) Spotify.addToLibrary(uris) else Spotify.removeFromLibrary(uris))
+                .recoverCatching { gqlError ->
+                    Spotify.setFollowingArtist(id, follow).getOrElse { throw gqlError }
+                }
+                .onSuccess {
+                    spotifyFollowedArtists?.second?.let { set -> if (follow) set.add(id) else set.remove(id) }
+                }
+        }.also { invalidateCaches() }
 
     /** Yandex playlists are read-only in Meld (no reorder/rename/remove through this API). */
     fun isEditablePlaylist(id: String): Boolean = !isYandexId(id)

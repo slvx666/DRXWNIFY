@@ -1241,4 +1241,11 @@
     <string name="download_keep_open_hint">You can leave the app: the download keeps going, and anything unfinished is written on the next launch.</string>
     <string name="download_list_loading">Loading the list, %1$d of %2$d</string>
     <string name="spotify_dl_formatting_count">Writing files… %1$d of %2$d in the folder</string>
+    <string name="vk_login_phone_or_email">Phone or email</string>
+    <string name="vk_password_note">Your login and password go straight to VK and are not saved anywhere; only the access token is kept on this device.</string>
+    <string name="vk_code">Confirmation code</string>
+    <string name="vk_code_hint_sms">VK sent a code by SMS %1$s</string>
+    <string name="vk_code_hint_app">Enter the code from your authenticator app or the VK notification</string>
+    <string name="vk_captcha_hint">Enter the characters from the image</string>
+    <string name="vk_login_via_page">Log in on the VK page instead</string>
 </resources>

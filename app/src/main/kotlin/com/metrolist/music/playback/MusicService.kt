@@ -848,6 +848,22 @@ class MusicService :
             updateWidgetUI(player.isPlaying)
         }
 
+        // The widget and notification can't query the database on the main thread, and with the
+        // app closed nobody else loads the account's likes: do both here when the track changes.
+        currentMediaMetadata
+            .map { it?.id }
+            .distinctUntilChanged()
+            .collect(scope) { mediaId ->
+                if (mediaId == null) return@collect
+                val catalogId = withContext(Dispatchers.IO) { catalogTrackIdOf(mediaId) }
+                currentCatalogId = mediaId to catalogId
+                if (catalogId != null) {
+                    withContext(Dispatchers.IO) { runCatching { SpotifyLikeCache.ensureLoaded(listOf(catalogId)) } }
+                }
+                updateNotification()
+                updateWidgetUI(player.isPlaying)
+            }
+
         combine(
             currentMediaMetadata.distinctUntilChangedBy { it?.id },
             dataStore.data.map { it[ShowLyricsKey] ?: false }.distinctUntilChanged(),
@@ -1416,15 +1432,13 @@ class MusicService :
                     .Builder()
                     .setDisplayName(
                         getString(
-                            if (currentSong.value?.song?.liked ==
-                                true
-                            ) {
+                            if (isCurrentFavorite()) {
                                 R.string.action_remove_like
                             } else {
                                 R.string.action_like
                             },
                         ),
-                    ).setIconResId(if (currentSong.value?.song?.liked == true) R.drawable.ic_heart else R.drawable.ic_heart_outline)
+                    ).setIconResId(if (isCurrentFavorite()) R.drawable.ic_heart else R.drawable.ic_heart_outline)
                     .setSessionCommand(CommandToggleLike)
                     // Enable as long as a track is playing, even if it isn't cached in the
                     // local DB yet (e.g. Spotify/YouTube tracks). toggleLike() inserts it on demand.
@@ -2046,70 +2060,113 @@ class MusicService :
         }
     }
 
+    /** Catalog (Spotify / Yandex) track id behind a media id, when the track has one. */
+    private fun catalogTrackIdOf(mediaId: String?): String? {
+        if (mediaId == null) return null
+        return SpotifyMetadataRegistry.get(mediaId)?.id?.takeIf { it.isNotBlank() }
+            ?: FallbackIds.catalogIdOf(mediaId)
+            ?: runCatching { database.getSpotifyMatchByYouTubeId(mediaId)?.spotifyId }.getOrNull()
+    }
+
+    /** mediaId -> catalog id of the current track, filled off the main thread (it may need Room). */
+    @Volatile
+    private var currentCatalogId: Pair<String, String?>? = null
+
+    /** In-memory lookup only, safe on the main thread. */
+    private fun catalogTrackIdFast(mediaId: String?): String? {
+        if (mediaId == null) return null
+        SpotifyMetadataRegistry.get(mediaId)?.id?.takeIf { it.isNotBlank() }?.let { return it }
+        FallbackIds.catalogIdOf(mediaId)?.let { return it }
+        return currentCatalogId?.takeIf { it.first == mediaId }?.second
+    }
+
+    /**
+     * What the heart shows for the current track everywhere (player, notification, widget): liked in
+     * the app OR liked on the linked account. A track liked directly on Spotify has no local flag.
+     */
+    private fun isCurrentFavorite(): Boolean {
+        val song = currentSong.value?.song
+        if (song?.isEpisode == true) return song.inLibrary != null
+        val mediaId = currentMediaMetadata.value?.id ?: player.currentMetadata?.id
+        return song?.liked == true || SpotifyLikeCache.isLiked(catalogTrackIdFast(mediaId))
+    }
+
+    /**
+     * Flips the heart of the current track. The target is decided NOW from what the user sees, so
+     * the player, the notification and the home-screen widget all behave the same (the widget used
+     * to toggle only the local flag, which did nothing for a track liked on Spotify).
+     */
     fun toggleLike() {
+        val song = currentSong.value?.song
+        if (song?.isEpisode == true) {
+            scope.launch { toggleEpisodeSaveForLater(song) }
+            return
+        }
+        setCurrentLiked(!isCurrentFavorite())
+    }
+
+    private fun setCurrentLiked(liked: Boolean) {
         scope.launch {
-            var songToToggle = currentSong.first()
+            var librarySong = currentSong.first()
             // The current track may not be cached in the local DB yet (common for
             // Spotify/YouTube tracks played from quick picks, radio or imports). Insert
             // it first so the like can be applied and synced instead of silently no-oping.
-            if (songToToggle == null) {
+            if (librarySong == null) {
                 val metadata = currentMediaMetadata.value ?: player.currentMetadata ?: return@launch
                 database.query { insert(metadata) }
-                songToToggle = database.song(metadata.id).first()
+                librarySong = database.song(metadata.id).first()
             }
-            songToToggle?.let { librarySong ->
-                val songEntity = librarySong.song
+            val songEntity = librarySong?.song ?: return@launch
+            val catalogId = withContext(Dispatchers.IO) { catalogTrackIdOf(songEntity.id) }
+            currentCatalogId = songEntity.id to catalogId
 
-                // For podcast episodes, toggle save for later instead of like
-                if (songEntity.isEpisode) {
-                    toggleEpisodeSaveForLater(songEntity)
-                    return@let
+            // Update the shared like cache first so every heart flips instantly.
+            if (catalogId != null) SpotifyLikeCache.setLiked(catalogId, liked)
+
+            val song = if (songEntity.liked == liked) songEntity else songEntity.toggleLike()
+            database.query {
+                update(song)
+                syncUtils.likeSong(song)
+
+                // Check if auto-download on like is enabled and the song is now liked
+                if (dataStore.get(AutoDownloadOnLikeKey, false) && song.liked) {
+                    val downloadRequest =
+                        androidx.media3.exoplayer.offline.DownloadRequest
+                            .Builder(song.id, song.id.toUri())
+                            .setCustomCacheKey(song.id)
+                            .setData(song.title.toByteArray())
+                            .build()
+                    androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
+                        this@MusicService,
+                        ExoDownloadService::class.java,
+                        downloadRequest,
+                        false,
+                    )
                 }
+            }
 
-                val song = songEntity.toggleLike()
-                database.query {
-                    update(song)
-                    syncUtils.likeSong(song)
-
-                    // Check if auto-download on like is enabled and the song is now liked
-                    if (dataStore.get(AutoDownloadOnLikeKey, false) && song.liked) {
-                        // Trigger download for the liked song
-                        val downloadRequest =
-                            androidx.media3.exoplayer.offline.DownloadRequest
-                                .Builder(song.id, song.id.toUri())
-                                .setCustomCacheKey(song.id)
-                                .setData(song.title.toByteArray())
-                                .build()
-                        androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
-                            this@MusicService,
-                            ExoDownloadService::class.java,
-                            downloadRequest,
-                            false,
-                        )
-                    }
-                }
-
-                // Mirror the like to the account that owns the track's metadata: the heart means
-                // "add to Liked Songs" on Spotify or Yandex Music. Resolve the catalog track id from the
-                // registry (catalog-sourced), the fallback id itself, or the reverse match cache
-                // (YouTube-native). No-ops silently when not linked or unmapped.
-                scope.launch(Dispatchers.IO) {
-                    runCatching {
-                        val catalogId = SpotifyMetadataRegistry.get(songEntity.id)?.id
-                            ?: FallbackIds.catalogIdOf(songEntity.id)
-                            ?: database.getSpotifyMatchByYouTubeId(songEntity.id)?.spotifyId
-                        if (catalogId != null && com.metrolist.music.catalog.Catalog.canWrite(catalogId)) {
-                            if (song.liked) {
-                                com.metrolist.music.catalog.Catalog.saveTrack(catalogId)
-                            } else {
-                                com.metrolist.music.catalog.Catalog.removeTrack(catalogId)
-                            }
+            // Mirror the like to the account that owns the track's metadata: the heart means
+            // "add to Liked Songs" on Spotify or Yandex Music. No-ops when not linked or unmapped.
+            scope.launch(Dispatchers.IO) {
+                runCatching {
+                    if (catalogId != null && com.metrolist.music.catalog.Catalog.canWrite(catalogId)) {
+                        if (liked) {
+                            com.metrolist.music.catalog.Catalog.saveTrack(catalogId).getOrThrow()
+                        } else {
+                            com.metrolist.music.catalog.Catalog.removeTrack(catalogId).getOrThrow()
                         }
-                    }.onFailure { Timber.w(it, "Catalog like sync failed for ${songEntity.id}") }
+                    }
+                }.onFailure {
+                    Timber.w(it, "Catalog like sync failed for ${songEntity.id}")
+                    // Put the heart back so it never claims a state the account doesn't have.
+                    if (catalogId != null) SpotifyLikeCache.setLiked(catalogId, !liked)
                 }
-
-                currentMediaMetadata.value = player.currentMetadata
             }
+
+            currentMediaMetadata.value = player.currentMetadata
+            // Refresh the widget and notification right away instead of after the DB debounce.
+            updateNotification()
+            updateWidgetUI(player.isPlaying)
         }
     }
 
@@ -4757,7 +4814,7 @@ class MusicService :
                 artist = songData?.artists?.joinToString(", ") { it.name } ?: getString(R.string.tap_to_open),
                 artworkUri = song?.thumbnailUrl,
                 isPlaying = isPlaying,
-                isLiked = song?.liked == true,
+                isLiked = isCurrentFavorite(),
                 duration = if (player.duration != C.TIME_UNSET) player.duration else 0,
                 currentPosition = player.currentPosition,
             )
