@@ -844,6 +844,7 @@ class ListenTogetherManager
                         bufferCompleteReceivedForTrack != trackId
                     ) {
                         Timber.tag(TAG).w("No buffer-complete for $trackId in ${BUFFER_FALLBACK_MS}ms - starting anyway")
+                        client.diag("Room didn't confirm buffering - starting playback anyway", warning = true)
                         bufferCompleteReceivedForTrack = trackId
                         applyPendingSyncIfReady()
                     }
@@ -927,8 +928,15 @@ class ListenTogetherManager
 
         private fun handlePlaybackSync(action: PlaybackActionPayload) {
             val connection = playerConnection
+            client.diag(
+                "Guest got ${action.action}",
+                listOfNotNull(action.trackInfo?.let { "${it.artist} - ${it.title} [${it.id}]" }, action.queue?.let { "queue ${it.size}" })
+                    .joinToString(", ")
+                    .ifEmpty { null },
+            )
             if (connection == null) {
                 Timber.tag(TAG).w("Cannot sync playback - no player connection")
+                client.diag("Not applied: player not connected yet", warning = true)
                 return
             }
             val player = connection.player
@@ -1274,6 +1282,7 @@ class ListenTogetherManager
             val connection = playerConnection
             if (connection == null) {
                 Timber.tag(TAG).w("Cannot apply playback state - no player")
+                client.diag("Room state not applied: player not connected yet", warning = true)
                 return
             }
             val player = connection.player
@@ -1345,6 +1354,7 @@ class ListenTogetherManager
                         return@launch
                     }
 
+                    client.diag("Guest plays ${currentTrack.artist} - ${currentTrack.title}", "id ${currentTrack.id}, queue ${queue?.size ?: 0}")
                     // Apply queue/media (same)
                     if (queue != null && queue.isNotEmpty()) {
                         val mediaItems = queue.map { it.toMediaMetadata().toMediaItem() }
@@ -1685,6 +1695,7 @@ class ListenTogetherManager
                 )
 
             Timber.tag(TAG).d("Sending track change: ${trackInfo.title}, duration: $durationMs")
+            client.diag("Host sends ${trackInfo.artist} - ${trackInfo.title}", "id ${trackInfo.id}")
 
             // Also grab current queue to send along with track change
             val currentQueue =

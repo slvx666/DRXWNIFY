@@ -554,6 +554,10 @@ class ListenTogetherClient
             _logs.value = emptyList()
         }
 
+        /** Sync steps from the manager, shown in Settings -> Listen Together -> logs. */
+        fun diag(message: String, details: String? = null, warning: Boolean = false) =
+            log(if (warning) LogLevel.WARNING else LogLevel.INFO, message, details)
+
         /**
          * Connect to the Listen Together server
          */

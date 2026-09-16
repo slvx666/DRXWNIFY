@@ -228,7 +228,8 @@ class MessageCodec(
                     action = pb.action,
                     trackId = pb.trackId.takeIf { it.isNotEmpty() },
                     position = pb.position.takeIf { it > 0 },
-                    trackInfo = pb.trackInfo?.let { protoToTrackInfo(it) },
+                    // Protobuf returns an empty default message for an absent field, never null.
+                    trackInfo = if (pb.hasTrackInfo()) protoToTrackInfo(pb.trackInfo).takeIf { it.id.isNotBlank() } else null,
                     insertNext = pb.insertNext.takeIf { it },
                     queue = pb.queueList?.map { protoToTrackInfo(it) },
                     queueTitle = pb.queueTitle.takeIf { it.isNotEmpty() },
@@ -259,7 +260,7 @@ class MessageCodec(
             MessageTypes.SYNC_STATE -> {
                 val pb = Listentogether.SyncStatePayload.parseFrom(payloadBytes)
                 SyncStatePayload(
-                    currentTrack = pb.currentTrack?.let { protoToTrackInfo(it) },
+                    currentTrack = if (pb.hasCurrentTrack()) protoToTrackInfo(pb.currentTrack).takeIf { it.id.isNotBlank() } else null,
                     isPlaying = pb.isPlaying,
                     position = pb.position,
                     lastUpdate = pb.lastUpdate,
@@ -348,7 +349,9 @@ class MessageCodec(
             roomCode = proto.roomCode,
             hostId = proto.hostId,
             users = proto.usersList.map { protoToUserInfo(it) },
-            currentTrack = proto.currentTrack?.let { protoToTrackInfo(it) },
+            // An empty room has no track: without this check it decoded as a track with an empty id,
+            // which a joining guest then tried to play.
+            currentTrack = if (proto.hasCurrentTrack()) protoToTrackInfo(proto.currentTrack).takeIf { it.id.isNotBlank() } else null,
             isPlaying = proto.isPlaying,
             position = proto.position,
             lastUpdate = proto.lastUpdate,
