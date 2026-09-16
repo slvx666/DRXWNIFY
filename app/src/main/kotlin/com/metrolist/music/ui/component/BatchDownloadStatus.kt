@@ -42,6 +42,19 @@ fun rememberDownloadedCount(tracks: List<SpotifyTrack>): Int {
     return count
 }
 
+/** Ids of [tracks] whose file is in the download folder, kept up to date as exports finish. */
+@Composable
+fun rememberDownloadedIds(tracks: List<SpotifyTrack>): Set<String> {
+    val database = LocalDatabase.current
+    val ids = remember(tracks) { tracks.map { it.id } }
+    val downloaded by produceState(initialValue = emptySet<String>(), ids) {
+        DownloadExportState.exported.collectLatest {
+            value = SpotifyBatchDownload.downloadedTrackIds(database, tracks)
+        }
+    }
+    return downloaded
+}
+
 /**
  * Label for the "download everything" button: it says what is left to do rather than always
  * offering to download the whole list again.

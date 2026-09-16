@@ -1266,4 +1266,17 @@
     <string name="app_update_available">Version %1$s is available, tap to update</string>
     <string name="app_update_downloading">Downloading the update… %1$d%%</string>
     <string name="app_update_failed">Check failed (%1$s). Tap to open the releases page</string>
+    <string name="download_filter_all">All</string>
+    <string name="download_filter_downloaded">Downloaded</string>
+    <string name="download_filter_not_downloaded">Not downloaded</string>
+    <string name="download_issue_not_found">not found in sources</string>
+    <string name="download_issue_download_failed">download failed</string>
+    <string name="download_issue_save_failed">couldn’t save the file</string>
+    <string name="download_issues_hint">For tracks that weren’t found, connect VK or turn on more sources in Settings → Integrations → Music sources, then tap “Download the rest”.</string>
+    <string name="about_source_code">Source code</string>
+    <string name="about_license">Licensed under GPL-3.0</string>
+    <string name="changelog_1_1_0">- An artist’s popular tracks no longer stop after the tenth: more of their songs follow, then similar artists
+- Liked Songs can be filtered by downloaded / not downloaded, and tracks that failed to download show why
+- Interface improvements</string>
+    <string name="changelog_1_0_0">- First Drxwnify release</string>
 </resources>

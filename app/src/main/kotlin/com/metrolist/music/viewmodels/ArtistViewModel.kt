@@ -234,9 +234,9 @@ class ArtistViewModel @Inject constructor(
                     lastShuffleFirstId = order.first().id
                     withContext(Dispatchers.Main) {
                         playerConnection.playQueue(
-                            com.metrolist.music.playback.queues.SpotifyPlaylistQueue(
-                                playlistId = "artist_shuffle_$catalogArtistId",
-                                initialTracks = order,
+                            com.metrolist.music.playback.queues.ArtistTopTracksQueue(
+                                artistId = catalogArtistId.orEmpty(),
+                                topTracks = order,
                                 startIndex = 0,
                                 mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database),
                             ),

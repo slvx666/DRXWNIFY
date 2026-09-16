@@ -138,6 +138,9 @@ object SpotifyBatchDownload {
         // Tracks already sitting in the user's folder are not searched or downloaded again: pressing
         // "download all" a second time now only picks up what is actually missing.
         val alreadyDone = downloadedTrackIds(database, tracks)
+        DownloadIssues.clear(context, alreadyDone)
+        // media id -> catalog track id, to remember per track why it didn't download.
+        val trackOfMedia = ConcurrentHashMap<String, String>()
         val todo = tracks.filterNot { it.id in alreadyDone }
         val already = alreadyDone.size
 
@@ -177,8 +180,10 @@ object SpotifyBatchDownload {
                                     }
                                     enqueue(context, metadata.id, metadata.title)
                                     enqueuedIds.add(metadata.id)
+                                    trackOfMedia[metadata.id] = track.id
                                 } else {
                                     skipped.incrementAndGet()
+                                    DownloadIssues.set(context, track.id, DownloadIssues.Reason.NOT_FOUND)
                                     Timber.w("SpotifyBatchDownload: skip '${track.name}' — no match")
                                 }
                                 resolved.incrementAndGet()
@@ -224,6 +229,7 @@ object SpotifyBatchDownload {
             }
 
             val counts = countStates(enqueuedIds, downloads.value)
+            recordOutcomes(context, enqueuedIds, trackOfMedia, downloads.value)
             return Progress(
                 sourceId, label, Phase.DONE,
                 current = already + counts.completed, total = total,
@@ -270,6 +276,28 @@ object SpotifyBatchDownload {
      * cached: the transcode to the tagged MP3 happens afterwards and takes far longer, so counting
      * cached bytes made the progress claim many more tracks than the folder actually had.
      */
+    /** Remembers, per catalog track, whether the batch got it into the folder or why not. */
+    private fun recordOutcomes(
+        context: Context,
+        mediaIds: Set<String>,
+        trackOfMedia: Map<String, String>,
+        map: Map<String, Download>,
+    ) {
+        val exported = DownloadExportState.exported.value
+        val exportFailed = DownloadExportState.failed.value
+        val done = mutableListOf<String>()
+        for (mediaId in mediaIds) {
+            val trackId = trackOfMedia[mediaId] ?: continue
+            when {
+                mediaId in exported -> done += trackId
+                mediaId in exportFailed -> DownloadIssues.set(context, trackId, DownloadIssues.Reason.SAVE_FAILED)
+                map[mediaId]?.state == Download.STATE_FAILED ->
+                    DownloadIssues.set(context, trackId, DownloadIssues.Reason.DOWNLOAD_FAILED)
+            }
+        }
+        DownloadIssues.clear(context, done)
+    }
+
     private fun countStates(ids: Set<String>, map: Map<String, Download>): Counts {
         val exported = DownloadExportState.exported.value
         val exportFailed = DownloadExportState.failed.value

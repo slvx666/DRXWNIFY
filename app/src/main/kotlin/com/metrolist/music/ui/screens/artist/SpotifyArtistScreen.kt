@@ -141,9 +141,9 @@ fun SpotifyArtistScreen(
                             Button(
                                 onClick = {
                                     playerConnection.playQueue(
-                                        SpotifyPlaylistQueue(
-                                            playlistId = "artist_top_${viewModel.artistId}",
-                                            initialTracks = topTracks,
+                                        com.metrolist.music.playback.queues.ArtistTopTracksQueue(
+                                            artistId = viewModel.artistId,
+                                            topTracks = topTracks,
                                             startIndex = 0,
                                             mapper = viewModel.mapper,
                                         )
@@ -169,9 +169,9 @@ fun SpotifyArtistScreen(
                                     }
                                     lastShuffleIndex = start
                                     playerConnection.playQueue(
-                                        SpotifyPlaylistQueue(
-                                            playlistId = "artist_shuffle_${viewModel.artistId}",
-                                            initialTracks = topTracks,
+                                        com.metrolist.music.playback.queues.ArtistTopTracksQueue(
+                                            artistId = viewModel.artistId,
+                                            topTracks = topTracks,
                                             startIndex = start,
                                             mapper = viewModel.mapper,
                                         )
@@ -251,9 +251,9 @@ fun SpotifyArtistScreen(
                             .fillMaxWidth()
                             .clickable {
                                 playerConnection.playQueue(
-                                    SpotifyPlaylistQueue(
-                                        playlistId = "artist_top_${viewModel.artistId}",
-                                        initialTracks = topTracks,
+                                    com.metrolist.music.playback.queues.ArtistTopTracksQueue(
+                                        artistId = viewModel.artistId,
+                                        topTracks = topTracks,
                                         startIndex = index,
                                         mapper = viewModel.mapper,
                                     )

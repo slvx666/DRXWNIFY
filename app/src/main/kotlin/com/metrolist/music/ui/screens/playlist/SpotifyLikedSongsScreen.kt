@@ -12,6 +12,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -187,6 +188,19 @@ fun SpotifyLikedSongsScreen(
             SpotifySortType.DURATION -> tracks.sortedBy { it.durationMs }
         }
         if (sortDescending) sorted.reversed() else sorted
+    }
+
+    // Downloaded / not downloaded filter, plus why a track didn't download last time.
+    val downloadedIds = com.metrolist.music.ui.component.rememberDownloadedIds(tracks)
+    LaunchedEffect(Unit) { com.metrolist.music.playback.DownloadIssues.ensureLoaded(context) }
+    val downloadIssues by com.metrolist.music.playback.DownloadIssues.issues.collectAsState()
+    var downloadFilter by rememberSaveable { mutableStateOf(0) } // 0 all, 1 downloaded, 2 not downloaded
+    val shownTracks = remember(sortedTracks, downloadedIds, downloadFilter) {
+        when (downloadFilter) {
+            1 -> sortedTracks.filter { it.id in downloadedIds }
+            2 -> sortedTracks.filter { it.id !in downloadedIds }
+            else -> sortedTracks
+        }
     }
 
     val filteredTracks = remember(sortedTracks, query) {
@@ -377,6 +391,35 @@ fun SpotifyLikedSongsScreen(
                         )
                     }
                 }
+                item(key = "download_filter") {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        Row(
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                        ) {
+                            val labels = listOf(
+                                stringResource(R.string.download_filter_all) to tracks.size,
+                                stringResource(R.string.download_filter_downloaded) to downloadedIds.size,
+                                stringResource(R.string.download_filter_not_downloaded) to (tracks.size - downloadedIds.size).coerceAtLeast(0),
+                            )
+                            labels.forEachIndexed { index, (label, count) ->
+                                androidx.compose.material3.FilterChip(
+                                    selected = downloadFilter == index,
+                                    onClick = { downloadFilter = index },
+                                    label = { Text("$label · $count") },
+                                )
+                            }
+                        }
+                        if (downloadFilter == 2 && shownTracks.any { it.id in downloadIssues }) {
+                            Text(
+                                text = stringResource(R.string.download_issues_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+                            )
+                        }
+                    }
+                }
             }
 
             if (isLoading) {
@@ -431,21 +474,33 @@ fun SpotifyLikedSongsScreen(
             }
 
             // Track list
-            val displayTracks = if (isSearching) filteredTracks else sortedTracks
+            val displayTracks = if (isSearching) filteredTracks else shownTracks
             itemsIndexed(
                 items = displayTracks,
                 key = { index, track -> "liked_${track.id}_$index" },
             ) { index, track ->
                 val thumbnailUrl = SpotifyMapper.getTrackThumbnail(track)
-                val originalIndex = if (isSearching) sortedTracks.indexOf(track).coerceAtLeast(0) else index
+                val originalIndex = if (isSearching || downloadFilter != 0) sortedTracks.indexOf(track).coerceAtLeast(0) else index
 
                 val isActive = currentSpotifyId != null && currentSpotifyId == track.id
                 val trackDownloadState = spotifyToYt[track.id]?.let { downloads[it]?.state }
+                // Why it isn't downloaded yet, when a download of this list tried and failed.
+                val issueText = if (track.id !in downloadedIds) {
+                    when (downloadIssues[track.id]) {
+                        com.metrolist.music.playback.DownloadIssues.Reason.NOT_FOUND -> stringResource(R.string.download_issue_not_found)
+                        com.metrolist.music.playback.DownloadIssues.Reason.DOWNLOAD_FAILED -> stringResource(R.string.download_issue_download_failed)
+                        com.metrolist.music.playback.DownloadIssues.Reason.SAVE_FAILED -> stringResource(R.string.download_issue_save_failed)
+                        null -> null
+                    }
+                } else {
+                    null
+                }
                 ListItem(
                     title = track.name,
                     subtitle = joinByBullet(
                         track.artists.joinToString { it.name },
                         makeTimeString((track.durationMs).toLong()),
+                        issueText?.let { "⚠ $it" },
                     ),
                     isActive = isActive,
                     badges = {

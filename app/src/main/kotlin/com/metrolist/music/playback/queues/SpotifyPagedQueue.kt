@@ -57,6 +57,17 @@ abstract class SpotifyPagedQueue(
     /** Fetches a single page of tracks starting at [offset]. */
     protected abstract suspend fun fetchPage(offset: Int, limit: Int): PageResult
 
+    /**
+     * True for queues that go on after their own tracks run out (e.g. an artist's popular tracks
+     * followed by more of the artist and similar artists) instead of simply stopping.
+     */
+    protected open val continues: Boolean = false
+
+    /** More tracks to append once everything so far was queued; empty when there is nothing left. */
+    protected open suspend fun continueWith(alreadyQueued: List<SpotifyTrack>): List<SpotifyTrack> = emptyList()
+
+    private var continuationRounds = 0
+
     // All Spotify tracks fetched so far (may span multiple API pages)
     private val allTracks = mutableListOf<SpotifyTrack>()
 
@@ -196,12 +207,24 @@ abstract class SpotifyPagedQueue(
     }
 
     override fun hasNextPage(): Boolean =
-        resolveOffset < allTracks.size || apiHasMore
+        resolveOffset < allTracks.size || apiHasMore || (continues && continuationRounds < MAX_CONTINUATION_ROUNDS)
 
     override suspend fun nextPage(): List<MediaItem> = withContext(Dispatchers.IO) {
         // If we've resolved all fetched tracks but the API has more, fetch another page
         if (resolveOffset >= allTracks.size && apiHasMore) {
             fetchNextApiPage()
+        }
+
+        if (resolveOffset >= allTracks.size && !apiHasMore && continues) {
+            while (continuationRounds < MAX_CONTINUATION_ROUNDS && resolveOffset >= allTracks.size) {
+                continuationRounds++
+                val more = runCatching { continueWith(allTracks.toList()) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .getOrDefault(emptyList())
+                val known = allTracks.mapTo(HashSet()) { it.id }
+                allTracks.addAll(more.filter { it.id !in known })
+                if (more.isEmpty()) break
+            }
         }
 
         if (resolveOffset >= allTracks.size) {
@@ -241,6 +264,8 @@ abstract class SpotifyPagedQueue(
     companion object {
         private const val SPOTIFY_PAGE_SIZE = 50
         private const val RESOLVE_BATCH_SIZE = 20
+        /** How many times a continuing queue may extend itself (more by the artist, then similar artists). */
+        private const val MAX_CONTINUATION_ROUNDS = 4
         /** Resolve only the target + a few neighbors for instant playback start. */
         private const val FAST_START_BEFORE = 0
         private const val FAST_START_AFTER = 2

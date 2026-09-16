@@ -1088,6 +1088,22 @@ class MainActivity : ComponentActivity() {
 
                             if (!showRail && currentRoute != "wrapped") {
                                 Box {
+                                    // Background band behind the mini player, reaching exactly up to its top
+                                    // edge (border included), so a transparent mini player never has the page
+                                    // showing through above the bottom bar. Fades out as the player opens.
+                                    if (!playerBottomSheetState.isDismissed) {
+                                        Box(
+                                            modifier =
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .align(Alignment.BottomCenter)
+                                                    .height(playerBottomSheetState.collapsedBound)
+                                                    .graphicsLayer {
+                                                        alpha = (1f - playerBottomSheetState.progress * 4f).coerceIn(0f, 1f)
+                                                    }.background(baseBg),
+                                        )
+                                    }
+
                                     BottomSheetPlayer(
                                         state = playerBottomSheetState,
                                         navController = navController,

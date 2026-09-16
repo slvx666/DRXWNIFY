@@ -46,15 +46,13 @@ fun ChangelogScreen(
     var isLoading by remember { mutableStateOf(true) }
     val uriHandler = LocalUriHandler.current
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) {
-        Updater.getAllReleases().onSuccess { allReleases ->
-            releases = allReleases.filter { release ->
-                Updater.compareVersions(BuildConfig.VERSION_NAME, release.tagName) >= 0
-            }
-            isLoading = false
-        }.onFailure {
-            isLoading = false
+        // The notes ship with the app, so "what's new" works offline and without GitHub.
+        releases = localReleases(context).filter { release ->
+            Updater.compareVersions(BuildConfig.VERSION_NAME, release.tagName) >= 0
         }
+        isLoading = false
     }
 
     val sheetState = rememberModalBottomSheetState(
@@ -147,6 +145,24 @@ fun ChangelogScreen(
         }
     }
 }
+
+/** Release notes bundled with the app, newest first. */
+private fun localReleases(context: android.content.Context): List<ReleaseInfo> = listOf(
+    ReleaseInfo(
+        tagName = "1.1.0",
+        versionName = "1.1.0",
+        description = context.getString(com.metrolist.music.R.string.changelog_1_1_0),
+        releaseDate = "2026-09-17",
+        assets = emptyList(),
+    ),
+    ReleaseInfo(
+        tagName = "1.0.0",
+        versionName = "1.0.0",
+        description = context.getString(com.metrolist.music.R.string.changelog_1_0_0),
+        releaseDate = "2026-09-16",
+        assets = emptyList(),
+    ),
+)
 
 @Composable
 fun ReleaseItem(release: ReleaseInfo) {

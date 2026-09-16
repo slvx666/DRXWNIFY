@@ -740,9 +740,11 @@ fun ArtistScreen(
                                         onClick = {
                                             if (!isGuest) {
                                                 playerConnection.playQueue(
-                                                    com.metrolist.music.playback.queues.SpotifyPlaylistQueue(
-                                                        playlistId = "artist_top_${viewModel.catalogArtistId}",
-                                                        initialTracks = topTracks,
+                                                    // Keeps playing after the popular tracks: more by the
+                                                    // artist, then similar artists.
+                                                    com.metrolist.music.playback.queues.ArtistTopTracksQueue(
+                                                        artistId = viewModel.catalogArtistId.orEmpty(),
+                                                        topTracks = topTracks,
                                                         startIndex = topTracks.indexOf(track),
                                                         mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database),
                                                     ),

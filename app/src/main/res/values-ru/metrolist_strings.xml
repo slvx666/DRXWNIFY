@@ -967,4 +967,20 @@
     <string name="app_update_available">Доступна версия %1$s, нажмите, чтобы обновить</string>
     <string name="app_update_downloading">Скачиваем обновление… %1$d%%</string>
     <string name="app_update_failed">Не удалось проверить (%1$s). Нажмите, чтобы открыть страницу релизов</string>
+    <string name="download_filter_all">Все</string>
+    <string name="download_filter_downloaded">Скачанные</string>
+    <string name="download_filter_not_downloaded">Не скачанные</string>
+    <string name="download_issue_not_found">не найден в источниках</string>
+    <string name="download_issue_download_failed">ошибка загрузки</string>
+    <string name="download_issue_save_failed">не удалось сохранить файл</string>
+    <string name="download_issues_hint">Для ненайденных треков подключи VK или включи больше источников в Настройки → Интеграции → Источники музыки, затем нажми «Докачать».</string>
+    <string name="sort_by_original">Исходный порядок</string>
+    <string name="sort_by_duration">Длительность</string>
+    <string name="about_source_code">Исходный код</string>
+    <string name="about_license">Лицензия GPL-3.0</string>
+    <string name="credits_developer">Разработчик</string>
+    <string name="changelog_1_1_0">- Популярные треки исполнителя больше не обрываются после десятого: дальше играют другие его песни, а затем похожие исполнители
+- В «Любимых треках» появился фильтр «Скачанные / Не скачанные», а у треков, которые не удалось скачать, видна причина
+- Доработан интерфейс</string>
+    <string name="changelog_1_0_0">- Первый релиз Drxwnify</string>
 </resources>
