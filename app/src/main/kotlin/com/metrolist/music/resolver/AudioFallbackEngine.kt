@@ -30,6 +30,8 @@ import com.metrolist.music.utils.get
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -145,11 +147,14 @@ object AudioFallbackEngine {
             memory.get(key)?.takeIf { it.usableFor(query, exclude) }?.let { return@withContext it }
 
             val stored = storedMatches(query)
-            stored.firstOrNull { row ->
-                row.selected && System.currentTimeMillis() - row.matchedAt < SELECTION_TTL_MS
-            }?.toMatch()?.takeIf { it.usableFor(query, exclude) }?.let { cached ->
-                memory.put(key, cached)
-                return@withContext cached
+            val fresh = stored.any { row -> row.selected && System.currentTimeMillis() - row.matchedAt < SELECTION_TTL_MS }
+            if (fresh) {
+                // Re-decide over what is stored instead of trusting the old "selected" flag: matches
+                // picked before the stricter rules (e.g. a similarly named band) lose to exact ones.
+                storedCandidates(query).firstOrNull { it.usableFor(query, exclude) }?.let { cached ->
+                    memory.put(key, cached)
+                    return@withContext cached
+                }
             }
 
             misses.get(missKey)?.takeIf { System.currentTimeMillis() - it < MISS_TTL_MS }?.let {
@@ -171,7 +176,7 @@ object AudioFallbackEngine {
                 misses.put(missKey, System.currentTimeMillis())
                 // A stored alternate is better than nothing when the live race found no match
                 // (e.g. a provider is temporarily down).
-                return@withContext stored.firstNotNullOfOrNull { row -> row.toMatch()?.takeIf { it.usableFor(query, exclude) } }
+                return@withContext storedCandidates(query).firstOrNull { it.usableFor(query, exclude) }
             }
             memory.put(key, winner)
             remember(query, outcome.matches, winner)
@@ -180,6 +185,90 @@ object AudioFallbackEngine {
 
     private fun storedMatches(query: AudioQuery): List<AudioFallbackMatchEntity> =
         query.catalogId?.let { runCatching { database.getAudioFallbackMatches(it) }.getOrNull() }.orEmpty()
+
+    /** Stored matches that still pass the gates, best first (a manual pick always first). */
+    private fun storedCandidates(query: AudioQuery): List<ProviderMatch> {
+        val matches = storedMatches(query).mapNotNull { it.toMatch() }.filter { isPlausible(query, it) }
+        val manual = matches.filter { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }
+        return manual + ParallelAudioResolver.preferred(matches - manual.toSet(), ::rank)
+    }
+
+    private fun isPlausible(query: AudioQuery, match: ProviderMatch): Boolean {
+        if (match.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE) return true
+        if (match.title.isBlank()) return true
+        val tokens = com.metrolist.spotify.SpotifyMapper.artistTokens(query.artists.joinToString(", "))
+        return com.metrolist.spotify.SpotifyMapper.titlePlausiblyMatches(match.title, query.title) &&
+            com.metrolist.spotify.SpotifyMapper.artistPlausiblyMatches(match.title, match.artist, tokens)
+    }
+
+    // -- Manual source choice ----------------------------------------------------------------------
+
+    /** Metadata the source picker searches with, or null when the track has none (plain YouTube). */
+    fun catalogQueryFor(mediaId: String, dbSong: Song?): AudioQuery? =
+        queryFor(mediaId, dbSong)?.takeIf { it.catalogId != null }
+
+    /**
+     * Every enabled source's best match for [mediaId], for the "choose audio source" dialog. Unlike a
+     * normal resolution nothing is cut short: each provider gets its full search time.
+     */
+    suspend fun candidatesFor(mediaId: String, dbSong: Song?): List<ProviderMatch> = withContext(Dispatchers.IO) {
+        val query = queryFor(mediaId, dbSong) ?: return@withContext emptyList()
+        val found = kotlinx.coroutines.coroutineScope {
+            activeProviders().map { provider ->
+                async {
+                    runCatching {
+                        kotlinx.coroutines.withTimeoutOrNull(provider.searchTimeoutMs) { provider.search(query) }
+                    }.getOrNull()
+                }
+            }.awaitAll().filterNotNull()
+        }
+        ParallelAudioResolver.preferred(found, ::rank)
+    }
+
+    /** The source currently remembered for [mediaId] (the one a manual pick or the last race chose). */
+    fun currentChoice(mediaId: String, dbSong: Song?): ProviderMatch? {
+        val query = queryFor(mediaId, dbSong) ?: return null
+        memory.get(query.cacheKey)?.let { return it }
+        return storedCandidates(query).firstOrNull()
+    }
+
+    /** Pins [match] as the audio for [mediaId]; `null` forgets every stored match (automatic again). */
+    suspend fun setManualChoice(mediaId: String, dbSong: Song?, match: ProviderMatch?) = withContext(Dispatchers.IO) {
+        val query = queryFor(mediaId, dbSong) ?: return@withContext
+        val catalogId = query.catalogId ?: return@withContext
+        memory.remove(query.cacheKey)
+        misses.evictAll()
+        runCatching {
+            if (match == null) {
+                database.deleteAudioFallbackMatches(catalogId)
+            } else {
+                database.clearAudioFallbackSelection(catalogId)
+                database.upsertAudioFallbackMatches(
+                    listOf(
+                        AudioFallbackMatchEntity(
+                            catalogId = catalogId,
+                            provider = match.provider.name,
+                            providerTrackId = match.trackId,
+                            matchedTitle = match.title,
+                            matchedArtist = match.artist,
+                            confidence = ParallelAudioResolver.MANUAL_CONFIDENCE,
+                            title = query.title,
+                            artists = query.artists.joinToString(ARTIST_SEPARATOR),
+                            album = query.album,
+                            durationMs = query.durationMs,
+                            isrc = query.isrc,
+                            selected = true,
+                        ),
+                    ),
+                )
+                memory.put(query.cacheKey, match.copy(confidence = ParallelAudioResolver.MANUAL_CONFIDENCE))
+            }
+        }.onFailure { AudioDiagnostics.warn("manual source choice for $mediaId failed: ${it.message}") }
+        AudioDiagnostics.info(
+            if (match == null) "source for ${query.label()} set back to automatic"
+            else "source for ${query.label()} pinned to ${match.provider} '${match.artist} – ${match.title}'",
+        )
+    }
 
     private fun remember(query: AudioQuery, matches: List<ProviderMatch>, winner: ProviderMatch) {
         val catalogId = query.catalogId ?: return
@@ -275,10 +364,8 @@ object AudioFallbackEngine {
         val tried = failed.toMutableSet()
         val badTracks = query.excludedTrackIds.toMutableSet()
 
-        // Known matches first (no search), in the user's provider order.
-        val stored = storedMatches(query)
-            .mapNotNull { it.toMatch() }
-            .sortedBy { rank(it.provider) }
+        // Known matches first (no search): comparably confident ones in the user's order.
+        val stored = storedCandidates(query)
         for (match in stored) {
             if (!match.usableFor(query.copy(excludedTrackIds = badTracks), tried)) continue
             val plan = planFor(query, match)

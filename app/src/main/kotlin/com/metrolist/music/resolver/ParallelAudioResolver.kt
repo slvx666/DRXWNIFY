@@ -97,9 +97,11 @@ class ParallelAudioResolver(
         val report = mutableListOf<String>()
 
         fun decide(now: Long): ProviderMatch? {
-            val best = found.values.firstOrNull() ?: return null
+            val best = preferred(found.values, ::rank).firstOrNull() ?: return null
             val higherPending = pending.any { rank(it) < rank(best.provider) }
-            return if (!higherPending || now - start >= softDeadlineMs) best else null
+            // A doubtful match doesn't end the race early: a slower provider may still have the exact track.
+            val couldBeBeaten = best.confidence < STRONG_MATCH && pending.isNotEmpty()
+            return if ((!higherPending && !couldBeBeaten) || now - start >= softDeadlineMs) best else null
         }
 
         var winner: ProviderMatch? = null
@@ -108,7 +110,7 @@ class ParallelAudioResolver(
             val waitUntil = if (found.isEmpty()) start + hardDeadlineMs else start + softDeadlineMs
             val remaining = waitUntil - now
             if (remaining <= 0) {
-                winner = found.values.firstOrNull()
+                winner = preferred(found.values, ::rank).firstOrNull()
                 break
             }
             val answer = withTimeoutOrNull(remaining) { answers.receive() } ?: continue
@@ -129,15 +131,37 @@ class ParallelAudioResolver(
                 break
             }
         }
-        if (winner == null) winner = found.values.firstOrNull()
+        if (winner == null) winner = preferred(found.values, ::rank).firstOrNull()
         pending.forEach { report += "$it … not waited for" }
 
         jobs.forEach { it.cancel() }
         val elapsed = clock() - start
-        Outcome(winner, found.values.toList(), misses, elapsed, report)
+        Outcome(winner, preferred(found.values, ::rank), misses, elapsed, report)
     }
 
     companion object {
+        /**
+         * Matches this much less confident than the best one found are only fallbacks: the user's
+         * provider order decides between comparably good matches, never between an exact match and
+         * a doubtful one (a 0.77 "Mercury & The Architects – Machine" on Bandcamp used to beat a
+         * 1.00 "Architects – Machine" on YouTube just because Bandcamp was ranked higher).
+         */
+        const val CONFIDENCE_MARGIN = 0.15
+
+        /** Confidence stored for a source the user picked by hand: always wins, never re-checked. */
+        const val MANUAL_CONFIDENCE = 10.0
+
+        /** A match at least this confident is taken without waiting for lower-ranked providers. */
+        const val STRONG_MATCH = 0.9
+
+        /** Comparably confident matches in the user's order, then the weaker ones by confidence. */
+        fun preferred(matches: Collection<ProviderMatch>, rank: (AudioProviderId) -> Int): List<ProviderMatch> {
+            if (matches.isEmpty()) return emptyList()
+            val best = matches.maxOf { it.confidence }
+            val (strong, weak) = matches.partition { it.confidence >= best - CONFIDENCE_MARGIN }
+            return strong.sortedBy { rank(it.provider) } + weak.sortedByDescending { it.confidence }
+        }
+
         /** After this, the best match so far is used without waiting for slower, higher-ranked providers. */
         const val SOFT_DEADLINE_MS = 2_500L
 

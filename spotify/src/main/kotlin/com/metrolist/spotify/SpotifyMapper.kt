@@ -263,13 +263,27 @@ object SpotifyMapper {
             .map { cachedNormalize(it) }
             .filter { it.isNotEmpty() }
 
-    /** True when any expected artist token appears in the candidate's structured artist or its title. */
+    /**
+     * True when an expected artist appears in the candidate's title, or in its artist field without
+     * being part of a different act. "Mercury & The Architects" contains "Architects" but is another
+     * band: when the candidate credits several names, each of them must be one of the expected
+     * artists (a single uploader name like "architectsuk" still passes as before).
+     */
     fun artistPlausiblyMatches(candidateTitle: String, candidateArtist: String, tokens: List<String>): Boolean {
         if (tokens.isEmpty()) return true
-        val artistN = cachedNormalize(candidateArtist)
         val titleN = cachedNormalize(candidateTitle)
-        return tokens.any { it in artistN || it in titleN }
+        if (tokens.any { it in titleN }) return true
+        val artistN = cachedNormalize(candidateArtist)
+        if (tokens.none { it in artistN }) return false
+        val parts = ARTIST_SPLIT_REGEX.split(candidateArtist)
+            .map { stripArticle(cachedNormalize(it)) }
+            .filter { it.isNotEmpty() }
+        if (parts.size <= 1) return true
+        val expected = tokens.map { stripArticle(it) }
+        return parts.all { part -> expected.any { e -> part == e || e in part || part in e } }
     }
+
+    private fun stripArticle(name: String): String = name.removePrefix("the ").trim()
 
     private fun anyTokenHasLatin(tokens: List<String>): Boolean =
         tokens.any { t -> t.any { it in 'a'..'z' || it in '0'..'9' } }

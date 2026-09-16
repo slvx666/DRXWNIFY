@@ -241,13 +241,8 @@ fun PlayerMenu(
     )
 
     if (showQobuzMatchDialog) {
-        com.metrolist.music.ui.dialog.QobuzMatchOverrideDialog(
+        com.metrolist.music.ui.dialog.AudioSourceDialog(
             mediaId = mediaMetadata.id,
-            title = mediaMetadata.title,
-            artists = mediaMetadata.artists.map { it.name },
-            album = mediaMetadata.album?.title,
-            isrc = librarySong?.song?.isrc,
-            durationMs = mediaMetadata.duration.takeIf { it > 0 }?.toLong()?.times(1000L),
             onDismiss = { showQobuzMatchDialog = false },
         )
     }
@@ -663,7 +658,7 @@ fun PlayerMenu(
             Material3MenuGroup(
                 items =
                     buildList {
-                        if (resolvedSpotifyMatch != null && !qobuzEnabled) {
+                        if (resolvedSpotifyMatch != null) {
                             add(
                                 Material3MenuItemData(
                                     title = { Text(text = stringResource(R.string.change_youtube_version)) },
@@ -682,12 +677,14 @@ fun PlayerMenu(
                             )
                         }
 
-                        if (qobuzEnabled) {
+                        // Tracks served by one of the audio sources (not a YouTube video): pick the
+                        // recording by hand when the automatic choice is wrong.
+                        if (com.metrolist.music.resolver.FallbackIds.isFallbackId(mediaMetadata.id)) {
                             add(
                                 Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.qobuz_match_override)) },
+                                    title = { Text(text = stringResource(R.string.audio_source_choose)) },
                                     description = {
-                                        Text(text = stringResource(R.string.qobuz_match_override_description))
+                                        Text(text = stringResource(R.string.audio_source_choose_desc))
                                     },
                                     icon = {
                                         Icon(

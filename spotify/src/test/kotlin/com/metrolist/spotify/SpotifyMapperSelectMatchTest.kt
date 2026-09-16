@@ -276,4 +276,38 @@ class SpotifyMapperSelectMatchTest {
         assertEquals("Queen Bohemian Rhapsody - Remastered 2011", queries.first())
         assertTrue("expected a variant-stripped query", queries.any { it == "Queen Bohemian Rhapsody" })
     }
+
+    // A different act whose name merely contains the artist must not pass the artist gate.
+    @Test
+    fun `band name containing the artist is not the artist`() {
+        val r = select("Machine", "Architects", 240, listOf(
+            cand("WRONG", "Machine", "Mercury & The Architects", 240),
+        ))
+        assertEquals(MatchResult.NoMatch, r)
+    }
+
+    @Test
+    fun `real artist wins over a band that contains its name`() {
+        val r = select("Machine", "Architects", 240, listOf(
+            cand("WRONG", "Machine", "Mercury & The Architects", 240),
+            cand("RIGHT", "Machine", "Architects", 241),
+        ))
+        assertEquals("RIGHT", matchedId(r))
+    }
+
+    @Test
+    fun `duo credited with an ampersand still matches`() {
+        val r = select("The Sound of Silence", "Simon & Garfunkel", 185, listOf(
+            cand("RIGHT", "The Sound of Silence", "Simon & Garfunkel", 185),
+        ))
+        assertEquals("RIGHT", matchedId(r))
+    }
+
+    @Test
+    fun `single uploader name containing the artist still matches`() {
+        val r = select("Machine", "Architects", 240, listOf(
+            cand("RIGHT", "Machine", "architectsuk", 240),
+        ))
+        assertEquals("RIGHT", matchedId(r))
+    }
 }

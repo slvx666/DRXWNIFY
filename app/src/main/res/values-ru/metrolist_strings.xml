@@ -949,4 +949,12 @@
     <string name="vk_code_hint_app">Введите код из приложения-аутентификатора или из уведомления VK</string>
     <string name="vk_captcha_hint">Введите символы с картинки</string>
     <string name="vk_login_via_page">Войти через страницу VK</string>
+    <string name="audio_source_choose">Выбрать источник звука</string>
+    <string name="audio_source_choose_desc">Если играет не та запись, выберите нужную</string>
+    <string name="audio_source_searching">Ищем во всех источниках…</string>
+    <string name="audio_source_none">Ни один включённый источник не нашёл этот трек</string>
+    <string name="audio_source_auto">Автоматически</string>
+    <string name="audio_source_current">Сейчас: %1$s</string>
+    <string name="audio_source_candidate_info">%1$s · совпадение %2$d%%</string>
+    <string name="listen_together_host_left">Хост вышел из комнаты, совместное прослушивание завершено</string>
 </resources>

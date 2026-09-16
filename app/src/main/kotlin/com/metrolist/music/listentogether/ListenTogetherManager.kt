@@ -59,6 +59,9 @@ class ListenTogetherManager
             // Increased from 200ms to 1000ms to reduce choppy audio for guests
             private const val SYNC_DEBOUNCE_THRESHOLD_MS = 1000L
 
+            /** A host whose connection dropped gets this long to come back before guests leave the room. */
+            private const val HOST_RECONNECT_GRACE_MS = 20_000L
+
             /** How long a guest waits for the room's "everyone buffered" signal before playing anyway. */
             private const val BUFFER_FALLBACK_MS = 4000L
 
@@ -117,6 +120,18 @@ class ListenTogetherManager
         // Track if a buffer-complete arrived before the pending sync was ready
         private var bufferCompleteReceivedForTrack: String? = null
         private var bufferFallbackJob: Job? = null
+
+        /** What the guest was listening to before joining, restored when the host leaves the room. */
+        private data class GuestSnapshot(
+            val items: List<MediaItem>,
+            val index: Int,
+            val position: Long,
+            val queueTitle: String?,
+        )
+
+        private var guestSnapshot: GuestSnapshot? = null
+        private var hostGoneAt = 0L
+        private var hostGoneJob: Job? = null
 
         // Expose client state
         val connectionState = client.connectionState
@@ -504,6 +519,17 @@ class ListenTogetherManager
                     }
                     // Save current mute state before joining as guest so we can restore it on leave
                     saveMuteStateOnJoin()
+                    // Remember what was playing, to give it back if the host leaves.
+                    guestSnapshot = playerConnection?.player?.let { p ->
+                        runCatching {
+                            GuestSnapshot(
+                                items = (0 until p.mediaItemCount).map { p.getMediaItemAt(it) },
+                                index = p.currentMediaItemIndex,
+                                position = p.currentPosition,
+                                queueTitle = playerConnection?.service?.queueTitle,
+                            )
+                        }.getOrNull()
+                    }
                     // Apply the full initial state including queue
                     applyPlaybackState(
                         currentTrack = event.state.currentTrack,
@@ -675,18 +701,42 @@ class ListenTogetherManager
                     }
                 }
 
+                is ListenTogetherEvent.UserLeft -> {
+                    if (!isHost && isInRoom && event.userId == roomState.value?.hostId) {
+                        onHostGone()
+                    }
+                }
+
                 is ListenTogetherEvent.UserReconnected -> {
                     Timber.tag(TAG).d("User reconnected: ${event.username}")
+                    if (event.userId == roomState.value?.hostId) {
+                        hostGoneJob?.cancel()
+                        hostGoneJob = null
+                    }
                     // No action needed - reconnected user already synced via reconnect state
                 }
 
                 is ListenTogetherEvent.UserDisconnected -> {
                     Timber.tag(TAG).d("User temporarily disconnected: ${event.username}")
+                    if (!isHost && isInRoom && event.userId == roomState.value?.hostId) {
+                        client.diag("Host lost connection - waiting ${HOST_RECONNECT_GRACE_MS / 1000}s", warning = true)
+                        hostGoneJob?.cancel()
+                        hostGoneJob =
+                            scope.launch {
+                                delay(HOST_RECONNECT_GRACE_MS)
+                                val host = roomState.value?.users?.firstOrNull { it.userId == roomState.value?.hostId }
+                                if (isInRoom && !isHost && host?.isConnected != true) onHostGone()
+                            }
+                    }
                     // User might reconnect, no action needed
                 }
 
                 is ListenTogetherEvent.HostChanged -> {
                     Timber.tag(TAG).d("Host changed: new host is ${event.newHostName} (${event.newHostId})")
+                    if (System.currentTimeMillis() - hostGoneAt < 5_000) {
+                        // The server hands the room to a guest when the host leaves; we leave instead.
+                        return
+                    }
                     val wasHost = isHost
                     val nowIsHost = event.newHostId == userId.value
 
@@ -752,6 +802,44 @@ class ListenTogetherManager
                 }
 
                 else -> { /* Other events handled by UI */ }
+            }
+        }
+
+        /**
+         * The host left (or never came back): leave the room too and give the guest back what was
+         * playing before joining, paused. Staying alone in a room without a host left the player
+         * locked with nothing to sync to.
+         */
+        private fun onHostGone() {
+            hostGoneAt = System.currentTimeMillis()
+            hostGoneJob?.cancel()
+            hostGoneJob = null
+            val snapshot = guestSnapshot
+            guestSnapshot = null
+            client.diag("Host left the room - leaving too", warning = true)
+            leaveRoom()
+            scope.launch(Dispatchers.Main) {
+                android.widget.Toast.makeText(
+                    context,
+                    context.getString(com.metrolist.music.R.string.listen_together_host_left),
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+                val connection = playerConnection ?: return@launch
+                if (snapshot == null || snapshot.items.isEmpty()) {
+                    connection.pause()
+                    return@launch
+                }
+                runCatching {
+                    val player = connection.player
+                    player.setMediaItems(
+                        snapshot.items,
+                        snapshot.index.coerceIn(0, snapshot.items.lastIndex),
+                        snapshot.position.coerceAtLeast(0L),
+                    )
+                    player.prepare()
+                    connection.pause()
+                    connection.service.queueTitle = snapshot.queueTitle
+                }.onFailure { Timber.tag(TAG).e(it, "Failed to restore the queue after the host left") }
             }
         }
 
@@ -1621,6 +1709,7 @@ class ListenTogetherManager
          */
         fun leaveRoom() {
             Timber.tag(TAG).d("Leaving room")
+            if (System.currentTimeMillis() - hostGoneAt > 5_000) guestSnapshot = null
             cleanup()
             client.leaveRoom()
         }

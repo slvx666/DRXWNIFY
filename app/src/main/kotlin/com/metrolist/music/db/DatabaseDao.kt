@@ -2042,4 +2042,7 @@ interface DatabaseDao {
 
     @Query("DELETE FROM audio_fallback_match WHERE catalogId = :catalogId AND provider = :provider")
     fun deleteAudioFallbackMatch(catalogId: String, provider: String)
+
+    @Query("DELETE FROM audio_fallback_match WHERE catalogId = :catalogId")
+    fun deleteAudioFallbackMatches(catalogId: String)
 }

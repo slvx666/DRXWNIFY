@@ -27,6 +27,7 @@ class ParallelAudioResolverTest {
         private val found: Boolean,
         private val throws: Boolean = false,
         override val searchTimeoutMs: Long = 5_000,
+        private val confidence: Double = 0.9,
     ) : AudioProvider {
         val cancelled = AtomicBoolean(false)
         val finished = AtomicBoolean(false)
@@ -40,13 +41,33 @@ class ParallelAudioResolverTest {
             }
             finished.set(true)
             if (throws) error("service down")
-            return if (found) ProviderMatch(id, "$id-track", query.title, query.primaryArtist, query.durationMs, 0.9) else null
+            return if (found) ProviderMatch(id, "$id-track", query.title, query.primaryArtist, query.durationMs, confidence) else null
         }
 
         override suspend fun stream(query: AudioQuery, match: ProviderMatch): AudioStream? = null
     }
 
     private fun resolver(soft: Long = 400, hard: Long = 1_500) = ParallelAudioResolver(soft, hard)
+
+    @Test
+    fun exactMatchBeatsDoubtfulMatchFromHigherRankedProvider() = runBlocking {
+        // Bandcamp is ranked first but only has a similarly named act; YouTube has the exact track.
+        val bandcamp = FakeProvider(AudioProviderId.BANDCAMP, 20, found = true, confidence = 0.77)
+        val youtube = FakeProvider(AudioProviderId.YOUTUBE, 120, found = true, confidence = 1.0)
+        val order = listOf(AudioProviderId.BANDCAMP, AudioProviderId.YOUTUBE)
+        val outcome = resolver().resolve(query, listOf(bandcamp, youtube), order)
+        assertEquals(AudioProviderId.YOUTUBE, outcome.winner?.provider)
+        assertEquals(AudioProviderId.YOUTUBE, outcome.matches.first().provider)
+    }
+
+    @Test
+    fun comparablyConfidentMatchesFollowProviderOrder() = runBlocking {
+        val bandcamp = FakeProvider(AudioProviderId.BANDCAMP, 20, found = true, confidence = 0.92)
+        val youtube = FakeProvider(AudioProviderId.YOUTUBE, 60, found = true, confidence = 1.0)
+        val order = listOf(AudioProviderId.BANDCAMP, AudioProviderId.YOUTUBE)
+        val outcome = resolver().resolve(query, listOf(bandcamp, youtube), order)
+        assertEquals(AudioProviderId.BANDCAMP, outcome.winner?.provider)
+    }
 
     @Test
     fun fastHigherPriorityProviderWins() = runBlocking {

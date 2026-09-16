@@ -1248,4 +1248,12 @@
     <string name="vk_code_hint_app">Enter the code from your authenticator app or the VK notification</string>
     <string name="vk_captcha_hint">Enter the characters from the image</string>
     <string name="vk_login_via_page">Log in on the VK page instead</string>
+    <string name="audio_source_choose">Choose audio source</string>
+    <string name="audio_source_choose_desc">If the wrong recording plays, pick the right one</string>
+    <string name="audio_source_searching">Searching every source…</string>
+    <string name="audio_source_none">None of the enabled sources found this track</string>
+    <string name="audio_source_auto">Automatic</string>
+    <string name="audio_source_current">Now: %1$s</string>
+    <string name="audio_source_candidate_info">%1$s · match %2$d%%</string>
+    <string name="listen_together_host_left">The host left the room, so listening together has ended</string>
 </resources>

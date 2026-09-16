@@ -48,6 +48,9 @@ class SpotifyQueue(
     companion object {
         private const val RESOLVE_BATCH_SIZE = 10
         private const val RECOMMENDATION_TIMEOUT_MS = 4000L
+
+        /** Fewer similar-artist songs than this and the older engine / artist top tracks are used. */
+        private const val MIN_SIMILAR_TRACKS = 10
     }
 
     private val queuedTracks = mutableListOf<SpotifyTrack>()
@@ -89,6 +92,18 @@ class SpotifyQueue(
     private suspend fun ensureRecommendations() {
         if (recommendationsGenerated) return
         recommendationsGenerated = true
+
+        // Songs by similar artists come first: the taste-profile engine below mixes in the user's
+        // unrelated favourites, which made a metalcore single continue with synthwave.
+        val similar = withTimeoutOrNull(RECOMMENDATION_TIMEOUT_MS * 2) {
+            runCatching { com.metrolist.music.playback.SimilarArtistsRadio.build(initialTrack) }.getOrNull()
+        }.orEmpty()
+        if (similar.size >= MIN_SIMILAR_TRACKS) {
+            queuedTracks.addAll(similar)
+            Timber.d("SpotifyQueue: ${similar.size} similar-artist tracks for '${initialTrack.name}'")
+            return
+        }
+
         if (Catalog.isYandexId(initialTrack.id)) {
             // The recommendation engine is built on Spotify's taste profile; for a Yandex Music track
             // use the catalog-agnostic queue (artist top tracks + the rest of the album).

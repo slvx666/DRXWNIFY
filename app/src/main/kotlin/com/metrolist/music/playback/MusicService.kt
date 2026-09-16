@@ -1653,6 +1653,42 @@ class MusicService :
         }
     }
 
+    /** Replaces what follows the current item with a similar-artists radio. False when not a catalog track. */
+    private suspend fun startCatalogRadio(currentMediaId: String, currentIndex: Int): Boolean {
+        if (!com.metrolist.music.catalog.Catalog.isActive) return false
+        val seed = withContext(Dispatchers.IO) {
+            SpotifyMetadataRegistry.get(currentMediaId)?.takeIf { it.id.isNotBlank() }
+                ?: (FallbackIds.catalogIdOf(currentMediaId)
+                    ?: runCatching { database.getSpotifyMatchByYouTubeId(currentMediaId)?.spotifyId }.getOrNull())
+                    ?.let { com.metrolist.music.catalog.Catalog.getTrack(it).getOrNull() }
+        } ?: return false
+        val radio = com.metrolist.music.playback.queues.SpotifyQueue(
+            initialTrack = seed,
+            mapper = SpotifyYouTubeMapper(database),
+            context = this,
+            database = database,
+        )
+        val items = withContext(Dispatchers.IO) {
+            radio.nextPage()
+                .filterExplicit(dataStore.get(HideExplicitKey, false))
+                .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
+                .filter { it.mediaId != currentMediaId }
+        }
+        if (items.isEmpty()) return false
+        if (player.currentMediaItem?.mediaId != currentMediaId) return true
+        val itemCount = player.mediaItemCount
+        if (itemCount > currentIndex + 1) {
+            player.removeMediaItems(currentIndex + 1, itemCount)
+        }
+        player.addMediaItems(currentIndex + 1, items)
+        if (player.shuffleModeEnabled) {
+            val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
+            applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
+        }
+        currentQueue = radio
+        return true
+    }
+
     fun startRadioSeamlessly() {
         // Safety Check: Ensure Player is initilized
         if (!playerInitialized.value) {
@@ -1666,6 +1702,10 @@ class MusicService :
         val currentMediaId = currentMediaMetadata.id
 
         scope.launch(SilentHandler) {
+            // A catalog track (Spotify / Yandex) gets a radio of similar artists. YouTube's radio for
+            // it was built from an id YouTube doesn't know ("mfb:…") and returned unrelated music.
+            if (startCatalogRadio(currentMediaId, currentIndex)) return@launch
+
             // Use simple videoId to let YouTube personalize recommendations
             val radioQueue =
                 YouTubeQueue(
@@ -4929,6 +4969,45 @@ class MusicService :
                 Timber.tag("MusicService").e(e, "Failed to clear cache on Qobuz override for $mediaId")
             }
             bypassCacheForQualityChange.add(mediaId)
+            withContext(Dispatchers.Main) {
+                if (player.currentMediaItem?.mediaId == mediaId) {
+                    val pos = player.currentPosition.coerceAtLeast(0L)
+                    val wasPlaying = player.playWhenReady
+                    val idx = player.currentMediaItemIndex
+                    player.stop()
+                    player.seekTo(idx, pos)
+                    player.prepare()
+                    if (wasPlaying) player.play()
+                }
+            }
+        }
+    }
+
+    /** Each enabled source's best match for [mediaId], for the "choose audio source" dialog. */
+    suspend fun audioSourceCandidates(mediaId: String): List<com.metrolist.music.resolver.ProviderMatch> =
+        withContext(Dispatchers.IO) {
+            AudioFallbackEngine.candidatesFor(mediaId, database.getSongByIdBlocking(mediaId))
+        }
+
+    suspend fun currentAudioSource(mediaId: String): com.metrolist.music.resolver.ProviderMatch? =
+        withContext(Dispatchers.IO) {
+            AudioFallbackEngine.currentChoice(mediaId, database.getSongByIdBlocking(mediaId))
+        }
+
+    /**
+     * Pins the recording that plays for [mediaId] (null = automatic again). Every cached form of the
+     * stream is dropped and, if it's the current track, playback restarts at the same position.
+     */
+    fun setAudioSource(mediaId: String, match: com.metrolist.music.resolver.ProviderMatch?) {
+        if (mediaId.isBlank()) return
+        scope.launch(Dispatchers.IO) {
+            AudioFallbackEngine.setManualChoice(mediaId, database.getSongByIdBlocking(mediaId), match)
+            songUrlCache.remove(mediaId)
+            songUrlCache.remove(RESCUE_CACHE_PREFIX + mediaId)
+            fallbackServing.remove(mediaId)
+            fallbackFailures.remove(mediaId)
+            runCatching { playerCache.removeResource(mediaId) }
+            runCatching { playerCache.removeResource(RESCUE_CACHE_PREFIX + mediaId) }
             withContext(Dispatchers.Main) {
                 if (player.currentMediaItem?.mediaId == mediaId) {
                     val pos = player.currentPosition.coerceAtLeast(0L)
