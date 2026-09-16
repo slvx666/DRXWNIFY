@@ -16,7 +16,7 @@
 [![Release](https://img.shields.io/github/v/release/DrxwnSlvt/Drxwnify?style=for-the-badge&color=c62828&label=релиз)](https://github.com/DrxwnSlvt/Drxwnify/releases/latest)
 [![License](https://img.shields.io/badge/license-GPL--3.0-455a64?style=for-the-badge)](LICENSE)
 
-**🇷🇺 Русский** · [🇬🇧 English](README_EN.md)
+**RU · Русский** &nbsp;|&nbsp; [EN · English](README_EN.md)
 
 </div>
 
