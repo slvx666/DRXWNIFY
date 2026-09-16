@@ -307,6 +307,8 @@ fun SpotifyLikedSongsScreen(
                                             mapper = mapper,
                                             label = context.getString(R.string.liked_songs),
                                             downloads = downloadUtil.downloads,
+                                            // One folder for the whole "Liked Songs" list.
+                                            folderName = context.getString(R.string.liked_songs),
                                             onFinished = { result ->
                                                 Toast.makeText(
                                                     appContext,
@@ -621,6 +623,8 @@ fun SpotifyLikedSongsScreen(
                                             mapper = mapper,
                                             label = context.getString(R.string.liked_songs),
                                             downloads = downloadUtil.downloads,
+                                            // One folder for the whole "Liked Songs" list.
+                                            folderName = context.getString(R.string.liked_songs),
                                             onFinished = { result ->
                                                 Toast.makeText(
                                                     appContext,

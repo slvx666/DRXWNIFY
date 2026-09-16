@@ -23,15 +23,20 @@ import androidx.media3.datasource.cache.SimpleCache
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
 import com.metrolist.music.constants.DownloadFolderUriKey
+import com.metrolist.music.constants.ExportFolderHintsKey
 import com.metrolist.music.constants.ExportedSongIdsKey
+import com.metrolist.music.constants.PendingExportSongIdsKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.di.DownloadCache
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -50,8 +55,26 @@ object DownloadExportState {
     private val _exporting = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
     val exporting: kotlinx.coroutines.flow.StateFlow<Set<String>> = _exporting
 
+    /** Tracks whose file actually exists in the user's folder — what "downloaded" means to the user. */
+    private val _exported = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    val exported: kotlinx.coroutines.flow.StateFlow<Set<String>> = _exported
+
+    /** Tracks whose export failed (bad/incomplete cache, no write access…). */
+    private val _failed = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    val failed: kotlinx.coroutines.flow.StateFlow<Set<String>> = _failed
+
     fun begin(songId: String) { _exporting.value = _exporting.value + songId }
     fun end(songId: String) { _exporting.value = _exporting.value - songId }
+    fun markExported(songId: String) {
+        _exported.value = _exported.value + songId
+        _failed.value = _failed.value - songId
+    }
+    fun markExported(songIds: Set<String>) { _exported.value = _exported.value + songIds }
+    fun markFailed(songId: String) { _failed.value = _failed.value + songId }
+    fun forget(songId: String) {
+        _exported.value = _exported.value - songId
+        _failed.value = _failed.value - songId
+    }
 }
 
 /**
@@ -71,10 +94,28 @@ class DownloadExporter @Inject constructor(
     @ApplicationContext private val context: Context,
     private val database: MusicDatabase,
     @DownloadCache private val downloadCache: SimpleCache,
-    @Suppress("unused") @ApplicationScope private val scope: CoroutineScope,
+    @ApplicationScope private val scope: CoroutineScope,
 ) {
-    /** Serializes writes so two completing downloads don't race on the same folder. */
-    private val exportMutex = Mutex()
+    /**
+     * Two tracks may be transcoded at once (FFmpeg is the slow part of a batch); creating the
+     * destination file stays serialized so two exports can't claim the same name.
+     */
+    private val exportPermits = Semaphore(2)
+    private val destinationMutex = Any()
+
+    init {
+        // Remember what is already on disk, and finish exports that a previous run didn't get to
+        // (the app being killed used to leave tracks counted as downloaded but with no file).
+        scope.launch {
+            DownloadExportState.markExported(context.dataStore.get(ExportedSongIdsKey, emptySet()))
+            delay(RETRY_DELAY_MS)
+            val pending = context.dataStore.get(PendingExportSongIdsKey, emptySet())
+            if (pending.isNotEmpty()) {
+                Timber.d("DownloadExporter: retrying %d unfinished export(s)", pending.size)
+                for (songId in pending) export(songId)
+            }
+        }
+    }
 
     /** Lightweight client for fetching cover-art thumbnails. */
     private val httpClient by lazy { OkHttpClient() }
@@ -86,18 +127,25 @@ class DownloadExporter @Inject constructor(
      *   Never throws — all failures are wrapped.
      */
     suspend fun export(songId: String): Result<Uri> = withContext(Dispatchers.IO) {
-        exportMutex.withLock {
+        exportPermits.withPermit {
             if (isExported(songId)) {
+                DownloadExportState.markExported(songId)
                 Timber.d("DownloadExporter: %s already exported, skipping", songId)
-                return@withLock Result.failure(AlreadyExportedException(songId))
+                return@withPermit Result.failure(AlreadyExportedException(songId))
             }
             // Publish "processing" so the UI can keep showing progress after the byte-download
             // finishes and until the tagged file actually lands in the user's folder.
             DownloadExportState.begin(songId)
+            markPending(songId)
             try {
-                runCatching { exportInternal(songId) }
+                val playlistFolder = folderHint(songId)
+                runCatching { exportInternal(songId, playlistFolder) }
                     .onSuccess { markExported(songId) }
-                    .onFailure { Timber.e(it, "DownloadExporter: export failed for %s", songId) }
+                    .onFailure {
+                        // Left in the pending set so the next app start tries again.
+                        DownloadExportState.markFailed(songId)
+                        Timber.e(it, "DownloadExporter: export failed for %s", songId)
+                    }
             } finally {
                 DownloadExportState.end(songId)
             }
@@ -109,6 +157,7 @@ class DownloadExporter @Inject constructor(
      * Call from the download-removed callback.
      */
     suspend fun forgetExported(songId: String) {
+        DownloadExportState.forget(songId)
         context.dataStore.edit { prefs ->
             prefs[ExportedSongIdsKey]?.let { current ->
                 if (songId in current) prefs[ExportedSongIdsKey] = current - songId
@@ -122,13 +171,30 @@ class DownloadExporter @Inject constructor(
     private suspend fun markExported(songId: String) {
         context.dataStore.edit { prefs ->
             prefs[ExportedSongIdsKey] = (prefs[ExportedSongIdsKey] ?: emptySet()) + songId
+            prefs[PendingExportSongIdsKey] = (prefs[PendingExportSongIdsKey] ?: emptySet()) - songId
+            prefs[ExportFolderHintsKey] = (prefs[ExportFolderHintsKey] ?: emptySet())
+                .filterNot { it.substringBefore(HINT_SEPARATOR) == songId }.toSet()
+        }
+        DownloadExportState.markExported(songId)
+    }
+
+    private suspend fun markPending(songId: String) {
+        context.dataStore.edit { prefs ->
+            prefs[PendingExportSongIdsKey] = (prefs[PendingExportSongIdsKey] ?: emptySet()) + songId
         }
     }
+
+    /** Folder this track must go into (a playlist name), instead of the artist/album tree. */
+    private suspend fun folderHint(songId: String): String? =
+        context.dataStore.data.first()[ExportFolderHintsKey]
+            ?.firstOrNull { it.substringBefore(HINT_SEPARATOR) == songId }
+            ?.substringAfter(HINT_SEPARATOR)
+            ?.takeIf { it.isNotBlank() }
 
     /** Thrown (as a [Result.failure]) when a track was already exported; not an error. */
     class AlreadyExportedException(songId: String) : Exception("Already exported: $songId")
 
-    private fun exportInternal(songId: String): Uri {
+    private fun exportInternal(songId: String, playlistFolder: String?): Uri {
         val song = database.getSongByIdBlocking(songId)
             ?: error("Song not found in database: $songId")
         val format = song.format
@@ -229,9 +295,14 @@ class DownloadExporter @Inject constructor(
         val isVarious = spotifyAlbumArtist?.equals("Various Artists", ignoreCase = true)
             ?: (artistNames.size > 2 || primaryArtist.equals("Various Artists", ignoreCase = true))
         val topFolder = if (isVarious) "Various" else (spotifyAlbumArtist ?: primaryArtist)
-        val relativeSegments = buildList {
-            add(sanitizeFileName(topFolder))
-            if (isRealAlbum && albumName != null) add(sanitizeFileName(albumName))
+        // A playlist download keeps all of its tracks together in one folder named after it.
+        val relativeSegments = if (playlistFolder != null) {
+            listOf(sanitizeFileName(playlistFolder))
+        } else {
+            buildList {
+                add(sanitizeFileName(topFolder))
+                if (isRealAlbum && albumName != null) add(sanitizeFileName(albumName))
+            }
         }
         val baseName = sanitizeFileName("$artistString - $title")
 
@@ -290,7 +361,11 @@ class DownloadExporter @Inject constructor(
             // 4) Write the result into the destination folder (SAF / MediaStore) — unchanged writer.
             val downloadFolderUri = context.dataStore.get(DownloadFolderUriKey, "")
             val fileName = "$baseName.$finalExt"
-            val target = openTarget(downloadFolderUri, relativeSegments, fileName, finalMime)
+            // Creating the destination entry is serialized so two parallel exports can't pick
+            // the same file name; the actual copy below runs concurrently.
+            val target = synchronized(destinationMutex) {
+                openTarget(downloadFolderUri, relativeSegments, fileName, finalMime)
+            }
             try {
                 sourceFile.inputStream().use { input -> input.copyTo(target.output) }
                 target.output.flush()
@@ -659,6 +734,25 @@ class DownloadExporter @Inject constructor(
     }
 
     companion object {
+        /** Separator inside an [ExportFolderHintsKey] entry ("songId\\folder"). */
+        private const val HINT_SEPARATOR = '\u001F'
+
+        /** Give the app a moment to start before retrying leftover exports. */
+        private const val RETRY_DELAY_MS = 8_000L
+
+        /**
+         * Records that [songIds] belong to a playlist download and must all land in ONE folder
+         * named [folderName], instead of the artist/album tree.
+         */
+        suspend fun rememberPlaylistFolder(context: Context, songIds: Collection<String>, folderName: String) {
+            if (songIds.isEmpty() || folderName.isBlank()) return
+            context.dataStore.edit { prefs ->
+                val existing = (prefs[ExportFolderHintsKey] ?: emptySet())
+                    .filterNot { it.substringBefore(HINT_SEPARATOR) in songIds }
+                prefs[ExportFolderHintsKey] = (existing + songIds.map { "$it$HINT_SEPARATOR$folderName" }).toSet()
+            }
+        }
+
         private val ILLEGAL_FILENAME_CHARS = charArrayOf('/', '\\', ':', '*', '?', '"', '<', '>', '|')
 
         // YouTube promo tags used to detect/strip noise from video titles. Case-insensitive.

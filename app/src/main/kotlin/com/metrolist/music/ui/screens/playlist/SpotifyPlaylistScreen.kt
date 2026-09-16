@@ -194,6 +194,8 @@ fun SpotifyPlaylistScreen(
                 mapper = mapper,
                 label = playlist?.name.orEmpty(),
                 downloads = downloadUtil.downloads,
+                // Everything from a playlist lands together in one folder named after it.
+                folderName = playlist?.name?.takeIf { it.isNotBlank() } ?: "Playlist",
                 onFinished = { result ->
                     Toast.makeText(
                         appContext,

@@ -11,6 +11,7 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import com.metrolist.music.utils.DownloadExportState
+import com.metrolist.music.utils.DownloadExporter
 import com.metrolist.spotify.models.SpotifyTrack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -93,11 +94,13 @@ object SpotifyBatchDownload {
         mapper: SpotifyYouTubeMapper,
         label: String,
         downloads: StateFlow<Map<String, Download>>,
+        /** Non-null for a playlist: every track of this batch is exported into ONE folder with this name. */
+        folderName: String? = null,
         onFinished: ((Progress) -> Unit)? = null,
     ) {
         if (isRunning(sourceId)) return
         bgScope.launch {
-            val result = run(appContext, sourceId, tracks, mapper, label, downloads)
+            val result = run(appContext, sourceId, tracks, mapper, label, downloads, folderName)
             if (result != null) {
                 onFinished?.let { cb -> withContext(Dispatchers.Main) { cb(result) } }
             }
@@ -117,6 +120,7 @@ object SpotifyBatchDownload {
         mapper: SpotifyYouTubeMapper,
         label: String,
         downloads: StateFlow<Map<String, Download>>,
+        folderName: String? = null,
     ): Progress? {
         val total = tracks.size
         val resolved = AtomicInteger(0)
@@ -143,6 +147,11 @@ object SpotifyBatchDownload {
                                     // Tag from Spotify before the download finishes so the exporter
                                     // never falls back to YouTube's channel/label.
                                     mapper.persistSpotifyMetadata(metadata, track)
+                                    if (folderName != null) {
+                                        // Recorded before enqueuing: the exporter reads it when the
+                                        // track's bytes are done, which can be immediate.
+                                        DownloadExporter.rememberPlaylistFolder(context, listOf(metadata.id), folderName)
+                                    }
                                     enqueue(context, metadata.id, metadata.title)
                                     enqueuedIds.add(metadata.id)
                                 } else {
@@ -171,20 +180,9 @@ object SpotifyBatchDownload {
                         removeAll(context, enqueuedIds)
                         return null
                     }
-                    val map = downloads.value
-                    val exporting = DownloadExportState.exporting.value
-                    var downloading = 0
-                    var formatting = 0
-                    var completed = 0
-                    var failed = 0
-                    for (id in enqueuedIds) {
-                        when {
-                            id in exporting -> formatting++
-                            map[id]?.state == Download.STATE_COMPLETED -> completed++
-                            map[id]?.state == Download.STATE_FAILED -> failed++
-                            else -> downloading++
-                        }
-                    }
+                    val counts = countStates(enqueuedIds, downloads.value)
+                    val (downloading, formatting) = counts.downloading to counts.formatting
+                    val (completed, failed) = counts.completed to counts.failed
                     val phase = when {
                         downloading > 0 -> Phase.DOWNLOADING
                         formatting > 0 -> Phase.FORMATTING
@@ -196,14 +194,41 @@ object SpotifyBatchDownload {
                 }
             }
 
-            val map = downloads.value
-            val done = enqueuedIds.count { map[it]?.state == Download.STATE_COMPLETED }
-            val failed = enqueuedIds.count { map[it]?.state == Download.STATE_FAILED }
-            return Progress(sourceId, label, Phase.DONE, done, enqueuedIds.size, skipped.get(), failed)
+            val counts = countStates(enqueuedIds, downloads.value)
+            return Progress(sourceId, label, Phase.DONE, counts.completed, enqueuedIds.size, skipped.get(), counts.failed)
         } finally {
             cancelled.remove(sourceId)
             _progressBySource.update { it - sourceId }
         }
+    }
+
+    private data class Counts(val downloading: Int, val formatting: Int, val completed: Int, val failed: Int)
+
+    /**
+     * A track counts as done only once its FILE is in the user's folder, not when the bytes are
+     * cached: the transcode to the tagged MP3 happens afterwards and takes far longer, so counting
+     * cached bytes made the progress claim many more tracks than the folder actually had.
+     */
+    private fun countStates(ids: Set<String>, map: Map<String, Download>): Counts {
+        val exported = DownloadExportState.exported.value
+        val exportFailed = DownloadExportState.failed.value
+        val exporting = DownloadExportState.exporting.value
+        var downloading = 0
+        var formatting = 0
+        var completed = 0
+        var failed = 0
+        for (id in ids) {
+            when {
+                id in exported -> completed++
+                id in exportFailed -> failed++
+                id in exporting -> formatting++
+                map[id]?.state == Download.STATE_FAILED -> failed++
+                // Bytes are cached; the file is still being assembled/tagged.
+                map[id]?.state == Download.STATE_COMPLETED -> formatting++
+                else -> downloading++
+            }
+        }
+        return Counts(downloading, formatting, completed, failed)
     }
 
     private fun enqueue(context: Context, mediaId: String, title: String) {

@@ -154,6 +154,15 @@ val DownloadFolderUriKey = stringPreferencesKey("downloadFolderUri")
 // doesn't create duplicate files. Cleared per-id when the download is removed.
 val ExportedSongIdsKey = stringSetPreferencesKey("exportedSongIds")
 
+/** Downloads that finished but whose file hasn't landed in the user's folder yet (retried on start). */
+val PendingExportSongIdsKey = stringSetPreferencesKey("pendingExportSongIds")
+
+/**
+ * "songIdfolder" entries: tracks downloaded as part of a playlist go into ONE folder named
+ * after that playlist instead of the artist/album tree. Dropped once the track is exported.
+ */
+val ExportFolderHintsKey = stringSetPreferencesKey("exportFolderHints")
+
 val PauseListenHistoryKey = booleanPreferencesKey("pauseListenHistory")
 val PauseSearchHistoryKey = booleanPreferencesKey("pauseSearchHistory")
 val DisableScreenshotKey = booleanPreferencesKey("disableScreenshot")
