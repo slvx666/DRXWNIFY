@@ -5,7 +5,6 @@
 
 package com.metrolist.music.ui.screens
 
-import com.metrolist.music.ui.component.coverGlow
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -229,8 +228,12 @@ fun AlbumScreen(
                     Surface(
                         modifier =
                             Modifier
-                                .coverGlow(albumWithSongs.album.thumbnailUrl)
-                                .size(240.dp),
+                                .size(240.dp)
+                                .shadow(
+                                    elevation = 24.dp,
+                                    shape = RoundedCornerShape(3.dp),
+                                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                                ),
                         shape = RoundedCornerShape(3.dp),
                     ) {
                         AsyncImage(

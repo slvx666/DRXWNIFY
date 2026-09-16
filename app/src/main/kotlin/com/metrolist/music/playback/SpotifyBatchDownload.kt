@@ -10,6 +10,8 @@ import androidx.core.net.toUri
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
+import com.metrolist.music.db.MusicDatabase
+import com.metrolist.music.resolver.FallbackIds
 import com.metrolist.music.utils.DownloadExportState
 import com.metrolist.music.utils.DownloadExporter
 import com.metrolist.spotify.models.SpotifyTrack
@@ -50,14 +52,16 @@ object SpotifyBatchDownload {
         val sourceId: String,
         val label: String,
         val phase: Phase,
-        /** Phase-relative numerator (resolved so far, or fully-downloaded so far). */
+        /** Tracks whose file is already in the user's folder (this run plus earlier ones). */
         val current: Int,
-        /** Phase-relative denominator (total tracks while searching, matched count afterwards). */
+        /** Every track of the source - the bar always describes the whole list. */
         val total: Int,
         /** Tracks with no source match (skipped, not an error). */
         val skipped: Int,
-        /** Tracks whose download failed. */
+        /** Tracks whose download or export failed. */
         val failed: Int,
+        /** Of [current], how many were already downloaded before this run started. */
+        val alreadyDownloaded: Int = 0,
     ) {
         val fraction: Float get() = if (total <= 0) 0f else (current.toFloat() / total).coerceIn(0f, 1f)
     }
@@ -94,13 +98,14 @@ object SpotifyBatchDownload {
         mapper: SpotifyYouTubeMapper,
         label: String,
         downloads: StateFlow<Map<String, Download>>,
+        database: MusicDatabase,
         /** Non-null for a playlist: every track of this batch is exported into ONE folder with this name. */
         folderName: String? = null,
         onFinished: ((Progress) -> Unit)? = null,
     ) {
         if (isRunning(sourceId)) return
         bgScope.launch {
-            val result = run(appContext, sourceId, tracks, mapper, label, downloads, folderName)
+            val result = run(appContext, sourceId, tracks, mapper, label, downloads, database, folderName)
             if (result != null) {
                 onFinished?.let { cb -> withContext(Dispatchers.Main) { cb(result) } }
             }
@@ -120,6 +125,7 @@ object SpotifyBatchDownload {
         mapper: SpotifyYouTubeMapper,
         label: String,
         downloads: StateFlow<Map<String, Download>>,
+        database: MusicDatabase,
         folderName: String? = null,
     ): Progress? {
         val total = tracks.size
@@ -129,15 +135,32 @@ object SpotifyBatchDownload {
         cancelled.remove(sourceId)
         fun isCancelled() = sourceId in cancelled
 
+        // Tracks already sitting in the user's folder are not searched or downloaded again: pressing
+        // "download all" a second time now only picks up what is actually missing.
+        val alreadyDone = downloadedTrackIds(database, tracks)
+        val todo = tracks.filterNot { it.id in alreadyDone }
+        val already = alreadyDone.size
+
         fun publishSearching() =
-            publish(Progress(sourceId, label, Phase.SEARCHING, resolved.get(), total, skipped.get(), 0))
+            publish(
+                Progress(
+                    sourceId, label, Phase.SEARCHING,
+                    // While searching the bar moves with every track looked up.
+                    current = already + resolved.get(), total = total, skipped = skipped.get(), failed = 0,
+                    alreadyDownloaded = already,
+                ),
+            )
         publishSearching()
+        if (todo.isEmpty()) {
+            _progressBySource.update { it - sourceId }
+            return Progress(sourceId, label, Phase.DONE, already, total, 0, 0, already)
+        }
 
         try {
             // Stage 1 — SEARCHING: resolve + enqueue, bounded by the global permit pool.
             withContext(Dispatchers.IO) {
                 coroutineScope {
-                    tracks.map { track ->
+                    todo.map { track ->
                         async {
                             resolvePermits.withPermit {
                                 if (isCancelled()) return@withPermit
@@ -188,19 +211,57 @@ object SpotifyBatchDownload {
                         formatting > 0 -> Phase.FORMATTING
                         else -> Phase.DONE
                     }
-                    publish(Progress(sourceId, label, phase, completed, queued, skipped.get(), failed))
+                    publish(
+                        Progress(
+                            sourceId, label, phase,
+                            current = already + completed, total = total,
+                            skipped = skipped.get(), failed = failed, alreadyDownloaded = already,
+                        ),
+                    )
                     if (completed + failed >= queued && formatting == 0 && downloading == 0) break
                     delay(500)
                 }
             }
 
             val counts = countStates(enqueuedIds, downloads.value)
-            return Progress(sourceId, label, Phase.DONE, counts.completed, enqueuedIds.size, skipped.get(), counts.failed)
+            return Progress(
+                sourceId, label, Phase.DONE,
+                current = already + counts.completed, total = total,
+                skipped = skipped.get(), failed = counts.failed, alreadyDownloaded = already,
+            )
         } finally {
             cancelled.remove(sourceId)
             _progressBySource.update { it - sourceId }
         }
     }
+
+    /**
+     * Ids of [tracks] whose file is already in the user's folder - checked without any network
+     * request: a track downloaded through one of the audio sources always has the media id
+     * "mfb:<track id>", and a YouTube-matched one is in the local match cache.
+     */
+    suspend fun downloadedTrackIds(database: MusicDatabase, tracks: List<SpotifyTrack>): Set<String> =
+        withContext(Dispatchers.IO) {
+            val exported = DownloadExportState.exported.value
+            if (exported.isEmpty() || tracks.isEmpty()) return@withContext emptySet()
+            val done = HashSet<String>()
+            for (track in tracks) {
+                if (FallbackIds.of(track.id) in exported) done.add(track.id)
+            }
+            val rest = tracks.filterNot { it.id in done }
+            for (chunk in rest.chunked(400)) {
+                val matches = runCatching { database.getSpotifyMatchesBySpotifyIds(chunk.map { it.id }) }
+                    .getOrElse { emptyList() }
+                for (match in matches) {
+                    if (match.youtubeId in exported) done.add(match.spotifyId)
+                }
+            }
+            done
+        }
+
+    /** How many of [tracks] are already downloaded (for the "N of M" label on a screen). */
+    suspend fun downloadedCount(database: MusicDatabase, tracks: List<SpotifyTrack>): Int =
+        downloadedTrackIds(database, tracks).size
 
     private data class Counts(val downloading: Int, val formatting: Int, val completed: Int, val failed: Int)
 

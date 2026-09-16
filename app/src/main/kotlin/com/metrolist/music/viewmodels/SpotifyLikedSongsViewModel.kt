@@ -45,6 +45,13 @@ constructor(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing = _isRefreshing.asStateFlow()
 
+    /**
+     * True once every page of the list has been fetched. "Download all" waits for it: started
+     * earlier, it only saw the first few hundred tracks and had to be pressed again and again.
+     */
+    private val _allLoaded = MutableStateFlow(false)
+    val allLoaded = _allLoaded.asStateFlow()
+
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
@@ -70,6 +77,15 @@ constructor(
 
     private suspend fun loadLikedSongsInternal() {
         _error.value = null
+        _allLoaded.value = false
+        try {
+            loadAllPages()
+        } finally {
+            _allLoaded.value = true
+        }
+    }
+
+    private suspend fun loadAllPages() {
 
         // Liked songs of the connected account(s): Spotify, Yandex Music, or both merged without duplicates.
         Catalog.likedSongs(limit = PAGE_SIZE, offset = 0).onSuccess { paging ->

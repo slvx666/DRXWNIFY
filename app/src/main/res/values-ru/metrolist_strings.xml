@@ -434,6 +434,8 @@
     <string name="listen_together_sync_volume">Синхронизация громкости хоста</string>
     <string name="listen_together_sync_volume_desc">У гостей будет такой же уровень громкости, как у хоста</string>
     <string name="copy_code">Скопировать код</string>
+    <string name="copy_link_short">Ссылка</string>
+    <string name="copy_code_short">Код</string>
     <string name="kick_user_desc">Удалить этого пользователя из сессии</string>
     <string name="permanently_kick_user">Заблокировать навсегда</string>
     <string name="permanently_kick_user_desc">Заблокировать запросы этого пользователя и скрыть его предложения</string>
@@ -803,7 +805,7 @@
     <string name="spotify_download_progress">Подготовка %1$d / %2$d…</string>
     <string name="spotify_download_done">В очередь: %1$d, пропущено: %2$d</string>
     <string name="spotify_dl_searching">Поиск %1$d / %2$d…</string>
-    <string name="spotify_dl_downloading">Скачивание %1$d / %2$d…</string>
+    <string name="spotify_dl_downloading">Скачивание… в папке %1$d из %2$d</string>
     <string name="spotify_dl_formatting">Форматирование…</string>
     <string name="spotify_dl_finished">Скачано: %1$d · пропущено: %2$d · ошибок: %3$d</string>
     <string name="spotify_download_all">Загрузить всё</string>
@@ -868,6 +870,7 @@
     <string name="vk_connected">VK подключён</string>
     <string name="yandex_login">Вход в Яндекс Музыку</string>
     <string name="login_paste_token">Вставить токен</string>
+    <string name="login_open_in_browser">Открыть в браузере</string>
     <string name="login_token_hint">Токен доступа</string>
     <string name="login_connected">Подключено</string>
     <string name="login_failed_reason">Не удалось войти: %s</string>
@@ -931,4 +934,12 @@
     <string name="soulseek_account_note">Нет аккаунта? Введи новое имя и пароль — Soulseek создаст аккаунт при первом входе.</string>
     <string name="soulseek_wifi_only">Soulseek только по Wi-Fi</string>
     <string name="soulseek_wifi_only_description">Экономит мобильный трафик и батарею: на мобильном интернете Soulseek пропускается.</string>
+    <string name="download_status_downloaded">Скачано %1$d из %2$d</string>
+    <string name="download_status_all">Всё скачано</string>
+    <string name="download_the_rest">Докачать (%1$d)</string>
+    <string name="download_status_not_found">не найдено: %1$d</string>
+    <string name="download_status_failed">ошибок: %1$d</string>
+    <string name="download_keep_open_hint">Можно свернуть приложение: загрузка продолжится, а всё незаписанное дозапишется при следующем запуске.</string>
+    <string name="download_list_loading">Загрузка списка, %1$d из %2$d</string>
+    <string name="spotify_dl_formatting_count">Запись файлов… в папке %1$d из %2$d</string>
 </resources>

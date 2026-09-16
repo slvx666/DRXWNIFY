@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.core.net.toUri
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -174,6 +175,18 @@ private fun OAuthTokenLoginScreen(
                 }
             },
             actions = {
+                // Escape hatch: some keyboards misbehave inside an embedded WebView, so the same
+                // login can be done in the real browser and the token pasted back here.
+                IconButton(
+                    onClick = {
+                        runCatching {
+                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, startUrl.toUri()))
+                        }
+                    },
+                    onLongClick = {},
+                ) {
+                    Icon(painterResource(R.drawable.language), contentDescription = stringResource(R.string.login_open_in_browser))
+                }
                 TextButton(onClick = { showPasteDialog = true }) {
                     Text(stringResource(R.string.login_paste_token))
                 }
@@ -187,9 +200,6 @@ private fun OAuthTokenLoginScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
-        if (loading || processing) {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
-        }
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
@@ -198,6 +208,18 @@ private fun OAuthTokenLoginScreen(
                     WebView(ctx).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        // Without an explicit focus the page's inputs can end up sharing focus with
+                        // the Compose host, which made typed characters land in reverse order.
+                        isFocusable = true
+                        isFocusableInTouchMode = true
+                        setOnTouchListener { v, event ->
+                            if (event.action == android.view.MotionEvent.ACTION_DOWN ||
+                                event.action == android.view.MotionEvent.ACTION_UP
+                            ) {
+                                if (!v.hasFocus()) v.requestFocus()
+                            }
+                            false
+                        }
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                                 val params = tokenParams(request?.url?.toString()) ?: return false
@@ -219,9 +241,14 @@ private fun OAuthTokenLoginScreen(
                             }
                         }
                         loadUrl(startUrl)
+                        requestFocus()
                     }
                 },
             )
+            // Overlay, so the page never gets re-laid out mid-typing when loading toggles.
+            if (loading || processing) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+            }
         }
     }
 

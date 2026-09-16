@@ -18,6 +18,11 @@ import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.MediaMetadata.Album
 import com.metrolist.music.models.MediaMetadata.Artist
 import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.playback.SpotifyMetadataRegistry
+import com.metrolist.music.resolver.FallbackIds
+import com.metrolist.spotify.models.SpotifySimpleAlbum
+import com.metrolist.spotify.models.SpotifySimpleArtist
+import com.metrolist.spotify.models.SpotifyTrack
 import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.utils.dataStore
@@ -53,6 +58,9 @@ class ListenTogetherManager
             // Debounce threshold for playback syncs - prevents excessive seeking/pausing
             // Increased from 200ms to 1000ms to reduce choppy audio for guests
             private const val SYNC_DEBOUNCE_THRESHOLD_MS = 1000L
+
+            /** How long a guest waits for the room's "everyone buffered" signal before playing anyway. */
+            private const val BUFFER_FALLBACK_MS = 4000L
 
             // Position tolerance - only seek if difference exceeds this (prevents micro-adjustments)
             // Increased from 500ms to 2000ms to reduce unnecessary seeks that interrupt playback
@@ -108,6 +116,7 @@ class ListenTogetherManager
 
         // Track if a buffer-complete arrived before the pending sync was ready
         private var bufferCompleteReceivedForTrack: String? = null
+        private var bufferFallbackJob: Job? = null
 
         // Expose client state
         val connectionState = client.connectionState
@@ -806,6 +815,53 @@ class ListenTogetherManager
             connection.service.playerVolume.value = target
         }
 
+        /**
+         * The room server confirms "everyone buffered" before playback starts. When that
+         * confirmation never arrives (older server, a guest that never reports, a dropped message),
+         * the guest used to sit silently on a paused track forever — so start anyway after a moment.
+         */
+        private fun scheduleBufferFallback(trackId: String) {
+            bufferFallbackJob?.cancel()
+            bufferFallbackJob =
+                scope.launch(Dispatchers.Main) {
+                    delay(BUFFER_FALLBACK_MS)
+                    if (pendingSyncState != null &&
+                        bufferingTrackId == trackId &&
+                        bufferCompleteReceivedForTrack != trackId
+                    ) {
+                        Timber.tag(TAG).w("No buffer-complete for $trackId in ${BUFFER_FALLBACK_MS}ms - starting anyway")
+                        bufferCompleteReceivedForTrack = trackId
+                        applyPendingSyncIfReady()
+                    }
+                }
+        }
+
+        /**
+         * Teaches this device about the tracks the host is playing. Ids such as "mfb:<catalogId>"
+         * (a track served by one of the audio sources rather than by YouTube) mean nothing on their
+         * own: without the title/artist the guest cannot look the song up and stays silent.
+         */
+        private fun seedResolverMetadata(tracks: List<TrackInfo>) {
+            for (track in tracks) {
+                if (track.id.isBlank() || track.title.isBlank()) continue
+                if (SpotifyMetadataRegistry.get(track.id) != null) continue
+                val artists = track.artist
+                    .split(',', '&', ';')
+                    .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+                    .map { SpotifySimpleArtist(name = it) }
+                SpotifyMetadataRegistry.register(
+                    track.id,
+                    SpotifyTrack(
+                        id = FallbackIds.catalogIdOf(track.id).orEmpty(),
+                        name = track.title,
+                        artists = artists,
+                        album = track.album?.takeIf { it.isNotBlank() }?.let { SpotifySimpleAlbum(name = it) },
+                        durationMs = track.duration.toInt(),
+                    ),
+                )
+            }
+        }
+
         private fun applyPendingSyncIfReady() {
             val pending = pendingSyncState ?: return
             val pendingTrackId = pending.currentTrack?.id ?: bufferingTrackId ?: return
@@ -1248,6 +1304,9 @@ class ListenTogetherManager
                 return
             }
 
+            // Do this before touching the player: resolving a track needs its title/artist.
+            seedResolverMetadata(listOfNotNull(currentTrack) + queue.orEmpty())
+
             bufferingTrackId = currentTrack.id
             val generation = ++currentTrackGeneration
 
@@ -1346,6 +1405,7 @@ class ListenTogetherManager
                             )
                         applyPendingSyncIfReady()
                         client.sendBufferReady(currentTrack.id)
+                        scheduleBufferFallback(currentTrack.id)
                     }
                 } catch (e: Exception) {
                     Timber.tag(TAG).e(e, "Error applying playback state")
@@ -1363,6 +1423,8 @@ class ListenTogetherManager
             position: Long,
         ) {
             Timber.tag(TAG).d("syncToTrack: ${track.title}, play: $shouldPlay, pos: $position")
+
+            seedResolverMetadata(listOf(track))
 
             // Track which buffer-complete we expect for this load
             bufferingTrackId = track.id
@@ -1469,6 +1531,7 @@ class ListenTogetherManager
 
                                     // Signal we're ready to play
                                     client.sendBufferReady(track.id)
+                                    scheduleBufferFallback(track.id)
                                     Timber
                                         .tag(
                                             TAG,

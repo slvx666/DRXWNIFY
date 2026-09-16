@@ -62,6 +62,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -194,6 +195,7 @@ fun SpotifyPlaylistScreen(
                 mapper = mapper,
                 label = playlist?.name.orEmpty(),
                 downloads = downloadUtil.downloads,
+                database = database,
                 // Everything from a playlist lands together in one folder named after it.
                 folderName = playlist?.name?.takeIf { it.isNotBlank() } ?: "Playlist",
                 onFinished = { result ->
@@ -326,12 +328,14 @@ fun SpotifyPlaylistScreen(
                         ?.firstOrNull { (it.width ?: 0) >= 300 }?.url
                         ?: playlist?.images?.firstOrNull()?.url
                     if (coverUrl != null) {
-                        com.metrolist.music.ui.component.GlowingCover(
-                            url = coverUrl,
-                            size = 240.dp,
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(com.metrolist.music.constants.ThumbnailCornerRadius),
+                        coil3.compose.AsyncImage(
+                            model = coverUrl,
                             contentDescription = playlist?.name,
-                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .size(240.dp)
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(com.metrolist.music.constants.ThumbnailCornerRadius)),
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                     }
@@ -354,6 +358,7 @@ fun SpotifyPlaylistScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
+                    val downloadedCount = com.metrolist.music.ui.component.rememberDownloadedCount(tracks)
                     if (!isLoading && tracks.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Row {
@@ -389,34 +394,21 @@ fun SpotifyPlaylistScreen(
                                     Text(stringResource(R.string.cancel))
                                 }
                             } else {
-                                androidx.compose.material3.OutlinedButton(onClick = { startPlaylistDownload() }) {
+                                androidx.compose.material3.OutlinedButton(
+                                    onClick = { startPlaylistDownload() },
+                                    enabled = downloadedCount < tracks.size,
+                                ) {
                                     Icon(painterResource(R.drawable.download), null, Modifier.size(20.dp))
                                     Spacer(modifier = Modifier.size(8.dp))
-                                    Text(stringResource(R.string.spotify_download_all))
+                                    Text(com.metrolist.music.ui.component.batchDownloadLabel(downloadedCount, tracks.size))
                                 }
                             }
                         }
-                        playlistDownloadProgress?.let { p ->
-                            Spacer(modifier = Modifier.height(12.dp))
-                            val text = when (p.phase) {
-                                SpotifyBatchDownload.Phase.SEARCHING ->
-                                    stringResource(R.string.spotify_dl_searching, p.current, p.total)
-                                SpotifyBatchDownload.Phase.FORMATTING ->
-                                    stringResource(R.string.spotify_dl_formatting)
-                                else ->
-                                    stringResource(R.string.spotify_dl_downloading, p.current, p.total)
-                            }
-                            Text(
-                                text = text,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            androidx.compose.material3.LinearProgressIndicator(
-                                progress = { p.fraction },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
+                        com.metrolist.music.ui.component.BatchDownloadProgress(
+                            progress = playlistDownloadProgress,
+                            downloaded = downloadedCount,
+                            total = tracks.size,
+                        )
                     }
                 }
             }

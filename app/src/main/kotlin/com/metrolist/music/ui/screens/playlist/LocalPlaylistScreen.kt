@@ -5,7 +5,6 @@
 
 package com.metrolist.music.ui.screens.playlist
 
-import com.metrolist.music.ui.component.coverGlow
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
@@ -1097,8 +1096,12 @@ fun LocalPlaylistHeader(
                     Surface(
                         modifier =
                             Modifier
-                                .coverGlow(overrideThumbnail.value ?: playlist.thumbnails[0])
-                                .size(240.dp),
+                                .size(240.dp)
+                                .shadow(
+                                    elevation = 24.dp,
+                                    shape = RoundedCornerShape(3.dp),
+                                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                                ),
                         shape = RoundedCornerShape(3.dp),
                     ) {
                         AsyncImage(
@@ -1162,8 +1165,12 @@ fun LocalPlaylistHeader(
                     Surface(
                         modifier =
                             Modifier
-                                .coverGlow(*playlist.thumbnails.take(4).toTypedArray())
-                                .size(240.dp),
+                                .size(240.dp)
+                                .shadow(
+                                    elevation = 24.dp,
+                                    shape = RoundedCornerShape(3.dp),
+                                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                                ),
                         shape = RoundedCornerShape(3.dp),
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {

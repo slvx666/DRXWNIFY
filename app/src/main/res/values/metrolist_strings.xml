@@ -471,7 +471,7 @@
     <string name="spotify_download_progress">Preparing %1$d / %2$d…</string>
     <string name="spotify_download_done">Queued %1$d, skipped %2$d</string>
     <string name="spotify_dl_searching">Searching %1$d / %2$d…</string>
-    <string name="spotify_dl_downloading">Downloading %1$d / %2$d…</string>
+    <string name="spotify_dl_downloading">Downloading… %1$d of %2$d in the folder</string>
     <string name="spotify_dl_formatting">Formatting…</string>
     <string name="spotify_dl_finished">Downloaded %1$d · skipped %2$d · failed %3$d</string>
     <string name="spotify_download_all">Download all</string>
@@ -810,6 +810,8 @@
     <string name="error_username_empty">A username is required</string>
     <string name="resync">Re-sync</string>
     <string name="copy_code">Copy code</string>
+    <string name="copy_link_short">Link</string>
+    <string name="copy_code_short">Code</string>
     <string name="kick_user_desc">Remove this person from the session</string>
     <string name="permanently_kick_user">Permanently block</string>
     <string name="permanently_kick_user_desc">Block this person\'s join requests and hide their suggestions</string>
@@ -1167,6 +1169,7 @@
     <string name="vk_connected">VK connected</string>
     <string name="yandex_login">Yandex Music login</string>
     <string name="login_paste_token">Paste a token</string>
+    <string name="login_open_in_browser">Open in browser</string>
     <string name="login_token_hint">Access token</string>
     <string name="login_connected">Connected</string>
     <string name="login_failed_reason">Login failed: %s</string>
@@ -1230,4 +1233,12 @@
     <string name="soulseek_account_note">No account yet? Enter a new name and password: Soulseek creates the account on first login.</string>
     <string name="soulseek_wifi_only">Soulseek only on Wi-Fi</string>
     <string name="soulseek_wifi_only_description">Saves mobile traffic and battery: on mobile data Soulseek is skipped.</string>
+    <string name="download_status_downloaded">Downloaded %1$d of %2$d</string>
+    <string name="download_status_all">Everything is downloaded</string>
+    <string name="download_the_rest">Download the rest (%1$d)</string>
+    <string name="download_status_not_found">not found: %1$d</string>
+    <string name="download_status_failed">failed: %1$d</string>
+    <string name="download_keep_open_hint">You can leave the app: the download keeps going, and anything unfinished is written on the next launch.</string>
+    <string name="download_list_loading">Loading the list, %1$d of %2$d</string>
+    <string name="spotify_dl_formatting_count">Writing files… %1$d of %2$d in the folder</string>
 </resources>

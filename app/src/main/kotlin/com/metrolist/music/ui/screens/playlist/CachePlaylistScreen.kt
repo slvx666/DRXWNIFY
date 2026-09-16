@@ -5,7 +5,6 @@
 
 package com.metrolist.music.ui.screens.playlist
 
-import com.metrolist.music.ui.component.coverGlow
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -488,8 +487,12 @@ private fun CachePlaylistHeader(
         ) {
             androidx.compose.material3.Surface(
                 modifier = Modifier
-                    .coverGlow(songs.first().thumbnailUrl)
-                    .size(240.dp),
+                    .size(240.dp)
+                    .shadow(
+                        elevation = 24.dp,
+                        shape = RoundedCornerShape(3.dp),
+                        spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                    ),
                 shape = RoundedCornerShape(3.dp)
             ) {
                 AsyncImage(

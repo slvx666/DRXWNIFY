@@ -117,6 +117,7 @@ fun SpotifyLikedSongsScreen(
     val total by viewModel.total.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val allLoaded by viewModel.allLoaded.collectAsState()
     val error by viewModel.error.collectAsState()
 
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
@@ -248,6 +249,7 @@ fun SpotifyLikedSongsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
+                    val downloadedCount = com.metrolist.music.ui.component.rememberDownloadedCount(tracks)
                     if (!isLoading && tracks.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Row {
@@ -289,6 +291,7 @@ fun SpotifyLikedSongsScreen(
                                 }
                             } else {
                                 androidx.compose.material3.OutlinedButton(
+                                    enabled = allLoaded && downloadedCount < tracks.size,
                                     onClick = {
                                         val toDownload = sortedTracks
                                         if (toDownload.isEmpty()) return@OutlinedButton
@@ -307,6 +310,7 @@ fun SpotifyLikedSongsScreen(
                                             mapper = mapper,
                                             label = context.getString(R.string.liked_songs),
                                             downloads = downloadUtil.downloads,
+                                            database = database,
                                             // One folder for the whole "Liked Songs" list.
                                             folderName = context.getString(R.string.liked_songs),
                                             onFinished = { result ->
@@ -328,37 +332,23 @@ fun SpotifyLikedSongsScreen(
                                         modifier = Modifier.size(20.dp),
                                     )
                                     Spacer(modifier = Modifier.size(8.dp))
-                                    Text(stringResource(R.string.spotify_download_all))
+                                    Text(com.metrolist.music.ui.component.batchDownloadLabel(downloadedCount, tracks.size))
                                 }
                             }
                         }
 
-                        // Staged progress: Searching → Downloading → Formatting, with skipped/failed.
-                        downloadProgress?.let { p ->
+                        if (!allLoaded && downloadProgress == null) {
                             Spacer(modifier = Modifier.height(12.dp))
-                            val text = when (p.phase) {
-                                SpotifyBatchDownload.Phase.SEARCHING ->
-                                    stringResource(R.string.spotify_dl_searching, p.current, p.total)
-                                SpotifyBatchDownload.Phase.DOWNLOADING ->
-                                    stringResource(R.string.spotify_dl_downloading, p.current, p.total)
-                                SpotifyBatchDownload.Phase.FORMATTING ->
-                                    stringResource(R.string.spotify_dl_formatting)
-                                SpotifyBatchDownload.Phase.DONE ->
-                                    stringResource(R.string.spotify_dl_downloading, p.current, p.total)
-                            }
-                            val extra = buildList {
-                                if (p.skipped > 0) add("⃠ ${p.skipped}")
-                                if (p.failed > 0) add("✕ ${p.failed}")
-                            }.joinToString("  ")
                             Text(
-                                text = if (extra.isEmpty()) text else "$text   $extra",
+                                text = stringResource(R.string.download_list_loading, tracks.size, total),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            androidx.compose.material3.LinearProgressIndicator(
-                                progress = { p.fraction },
-                                modifier = Modifier.fillMaxWidth(),
+                        } else {
+                            com.metrolist.music.ui.component.BatchDownloadProgress(
+                                progress = downloadProgress,
+                                downloaded = downloadedCount,
+                                total = tracks.size,
                             )
                         }
                     }
@@ -608,7 +598,13 @@ fun SpotifyLikedSongsScreen(
                                 onClick = {
                                     showOverflowMenu = false
                                     val toDownload = sortedTracks
-                                    if (toDownload.isNotEmpty()) {
+                                    if (!allLoaded) {
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.download_list_loading, tracks.size, total),
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    } else if (toDownload.isNotEmpty()) {
                                         Timber.d("SpotifyLikedDownload: started, ${toDownload.size} tracks")
                                         Toast.makeText(
                                             context,
@@ -623,6 +619,7 @@ fun SpotifyLikedSongsScreen(
                                             mapper = mapper,
                                             label = context.getString(R.string.liked_songs),
                                             downloads = downloadUtil.downloads,
+                                            database = database,
                                             // One folder for the whole "Liked Songs" list.
                                             folderName = context.getString(R.string.liked_songs),
                                             onFinished = { result ->

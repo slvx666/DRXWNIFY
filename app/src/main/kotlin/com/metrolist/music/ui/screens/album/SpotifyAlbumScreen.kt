@@ -149,11 +149,13 @@ fun SpotifyAlbumScreen(
                         ?: album?.images?.firstOrNull()?.url
 
                     if (thumbnailUrl != null) {
-                        com.metrolist.music.ui.component.GlowingCover(
-                            url = thumbnailUrl,
-                            size = 240.dp,
-                            shape = RoundedCornerShape(ThumbnailCornerRadius),
+                        AsyncImage(
+                            model = thumbnailUrl,
                             contentDescription = album?.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(240.dp)
+                                .clip(RoundedCornerShape(ThumbnailCornerRadius)),
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                     }
@@ -190,6 +192,7 @@ fun SpotifyAlbumScreen(
                         )
                     }
 
+                    val downloadedCount = com.metrolist.music.ui.component.rememberDownloadedCount(tracks)
                     if (!isLoading && tracks.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Row {
@@ -244,6 +247,7 @@ fun SpotifyAlbumScreen(
                                         mapper = viewModel.mapper,
                                         label = albumLabel,
                                         downloads = downloadUtil.downloads,
+                                        database = database,
                                         onFinished = { result ->
                                             android.widget.Toast.makeText(
                                                 appContext,
@@ -290,34 +294,12 @@ fun SpotifyAlbumScreen(
                             }
                         }
 
-                        // Staged progress: Searching → Downloading → Formatting, with skipped/failed.
-                        downloadProgress?.let { p ->
-                            Spacer(modifier = Modifier.height(12.dp))
-                            val text = when (p.phase) {
-                                SpotifyBatchDownload.Phase.SEARCHING ->
-                                    stringResource(R.string.spotify_dl_searching, p.current, p.total)
-                                SpotifyBatchDownload.Phase.DOWNLOADING ->
-                                    stringResource(R.string.spotify_dl_downloading, p.current, p.total)
-                                SpotifyBatchDownload.Phase.FORMATTING ->
-                                    stringResource(R.string.spotify_dl_formatting)
-                                SpotifyBatchDownload.Phase.DONE ->
-                                    stringResource(R.string.spotify_dl_downloading, p.current, p.total)
-                            }
-                            val extra = buildList {
-                                if (p.skipped > 0) add("⃠ ${p.skipped}")
-                                if (p.failed > 0) add("✕ ${p.failed}")
-                            }.joinToString("  ")
-                            Text(
-                                text = if (extra.isEmpty()) text else "$text   $extra",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            LinearProgressIndicator(
-                                progress = { p.fraction },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
+                        // What is on the device already, and what the running batch is doing.
+                        com.metrolist.music.ui.component.BatchDownloadProgress(
+                            progress = downloadProgress,
+                            downloaded = downloadedCount,
+                            total = tracks.size,
+                        )
                     }
                 }
             }
