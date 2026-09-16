@@ -80,18 +80,16 @@ private const val LETTERS_OUT_DELAY_MS = 200L
 private const val ICON_OUT_DELAY_MS = 400L
 /** Extra wait (first launch only, in practice) until the freshly composed app renders smoothly. */
 private const val SMOOTH_WAIT_MAX_MS = 600L
-/** If everything is already loaded this quickly, the intro is skipped. */
-private const val SKIP_IF_READY_MS = 200L
 private const val APP_FADE_IN_MS = 1_000
 
 /**
- * Launch intro drawn over the app while home and library load underneath. The full version (below)
- * plays only on the very first launch; later launches use the [quick] icon-only variant.
+ * Launch intro drawn over the app while home and library load underneath. It plays on every fresh
+ * start (hiding the loading) and never twice within one process.
  *
  * Icon fades/scales in, the name's letters rise and fade in one after another (Metal Mania), one
  * shimmer passes over the name. Then the app is composed ([onComposeApp]) while the intro still
  * covers it, letters fade out left→right and the icon fades out (the reverse of their entrance),
- * and the app fades in over [APP_FADE_IN_MS]. Content ready within [SKIP_IF_READY_MS] → no intro.
+ * and the app fades in over [APP_FADE_IN_MS].
  *
  * @param exitProgress 0 → 1 while the app fades in; the host applies it to its content.
  */
@@ -99,8 +97,6 @@ private const val APP_FADE_IN_MS = 1_000
 fun AppIntro(
     exitProgress: Animatable<Float, AnimationVector1D>,
     awaitReady: suspend () -> Unit,
-    /** Quick variant for later launches: icon only, then straight into a 1 s fade. */
-    quick: Boolean,
     onComposeApp: () -> Unit,
     onFinished: () -> Unit,
 ) {
@@ -124,33 +120,6 @@ fun AppIntro(
     LaunchedEffect(Unit) {
         // Content starts loading right away, in parallel with everything below.
         val ready = async { awaitReady() }
-
-        suspend fun openApp(fadeMs: Int) {
-            onComposeApp()
-            // Let the app's first (heavy) composition happen while the screen is still static.
-            withFrameNanos { }
-            withFrameNanos { }
-            exitProgress.animateTo(1f, tween(fadeMs, easing = FastOutSlowInEasing))
-            onFinished()
-        }
-
-        if (quick) {
-            iconProgress.animateTo(1f, tween(ICON_IN_MS, easing = FastOutSlowInEasing))
-            onComposeApp()
-            // Let the app's first composition land while the icon is still static.
-            withFrameNanos { }
-            withFrameNanos { }
-            val iconOut = launch { iconProgress.animateTo(0f, tween(ICON_OUT_MS, easing = FastOutSlowInEasing)) }
-            exitProgress.animateTo(1f, tween(APP_FADE_IN_MS, easing = FastOutSlowInEasing))
-            iconOut.join()
-            onFinished()
-            return@LaunchedEffect
-        }
-
-        if (withTimeoutOrNull(SKIP_IF_READY_MS) { ready.await() } != null) {
-            openApp(fadeMs = 300)
-            return@LaunchedEffect
-        }
 
         launch { iconProgress.animateTo(1f, tween(ICON_IN_MS, easing = FastOutSlowInEasing)) }
         letters.mapIndexed { i, anim ->
@@ -224,8 +193,8 @@ fun AppIntro(
                         },
                 )
             }
-            if (!quick) Spacer(Modifier.height(18.dp))
-            if (!quick) Box {
+            Spacer(Modifier.height(18.dp))
+            Box {
                 IntroLetters(name, letters, nameStyle, Color.White.copy(alpha = 0.78f), exiting = { exiting.value })
                 // Highlight copy, visible only inside the moving band.
                 IntroLetters(

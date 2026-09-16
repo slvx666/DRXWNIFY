@@ -214,12 +214,6 @@ import java.net.URLEncoder
 import java.util.Locale
 import javax.inject.Inject
 
-private const val INTRO_PREFS = "launch_intro"
-private const val INTRO_LAST_ACTIVE_KEY = "last_active_at"
-private const val INTRO_FULL_SHOWN_KEY = "full_intro_shown"
-/** Reopening within this time after leaving the app opens it directly, without the intro. */
-private const val INTRO_SKIP_WINDOW_MS = 30 * 60 * 1000L
-
 @Suppress("DEPRECATION", "ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -343,10 +337,6 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        // Remembered so reopening the app soon after (even if the system killed the process
-        // meanwhile) skips the launch intro.
-        getSharedPreferences(INTRO_PREFS, MODE_PRIVATE).edit()
-            .putLong(INTRO_LAST_ACTIVE_KEY, System.currentTimeMillis()).apply()
         // CRITICAL FIX: Do NOT unbind service or dispose playerConnection here!
         // Just disconnect ListenTogetherManager to stop audio routing
         // This prevents UI recomposition when switching apps
@@ -614,18 +604,10 @@ class MainActivity : ComponentActivity() {
                         it.data == null && it.action != ACTION_RECOGNITION && it.getStringExtra(Intent.EXTRA_TEXT) == null
                     } ?: true
                 }
-                // The intro is for a "fresh" start only: not again in this process, and not when the app
-                // was open recently (closing it from recents kills the process on many phones).
-                val recentlyActive = remember {
-                    val last = getSharedPreferences(INTRO_PREFS, MODE_PRIVATE).getLong(INTRO_LAST_ACTIVE_KEY, 0L)
-                    System.currentTimeMillis() - last in 0 until INTRO_SKIP_WINDOW_MS
-                }
+                // Played on every fresh start (it hides the loading), but not twice in one process
+                // — an activity restart (rotation, theme change) must not replay it.
                 var introVisible by remember {
-                    mutableStateOf(!com.metrolist.music.ui.component.AppIntroState.played && launchedPlainly && !recentlyActive)
-                }
-                // Full intro (icon + name + shimmer) only until it has been shown once; afterwards the quick one.
-                val introQuick = remember {
-                    getSharedPreferences(INTRO_PREFS, MODE_PRIVATE).getBoolean(INTRO_FULL_SHOWN_KEY, false)
+                    mutableStateOf(!com.metrolist.music.ui.component.AppIntroState.played && launchedPlainly)
                 }
                 val introExit = remember { androidx.compose.animation.core.Animatable(if (introVisible) 0f else 1f) }
                 var appComposed by remember { mutableStateOf(!introVisible) }
@@ -1391,7 +1373,6 @@ class MainActivity : ComponentActivity() {
                     if (introVisible) {
                         com.metrolist.music.ui.component.AppIntro(
                             exitProgress = introExit,
-                            quick = introQuick,
                             awaitReady = {
                                 kotlinx.coroutines.coroutineScope {
                                     launch { HomeViewModel.firstLoadDone.first { it } }
@@ -1416,10 +1397,6 @@ class MainActivity : ComponentActivity() {
                             onComposeApp = { appComposed = true },
                             onFinished = {
                                 com.metrolist.music.ui.component.AppIntroState.played = true
-                                if (!introQuick) {
-                                    getSharedPreferences(INTRO_PREFS, MODE_PRIVATE).edit()
-                                        .putBoolean(INTRO_FULL_SHOWN_KEY, true).apply()
-                                }
                                 introVisible = false
                             },
                         )
