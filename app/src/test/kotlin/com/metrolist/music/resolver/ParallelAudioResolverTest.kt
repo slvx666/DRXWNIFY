@@ -154,7 +154,7 @@ class ParallelAudioResolverTest {
         assertEquals(
             listOf(
                 AudioProviderId.VK, AudioProviderId.YOUTUBE, AudioProviderId.SOUNDCLOUD,
-                AudioProviderId.BANDCAMP, AudioProviderId.AUDIUS, AudioProviderId.QOBUZ, AudioProviderId.SOULSEEK,
+                AudioProviderId.BANDCAMP, AudioProviderId.AUDIUS, AudioProviderId.SOULSEEK,
             ),
             AudioProviderId.parseOrder("VK,YOUTUBE,BOGUS"),
         )

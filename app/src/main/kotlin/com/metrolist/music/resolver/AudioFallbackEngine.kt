@@ -76,7 +76,6 @@ object AudioFallbackEngine {
     private val providers: Map<AudioProviderId, AudioProvider> by lazy {
         listOf(
             YouTubeAudioProvider(),
-            QobuzFallbackProvider(settings = ::qobuzSettings),
             VkAudioProvider(token = { appContext.dataStore.get(VkAccessTokenKey, "") }),
             com.metrolist.music.resolver.providers.BandcampAudioProvider(),
             com.metrolist.music.resolver.providers.AudiusAudioProvider(),

@@ -60,6 +60,8 @@ fun WelcomeDialog(
     onConnectSpotify: () -> Unit,
     onConnectYandex: () -> Unit,
     onDismiss: () -> Unit,
+    /** Already connected: no account picker, just a "Continue" button. */
+    accountsLinked: Boolean = false,
 ) {
     val context = LocalContext.current
     Dialog(
@@ -112,7 +114,39 @@ fun WelcomeDialog(
                 WelcomePoint(R.drawable.download, R.string.welcome_point_download_sources)
                 WelcomePoint(R.drawable.favorite, R.string.welcome_point_sync_sources)
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
+
+                // For people worried about privacy: what happens to their data, in plain words.
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.lock),
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.welcome_privacy_title),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = stringResource(R.string.welcome_privacy_text),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
 
                 // Author's GitHub card.
                 Row(
@@ -154,6 +188,18 @@ fun WelcomeDialog(
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
                     )
+                }
+
+                if (accountsLinked) {
+                    Spacer(Modifier.height(20.dp))
+                    Button(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Text(stringResource(R.string.welcome_continue), fontWeight = FontWeight.Bold)
+                    }
+                    return@Column
                 }
 
                 Spacer(Modifier.height(20.dp))

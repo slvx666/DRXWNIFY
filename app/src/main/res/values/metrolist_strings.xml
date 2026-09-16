@@ -241,7 +241,7 @@
     <string name="release_notes">Release notes</string>
     <string name="changelog">Changelog</string>
     <string name="changelog_empty">No changelogs available</string>
-    <string name="github_releases_url">https://github.com/FrancescoGrazioso/Meld/releases</string>
+    <string name="github_releases_url">https://github.com/DrxwnSlvt/Drxwnify/releases</string>
     <string name="list_bullet">•</string>
     <string name="view_on_github">View on GitHub</string>
     <string name="current_version">Current version</string>
@@ -671,9 +671,9 @@
     <string name="plays">plays</string>
     <string name="casting_to">Casting to %s</string>
     <string name="progress_percent">Progress %s%%</string>
-    <string name="listening_to_metrolist">Listening to Meld</string>
+    <string name="listening_to_metrolist">Listening to Drxwnify</string>
     <string name="listen_on_youtube_music">Listen on YouTube Music</string>
-    <string name="visit_metrolist">Visit Meld</string>
+    <string name="visit_metrolist">Visit Drxwnify</string>
     <string name="open">Open</string>
     <string name="failed_to_create_image">Failed to create image: %s</string>
     <string name="copied_title">Title copied</string>
@@ -697,13 +697,13 @@
     <!-- Widget strings -->
     <string name="album_art">Album art</string>
     <string name="no_song_playing">No song playing</string>
-    <string name="tap_to_open">Tap to open Meld</string>
+    <string name="tap_to_open">Tap to open Drxwnify</string>
     <string name="previous">Previous</string>
     <string name="play_pause">Play/Pause</string>
     <string name="next">Next</string>
     <string name="like">Like</string>
     <string name="not_playing">No song playing</string>
-    <string name="tap_to_play">Tap to open Meld</string>
+    <string name="tap_to_play">Tap to open Drxwnify</string>
     <string name="widget_description">Music player widget with playback controls</string>
     <string name="turntable_widget_description">Circular music widget with play and like controls</string>
     <string name="widget_music_player">Music Player</string>
@@ -922,7 +922,7 @@
     <string name="delete_from_history">Delete from history</string>
     <string name="re_listen">Re-listen</string>
     <string name="hold_to_recognize">Hold search icon to recognize music</string>
-    <string name="play_on_app">Play on Meld</string>
+    <string name="play_on_app">Play on Drxwnify</string>
     <string name="recognized_track">Recognized Track</string>
     <string name="qs_tile_music_recognizer">Recognize music</string>
     <string name="recognition_notification_channel_name">Music recognition</string>
@@ -957,7 +957,7 @@
     <string name="discord_button_1_url_default">Default: current song on YouTube Music</string>
     <string name="discord_button_2">Button 2</string>
     <string name="discord_button_2_url">Button 2 URL</string>
-    <string name="discord_button_2_url_default">Default: Meld on GitHub</string>
+    <string name="discord_button_2_url_default">Default: Drxwnify on GitHub</string>
     <string name="discord_button_url_description">Destination link opened when someone clicks the button. Must start with http:// or https://. Supports {song_name}, {artist_name}, {album_name}.</string>
     <string name="login_successful">Login successful!</string>
     <string name="discord_information_warning">This feature uses the KizzyRPC library to connect to Discord\'s Gateway and update your Rich Presence status. While no account suspensions from similar usage have been reported, this method is not officially supported by Discord and may be considered a Terms of Service violation. Your token is handled locally and never sent to third-party servers. Proceed at your own discretion!</string>
@@ -970,9 +970,9 @@
     <string name="discord_rpc_preview">Rich Presence preview</string>
     <string name="discord_presence">Presence</string>
     <string name="discord_connect_description">Sign in with Discord to share what you\'re listening to</string>
-    <string name="discord_playing_metrolist">Playing Meld</string>
-    <string name="discord_watching_metrolist">Watching Meld</string>
-    <string name="discord_competing_metrolist">Competing in Meld</string>
+    <string name="discord_playing_metrolist">Playing Drxwnify</string>
+    <string name="discord_watching_metrolist">Watching Drxwnify</string>
+    <string name="discord_competing_metrolist">Competing in Drxwnify</string>
     <string name="discord_activity_name">Activity name</string>
     <string name="discord_activity_name_description">Custom name for the activity. Leave empty to use the default</string>
     <string name="discord_advanced_mode">Advanced mode</string>
@@ -1143,7 +1143,7 @@
     <!-- Metadata sources (Spotify / Yandex Music) and audio fallbacks -->
     <string name="welcome_subtitle_sources">Your Spotify or Yandex Music library — playable and downloadable, without a subscription.</string>
     <string name="welcome_point_connect_sources">Link Spotify or Yandex Music: your library, playlists, liked songs and mixes show up right here.</string>
-    <string name="welcome_point_match_sources">Audio for every track is searched in parallel on SoundCloud, YouTube, VK Music, Bandcamp, Audius and Qobuz — strictly by title, artist and length, so you never get a wrong song.</string>
+    <string name="welcome_point_match_sources">Audio for every track is searched in parallel on SoundCloud, YouTube, VK Music, Bandcamp and Audius — strictly by title, artist and length, so you never get a wrong song.</string>
     <string name="welcome_point_download_sources">Download whole albums, playlists and liked songs in one tap — MP3 with cover art and correct tags from your music service.</string>
     <string name="welcome_point_sync_sources">Likes, follows and saved albums stay in sync with your account.</string>
     <string name="welcome_choose_account">Choose an account to connect</string>
@@ -1227,7 +1227,7 @@
     <string name="audio_source_soulseek_description">Peer-to-peer network with huge coverage, including label releases and lossless. Last resort: needs an account, the whole file downloads from another user before playing (seconds to minutes), uses traffic and battery.</string>
     <string name="soulseek_login_required">Set a Soulseek account to use this source</string>
     <string name="soulseek_login">Soulseek account</string>
-    <string name="soulseek_login_hint">Stored only on this device. Meld connects straight to the Soulseek network and shares nothing.</string>
+    <string name="soulseek_login_hint">Stored only on this device. Drxwnify connects straight to the Soulseek network and shares nothing.</string>
     <string name="soulseek_username">Username</string>
     <string name="soulseek_password">Password</string>
     <string name="soulseek_account_note">No account yet? Enter a new name and password: Soulseek creates the account on first login.</string>
@@ -1256,4 +1256,14 @@
     <string name="audio_source_current">Now: %1$s</string>
     <string name="audio_source_candidate_info">%1$s · match %2$d%%</string>
     <string name="listen_together_host_left">The host left the room, so listening together has ended</string>
+    <string name="welcome_privacy_title">Your data stays with you</string>
+    <string name="welcome_privacy_text">No ads, no analytics and no server of its own: the app collects nothing about you. Accounts, likes and downloads are stored only on this phone. For music it talks to Spotify, YouTube, SoundCloud and other services directly, the way a browser does. The source code is open on GitHub.</string>
+    <string name="welcome_continue">Continue</string>
+    <string name="app_update_title">Check for updates</string>
+    <string name="app_update_current">Current version %1$s</string>
+    <string name="app_update_checking">Checking GitHub…</string>
+    <string name="app_update_up_to_date">You have the latest version (%1$s)</string>
+    <string name="app_update_available">Version %1$s is available, tap to update</string>
+    <string name="app_update_downloading">Downloading the update… %1$d%%</string>
+    <string name="app_update_failed">Check failed (%1$s). Tap to open the releases page</string>
 </resources>

@@ -19,6 +19,8 @@ import com.metrolist.spotify.models.SpotifyExternalIds
  */
 enum class AudioProviderId {
     YOUTUBE,
+
+    /** Retired: its community servers are gone. Kept only so stored rows/orders still parse. */
     QOBUZ,
     VK,
     SOUNDCLOUD,
@@ -28,12 +30,13 @@ enum class AudioProviderId {
     ;
 
     companion object {
-        val DEFAULT_ORDER = listOf(SOUNDCLOUD, YOUTUBE, VK, BANDCAMP, AUDIUS, QOBUZ, SOULSEEK)
+        val DEFAULT_ORDER = listOf(SOUNDCLOUD, YOUTUBE, VK, BANDCAMP, AUDIUS, SOULSEEK)
 
         /** Parses a stored "A,B,C" order; unknown names are dropped, missing providers appended. */
         fun parseOrder(value: String?): List<AudioProviderId> {
             val parsed = value.orEmpty().split(',')
                 .mapNotNull { name -> entries.firstOrNull { it.name == name.trim() } }
+                .filter { it != QOBUZ }
                 .distinct()
             // Soulseek is the slow last resort: a stored order never moves it ahead of new providers.
             return parsed + DEFAULT_ORDER.filter { it !in parsed }

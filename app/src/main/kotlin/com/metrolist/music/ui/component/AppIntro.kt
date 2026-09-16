@@ -77,9 +77,8 @@ private const val SHIMMER_MS = 900
 private const val READY_GRACE_MS = 1_000L
 /** Pause after the shimmer before the letters start leaving; the icon and app fade follow later. */
 private const val LETTERS_OUT_DELAY_MS = 200L
-private const val ICON_OUT_DELAY_MS = 400L
-/** Extra wait (first launch only, in practice) until the freshly composed app renders smoothly. */
-private const val SMOOTH_WAIT_MAX_MS = 600L
+/** After the letters start leaving (not after the shimmer). */
+private const val ICON_OUT_DELAY_MS = 200L
 private const val APP_FADE_IN_MS = 1_000
 
 /**
@@ -138,17 +137,22 @@ fun AppIntro(
         // during this pause, not during the fade-out.
         val shimmerEnd = System.currentTimeMillis()
         onComposeApp()
-        delay(LETTERS_OUT_DELAY_MS)
-        val waitedForReady = System.currentTimeMillis() - shimmerEnd
-        withTimeoutOrNull((READY_GRACE_MS - waitedForReady).coerceAtLeast(0)) { ready.await() }
-        withTimeoutOrNull(SMOOTH_WAIT_MAX_MS) {
-            var last = withFrameNanos { it }
-            var smooth = 0
-            while (smooth < 3) {
-                val now = withFrameNanos { it }
-                smooth = if (now - last <= 22_000_000L) smooth + 1 else 0
-                last = now
+        // Only content that isn't loaded yet may stretch the pause (up to READY_GRACE_MS).
+        withTimeoutOrNull(READY_GRACE_MS) { ready.await() }
+        // Within the short pause, let the freshly composed app settle so the fade-out stays smooth.
+        val pauseLeft = LETTERS_OUT_DELAY_MS - (System.currentTimeMillis() - shimmerEnd)
+        if (pauseLeft > 0) {
+            withTimeoutOrNull(pauseLeft) {
+                var last = withFrameNanos { it }
+                var smooth = 0
+                while (smooth < 3) {
+                    val now = withFrameNanos { it }
+                    smooth = if (now - last <= 22_000_000L) smooth + 1 else 0
+                    last = now
+                }
             }
+            val stillLeft = LETTERS_OUT_DELAY_MS - (System.currentTimeMillis() - shimmerEnd)
+            if (stillLeft > 0) delay(stillLeft)
         }
 
         // Reverse of the entrance: letters left→right, then icon, while the app fades in.
@@ -159,7 +163,7 @@ fun AppIntro(
                 anim.animateTo(0f, tween(LETTER_OUT_MS, easing = LinearEasing))
             }
         }
-        delay(ICON_OUT_DELAY_MS - LETTERS_OUT_DELAY_MS)
+        delay(ICON_OUT_DELAY_MS)
         val iconOut = launch { iconProgress.animateTo(0f, tween(ICON_OUT_MS, easing = FastOutSlowInEasing)) }
         exitProgress.animateTo(1f, tween(APP_FADE_IN_MS, easing = FastOutSlowInEasing))
         (outJobs + iconOut).forEach { it.join() }

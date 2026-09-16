@@ -137,7 +137,6 @@ fun PlayerMenu(
     val castDeviceName by castHandler?.castDeviceName?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
 
     val varispeedMode by rememberPreference(VarispeedKey, defaultValue = false)
-    val qobuzEnabled by rememberPreference(com.metrolist.music.constants.EnableQobuzKey, defaultValue = false)
 
     val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()

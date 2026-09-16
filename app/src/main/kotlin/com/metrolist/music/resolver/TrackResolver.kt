@@ -73,7 +73,7 @@ object ResolverPreferences {
 
     fun isEnabled(id: AudioProviderId): Boolean = when (id) {
         AudioProviderId.YOUTUBE -> youtubeEnabled
-        AudioProviderId.QOBUZ -> qobuzFallback
+        AudioProviderId.QOBUZ -> false // retired
         AudioProviderId.VK -> vkEnabled
         AudioProviderId.SOUNDCLOUD -> soundCloudEnabled
         AudioProviderId.BANDCAMP -> bandcampEnabled

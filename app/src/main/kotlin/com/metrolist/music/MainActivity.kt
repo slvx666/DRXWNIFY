@@ -1407,28 +1407,35 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // First-launch welcome: what the app is, the account picker (Spotify / Yandex
-                    // Music) and the author's GitHub. Shown once; never to someone already connected.
-                    var welcomeShown by rememberPreference(
-                        androidx.datastore.preferences.core.booleanPreferencesKey("welcome_shown_v2"),
-                        defaultValue = false,
-                    )
+                    // Welcome: what the app is, where the data goes, the author's GitHub and (when nothing
+                    // is connected yet) the account picker. Shown after a fresh install and again after
+                    // every update of the app, so changes and the privacy note don't go unseen.
+                    val welcomePrefs = remember { getSharedPreferences("welcome", MODE_PRIVATE) }
+                    val installStamp = remember {
+                        runCatching { packageManager.getPackageInfo(packageName, 0).lastUpdateTime }.getOrDefault(0L)
+                    }
+                    var welcomeSeenFor by remember { mutableStateOf(welcomePrefs.getLong("seen_install_stamp", -1L)) }
                     val catalogState by com.metrolist.music.catalog.Catalog.state.collectAsState()
                     val (yandexTokenForWelcome) = rememberPreference(com.metrolist.music.constants.YandexAccessTokenKey, "")
                     val (spotifyTokenForWelcome) = rememberPreference(com.metrolist.music.constants.SpotifyAccessTokenKey, "")
                     val anyAccountLinked = catalogState.isActive ||
                         yandexTokenForWelcome.isNotEmpty() || spotifyTokenForWelcome.isNotEmpty()
-                    if (!welcomeShown && !anyAccountLinked && !introVisible) {
+                    fun markWelcomeSeen() {
+                        welcomeSeenFor = installStamp
+                        welcomePrefs.edit().putLong("seen_install_stamp", installStamp).apply()
+                    }
+                    if (welcomeSeenFor != installStamp && !introVisible) {
                         com.metrolist.music.ui.component.WelcomeDialog(
                             onConnectSpotify = {
-                                welcomeShown = true
+                                markWelcomeSeen()
                                 navController.navigate("settings/spotify/login")
                             },
                             onConnectYandex = {
-                                welcomeShown = true
+                                markWelcomeSeen()
                                 navController.navigate("settings/yandex/login")
                             },
-                            onDismiss = { welcomeShown = true },
+                            onDismiss = { markWelcomeSeen() },
+                            accountsLinked = anyAccountLinked,
                         )
                     }
 

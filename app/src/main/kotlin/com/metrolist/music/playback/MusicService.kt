@@ -4099,7 +4099,8 @@ class MusicService :
             // ISRC) when available — registered by SpotifyYouTubeMapper for catalog tracks —
             // otherwise falls back to DB title/artist/album for YT-native tracks. Silently falls
             // through to the YouTube path on any failure.
-            val qobuzEnabled = dataStore.get(EnableQobuzKey, false)
+            // Qobuz is retired (its community servers are gone): never attempted any more.
+            val qobuzEnabled = false
             if (qobuzEnabled) {
                 val qobuzQualityEnum = dataStore.get(QobuzAudioQualityKey)
                     .toEnum(QobuzAudioQuality.CD_QUALITY)

@@ -38,6 +38,9 @@ import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.ReleaseNotesCard
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.Updater
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -218,6 +221,53 @@ fun SettingsScreen(
                         )
                     )
                 }
+                // Updates from the author's GitHub releases: first tap checks, second tap installs.
+                val updateState by com.metrolist.music.utils.AppUpdater.state.collectAsState()
+                val updateScope = androidx.compose.runtime.rememberCoroutineScope()
+                add(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.update),
+                        title = { Text(stringResource(R.string.app_update_title)) },
+                        description = {
+                            val current = com.metrolist.music.utils.AppUpdater.currentVersion
+                            Text(
+                                text = when (val st = updateState) {
+                                    com.metrolist.music.utils.AppUpdater.State.Idle ->
+                                        stringResource(R.string.app_update_current, current)
+                                    com.metrolist.music.utils.AppUpdater.State.Checking ->
+                                        stringResource(R.string.app_update_checking)
+                                    is com.metrolist.music.utils.AppUpdater.State.UpToDate ->
+                                        stringResource(R.string.app_update_up_to_date, current)
+                                    is com.metrolist.music.utils.AppUpdater.State.Available ->
+                                        stringResource(R.string.app_update_available, st.version)
+                                    is com.metrolist.music.utils.AppUpdater.State.Downloading ->
+                                        stringResource(R.string.app_update_downloading, (st.progress * 100).toInt())
+                                    is com.metrolist.music.utils.AppUpdater.State.Failed ->
+                                        stringResource(R.string.app_update_failed, st.message)
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        showBadge = updateState is com.metrolist.music.utils.AppUpdater.State.Available,
+                        onClick = {
+                            when (val st = updateState) {
+                                is com.metrolist.music.utils.AppUpdater.State.Available -> updateScope.launch {
+                                    if (!com.metrolist.music.utils.AppUpdater.downloadAndInstall(context, st)) {
+                                        com.metrolist.music.utils.AppUpdater.openReleases(context)
+                                    }
+                                }
+                                is com.metrolist.music.utils.AppUpdater.State.Failed -> {
+                                    com.metrolist.music.utils.AppUpdater.openReleases(context)
+                                    updateScope.launch { com.metrolist.music.utils.AppUpdater.check() }
+                                }
+                                is com.metrolist.music.utils.AppUpdater.State.Downloading,
+                                com.metrolist.music.utils.AppUpdater.State.Checking -> Unit
+                                else -> updateScope.launch { com.metrolist.music.utils.AppUpdater.check() }
+                            }
+                        },
+                    ),
+                )
                 val showChangelog = com.metrolist.music.LocalChangelogState.current
                 add(
                     Material3SettingsItem(
