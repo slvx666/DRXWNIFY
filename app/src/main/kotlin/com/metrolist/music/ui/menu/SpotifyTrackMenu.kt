@@ -32,6 +32,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.core.net.toUri
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -82,6 +89,37 @@ fun SpotifyTrackMenu(
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
     val coroutineScope = rememberCoroutineScope()
+
+    // Like state comes from the account's own "Liked Songs", shared with every other heart in the app.
+    val likedIds by com.metrolist.music.playback.SpotifyLikeCache.liked.collectAsState()
+    val isLiked = track.id in likedIds
+    LaunchedEffect(track.id) {
+        com.metrolist.music.playback.SpotifyLikeCache.ensureLoaded(listOf(track.id))
+    }
+    val likeScale by animateFloatAsState(
+        targetValue = if (isLiked) 1.15f else 1f,
+        animationSpec = spring(dampingRatio = 0.4f, stiffness = 600f),
+        label = "likeScale",
+    )
+
+    // Download state: the track may be downloaded under its YouTube id or its fallback id.
+    val downloads by com.metrolist.music.LocalDownloadUtil.current.downloads.collectAsState()
+    val downloadCandidates by produceState(initialValue = emptyList<String>(), track.id) {
+        value = withContext(Dispatchers.IO) {
+            listOfNotNull(
+                runCatching { database.getSpotifyMatch(track.id)?.youtubeId }.getOrNull(),
+                com.metrolist.music.resolver.FallbackIds.of(track.id),
+            )
+        }
+    }
+    val downloadedId = downloadCandidates.firstOrNull {
+        downloads[it]?.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED
+    }
+    val downloadingId = downloadCandidates.firstOrNull {
+        val state = downloads[it]?.state
+        state == androidx.media3.exoplayer.offline.Download.STATE_DOWNLOADING ||
+            state == androidx.media3.exoplayer.offline.Download.STATE_QUEUED
+    }
 
     var showYouTubeMatchDialog by rememberSaveable { mutableStateOf(false) }
     var showAddToPlaylistDialog by rememberSaveable { mutableStateOf(false) }
@@ -215,11 +253,101 @@ fun SpotifyTrackMenu(
     Material3MenuGroup(
         items = listOf(
             Material3MenuItemData(
+                title = {
+                    Text(text = stringResource(if (isLiked) R.string.action_remove_like else R.string.action_like))
+                },
+                description = { Text(text = stringResource(R.string.track_like_desc)) },
+                icon = {
+                    Icon(
+                        painter = painterResource(if (isLiked) R.drawable.favorite else R.drawable.favorite_border),
+                        contentDescription = null,
+                        tint = if (isLiked) MaterialTheme.colorScheme.error else LocalContentColor.current,
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = likeScale
+                            scaleY = likeScale
+                        },
+                    )
+                },
+                onClick = {
+                    val target = !isLiked
+                    // Flip the heart immediately; put it back if the account refuses the change.
+                    com.metrolist.music.playback.SpotifyLikeCache.setLiked(track.id, target)
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val result = if (target) {
+                            com.metrolist.music.catalog.Catalog.saveTrack(track.id)
+                        } else {
+                            com.metrolist.music.catalog.Catalog.removeTrack(track.id)
+                        }
+                        result.onFailure {
+                            com.metrolist.music.playback.SpotifyLikeCache.setLiked(track.id, !target)
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, it.message ?: "", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                },
+            ),
+            Material3MenuItemData(
+                title = {
+                    Text(
+                        text = stringResource(
+                            when {
+                                downloadedId != null -> R.string.remove_download
+                                downloadingId != null -> R.string.cancel
+                                else -> R.string.action_download
+                            },
+                        ),
+                    )
+                },
+                description = { Text(text = stringResource(R.string.track_download_desc)) },
+                icon = {
+                    Icon(
+                        painter = painterResource(if (downloadedId != null) R.drawable.offline else R.drawable.download),
+                        contentDescription = null,
+                    )
+                },
+                onClick = {
+                    val existing = downloadedId ?: downloadingId
+                    if (existing != null) {
+                        androidx.media3.exoplayer.offline.DownloadService.sendRemoveDownload(
+                            context,
+                            com.metrolist.music.playback.ExoDownloadService::class.java,
+                            existing,
+                            false,
+                        )
+                        return@Material3MenuItemData
+                    }
+                    onDismiss()
+                    Toast.makeText(context, context.getString(R.string.download_starting), Toast.LENGTH_SHORT).show()
+                    val appContext = context.applicationContext
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val mediaItem = mapper.resolveToMediaItem(track)
+                        if (mediaItem == null) {
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(appContext, appContext.getString(R.string.spotify_no_tracks), Toast.LENGTH_SHORT).show()
+                            }
+                            return@launch
+                        }
+                        val request = androidx.media3.exoplayer.offline.DownloadRequest
+                            .Builder(mediaItem.mediaId, mediaItem.mediaId.toUri())
+                            .setCustomCacheKey(mediaItem.mediaId)
+                            .setData(track.name.toByteArray())
+                            .build()
+                        androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
+                            appContext,
+                            com.metrolist.music.playback.ExoDownloadService::class.java,
+                            request,
+                            false,
+                        )
+                    }
+                },
+            ),
+            Material3MenuItemData(
                 title = { Text(text = stringResource(R.string.play_next)) },
                 description = { Text(text = stringResource(R.string.play_next_desc)) },
                 icon = {
                     Icon(
-                        painter = painterResource(R.drawable.playlist_play),
+                        painter = painterResource(R.drawable.queue_play_next),
                         contentDescription = null,
                     )
                 },
@@ -251,7 +379,7 @@ fun SpotifyTrackMenu(
                 description = { Text(text = stringResource(R.string.add_to_queue_desc)) },
                 icon = {
                     Icon(
-                        painter = painterResource(R.drawable.queue_music),
+                        painter = painterResource(R.drawable.queue_add),
                         contentDescription = null,
                     )
                 },

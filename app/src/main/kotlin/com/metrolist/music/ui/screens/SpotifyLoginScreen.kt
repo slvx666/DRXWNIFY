@@ -796,6 +796,9 @@ private fun extractAndFetchToken(
                 // (the first-launch "connect an account" flow relies on this).
                 prefs[com.metrolist.music.constants.EnableSpotifyKey] = true
                 prefs[com.metrolist.music.constants.UseSpotifySearchKey] = true
+                // …and for the home page, otherwise the user keeps seeing the stock
+                // YouTube recommendations after connecting the account.
+                prefs[com.metrolist.music.constants.UseSpotifyHomeKey] = true
                 if (prefs[com.metrolist.music.constants.YandexAccessTokenKey].isNullOrEmpty()) {
                     prefs[com.metrolist.music.constants.PrimaryMetadataSourceKey] =
                         com.metrolist.music.constants.MetadataSource.SPOTIFY.name

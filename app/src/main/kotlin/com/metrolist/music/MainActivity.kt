@@ -1097,7 +1097,16 @@ class MainActivity : ComponentActivity() {
                                                 Modifier
                                                     .fillMaxWidth()
                                                     .align(Alignment.BottomCenter)
-                                                    .height(playerBottomSheetState.collapsedBound)
+                                                    .height(
+                                                        // On the main tabs the band stays below the mini player,
+                                                        // leaving a small gap; elsewhere it reaches its top edge.
+                                                        if (shouldShowNavigationBar) {
+                                                            (playerBottomSheetState.collapsedBound - MiniPlayerHeight - 6.dp)
+                                                                .coerceAtLeast(0.dp)
+                                                        } else {
+                                                            playerBottomSheetState.collapsedBound
+                                                        },
+                                                    )
                                                     .graphicsLayer {
                                                         alpha = (1f - playerBottomSheetState.progress * 4f).coerceIn(0f, 1f)
                                                     }.background(baseBg),

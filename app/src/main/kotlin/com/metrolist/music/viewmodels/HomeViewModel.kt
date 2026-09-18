@@ -72,6 +72,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -987,7 +988,35 @@ class HomeViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .first()
 
+            // Accounts connected before this switch existed never got it turned on, so their home
+            // page stayed on YouTube recommendations. Only untouched settings are migrated — a
+            // deliberate "off" (false) is left alone.
+            val prefs = context.dataStore.data.first()
+            if ((prefs[SpotifyAccessTokenKey] ?: "").isNotEmpty() && prefs[UseSpotifyHomeKey] == null) {
+                context.dataStore.edit { it[UseSpotifyHomeKey] = true }
+            }
+
             load()
+        }
+
+        // Connecting (or disconnecting) an account has to change the home page right away:
+        // the first load happens before login, so without this the user stays on the stock
+        // YouTube recommendations until the app is restarted.
+        viewModelScope.launch(Dispatchers.IO) {
+            context.dataStore.data
+                .map { prefs ->
+                    listOf(
+                        (prefs[EnableSpotifyKey] ?: false).toString(),
+                        (prefs[UseSpotifyHomeKey] ?: false).toString(),
+                        (prefs[SpotifyHomeOnlyKey] ?: false).toString(),
+                        (prefs[SpotifyAccessTokenKey] ?: "").isNotEmpty().toString(),
+                    ).joinToString("|")
+                }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect {
+                    load()
+                }
         }
 
         // Run sync in separate coroutine with cooldown to avoid blocking UI

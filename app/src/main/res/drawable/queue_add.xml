@@ -1,0 +1,10 @@
+<!-- Three lines with a plus in the bottom-right corner: "add to the end of the queue". -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24.0dip"
+    android:height="24.0dip"
+    android:viewportWidth="960.0"
+    android:viewportHeight="960.0">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M120,240L600,240L600,320L120,320ZM120,400L600,400L600,480L120,480ZM120,560L480,560L480,640L120,640ZM600,600L840,600L840,680L600,680ZM680,520L760,520L760,760L680,760Z" />
+</vector>

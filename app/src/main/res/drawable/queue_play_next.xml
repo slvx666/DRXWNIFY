@@ -1,0 +1,10 @@
+<!-- Three lines with a plus in the top-right corner: "play right after the current track". -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24.0dip"
+    android:height="24.0dip"
+    android:viewportWidth="960.0"
+    android:viewportHeight="960.0">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M120,280L520,280L520,360L120,360ZM120,440L600,440L600,520L120,520ZM120,600L600,600L600,680L120,680ZM600,200L840,200L840,280L600,280ZM680,120L760,120L760,360L680,360Z" />
+</vector>

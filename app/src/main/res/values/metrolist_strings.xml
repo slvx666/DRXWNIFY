@@ -1279,4 +1279,7 @@
 - Liked Songs can be filtered by downloaded / not downloaded, and tracks that failed to download show why
 - Interface improvements</string>
     <string name="changelog_1_0_0">- First Drxwnify release</string>
+    <string name="track_like_desc">Add to or remove from Liked Songs on your account</string>
+    <string name="track_download_desc">Save the track to your download folder</string>
+    <string name="download_starting">Looking for the audio…</string>
 </resources>

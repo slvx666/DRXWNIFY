@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.screens.artist
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -75,6 +76,7 @@ fun SpotifyArtistScreen(
     viewModel: SpotifyArtistViewModel = hiltViewModel(),
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
+    val menuState = com.metrolist.music.ui.component.LocalMenuState.current
 
     val artist by viewModel.artist.collectAsState()
     val topTracks by viewModel.topTracks.collectAsState()
@@ -249,16 +251,28 @@ fun SpotifyArtistScreen(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                playerConnection.playQueue(
-                                    com.metrolist.music.playback.queues.ArtistTopTracksQueue(
-                                        artistId = viewModel.artistId,
-                                        topTracks = topTracks,
-                                        startIndex = index,
-                                        mapper = viewModel.mapper,
+                            .combinedClickable(
+                                onClick = {
+                                    playerConnection.playQueue(
+                                        com.metrolist.music.playback.queues.ArtistTopTracksQueue(
+                                            artistId = viewModel.artistId,
+                                            topTracks = topTracks,
+                                            startIndex = index,
+                                            mapper = viewModel.mapper,
+                                        )
                                     )
-                                )
-                            },
+                                },
+                                onLongClick = {
+                                    menuState.show {
+                                        com.metrolist.music.ui.menu.SpotifyTrackMenu(
+                                            track = track,
+                                            mapper = viewModel.mapper,
+                                            onDismiss = menuState::dismiss,
+                                            navController = navController,
+                                        )
+                                    }
+                                },
+                            ),
                     )
                 }
             }

@@ -983,4 +983,7 @@
 - В «Любимых треках» появился фильтр «Скачанные / Не скачанные», а у треков, которые не удалось скачать, видна причина
 - Доработан интерфейс</string>
     <string name="changelog_1_0_0">- Первый релиз Drxwnify</string>
+    <string name="track_like_desc">Добавить или убрать из «Любимых треков» аккаунта</string>
+    <string name="track_download_desc">Сохранить трек в папку загрузок</string>
+    <string name="download_starting">Ищем аудио…</string>
 </resources>
