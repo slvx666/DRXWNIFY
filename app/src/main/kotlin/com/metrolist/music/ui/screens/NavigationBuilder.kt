@@ -196,11 +196,20 @@ fun NavGraphBuilder.navigationBuilder(
             fadeOut(tween(200))
         },
     ) { backStackEntry ->
-        OnlineSearchResult(
-            navController = navController,
-            savedStateHandle = backStackEntry.savedStateHandle
+        // The experimental "search the sources directly" mode has nothing in common with the
+        // catalog/YouTube results (no albums, artists or playlists), so it gets its own screen.
+        val searchSource by com.metrolist.music.utils.rememberEnumPreference(
+            com.metrolist.music.constants.SearchSourceKey,
+            com.metrolist.music.constants.SearchSource.ONLINE,
         )
-
+        if (searchSource == com.metrolist.music.constants.SearchSource.SOURCES) {
+            com.metrolist.music.ui.screens.search.SourceSearchResult(navController = navController)
+        } else {
+            OnlineSearchResult(
+                navController = navController,
+                savedStateHandle = backStackEntry.savedStateHandle
+            )
+        }
     }
 
     composable(

@@ -49,18 +49,38 @@ class AudiusAudioProvider : AudioProvider {
         return picked
     }
 
-    override suspend fun search(query: AudioQuery): ProviderMatch? = runInterruptible(Dispatchers.IO) {
-        val text = ProviderGate.searchText(query)
-        if (text.isBlank()) return@runInterruptible null
+    override suspend fun searchFree(text: String, limit: Int): List<ProviderMatch> = runInterruptible(Dispatchers.IO) {
+        if (text.isBlank()) return@runInterruptible emptyList()
+        streamableTracks(text).take(limit).map { t ->
+            ProviderMatch(
+                provider = id,
+                trackId = t.optString("id"),
+                title = t.optString("title"),
+                artist = t.optJSONObject("user")?.optString("name").orEmpty(),
+                durationMs = t.optInt("duration", 0) * 1000L,
+                confidence = 0.0,
+                thumbnailUrl = t.optJSONObject("artwork")?.optString("480x480"),
+            )
+        }
+    }
+
+    /** Search results that Audius says are actually streamable, in its own ranking. */
+    private fun streamableTracks(text: String): List<JSONObject> {
         val body = runCatching { searchOn(discoveryHost(), text) }
             .recoverCatching { searchOn(discoveryHost(forceRefresh = true), text) }
             .getOrThrow()
-        val data = JSONObject(body).optJSONArray("data") ?: return@runInterruptible null
-        val tracks = (0 until data.length()).mapNotNull { i ->
+        val data = JSONObject(body).optJSONArray("data") ?: return emptyList()
+        return (0 until data.length()).mapNotNull { i ->
             val t = data.optJSONObject(i) ?: return@mapNotNull null
             if (t.optBoolean("is_streamable", true).not() || t.optBoolean("is_delete", false)) return@mapNotNull null
             t
         }
+    }
+
+    override suspend fun search(query: AudioQuery): ProviderMatch? = runInterruptible(Dispatchers.IO) {
+        val text = ProviderGate.searchText(query)
+        if (text.isBlank()) return@runInterruptible null
+        val tracks = streamableTracks(text)
         val candidates = tracks.map { t ->
             SpotifyMapper.Candidate(
                 id = t.optString("id"),

@@ -144,6 +144,13 @@ interface AudioProvider {
     suspend fun search(query: AudioQuery): ProviderMatch?
 
     /**
+     * Free-text search for the experimental "search the sources directly" mode: there is no catalog
+     * track to compare against, so results come back in the provider's own order, ungated. Providers
+     * that can't (or shouldn't) answer such a search return an empty list.
+     */
+    suspend fun searchFree(text: String, limit: Int = 15): List<ProviderMatch> = emptyList()
+
+    /**
      * A fresh stream for a previously found match, or null if it can no longer be played. The YouTube
      * provider returns null: YouTube streams are resolved by the player's native pipeline.
      */

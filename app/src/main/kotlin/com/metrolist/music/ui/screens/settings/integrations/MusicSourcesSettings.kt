@@ -73,6 +73,7 @@ import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.PreferenceEntry
 import com.metrolist.music.ui.component.PreferenceGroupTitle
+import com.metrolist.music.ui.component.SwitchPreference
 import com.metrolist.music.ui.component.YandexMusicBadge
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.rememberEnumPreference
@@ -358,6 +359,20 @@ fun MusicSourcesSettings(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
+
+        // ── Experimental search ──────────────────────────────────────────────────────────────────
+        PreferenceGroupTitle(title = stringResource(R.string.search_sources_title))
+        val (experimentalSearch, setExperimentalSearch) = rememberPreference(
+            com.metrolist.music.constants.ExperimentalSearchEnabledKey,
+            defaultValue = true,
+        )
+        SwitchPreference(
+            title = { Text(stringResource(R.string.search_sources_setting)) },
+            description = stringResource(R.string.search_sources_setting_description),
+            icon = { Icon(painterResource(R.drawable.error), null) },
+            checked = experimentalSearch,
+            onCheckedChange = setExperimentalSearch,
+        )
 
         PreferenceEntry(
             title = { Text(stringResource(R.string.audio_search_log)) },

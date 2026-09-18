@@ -42,9 +42,25 @@ class BandcampAudioProvider : AudioProvider {
 
     private val pages = ConcurrentHashMap<String, Pair<TrackPage, Long>>()
 
-    override suspend fun search(query: AudioQuery): ProviderMatch? = runInterruptible(Dispatchers.IO) {
-        val text = ProviderGate.searchText(query)
-        if (text.isBlank()) return@runInterruptible null
+    override suspend fun searchFree(text: String, limit: Int): List<ProviderMatch> = runInterruptible(Dispatchers.IO) {
+        if (text.isBlank()) return@runInterruptible emptyList()
+        // The length and the stream URL live on the track page; loading 15 pages up front would make
+        // the search crawl, so they are fetched when the track is actually played.
+        autocomplete(text).take(limit).map { candidate ->
+            ProviderMatch(
+                provider = id,
+                trackId = candidate.id,
+                title = candidate.title,
+                artist = candidate.artist,
+                durationMs = null,
+                confidence = 0.0,
+                thumbnailUrl = candidate.thumbnailUrl,
+            )
+        }
+    }
+
+    /** Bandcamp's own search box endpoint: tracks only, title/artist/cover, no length. */
+    private fun autocomplete(text: String): List<SpotifyMapper.Candidate> {
         val body = JSONObject()
             .put("search_text", text)
             .put("search_filter", "t")
@@ -58,11 +74,10 @@ class BandcampAudioProvider : AudioProvider {
             .build()
         val results = http.newCall(request).execute().use { r ->
             if (!r.isSuccessful) throw IllegalStateException("Bandcamp search HTTP ${r.code}")
-            JSONObject(r.body?.string() ?: return@runInterruptible null)
+            JSONObject(r.body?.string() ?: return emptyList())
                 .optJSONObject("auto")?.optJSONArray("results")
-        } ?: return@runInterruptible null
-
-        val candidates = (0 until results.length()).mapNotNull { i ->
+        } ?: return emptyList()
+        return (0 until results.length()).mapNotNull { i ->
             val o = results.optJSONObject(i) ?: return@mapNotNull null
             if (o.optString("type") != "t") return@mapNotNull null
             val url = o.optString("item_url_path").takeIf { it.startsWith("http") } ?: return@mapNotNull null
@@ -74,6 +89,12 @@ class BandcampAudioProvider : AudioProvider {
                 thumbnailUrl = o.optString("img").takeIf { it.isNotBlank() },
             )
         }
+    }
+
+    override suspend fun search(query: AudioQuery): ProviderMatch? = runInterruptible(Dispatchers.IO) {
+        val text = ProviderGate.searchText(query)
+        if (text.isBlank()) return@runInterruptible null
+        val candidates = autocomplete(text)
         // Title/artist gate first (no network), then the length check + stream on the track page.
         for (chosen in ProviderGate.ranked(query, candidates, limit = 3)) {
             val page = loadPage(chosen.id) ?: continue

@@ -111,19 +111,41 @@ class VkAudioProvider(
         )
     }
 
+    override suspend fun searchFree(text: String, limit: Int): List<ProviderMatch> {
+        if (!isReady() || text.isBlank()) return emptyList()
+        val items = runCatching { fetch(text, limit.coerceIn(1, 100)) }
+            .onFailure { Timber.tag("SourceSearch").w("vk free search: %s", it.message) }
+            .getOrDefault(emptyList())
+        val now = System.currentTimeMillis()
+        return items.take(limit).map { audio ->
+            audio.url?.let { recentUrls[audio.fullId] = it to now }
+            ProviderMatch(
+                provider = id,
+                trackId = audio.fullId,
+                title = audio.title,
+                artist = audio.artist,
+                durationMs = audio.durationSec * 1000L,
+                confidence = 0.0,
+                thumbnailUrl = audio.thumb,
+            )
+        }
+    }
+
+    /** Raw search results that are actually playable for this account (no URL = restricted). */
+    private suspend fun fetch(text: String, count: Int): List<VkAudio> = throttled {
+        val root = call("audio.search", mapOf("q" to text, "count" to count.toString(), "auto_complete" to "1", "sort" to "2"))
+            ?: throw IllegalStateException("VK API HTTP error")
+        val arr = root.optJSONObject("response")?.optJSONArray("items")
+        (0 until (arr?.length() ?: 0)).mapNotNull { arr?.optJSONObject(it)?.let(::parse) }
+    }.filter { it.url != null && !it.url.contains(".m3u8") }
+
     override suspend fun search(query: AudioQuery): ProviderMatch? {
         if (!isReady()) return null
         val text = ProviderGate.searchText(query)
         if (text.isBlank()) return null
         // Errors (bad token, API refused) propagate so the audio search log shows the real reason.
-        val items = throttled {
-            val root = call("audio.search", mapOf("q" to text, "count" to "30", "auto_complete" to "1", "sort" to "2"))
-                ?: throw IllegalStateException("VK API HTTP error")
-            val arr = root.optJSONObject("response")?.optJSONArray("items")
-            (0 until (arr?.length() ?: 0)).mapNotNull { arr?.optJSONObject(it)?.let(::parse) }
-        }
-            // A track without a (non-HLS) URL is restricted for this account/region — not playable.
-            .filter { it.url != null && !it.url.contains(".m3u8") }
+        // A track without a (non-HLS) URL is restricted for this account/region — not playable.
+        val items = fetch(text, 30)
         if (items.isEmpty()) return null
 
         val chosen = ProviderGate.ranked(

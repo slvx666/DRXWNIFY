@@ -142,6 +142,22 @@ class SoundCloudAudioProvider(
         (0 until collection.length()).mapNotNull { i -> collection.optJSONObject(i)?.let(::parseTrack) }
     }.orEmpty()
 
+    override suspend fun searchFree(text: String, limit: Int): List<ProviderMatch> {
+        if (text.isBlank()) return emptyList()
+        return searchTracks(text).filter { it.hasOpenTranscoding() }.take(limit).map { track ->
+            cachedTracks[track.id] = track.json
+            ProviderMatch(
+                provider = id,
+                trackId = track.id,
+                title = track.title,
+                artist = track.artist,
+                durationMs = track.durationMs,
+                confidence = 0.0,
+                thumbnailUrl = track.artwork,
+            )
+        }
+    }
+
     /**
      * Search + verification. Label releases on SoundCloud are frequently served ONLY as DRM-encrypted
      * HLS (their "progressive"/"hls" entries answer 404), so a title match alone is worthless: the

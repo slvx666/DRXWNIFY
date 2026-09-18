@@ -322,6 +322,8 @@ fun BottomSheetPlayer(
 
     val playbackState by playerConnection.playbackState.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    // Experimental source-search tracks exist only as audio: no likes, no artist/album, no radio.
+    val isSourceTrack = com.metrolist.music.resolver.SourceSearch.isSourceTrack(mediaMetadata?.id)
     val currentSong by playerConnection.currentSong.collectAsState(initial = null)
 
     // A track liked directly on Spotify (not via the app) has no local `liked` flag, so also light the
@@ -1317,6 +1319,7 @@ fun BottomSheetPlayer(
                                 val isEpisode = currentSong?.song?.isEpisode == true
                                 val isFavorite = (if (isEpisode) currentSong?.song?.inLibrary != null else currentSong?.song?.liked == true) || spotifyLiked
                                 FilledIconButton(
+                                    enabled = !isSourceTrack,
                                     onClick = {
                                         playerConnection.toggleLike()
                                         currentSpotifyLikeId?.let {
@@ -1907,6 +1910,7 @@ fun BottomSheetPlayer(
                                 val isFavorite = (if (isEpisode) currentSong?.song?.inLibrary != null else currentSong?.song?.liked == true) || spotifyLiked
                                 ResizableIconButton(
                                     icon = if (isFavorite) R.drawable.favorite else R.drawable.favorite_border,
+                                    enabled = !isSourceTrack,
                                     color = if (isFavorite) MaterialTheme.colorScheme.error else TextBackgroundColor,
                                     modifier =
                                         Modifier

@@ -12,6 +12,10 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
@@ -423,7 +427,7 @@ fun OnlineSearchResult(
             },
             placeholder = {
                 Text(
-                    text = if (isSpotifySearch) stringResource(R.string.search) else stringResource(R.string.search_yt_music),
+                    text = if (isSpotifySearch) stringResource(R.string.search_catalog) else stringResource(R.string.search_yt_music),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -494,6 +498,10 @@ fun OnlineSearchResult(
                         }
                     },
         )
+
+        // Which service answered this search — the same question the placeholder answers while the
+        // box is still empty.
+        SearchSourceLine(isSpotifySearch = isSpotifySearch)
 
         // Filter chips always on top of any overlay so they remain clickable while
         // the suggestion overlay is visible (see #69).
@@ -651,5 +659,36 @@ fun OnlineSearchResult(
                 onClick = { navController.navigate("recognition") },
             )
         }
+    }
+}
+
+/** The "Searching in X" line under the search box. */
+@Composable
+private fun SearchSourceLine(isSpotifySearch: Boolean) {
+    val catalogState by com.metrolist.music.catalog.Catalog.state.collectAsState()
+    val name = if (isSpotifySearch) {
+        when (catalogState.source) {
+            com.metrolist.music.constants.MetadataSource.YANDEX -> "Yandex Music"
+            else -> "Spotify"
+        }
+    } else {
+        "YouTube Music"
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(start = 24.dp, end = 16.dp, bottom = 4.dp),
+    ) {
+        Icon(
+            painter = painterResource(if (isSpotifySearch) R.drawable.language else R.drawable.music_note),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = stringResource(R.string.search_in_source, name),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

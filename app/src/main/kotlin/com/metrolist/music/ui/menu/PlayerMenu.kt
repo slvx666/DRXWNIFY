@@ -576,8 +576,11 @@ fun PlayerMenu(
                 items =
                     buildList {
                         // "Start radio" as a normal row (matches the buttons below), placed above
-                        // "Listen together".
-                        if (!isListenTogetherGuest) {
+                        // "Listen together". A track from the experimental source search has no
+                        // catalog entry to build a radio from, so the row is left out.
+                        val isSourceTrack =
+                            com.metrolist.music.resolver.SourceSearch.isSourceTrack(mediaMetadata.id)
+                        if (!isListenTogetherGuest && !isSourceTrack) {
                             add(
                                 Material3MenuItemData(
                                     title = { Text(text = stringResource(R.string.start_radio)) },

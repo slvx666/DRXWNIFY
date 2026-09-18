@@ -117,6 +117,11 @@ constructor(
      */
     private suspend fun shouldUseSpotifySearch(): Boolean {
         val prefs = context.dataStore.data.first()
+        // "YouTube Music" picked in the search box wins over the connected account: it is how
+        // artists that exist on no streaming service are found.
+        val source = prefs[com.metrolist.music.constants.SearchSourceKey]
+            ?.let { name -> com.metrolist.music.constants.SearchSource.entries.firstOrNull { it.name == name } }
+        if (source == com.metrolist.music.constants.SearchSource.YOUTUBE) return false
         val enabled = prefs[EnableSpotifyKey] ?: false
         val useForSearch = prefs[UseSpotifySearchKey] ?: false
         val hasToken = (prefs[SpotifyAccessTokenKey] ?: "").isNotEmpty()

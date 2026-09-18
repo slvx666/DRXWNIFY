@@ -615,15 +615,29 @@ val SleepTimerEndTimeKey = stringPreferencesKey("sleepTimerEndTime")
 val SleepTimerCustomDaysKey = stringPreferencesKey("sleepTimerCustomDays")
 val SleepTimerDayTimesKey = stringPreferencesKey("sleepTimerDayTimes")
 
+/** Whether the experimental "search the sources directly" mode is offered in the search picker. */
+val ExperimentalSearchEnabledKey = booleanPreferencesKey("experimentalSearchEnabled")
+
+/** Set once the user has seen what the experimental search mode can't do. */
+val ExperimentalSearchAckKey = booleanPreferencesKey("experimentalSearchAcknowledged")
+
+/**
+ * Where the search box looks. [ONLINE] is the connected music account (Spotify / Yandex Music), or
+ * YouTube Music when no account is linked; [YOUTUBE] always searches YouTube Music, which is how
+ * artists that exist on no streaming service are found; [SOURCES] is the experimental mode that
+ * queries the audio sources themselves.
+ */
 enum class SearchSource {
     LOCAL,
     ONLINE,
+    YOUTUBE,
+    SOURCES,
     ;
 
     fun toggle() =
         when (this) {
             LOCAL -> ONLINE
-            ONLINE -> LOCAL
+            else -> LOCAL
         }
 }
 

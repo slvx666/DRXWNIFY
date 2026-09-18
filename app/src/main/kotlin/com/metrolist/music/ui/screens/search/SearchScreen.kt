@@ -59,6 +59,8 @@ import com.metrolist.music.LocalIsPlayerExpanded
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.ExperimentalSearchAckKey
+import com.metrolist.music.constants.ExperimentalSearchEnabledKey
 import com.metrolist.music.constants.PauseSearchHistoryKey
 import com.metrolist.music.constants.SearchSource
 import com.metrolist.music.constants.SearchSourceKey
@@ -125,6 +127,49 @@ fun SearchScreen(
     }
 
     var searchSource by rememberEnumPreference(SearchSourceKey, SearchSource.ONLINE)
+    // The experimental mode can be hidden from Settings, and warns once before it is first used.
+    val (experimentalAvailable, _) = rememberPreference(ExperimentalSearchEnabledKey, defaultValue = true)
+    val (experimentalAcknowledged, setExperimentalAcknowledged) =
+        rememberPreference(ExperimentalSearchAckKey, defaultValue = false)
+    var showSourcePicker by remember { mutableStateOf(false) }
+    var showExperimentalWarning by remember { mutableStateOf(false) }
+    val catalogState by com.metrolist.music.catalog.Catalog.state.collectAsState()
+    // Without a linked account "Online" already means YouTube Music, so the extra entry would lie.
+    val hasCatalog = catalogState.isActive
+
+    // Fall back to the account search when the experimental mode is switched off in Settings.
+    LaunchedEffect(experimentalAvailable) {
+        if (!experimentalAvailable && searchSource == SearchSource.SOURCES) {
+            searchSource = SearchSource.ONLINE
+        }
+    }
+
+    if (showExperimentalWarning) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showExperimentalWarning = false },
+            icon = {
+                Icon(painter = painterResource(R.drawable.error), contentDescription = null)
+            },
+            title = { Text(text = stringResource(R.string.search_sources_title)) },
+            text = { Text(text = stringResource(R.string.search_sources_warning)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        setExperimentalAcknowledged(true)
+                        searchSource = SearchSource.SOURCES
+                        showExperimentalWarning = false
+                    },
+                ) {
+                    Text(text = stringResource(R.string.got_it))
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showExperimentalWarning = false }) {
+                    Text(text = stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
     var query by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue())
     }
@@ -201,13 +246,7 @@ fun SearchScreen(
                             decorationBox = { innerTextField ->
                                 if (query.text.isEmpty()) {
                                     Text(
-                                        text =
-                                            stringResource(
-                                                when (searchSource) {
-                                                    SearchSource.LOCAL -> R.string.search_library
-                                                    SearchSource.ONLINE -> R.string.search_yt_music
-                                                },
-                                            ),
+                                        text = stringResource(searchPlaceholderOf(searchSource, hasCatalog)),
                                         style =
                                             TextStyle(
                                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
@@ -237,27 +276,71 @@ fun SearchScreen(
                                     )
                                 }
                             }
-                            IconButton(
-                                onClick = {
-                                    searchSource =
-                                        if (searchSource == SearchSource.ONLINE) {
-                                            SearchSource.LOCAL
+                            Box {
+                                IconButton(onClick = { showSourcePicker = true }) {
+                                    Icon(
+                                        painter = painterResource(searchSourceIconOf(searchSource)),
+                                        contentDescription = stringResource(R.string.search_source_picker),
+                                        tint = if (searchSource == SearchSource.SOURCES) {
+                                            MaterialTheme.colorScheme.error
                                         } else {
-                                            SearchSource.ONLINE
-                                        }
-                                },
-                            ) {
-                                Icon(
-                                    painter =
-                                        painterResource(
-                                            when (searchSource) {
-                                                SearchSource.LOCAL -> R.drawable.library_music
-                                                SearchSource.ONLINE -> R.drawable.language
+                                            MaterialTheme.colorScheme.onSurface
+                                        },
+                                    )
+                                }
+                                androidx.compose.material3.DropdownMenu(
+                                    expanded = showSourcePicker,
+                                    onDismissRequest = { showSourcePicker = false },
+                                ) {
+                                    val entries = buildList {
+                                        add(SearchSource.LOCAL)
+                                        add(SearchSource.ONLINE)
+                                        if (hasCatalog) add(SearchSource.YOUTUBE)
+                                        if (experimentalAvailable) add(SearchSource.SOURCES)
+                                    }
+                                    entries.forEach { source ->
+                                        val isExperimental = source == SearchSource.SOURCES
+                                        androidx.compose.material3.DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = stringResource(searchSourceLabelOf(source, hasCatalog)),
+                                                    color = if (isExperimental) {
+                                                        MaterialTheme.colorScheme.error
+                                                    } else {
+                                                        androidx.compose.material3.LocalContentColor.current
+                                                    },
+                                                )
                                             },
-                                        ),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                )
+                                            leadingIcon = {
+                                                Icon(
+                                                    painter = painterResource(searchSourceIconOf(source)),
+                                                    contentDescription = null,
+                                                    tint = if (isExperimental) {
+                                                        MaterialTheme.colorScheme.error
+                                                    } else {
+                                                        androidx.compose.material3.LocalContentColor.current
+                                                    },
+                                                )
+                                            },
+                                            trailingIcon = {
+                                                if (source == searchSource) {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.check),
+                                                        contentDescription = null,
+                                                    )
+                                                }
+                                            },
+                                            onClick = {
+                                                showSourcePicker = false
+                                                if (isExperimental && !experimentalAcknowledged) {
+                                                    showExperimentalWarning = true
+                                                } else {
+                                                    searchSource = source
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -303,7 +386,7 @@ fun SearchScreen(
                         )
                     }
 
-                    SearchSource.ONLINE -> {
+                    else -> {
                         OnlineSearchScreen(
                             query = query.text,
                             onQueryChange = { query = it },
@@ -360,4 +443,26 @@ fun SearchScreen(
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
+}
+
+/** Placeholder in the search box: it always says where the query is going. */
+fun searchPlaceholderOf(source: SearchSource, hasCatalog: Boolean): Int = when (source) {
+    SearchSource.LOCAL -> R.string.search_library
+    SearchSource.ONLINE -> if (hasCatalog) R.string.search_catalog else R.string.search_yt_music
+    SearchSource.YOUTUBE -> R.string.search_yt_music
+    SearchSource.SOURCES -> R.string.search_sources_hint
+}
+
+fun searchSourceLabelOf(source: SearchSource, hasCatalog: Boolean): Int = when (source) {
+    SearchSource.LOCAL -> R.string.search_source_library
+    SearchSource.ONLINE -> if (hasCatalog) R.string.search_source_catalog else R.string.search_source_youtube
+    SearchSource.YOUTUBE -> R.string.search_source_youtube
+    SearchSource.SOURCES -> R.string.search_source_experimental
+}
+
+fun searchSourceIconOf(source: SearchSource): Int = when (source) {
+    SearchSource.LOCAL -> R.drawable.library_music
+    SearchSource.ONLINE -> R.drawable.language
+    SearchSource.YOUTUBE -> R.drawable.music_note
+    SearchSource.SOURCES -> R.drawable.error
 }

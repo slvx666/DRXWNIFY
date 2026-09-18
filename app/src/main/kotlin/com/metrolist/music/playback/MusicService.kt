@@ -1690,6 +1690,8 @@ class MusicService :
     }
 
     fun startRadioSeamlessly() {
+        // A radio needs a catalog track to start from; a source-search track isn't one.
+        if (com.metrolist.music.resolver.SourceSearch.isSourceTrack(player.currentMediaItem?.mediaId)) return
         // Safety Check: Ensure Player is initilized
         if (!playerInitialized.value) {
             Timber.tag(TAG).w("startRadioSeamlessly called before player initialization")
@@ -2137,6 +2139,8 @@ class MusicService :
      * to toggle only the local flag, which did nothing for a track liked on Spotify).
      */
     fun toggleLike() {
+        // Tracks found by the experimental source search have no catalog entry to like.
+        if (com.metrolist.music.resolver.SourceSearch.isSourceTrack(player.currentMediaItem?.mediaId)) return
         val song = currentSong.value?.song
         if (song?.isEpisode == true) {
             scope.launch { toggleEpisodeSaveForLater(song) }
