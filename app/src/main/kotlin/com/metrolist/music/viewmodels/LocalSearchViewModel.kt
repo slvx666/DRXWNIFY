@@ -22,6 +22,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -39,6 +41,58 @@ constructor(
 ) : ViewModel() {
     val query = MutableStateFlow("")
     val filter = MutableStateFlow(LocalFilter.ALL)
+
+    /** Resolves a catalog track to something playable when one is tapped in the results. */
+    val mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database)
+
+    /** Liked tracks of the connected account that match the query. */
+    val catalogTracks = MutableStateFlow<List<com.metrolist.spotify.models.SpotifyTrack>>(emptyList())
+
+    /** Saved playlists, albums and artists of the connected account that match the query. */
+    val catalogEntries = MutableStateFlow<List<com.metrolist.spotify.models.SpotifyLibraryEntry>>(emptyList())
+
+    init {
+        // "Library" means the whole library: what is on the device AND what the linked music
+        // account holds. The account can't search inside itself, so it is filtered here.
+        viewModelScope.launch {
+            combine(
+                query,
+                filter,
+                com.metrolist.music.catalog.CatalogLibrarySearch.likedTracks,
+                com.metrolist.music.catalog.CatalogLibrarySearch.entries,
+            ) { q, f, _, _ -> q to f }
+                .collectLatest { (q, f) ->
+                    if (q.isBlank() || !com.metrolist.music.catalog.Catalog.isActive) {
+                        catalogTracks.value = emptyList()
+                        catalogEntries.value = emptyList()
+                        return@collectLatest
+                    }
+                    com.metrolist.music.catalog.CatalogLibrarySearch.ensureLoaded()
+                    val limit = if (f == LocalFilter.ALL) PREVIEW_SIZE else 50
+                    catalogTracks.value = when (f) {
+                        LocalFilter.ALL, LocalFilter.SONG ->
+                            com.metrolist.music.catalog.CatalogLibrarySearch.searchTracks(q, limit)
+                        else -> emptyList()
+                    }
+                    val kinds = when (f) {
+                        LocalFilter.ALL -> setOf(
+                            com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.ALBUM,
+                            com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.ARTIST,
+                            com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.PLAYLIST,
+                        )
+                        LocalFilter.ALBUM -> setOf(com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.ALBUM)
+                        LocalFilter.ARTIST -> setOf(com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.ARTIST)
+                        LocalFilter.PLAYLIST -> setOf(com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.PLAYLIST)
+                        LocalFilter.SONG -> emptySet()
+                    }
+                    catalogEntries.value = if (kinds.isEmpty()) {
+                        emptyList()
+                    } else {
+                        com.metrolist.music.catalog.CatalogLibrarySearch.searchEntries(q, kinds, limit * 2)
+                    }
+                }
+        }
+    }
 
     val result =
         combine(
@@ -92,7 +146,7 @@ constructor(
         )
 
     companion object {
-        const val PREVIEW_SIZE = 3
+        const val PREVIEW_SIZE = 5
     }
 }
 

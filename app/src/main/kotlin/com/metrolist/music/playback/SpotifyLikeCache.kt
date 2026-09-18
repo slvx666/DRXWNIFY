@@ -5,7 +5,8 @@
 
 package com.metrolist.music.playback
 
-import com.metrolist.spotify.Spotify
+import com.metrolist.music.catalog.Catalog
+import com.metrolist.spotify.models.SpotifyTrack
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +29,13 @@ import timber.log.Timber
 object SpotifyLikeCache {
     private val _liked = MutableStateFlow<Set<String>>(emptySet())
 
+    /**
+     * The liked tracks themselves, not just their ids: the library search needs titles and artists,
+     * and they arrive in the same pages the ids come from, so keeping them costs no extra request.
+     */
+    private val _likedTracks = MutableStateFlow<List<SpotifyTrack>>(emptyList())
+    val likedTracks: StateFlow<List<SpotifyTrack>> = _likedTracks.asStateFlow()
+
     /** The set of Spotify track ids currently known to be liked. Observe this to render hearts. */
     val liked: StateFlow<Set<String>> = _liked.asStateFlow()
 
@@ -47,30 +55,36 @@ object SpotifyLikeCache {
     private const val PAGE = 50
     private const val MAX_TRACKS = 10_000
 
+    /** Titles are only kept for as many tracks as a search can sensibly look through. */
+    private const val MAX_KEPT_TRACKS = 5_000
+
     suspend fun ensureLoaded(@Suppress("UNUSED_PARAMETER") spotifyIds: List<String>) {
         // The per-id REST check (GET /me/tracks/contains) was called from every list and quickly hit
         // Spotify's 429 rate limit — after which no hearts showed at all. Instead load the whole Liked
         // Songs library once (GQL, paged) and answer every id from memory; refresh occasionally.
-        if (!Spotify.isAuthenticated()) return
+        if (!Catalog.isActive) return
         if (System.currentTimeMillis() - libraryLoadedAt < REFRESH_MS) return
         loadMutex.withLock {
             if (System.currentTimeMillis() - libraryLoadedAt < REFRESH_MS) return
             val all = HashSet<String>()
+            val tracks = mutableListOf<SpotifyTrack>()
             var offset = 0
             while (offset < MAX_TRACKS) {
-                val page = Spotify.likedSongs(limit = PAGE, offset = offset).getOrElse { e ->
+                val page = Catalog.likedSongs(limit = PAGE, offset = offset).getOrElse { e ->
                     Timber.w(e, "SpotifyLikeCache: likedSongs page failed at offset=$offset")
                     if (all.isEmpty()) return // keep previous state; retry on next call
                     null
                 } ?: break
                 val ids = page.items.mapNotNull { it.track.id.takeIf { id -> id.isNotBlank() } }
                 all.addAll(ids)
+                if (tracks.size < MAX_KEPT_TRACKS) tracks += page.items.map { it.track }
                 offset += PAGE
                 if (page.items.size < PAGE || (page.total in 1..offset)) break
             }
             mutex.withLock { known.clear(); known.addAll(all) }
             // Keep optimistic likes made while loading.
             _liked.value = all
+            _likedTracks.value = tracks
             libraryLoadedAt = System.currentTimeMillis()
             Timber.d("SpotifyLikeCache: loaded ${all.size} liked tracks")
         }

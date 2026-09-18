@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -88,6 +89,9 @@ fun LocalSearchScreen(
 
     val searchFilter by viewModel.filter.collectAsState()
     val result by viewModel.result.collectAsState()
+    // The linked account's own library: liked tracks, saved albums, artists and playlists.
+    val catalogTracks by viewModel.catalogTracks.collectAsState()
+    val catalogEntries by viewModel.catalogEntries.collectAsState()
 
     val lazyListState = rememberLazyListState()
 
@@ -291,7 +295,120 @@ fun LocalSearchScreen(
                 }
             }
 
-            if (result.query.isNotEmpty() && result.map.isEmpty()) {
+            if (catalogTracks.isNotEmpty() || catalogEntries.isNotEmpty()) {
+                item(key = "catalog_header") {
+                    Text(
+                        text = stringResource(R.string.search_library_account),
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp, end = 18.dp, top = 12.dp, bottom = 8.dp),
+                    )
+                }
+
+                items(
+                    items = catalogTracks,
+                    key = { "catalog_track_${it.id}" },
+                    contentType = { CONTENT_TYPE_LIST },
+                ) { track ->
+                    val mediaId = com.metrolist.music.resolver.FallbackIds.of(track.id)
+                    val isActive = mediaMetadata?.id == mediaId
+                    com.metrolist.music.ui.component.ListItem(
+                        title = track.name,
+                        subtitle = com.metrolist.music.utils.joinByBullet(
+                            track.artists.joinToString { it.name },
+                            com.metrolist.music.utils.makeTimeString(track.durationMs.toLong()),
+                        ),
+                        isActive = isActive,
+                        thumbnailContent = {
+                            com.metrolist.music.ui.component.ItemThumbnail(
+                                thumbnailUrl = com.metrolist.spotify.SpotifyMapper.getTrackThumbnail(track),
+                                isActive = isActive,
+                                isPlaying = isPlaying,
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(
+                                    com.metrolist.music.constants.ThumbnailCornerRadius,
+                                ),
+                                modifier = Modifier.size(com.metrolist.music.constants.ListThumbnailSize),
+                            )
+                        },
+                        modifier = Modifier
+                            .combinedClickable(
+                                onClick = {
+                                    playerConnection.playQueue(
+                                        com.metrolist.music.playback.queues.SpotifyPlaylistQueue(
+                                            playlistId = "library_search",
+                                            initialTracks = catalogTracks,
+                                            startIndex = catalogTracks.indexOf(track).coerceAtLeast(0),
+                                            mapper = viewModel.mapper,
+                                        ),
+                                    )
+                                },
+                                onLongClick = {
+                                    menuState.show {
+                                        com.metrolist.music.ui.menu.SpotifyTrackMenu(
+                                            track = track,
+                                            mapper = viewModel.mapper,
+                                            onDismiss = menuState::dismiss,
+                                            navController = navController,
+                                        )
+                                    }
+                                },
+                            )
+                            .animateItem(),
+                    )
+                }
+
+                items(
+                    items = catalogEntries,
+                    key = { "catalog_entry_${it.id}" },
+                    contentType = { CONTENT_TYPE_LIST },
+                ) { entry ->
+                    com.metrolist.music.ui.component.ListItem(
+                        title = entry.name,
+                        subtitle = com.metrolist.music.utils.joinByBullet(
+                            stringResource(
+                                when (entry.kind) {
+                                    com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.ALBUM -> R.string.filter_albums
+                                    com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.ARTIST -> R.string.filter_artists
+                                    else -> R.string.filter_playlists
+                                },
+                            ),
+                            entry.creator,
+                        ),
+                        thumbnailContent = {
+                            com.metrolist.music.ui.component.ItemThumbnail(
+                                thumbnailUrl = entry.imageUrl,
+                                isActive = false,
+                                isPlaying = false,
+                                shape = if (entry.kind == com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.ARTIST) {
+                                    androidx.compose.foundation.shape.CircleShape
+                                } else {
+                                    androidx.compose.foundation.shape.RoundedCornerShape(
+                                        com.metrolist.music.constants.ThumbnailCornerRadius,
+                                    )
+                                },
+                                modifier = Modifier.size(com.metrolist.music.constants.ListThumbnailSize),
+                            )
+                        },
+                        modifier = Modifier
+                            .clickable {
+                                onDismiss()
+                                when (entry.kind) {
+                                    com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.ALBUM ->
+                                        navController.navigate("spotify_album/${entry.id}")
+                                    com.metrolist.spotify.models.SpotifyLibraryEntry.Kind.ARTIST ->
+                                        navController.navigate("spotify_artist/${entry.id}")
+                                    else -> navController.navigate("spotify_playlist/${entry.id}")
+                                }
+                            }
+                            .animateItem(),
+                    )
+                }
+            }
+
+            if (result.query.isNotEmpty() && result.map.isEmpty() &&
+                catalogTracks.isEmpty() && catalogEntries.isEmpty()
+            ) {
                 item(key = "no_result") {
                     EmptyPlaceholder(
                         icon = R.drawable.search,

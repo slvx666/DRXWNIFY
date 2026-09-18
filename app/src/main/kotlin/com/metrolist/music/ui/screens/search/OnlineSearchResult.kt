@@ -168,6 +168,15 @@ fun OnlineSearchResult(
     val pauseSearchHistory by rememberPreference(PauseSearchHistoryKey, defaultValue = false)
     val hideVideoSongs by rememberPreference(HideVideoSongsKey, defaultValue = false)
 
+    // The source can be changed without going back to the search box; the results are then loaded
+    // again from the new source. The navigation waits for the preference to be written, otherwise
+    // the new screen would read the old value.
+    var searchSource by com.metrolist.music.utils.rememberEnumPreference(
+        com.metrolist.music.constants.SearchSourceKey,
+        com.metrolist.music.constants.SearchSource.ONLINE,
+    )
+    var pendingSource by remember { mutableStateOf<com.metrolist.music.constants.SearchSource?>(null) }
+
     BackHandler(enabled = isSearchFocused) {
         isSearchFocused = false
         focusManager.clearFocus()
@@ -186,6 +195,20 @@ fun OnlineSearchResult(
 
     var query by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(decodedQuery, TextRange(decodedQuery.length)))
+    }
+
+    LaunchedEffect(searchSource, pendingSource) {
+        val target = pendingSource ?: return@LaunchedEffect
+        if (searchSource != target) return@LaunchedEffect
+        pendingSource = null
+        if (target == com.metrolist.music.constants.SearchSource.LOCAL) {
+            navController.navigateUp()
+        } else {
+            val encoded = URLEncoder.encode(decodedQuery, "UTF-8")
+            navController.navigate("search/$encoded") {
+                popUpTo("search/$encoded") { inclusive = true }
+            }
+        }
     }
 
     val onSearch: (String) -> Unit =
@@ -444,18 +467,30 @@ fun OnlineSearchResult(
                 }
             },
             trailingIcon = {
-                if (query.text.isNotEmpty()) {
-                    IconButton(
-                        onClick = {
-                            query = TextFieldValue("")
-                        },
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.close),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (query.text.isNotEmpty()) {
+                        IconButton(
+                            onClick = {
+                                query = TextFieldValue("")
+                            },
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.close),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
+                    com.metrolist.music.ui.component.SearchSourceButton(
+                        current = searchSource,
+                        onSelect = { source ->
+                            if (source != searchSource) {
+                                searchSource = source
+                                pendingSource = source
+                            }
+                        },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             },
             keyboardOptions =
@@ -674,21 +709,13 @@ private fun SearchSourceLine(isSpotifySearch: Boolean) {
     } else {
         "YouTube Music"
     }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(start = 24.dp, end = 16.dp, bottom = 4.dp),
-    ) {
-        Icon(
-            painter = painterResource(if (isSpotifySearch) R.drawable.language else R.drawable.music_note),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(14.dp),
-        )
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(
-            text = stringResource(R.string.search_in_source, name),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    Text(
+        text = stringResource(R.string.search_in_source, name),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+    )
 }

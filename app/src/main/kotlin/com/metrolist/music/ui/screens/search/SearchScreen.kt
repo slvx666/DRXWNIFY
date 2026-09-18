@@ -67,6 +67,7 @@ import com.metrolist.music.constants.SearchSourceKey
 import com.metrolist.music.db.entities.SearchHistory
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.HideOnScrollFAB
+import com.metrolist.music.ui.component.SearchSourceButton
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
@@ -127,12 +128,8 @@ fun SearchScreen(
     }
 
     var searchSource by rememberEnumPreference(SearchSourceKey, SearchSource.ONLINE)
-    // The experimental mode can be hidden from Settings, and warns once before it is first used.
+    // The experimental mode can be hidden from Settings.
     val (experimentalAvailable, _) = rememberPreference(ExperimentalSearchEnabledKey, defaultValue = true)
-    val (experimentalAcknowledged, setExperimentalAcknowledged) =
-        rememberPreference(ExperimentalSearchAckKey, defaultValue = false)
-    var showSourcePicker by remember { mutableStateOf(false) }
-    var showExperimentalWarning by remember { mutableStateOf(false) }
     val catalogState by com.metrolist.music.catalog.Catalog.state.collectAsState()
     // Without a linked account "Online" already means YouTube Music, so the extra entry would lie.
     val hasCatalog = catalogState.isActive
@@ -144,32 +141,6 @@ fun SearchScreen(
         }
     }
 
-    if (showExperimentalWarning) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showExperimentalWarning = false },
-            icon = {
-                Icon(painter = painterResource(R.drawable.error), contentDescription = null)
-            },
-            title = { Text(text = stringResource(R.string.search_sources_title)) },
-            text = { Text(text = stringResource(R.string.search_sources_warning)) },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = {
-                        setExperimentalAcknowledged(true)
-                        searchSource = SearchSource.SOURCES
-                        showExperimentalWarning = false
-                    },
-                ) {
-                    Text(text = stringResource(R.string.got_it))
-                }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showExperimentalWarning = false }) {
-                    Text(text = stringResource(android.R.string.cancel))
-                }
-            },
-        )
-    }
     var query by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue())
     }
@@ -181,6 +152,18 @@ fun SearchScreen(
         }
 
         focusManager.clearFocus()
+
+        // Searching the library happens on this screen: pressing the magnifier used to jump to the
+        // online results instead, so the library could never actually be searched. A pasted link is
+        // still opened, whatever the source is.
+        if (searchSource == SearchSource.LOCAL && YouTubeUrlParser.parse(searchQuery) == null) {
+            if (!pauseSearchHistory) {
+                coroutineScope.launch(Dispatchers.IO) {
+                    database.query { insert(SearchHistory(query = searchQuery)) }
+                }
+            }
+            return
+        }
 
         when (val parsedUrl = YouTubeUrlParser.parse(searchQuery)) {
             is YouTubeUrlParser.ParsedUrl.Video -> {
@@ -276,72 +259,10 @@ fun SearchScreen(
                                     )
                                 }
                             }
-                            Box {
-                                IconButton(onClick = { showSourcePicker = true }) {
-                                    Icon(
-                                        painter = painterResource(searchSourceIconOf(searchSource)),
-                                        contentDescription = stringResource(R.string.search_source_picker),
-                                        tint = if (searchSource == SearchSource.SOURCES) {
-                                            MaterialTheme.colorScheme.error
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurface
-                                        },
-                                    )
-                                }
-                                androidx.compose.material3.DropdownMenu(
-                                    expanded = showSourcePicker,
-                                    onDismissRequest = { showSourcePicker = false },
-                                ) {
-                                    val entries = buildList {
-                                        add(SearchSource.LOCAL)
-                                        add(SearchSource.ONLINE)
-                                        if (hasCatalog) add(SearchSource.YOUTUBE)
-                                        if (experimentalAvailable) add(SearchSource.SOURCES)
-                                    }
-                                    entries.forEach { source ->
-                                        val isExperimental = source == SearchSource.SOURCES
-                                        androidx.compose.material3.DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    text = stringResource(searchSourceLabelOf(source, hasCatalog)),
-                                                    color = if (isExperimental) {
-                                                        MaterialTheme.colorScheme.error
-                                                    } else {
-                                                        androidx.compose.material3.LocalContentColor.current
-                                                    },
-                                                )
-                                            },
-                                            leadingIcon = {
-                                                Icon(
-                                                    painter = painterResource(searchSourceIconOf(source)),
-                                                    contentDescription = null,
-                                                    tint = if (isExperimental) {
-                                                        MaterialTheme.colorScheme.error
-                                                    } else {
-                                                        androidx.compose.material3.LocalContentColor.current
-                                                    },
-                                                )
-                                            },
-                                            trailingIcon = {
-                                                if (source == searchSource) {
-                                                    Icon(
-                                                        painter = painterResource(R.drawable.check),
-                                                        contentDescription = null,
-                                                    )
-                                                }
-                                            },
-                                            onClick = {
-                                                showSourcePicker = false
-                                                if (isExperimental && !experimentalAcknowledged) {
-                                                    showExperimentalWarning = true
-                                                } else {
-                                                    searchSource = source
-                                                }
-                                            },
-                                        )
-                                    }
-                                }
-                            }
+                            SearchSourceButton(
+                                current = searchSource,
+                                onSelect = { searchSource = it },
+                            )
                         }
                     }
                 },
@@ -451,18 +372,4 @@ fun searchPlaceholderOf(source: SearchSource, hasCatalog: Boolean): Int = when (
     SearchSource.ONLINE -> if (hasCatalog) R.string.search_catalog else R.string.search_yt_music
     SearchSource.YOUTUBE -> R.string.search_yt_music
     SearchSource.SOURCES -> R.string.search_sources_hint
-}
-
-fun searchSourceLabelOf(source: SearchSource, hasCatalog: Boolean): Int = when (source) {
-    SearchSource.LOCAL -> R.string.search_source_library
-    SearchSource.ONLINE -> if (hasCatalog) R.string.search_source_catalog else R.string.search_source_youtube
-    SearchSource.YOUTUBE -> R.string.search_source_youtube
-    SearchSource.SOURCES -> R.string.search_source_experimental
-}
-
-fun searchSourceIconOf(source: SearchSource): Int = when (source) {
-    SearchSource.LOCAL -> R.drawable.library_music
-    SearchSource.ONLINE -> R.drawable.language
-    SearchSource.YOUTUBE -> R.drawable.music_note
-    SearchSource.SOURCES -> R.drawable.error
 }

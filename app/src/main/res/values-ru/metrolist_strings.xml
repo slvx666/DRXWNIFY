@@ -995,10 +995,14 @@
     <string name="search_source_experimental">Напрямую в источниках (эксперимент)</string>
     <string name="search_sources_hint">Поиск в VK, SoundCloud, Bandcamp…</string>
     <string name="search_sources_title">Экспериментальный поиск</string>
-    <string name="search_sources_limits">У таких треков нет лайков, страниц исполнителя и альбома, радио.</string>
-    <string name="search_sources_warning">Этот режим ищет прямо в источниках звука — VK, SoundCloud, Bandcamp и Audius — а не в твоём музыкальном аккаунте, поэтому находит исполнителей, которых нет ни на одном стриминге.\n\nТакие треки — это только аудио: их можно слушать, ставить в очередь и скачивать, но нельзя лайкнуть, у них нет страниц исполнителя и альбома и от них нельзя запустить радио. Названия и обложки берутся у того, кто залил трек, так что бывают неточными.</string>
+    <string name="search_sources_limits">Только аудио: без лайков, страниц исполнителя и альбома, радио.</string>
+    <string name="search_sources_warning">Этот режим ищет прямо в VK, SoundCloud, Bandcamp и Audius, а не в музыкальном аккаунте, поэтому находит исполнителей, которых нет ни на одном стриминге.
+
+Такие треки — это только аудио: их можно слушать, ставить в очередь и скачивать, но нельзя лайкнуть, у них нет страниц исполнителя и альбома и радио. Названия и обложки берутся у того, кто залил трек.</string>
     <string name="search_sources_empty">В источниках ничего не нашлось</string>
     <string name="search_sources_setting">Экспериментальный поиск по источникам</string>
     <string name="search_sources_setting_description">Добавляет в поиск пункт «Напрямую в источниках»: ищет треки в VK, SoundCloud, Bandcamp и Audius, без лайков, страниц исполнителя и альбома и радио.</string>
     <string name="got_it">Понятно</string>
+    <string name="search_in_sources_line">Ищем напрямую в источниках</string>
+    <string name="search_library_account">В музыкальном аккаунте</string>
 </resources>

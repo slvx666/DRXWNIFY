@@ -369,7 +369,7 @@ fun MusicSourcesSettings(
         SwitchPreference(
             title = { Text(stringResource(R.string.search_sources_setting)) },
             description = stringResource(R.string.search_sources_setting_description),
-            icon = { Icon(painterResource(R.drawable.error), null) },
+            icon = { Icon(painterResource(R.drawable.search_experimental), null) },
             checked = experimentalSearch,
             onCheckedChange = setExperimentalSearch,
         )

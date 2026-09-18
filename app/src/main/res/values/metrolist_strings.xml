@@ -1291,10 +1291,14 @@
     <string name="search_source_experimental">Sources directly (experimental)</string>
     <string name="search_sources_hint">Search VK, SoundCloud, Bandcamp…</string>
     <string name="search_sources_title">Experimental search</string>
-    <string name="search_sources_limits">No likes, artist/album pages or radio for these tracks.</string>
-    <string name="search_sources_warning">This mode searches the audio sources themselves — VK, SoundCloud, Bandcamp and Audius — instead of your music account, so it finds artists that exist on no streaming service.\n\nThese tracks are audio only: they can be played, queued and downloaded, but they cannot be liked, they have no artist or album pages and no radio can be started from them. Titles and covers are whatever the uploader wrote, so they may be wrong.</string>
+    <string name="search_sources_limits">Audio only: no likes, artist/album pages or radio.</string>
+    <string name="search_sources_warning">This mode looks straight in VK, SoundCloud, Bandcamp and Audius instead of your music account, so it finds artists that are on no streaming service.
+
+Such tracks are audio only: play them, queue them and download them — but they can’t be liked, they have no artist or album pages and no radio. Titles and covers come from whoever uploaded them.</string>
     <string name="search_sources_empty">The sources have nothing for this query</string>
     <string name="search_sources_setting">Experimental source search</string>
     <string name="search_sources_setting_description">Adds "Sources directly" to the search box: looks for tracks in VK, SoundCloud, Bandcamp and Audius, with no likes, artist/album pages or radio.</string>
     <string name="got_it">Got it</string>
+    <string name="search_in_sources_line">Searching the sources directly</string>
+    <string name="search_library_account">In your music account</string>
 </resources>
