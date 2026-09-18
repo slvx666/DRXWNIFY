@@ -141,10 +141,8 @@ fun LocalSearchScreen(
         LazyColumn(
             state = lazyListState,
             modifier = Modifier.weight(1f),
-            contentPadding =
-                WindowInsets.systemBars
-                    .only(WindowInsetsSides.Bottom)
-                    .asPaddingValues(),
+            // Player-aware: the last row stays above the mini player, not behind it.
+            contentPadding = com.metrolist.music.LocalPlayerAwareWindowInsets.current.asPaddingValues(),
         ) {
             result.map.forEach { (filter, items) ->
                 if (result.filter == LocalFilter.ALL) {

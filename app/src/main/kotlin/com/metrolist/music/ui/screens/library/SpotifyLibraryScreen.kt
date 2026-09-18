@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import coil3.compose.AsyncImage
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
@@ -94,7 +95,22 @@ fun SpotifyLibraryScreen(
 
     androidx.activity.compose.BackHandler(enabled = filter != Filter.ALL) { viewModel.clearFilter() }
 
+    // Tapping the Library tab again: back to the unfiltered list, scrolled to the top.
+    val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val resetRequested = backStackEntry?.savedStateHandle
+        ?.getStateFlow("scrollToTop", false)
+        ?.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(resetRequested?.value) {
+        if (resetRequested?.value == true) {
+            viewModel.clearFilter()
+            gridState.animateScrollToItem(0)
+            backStackEntry?.savedStateHandle?.set("scrollToTop", false)
+        }
+    }
+
     LazyVerticalGrid(
+        state = gridState,
         columns = if (grid) GridCells.Fixed(3) else GridCells.Fixed(1),
         contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
         modifier = Modifier.fillMaxSize(),

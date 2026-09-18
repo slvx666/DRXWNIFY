@@ -164,6 +164,9 @@ fun LibraryMixScreen(
     }
 
     val topSize by viewModel.topValue.collectAsState(initial = 50)
+    val likedPreview by viewModel.likedPreview.collectAsState()
+    val downloadedPreview by viewModel.downloadedPreview.collectAsState()
+    val uploadedPreview by viewModel.uploadedPreview.collectAsState()
     val likedPlaylist =
         Playlist(
             playlist =
@@ -171,8 +174,8 @@ fun LibraryMixScreen(
                     id = UUID.randomUUID().toString(),
                     name = stringResource(R.string.liked),
                 ),
-            songCount = 0,
-            songThumbnails = emptyList(),
+            songCount = likedPreview.count,
+            songThumbnails = likedPreview.thumbnails,
         )
 
     val downloadPlaylist =
@@ -182,8 +185,8 @@ fun LibraryMixScreen(
                     id = UUID.randomUUID().toString(),
                     name = stringResource(R.string.offline),
                 ),
-            songCount = 0,
-            songThumbnails = emptyList(),
+            songCount = downloadedPreview.count,
+            songThumbnails = downloadedPreview.thumbnails,
         )
 
     val topPlaylist =
@@ -215,8 +218,8 @@ fun LibraryMixScreen(
                     id = UUID.randomUUID().toString(),
                     name = stringResource(R.string.uploaded_playlist),
                 ),
-            songCount = 0,
-            songThumbnails = emptyList(),
+            songCount = uploadedPreview.count,
+            songThumbnails = uploadedPreview.thumbnails,
         )
 
     val (showLiked) = rememberPreference(ShowLikedPlaylistKey, true)
@@ -910,9 +913,7 @@ fun LibraryMixScreen(
                 LazyVerticalGrid(
                     state = lazyGridState,
                     columns =
-                        GridCells.Adaptive(
-                            minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp,
-                        ),
+                        GridCells.Fixed(if (gridItemSize == GridItemSize.BIG) 2 else 3),
                     contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
                 ) {
                     item(

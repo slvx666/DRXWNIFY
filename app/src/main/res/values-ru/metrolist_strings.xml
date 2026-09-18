@@ -1005,4 +1005,6 @@
     <string name="got_it">Понятно</string>
     <string name="search_in_sources_line">Ищем напрямую в источниках</string>
     <string name="search_library_account">В музыкальном аккаунте</string>
+    <string name="search_source_disabled">%1$s выключен в «Настройки → Источники музыки»</string>
+    <string name="search_source_needs_account">Для %1$s нужен аккаунт — подключи его в «Настройки → Источники музыки»</string>
 </resources>

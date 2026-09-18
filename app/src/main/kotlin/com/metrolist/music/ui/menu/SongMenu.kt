@@ -689,7 +689,7 @@ fun SongMenu(
                                 description = { Text(text = stringResource(R.string.play_next_desc)) },
                                 icon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.playlist_play),
+                                        painter = painterResource(R.drawable.queue_play_next),
                                         contentDescription = null,
                                     )
                                 },
@@ -707,7 +707,7 @@ fun SongMenu(
                                 description = { Text(text = stringResource(R.string.add_to_queue_desc)) },
                                 icon = {
                                     Icon(
-                                        painter = painterResource(R.drawable.queue_music),
+                                        painter = painterResource(R.drawable.queue_add),
                                         contentDescription = null,
                                     )
                                 },

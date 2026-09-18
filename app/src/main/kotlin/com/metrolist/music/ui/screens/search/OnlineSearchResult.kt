@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -87,6 +88,7 @@ import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.innertube.models.YTItem
 import com.metrolist.music.LocalDatabase
+import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.HideVideoSongsKey
@@ -610,6 +612,8 @@ fun OnlineSearchResult(
             ) {
                 LazyColumn(
                     state = lazyListState,
+                    // Keeps the last result above the mini player instead of behind it.
+                    contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     if (isShowingSummary) {

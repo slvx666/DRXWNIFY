@@ -12,6 +12,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -66,6 +67,8 @@ import com.metrolist.music.constants.SearchSourceKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
 import com.metrolist.music.db.entities.SearchHistory
 import com.metrolist.music.playback.queues.ListQueue
+import com.metrolist.music.LocalPlayerAwareWindowInsets
+import com.metrolist.music.resolver.AudioProviderId
 import com.metrolist.music.resolver.ProviderMatch
 import com.metrolist.music.resolver.SourceSearch
 import com.metrolist.music.ui.component.ChipsRow
@@ -111,6 +114,7 @@ fun SourceSearchResult(
     val filter by viewModel.filter.collectAsState()
     val artists by viewModel.artists.collectAsState()
     val selectedArtist by viewModel.selectedArtist.collectAsState()
+    val source by viewModel.source.collectAsState()
     val artistTracks by viewModel.artistTracks.collectAsState()
     val artistLoading by viewModel.artistLoading.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
@@ -247,6 +251,16 @@ fun SourceSearchResult(
                 onValueUpdate = { viewModel.filter.value = it },
                 modifier = Modifier.fillMaxWidth(),
             )
+            // One source at a time digs much deeper than the mixed view, which has to leave room
+            // for every source.
+            ChipsRow(
+                chips = listOf<Pair<AudioProviderId?, String>>(
+                    null to stringResource(R.string.filter_all),
+                ) + SourceSearch.PROVIDERS.map { it as AudioProviderId? to providerName(it) },
+                currentValue = source,
+                onValueUpdate = { viewModel.source.value = it },
+                modifier = Modifier.fillMaxWidth(),
+            )
         } else {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -273,6 +287,8 @@ fun SourceSearchResult(
 
         LazyColumn(
             state = lazyListState,
+            // Keeps the last track above the mini player instead of behind it.
+            contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
             modifier = Modifier.fillMaxSize(),
         ) {
             if (selectedArtist == null && filter == SourceSearchFilter.ARTISTS) {
@@ -345,9 +361,17 @@ fun SourceSearchResult(
                 }
             } else if (shownTracks.isEmpty() && (filter == SourceSearchFilter.TRACKS || artists.isEmpty())) {
                 item(key = "empty") {
+                    // When one source was picked and it can't answer, say why instead of "nothing found".
+                    val status = source?.let { SourceSearch.statusOf(it) }
                     EmptyPlaceholder(
                         icon = R.drawable.search,
-                        text = stringResource(R.string.search_sources_empty),
+                        text = when (status) {
+                            SourceSearch.Status.DISABLED ->
+                                stringResource(R.string.search_source_disabled, providerName(source!!))
+                            SourceSearch.Status.NEEDS_ACCOUNT ->
+                                stringResource(R.string.search_source_needs_account, providerName(source!!))
+                            else -> stringResource(R.string.search_sources_empty)
+                        },
                     )
                 }
             }
@@ -355,19 +379,21 @@ fun SourceSearchResult(
     }
 }
 
+/** "VK", "SoundCloud", … as the user knows them. */
+fun providerName(id: AudioProviderId): String = when (id) {
+    AudioProviderId.VK -> "VK"
+    AudioProviderId.SOUNDCLOUD -> "SoundCloud"
+    AudioProviderId.BANDCAMP -> "Bandcamp"
+    AudioProviderId.AUDIUS -> "Audius"
+    AudioProviderId.YOUTUBE -> "YouTube"
+    AudioProviderId.SOULSEEK -> "Soulseek"
+    AudioProviderId.QOBUZ -> "Qobuz"
+}
+
 /** "12 tracks" under an artist's name. */
 @Composable
 private fun pluralTracks(count: Int): String =
     androidx.compose.ui.res.pluralStringResource(R.plurals.n_song, count, count)
 
-/** "VK", "SoundCloud"… — where this result came from. */
-fun sourceName(match: ProviderMatch): String = match.provider.name
-    .lowercase()
-    .replaceFirstChar { it.uppercase() }
-    .let {
-        when (it) {
-            "Vk" -> "VK"
-            "Soundcloud" -> "SoundCloud"
-            else -> it
-        }
-    }
+/** Where this result came from. */
+fun sourceName(match: ProviderMatch): String = providerName(match.provider)

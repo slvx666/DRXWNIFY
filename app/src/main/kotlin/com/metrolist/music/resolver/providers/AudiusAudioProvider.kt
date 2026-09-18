@@ -51,7 +51,7 @@ class AudiusAudioProvider : AudioProvider {
 
     override suspend fun searchFree(text: String, limit: Int): List<ProviderMatch> = runInterruptible(Dispatchers.IO) {
         if (text.isBlank()) return@runInterruptible emptyList()
-        streamableTracks(text).take(limit).map { t ->
+        streamableTracks(text, limit).take(limit).map { t ->
             ProviderMatch(
                 provider = id,
                 trackId = t.optString("id"),
@@ -65,9 +65,9 @@ class AudiusAudioProvider : AudioProvider {
     }
 
     /** Search results that Audius says are actually streamable, in its own ranking. */
-    private fun streamableTracks(text: String): List<JSONObject> {
-        val body = runCatching { searchOn(discoveryHost(), text) }
-            .recoverCatching { searchOn(discoveryHost(forceRefresh = true), text) }
+    private fun streamableTracks(text: String, limit: Int = 20): List<JSONObject> {
+        val body = runCatching { searchOn(discoveryHost(), text, limit) }
+            .recoverCatching { searchOn(discoveryHost(forceRefresh = true), text, limit) }
             .getOrThrow()
         val data = JSONObject(body).optJSONArray("data") ?: return emptyList()
         return (0 until data.length()).mapNotNull { i ->
@@ -103,9 +103,10 @@ class AudiusAudioProvider : AudioProvider {
         )
     }
 
-    private fun searchOn(host: String, text: String): String {
+    private fun searchOn(host: String, text: String, limit: Int = 20): String {
         val url = "$host/v1/tracks/search".toHttpUrl().newBuilder()
             .addQueryParameter("query", text)
+            .addQueryParameter("limit", limit.coerceIn(1, 100).toString())
             .addQueryParameter("app_name", APP_NAME)
             .build()
         return http.newCall(Request.Builder().url(url).header("User-Agent", UA).build()).execute().use { r ->

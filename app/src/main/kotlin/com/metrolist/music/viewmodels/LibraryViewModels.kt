@@ -406,6 +406,19 @@ constructor(
         context.dataStore.data
             .map { it[TopSize] ?: "50" }
             .distinctUntilChanged()
+
+    // Same previews as the Playlists tab: without them the auto-playlists in the mixed view showed
+    // neither a track count nor a cover collage.
+    val likedPreview = database.likedSongs(SongSortType.CREATE_DATE, true)
+        .map { songs -> AutoPlaylistPreview(songs.size, songs.take(4).mapNotNull { it.song.thumbnailUrl }) }
+        .stateIn(viewModelScope, SharingStarted.Lazily, AutoPlaylistPreview())
+    val downloadedPreview = database.downloadedSongs(SongSortType.CREATE_DATE, true)
+        .map { songs -> AutoPlaylistPreview(songs.size, songs.take(4).mapNotNull { it.song.thumbnailUrl }) }
+        .stateIn(viewModelScope, SharingStarted.Lazily, AutoPlaylistPreview())
+    val uploadedPreview = database.uploadedSongs(SongSortType.CREATE_DATE, true)
+        .map { songs -> AutoPlaylistPreview(songs.size, songs.take(4).mapNotNull { it.song.thumbnailUrl }) }
+        .stateIn(viewModelScope, SharingStarted.Lazily, AutoPlaylistPreview())
+
     var artists =
         database
             .artistsBookmarked(

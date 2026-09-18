@@ -310,9 +310,7 @@ fun LibraryAlbumsScreen(
                 LazyVerticalGrid(
                     state = lazyGridState,
                     columns =
-                        GridCells.Adaptive(
-                            minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp,
-                        ),
+                        GridCells.Fixed(if (gridItemSize == GridItemSize.BIG) 2 else 3),
                     contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
                 ) {
                     item(

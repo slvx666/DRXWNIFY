@@ -67,6 +67,8 @@ constructor(
                         catalogEntries.value = emptyList()
                         return@collectLatest
                     }
+                    // Kicks off loading if needed; the results below are computed from whatever is
+                    // already in memory and recomputed by this very flow once more arrives.
                     com.metrolist.music.catalog.CatalogLibrarySearch.ensureLoaded()
                     val limit = if (f == LocalFilter.ALL) PREVIEW_SIZE else 50
                     catalogTracks.value = when (f) {
@@ -108,20 +110,20 @@ constructor(
                 when (filter) {
                     LocalFilter.ALL ->
                         combine(
-                            database.searchSongs(query, PREVIEW_SIZE),
-                            database.searchAlbums(query, PREVIEW_SIZE),
-                            database.searchArtists(query, PREVIEW_SIZE),
+                            database.searchLibrarySongs(query, PREVIEW_SIZE),
+                            database.searchLibraryAlbums(query, PREVIEW_SIZE),
+                            database.searchLibraryArtists(query, PREVIEW_SIZE),
                             database.searchPlaylists(query, PREVIEW_SIZE),
                         ) { songs, albums, artists, playlists ->
                             val filteredSongs = if (hideVideoSongs) songs.filter { !it.song.isVideo } else songs
                             filteredSongs + albums + artists + playlists
                         }
 
-                    LocalFilter.SONG -> database.searchSongs(query).map { songs ->
+                    LocalFilter.SONG -> database.searchLibrarySongs(query).map { songs ->
                         if (hideVideoSongs) songs.filter { !it.song.isVideo } else songs
                     }
-                    LocalFilter.ALBUM -> database.searchAlbums(query)
-                    LocalFilter.ARTIST -> database.searchArtists(query)
+                    LocalFilter.ALBUM -> database.searchLibraryAlbums(query)
+                    LocalFilter.ARTIST -> database.searchLibraryArtists(query)
                     LocalFilter.PLAYLIST -> database.searchPlaylists(query)
                 }.map { list ->
                     LocalSearchResult(

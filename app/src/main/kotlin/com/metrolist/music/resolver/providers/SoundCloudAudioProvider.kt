@@ -129,11 +129,11 @@ class SoundCloudAudioProvider(
         )
     }
 
-    private suspend fun searchTracks(text: String): List<ScTrack> = withClientId { cid ->
+    private suspend fun searchTracks(text: String, limit: Int = 25): List<ScTrack> = withClientId { cid ->
         val url = "https://api-v2.soundcloud.com/search/tracks".toHttpUrl().newBuilder()
             .addQueryParameter("q", text)
             .addQueryParameter("client_id", cid)
-            .addQueryParameter("limit", "25")
+            .addQueryParameter("limit", limit.coerceIn(1, 100).toString())
             .addQueryParameter("offset", "0")
             .addQueryParameter("app_locale", "en")
             .build().toString()
@@ -144,7 +144,7 @@ class SoundCloudAudioProvider(
 
     override suspend fun searchFree(text: String, limit: Int): List<ProviderMatch> {
         if (text.isBlank()) return emptyList()
-        return searchTracks(text).filter { it.hasOpenTranscoding() }.take(limit).map { track ->
+        return searchTracks(text, limit).filter { it.hasOpenTranscoding() }.take(limit).map { track ->
             cachedTracks[track.id] = track.json
             ProviderMatch(
                 provider = id,

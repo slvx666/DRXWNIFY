@@ -8,12 +8,14 @@ package com.metrolist.music.viewmodels
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.metrolist.music.resolver.AudioProviderId
 import com.metrolist.music.resolver.ProviderMatch
 import com.metrolist.music.resolver.SourceSearch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -56,6 +58,9 @@ constructor(
 
     val filter = MutableStateFlow(SourceSearchFilter.TRACKS)
 
+    /** null = every usable source at once; otherwise only that one, which then returns far more. */
+    val source = MutableStateFlow<AudioProviderId?>(null)
+
     /** Non-null while one artist's tracks are shown instead of the result list. */
     val selectedArtist = MutableStateFlow<String?>(null)
     val artistTracks = MutableStateFlow<List<ProviderMatch>>(emptyList())
@@ -83,11 +88,16 @@ constructor(
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            val found = SourceSearch.search(query)
-            results.value = found
-            isLoading.value = false
-            // Remember where each result came from, so it still plays (and downloads) after a restart.
-            SourceSearch.remember(found)
+            // Re-runs whenever the user narrows the search down to one source.
+            source.collectLatest { only ->
+                isLoading.value = true
+                closeArtist()
+                val found = SourceSearch.search(query, only)
+                results.value = found
+                isLoading.value = false
+                // Remember where each result came from, so it still plays (and downloads) after a restart.
+                SourceSearch.remember(found)
+            }
         }
     }
 
@@ -99,7 +109,7 @@ constructor(
             artistLoading.value = true
             // A fresh search by the artist's name finds more than the tracks that happened to match
             // the original query.
-            val found = SourceSearch.search(name).filter {
+            val found = SourceSearch.search(name, source.value).filter {
                 it.artist.equals(name, ignoreCase = true) ||
                     it.artist.contains(name, ignoreCase = true)
             }

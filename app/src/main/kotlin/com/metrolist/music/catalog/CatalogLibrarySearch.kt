@@ -8,7 +8,10 @@ package com.metrolist.music.catalog
 import com.metrolist.music.playback.SpotifyLikeCache
 import com.metrolist.spotify.models.SpotifyLibraryEntry
 import com.metrolist.spotify.models.SpotifyTrack
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,18 +41,33 @@ object CatalogLibrarySearch {
 
     private const val TTL_MS = 10 * 60 * 1000L
 
-    /** Loads (or refreshes) the library in the background; safe to call from every search. */
-    suspend fun ensureLoaded(force: Boolean = false) = withContext(Dispatchers.IO) {
-        if (!Catalog.isActive) return@withContext
-        if (!force && System.currentTimeMillis() - loadedAt < TTL_MS) return@withContext
-        mutex.withLock {
-            if (!force && System.currentTimeMillis() - loadedAt < TTL_MS) return@withLock
-            runCatching { SpotifyLikeCache.ensureLoaded(emptyList()) }
-                .onFailure { Timber.w(it, "CatalogLibrarySearch: liked songs failed") }
-            runCatching { Catalog.prewarmLibrary() }
-                .onSuccess { if (it.isNotEmpty()) _entries.value = it }
-                .onFailure { Timber.w(it, "CatalogLibrarySearch: library failed") }
-            loadedAt = System.currentTimeMillis()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _loading = MutableStateFlow(false)
+
+    /** True while the account's library is being fetched, so a search can say "still loading". */
+    val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
+    /**
+     * Starts loading the library if it isn't fresh and returns immediately: liked songs can be
+     * thousands of tracks, and a search must not wait for them. Whoever reads [likedTracks] or
+     * [entries] is updated as soon as the data lands.
+     */
+    fun ensureLoaded(force: Boolean = false) {
+        if (!Catalog.isActive) return
+        if (!force && System.currentTimeMillis() - loadedAt < TTL_MS) return
+        scope.launch {
+            mutex.withLock {
+                if (!force && System.currentTimeMillis() - loadedAt < TTL_MS) return@withLock
+                _loading.value = true
+                runCatching { SpotifyLikeCache.ensureLoaded(emptyList()) }
+                    .onFailure { Timber.w(it, "CatalogLibrarySearch: liked songs failed") }
+                runCatching { Catalog.prewarmLibrary() }
+                    .onSuccess { if (it.isNotEmpty()) _entries.value = it }
+                    .onFailure { Timber.w(it, "CatalogLibrarySearch: library failed") }
+                loadedAt = System.currentTimeMillis()
+                _loading.value = false
+            }
         }
     }
 

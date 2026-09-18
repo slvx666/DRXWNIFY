@@ -1038,6 +1038,13 @@ class MainActivity : ComponentActivity() {
                                             playerBottomSheetState.collapseSoft()
                                         }
                                         if (isSelected) {
+                                            // Tapping the current tab again returns it to the state it
+                                            // opens in — for Search that is the empty search box, not
+                                            // the results of the last query.
+                                            val currentRouteNow = navController.currentBackStackEntry?.destination?.route
+                                            if (screen == Screens.Search && currentRouteNow?.startsWith("search/") == true) {
+                                                navController.popBackStack("search_input", false)
+                                            }
                                             val targetEntry = try {
                                                 val route = navController.currentBackStackEntry?.destination?.route
                                                 if (route == "search/{query}" || route == "search_input") {

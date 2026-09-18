@@ -136,6 +136,20 @@ fun currentGridThumbnailHeight(): Dp {
 }
 
 // Basic list item - optimized with inline to reduce recomposition
+/**
+ * Row height and cover size for the list items below. The library raises both so that its rows look
+ * the same whether or not a music account is connected (the account library draws 64 dp covers).
+ */
+data class ListItemSizes(
+    val height: androidx.compose.ui.unit.Dp = ListItemHeight,
+    val thumbnail: androidx.compose.ui.unit.Dp = ListThumbnailSize,
+)
+
+val LocalListItemSizes = androidx.compose.runtime.staticCompositionLocalOf { ListItemSizes() }
+
+/** What the library uses — the same proportions as the connected account's library. */
+val LibraryListItemSizes = ListItemSizes(height = 80.dp, thumbnail = 64.dp)
+
 @Composable
 inline fun ListItem(
     modifier: Modifier = Modifier,
@@ -151,7 +165,7 @@ inline fun ListItem(
         verticalAlignment = Alignment.CenterVertically,
         modifier = if (isActive) {
             modifier // playing highlight
-                .height(ListItemHeight)
+                .height(LocalListItemSizes.current.height)
                 .padding(horizontal = 8.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(
@@ -161,13 +175,13 @@ inline fun ListItem(
                 )
         } else if (isSelected == true) {
             modifier // inactive selected
-                .height(ListItemHeight)
+                .height(LocalListItemSizes.current.height)
                 .padding(horizontal = 8.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(color = MaterialTheme.colorScheme.inversePrimary.copy(alpha = 0.4f))
         } else {
             modifier // default
-                .height(ListItemHeight)
+                .height(LocalListItemSizes.current.height)
                 .padding(horizontal = 8.dp)
         }
     ) {
@@ -179,7 +193,7 @@ inline fun ListItem(
             if (!isAvailable) {
                 Box(
                     modifier = Modifier
-                        .size(ListThumbnailSize)
+                        .size(LocalListItemSizes.current.thumbnail)
                         .align(Alignment.Center)
                         .background(
                             Color.Black.copy(alpha = 0.25f),
@@ -191,7 +205,7 @@ inline fun ListItem(
                         contentDescription = null,
                         tint = Color.White,
                         modifier = Modifier
-                            .size(ListThumbnailSize / 2)
+                            .size(LocalListItemSizes.current.thumbnail / 2)
                             .align(Alignment.Center)
                             .graphicsLayer { alpha = 1f }
                     )
@@ -417,7 +431,7 @@ fun SongListItem(
                     isActive = isActive,
                     isPlaying = isPlaying,
                     shape = RoundedCornerShape(ThumbnailCornerRadius),
-                    modifier = Modifier.size(ListThumbnailSize)
+                    modifier = Modifier.size(LocalListItemSizes.current.thumbnail)
                 )
             },
             trailingContent = trailingContent,
@@ -533,7 +547,7 @@ fun ArtistListItem(
                 .build(),
             contentDescription = null,
             modifier = Modifier
-                .size(ListThumbnailSize)
+                .size(LocalListItemSizes.current.thumbnail)
                 .clip(CircleShape),
         )
     },
@@ -630,7 +644,7 @@ fun AlbumListItem(
             isActive = isActive,
             isPlaying = isPlaying,
             shape = RoundedCornerShape(ThumbnailCornerRadius),
-            modifier = Modifier.size(ListThumbnailSize)
+            modifier = Modifier.size(LocalListItemSizes.current.thumbnail)
         )
     },
     trailingContent = trailingContent,
@@ -735,7 +749,7 @@ fun PlaylistListItem(
     playlist: Playlist,
     modifier: Modifier = Modifier,
     autoPlaylist: Boolean = false,
-    thumbnailSize: androidx.compose.ui.unit.Dp = ListThumbnailSize,
+    thumbnailSize: androidx.compose.ui.unit.Dp = LocalListItemSizes.current.thumbnail,
     badges: @Composable RowScope.() -> Unit = {
         val downloadUtil = LocalDownloadUtil.current
         val database = LocalDatabase.current
@@ -969,7 +983,7 @@ fun MediaMetadataListItem(
                 isActive = isActive,
                 isPlaying = isPlaying,
                 shape = RoundedCornerShape(ThumbnailCornerRadius),
-                modifier = Modifier.size(ListThumbnailSize)
+                modifier = Modifier.size(LocalListItemSizes.current.thumbnail)
             )
         },
         trailingContent = trailingContent,
@@ -1035,7 +1049,7 @@ fun YouTubeListItem(
                     isActive = isActive,
                     isPlaying = isPlaying,
                     shape = if (item is ArtistItem) CircleShape else RoundedCornerShape(ThumbnailCornerRadius),
-                    modifier = Modifier.size(ListThumbnailSize)
+                    modifier = Modifier.size(LocalListItemSizes.current.thumbnail)
                 )
             },
             trailingContent = trailingContent,

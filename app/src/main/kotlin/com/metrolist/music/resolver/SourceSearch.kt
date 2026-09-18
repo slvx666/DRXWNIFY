@@ -62,37 +62,100 @@ object SourceSearch {
         return AudioProviderId.entries.firstOrNull { it.name == name }
     }
 
+    /** Why a source has no results of its own. */
+    enum class Status { READY, DISABLED, NEEDS_ACCOUNT }
+
+    fun statusOf(id: AudioProviderId): Status = when {
+        !ResolverPreferences.isEnabled(id) -> Status.DISABLED
+        AudioFallbackEngine.provider(id)?.isReady() != true -> Status.NEEDS_ACCOUNT
+        else -> Status.READY
+    }
+
     /**
-     * Every enabled source's own results for [text], round-robin so one talkative provider can't
-     * push the others off the screen. A provider that fails or times out is simply left out.
+     * Results for [text]. With [only] set just that source answers (and it answers with more), else
+     * every usable source is asked in parallel and the answers are merged.
+     *
+     * Merging: the same song is often on several sources, so near-identical results are folded into
+     * one. What survives is decided by how well the result matches what was typed, then by having a
+     * cover, then by the user's own source order — the same order the player uses.
      */
-    suspend fun search(text: String, perProvider: Int = 15): List<ProviderMatch> {
+    suspend fun search(
+        text: String,
+        only: AudioProviderId? = null,
+        perProvider: Int = if (only != null) 60 else 25,
+    ): List<ProviderMatch> {
         val query = text.trim()
         if (query.isBlank()) return emptyList()
-        val providers = AudioFallbackEngine.activeProviders().filter { it.id in PROVIDERS }
-        if (providers.isEmpty()) return emptyList()
+        val providers = AudioFallbackEngine.activeProviders()
+            .filter { it.id in PROVIDERS }
+            .filter { only == null || it.id == only }
+        if (providers.isEmpty()) {
+            AudioDiagnostics.warn(
+                "source search '$query': no usable source" +
+                    (only?.let { " ($it is ${statusOf(it).name.lowercase()})" } ?: ""),
+            )
+            return emptyList()
+        }
 
         val perSource = coroutineScope {
             providers.map { provider ->
                 async(Dispatchers.IO) {
+                    val started = System.currentTimeMillis()
                     val found = withTimeoutOrNull(provider.searchTimeoutMs) {
                         runCatching { provider.searchFree(query, perProvider) }
-                            .onFailure { Timber.tag(TAG).w("%s search failed: %s", provider.id, it.message) }
+                            .onFailure {
+                                AudioDiagnostics.warn("source search ${provider.id} ✘ '$query': ${it.message}")
+                            }
                             .getOrDefault(emptyList())
-                    }.orEmpty()
-                    Timber.tag(TAG).d("%s → %d result(s) for '%s'", provider.id, found.size, query)
-                    found
+                    }
+                    if (found == null) {
+                        AudioDiagnostics.warn("source search ${provider.id} ✘ '$query': timed out")
+                    }
+                    Timber.tag(TAG).d(
+                        "%s → %d result(s) for '%s' in %dms",
+                        provider.id, found?.size ?: -1, query, System.currentTimeMillis() - started,
+                    )
+                    provider.id to found.orEmpty()
                 }
             }.map { it.await() }
-        }.filter { it.isNotEmpty() }
-
-        val interleaved = mutableListOf<ProviderMatch>()
-        var row = 0
-        while (perSource.any { it.size > row }) {
-            perSource.forEach { list -> list.getOrNull(row)?.let(interleaved::add) }
-            row++
         }
-        return interleaved.distinctBy { catalogIdOf(it) }
+        AudioDiagnostics.info(
+            "source search '$query' → " + perSource.joinToString { "${it.first} ${it.second.size}" },
+        )
+
+        val all = perSource.flatMap { it.second }
+        val ranked = all.sortedWith(
+            compareByDescending<ProviderMatch> { relevance(query, it) }
+                .thenByDescending { it.thumbnailUrl != null }
+                .thenBy { rank(it.provider) },
+        )
+        // Same song from two sources: keep the better one, but never merge across sources the user
+        // asked to see on their own.
+        val seen = HashSet<String>()
+        return ranked.filter { match ->
+            seen.add(if (only != null) catalogIdOf(match) else dedupKey(match))
+        }
+    }
+
+    private fun rank(id: AudioProviderId): Int =
+        ResolverPreferences.order.indexOf(id).let { if (it < 0) 99 else it }
+
+    /** How much of what the user typed is actually in the result, 0..1. */
+    private fun relevance(query: String, match: ProviderMatch): Double {
+        val tokens = query.lowercase().split(' ', '-', '_', ',').filter { it.length > 1 }
+        if (tokens.isEmpty()) return 0.0
+        val haystack = "${match.artist} ${match.title}".lowercase()
+        val hits = tokens.count { haystack.contains(it) }
+        // An exact artist match counts for more than the same word buried in a long title.
+        val artistBonus = if (match.artist.lowercase().trim() == query.lowercase().trim()) 0.5 else 0.0
+        return hits.toDouble() / tokens.size + artistBonus
+    }
+
+    private fun dedupKey(match: ProviderMatch): String {
+        val title = match.title.lowercase().filter { it.isLetterOrDigit() }
+        val artist = match.artist.lowercase().filter { it.isLetterOrDigit() }
+        val bucket = ((match.durationMs ?: 0L) / 1000 / 5)
+        return "$artist|$title|$bucket"
     }
 
     fun metadataOf(match: ProviderMatch): MediaMetadata = MediaMetadata(

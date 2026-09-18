@@ -1301,4 +1301,6 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="got_it">Got it</string>
     <string name="search_in_sources_line">Searching the sources directly</string>
     <string name="search_library_account">In your music account</string>
+    <string name="search_source_disabled">%1$s is switched off in Settings → Music sources</string>
+    <string name="search_source_needs_account">%1$s needs an account — connect it in Settings → Music sources</string>
 </resources>

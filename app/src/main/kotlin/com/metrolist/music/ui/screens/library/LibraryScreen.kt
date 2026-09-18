@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import com.metrolist.music.R
 import com.metrolist.music.constants.ChipSortTypeKey
 import com.metrolist.music.constants.LibraryFilter
@@ -27,8 +28,23 @@ fun LibraryScreen(navController: NavController) {
     // With a linked Spotify and/or Yandex Music account the library mirrors that account's "My Library"
     // (both merged without duplicates when both are linked and combined).
     val catalogState by com.metrolist.music.catalog.Catalog.state.collectAsState()
+
+    // Tapping the Library tab again puts it back the way it looks when first opened: no filter and
+    // not inside "Local". The lists themselves scroll to the top on the same signal.
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val resetRequested by backStackEntry?.savedStateHandle
+        ?.getStateFlow("scrollToTop", false)
+        ?.collectAsState() ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+
     if (catalogState.isActive) {
         var showLocal by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+        androidx.compose.runtime.LaunchedEffect(resetRequested) {
+            if (resetRequested) showLocal = false
+        }
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.metrolist.music.ui.component.LocalListItemSizes provides
+                com.metrolist.music.ui.component.LibraryListItemSizes,
+        ) {
         Box(modifier = Modifier.fillMaxSize()) {
             if (showLocal) {
                 LibraryLocalScreen(
@@ -48,10 +64,14 @@ fun LibraryScreen(navController: NavController) {
                 SpotifyLibraryScreen(navController, onLocalSelected = { showLocal = true })
             }
         }
+        }
         return
     }
 
     var filterType by rememberEnumPreference(ChipSortTypeKey, LibraryFilter.LIBRARY)
+    androidx.compose.runtime.LaunchedEffect(resetRequested) {
+        if (resetRequested && filterType != LibraryFilter.LIBRARY) filterType = LibraryFilter.LIBRARY
+    }
 
     // P5: Spotify-style library tabs — exactly four chips: Playlists, Albums, Artists, Local.
     val filterContent = @Composable {
@@ -72,6 +92,11 @@ fun LibraryScreen(navController: NavController) {
         }
     }
 
+    // Same row proportions as the account library, so the two don't look like different apps.
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.metrolist.music.ui.component.LocalListItemSizes provides
+            com.metrolist.music.ui.component.LibraryListItemSizes,
+    ) {
     Box(modifier = Modifier.fillMaxSize()) {
         when (filterType) {
             LibraryFilter.LIBRARY -> LibraryMixScreen(navController, filterContent)
@@ -98,5 +123,6 @@ fun LibraryScreen(navController: NavController) {
             // device-file browser. filterContent keeps the top chips so the user can switch back.
             LibraryFilter.LOCAL_FILES -> LibraryLocalScreen(navController, filterContent)
         }
+    }
     }
 }

@@ -1421,6 +1421,46 @@ interface DatabaseDao {
         SongSortType.PLAY_TIME -> downloadedPodcastEpisodesByPlayTimeAsc()
     }.map { it.reversed(descending) }
 
+    // ── Library search ────────────────────────────────────────────────────────────────────────────
+    // "In the library" is more than the songs that were explicitly added to it: liked and downloaded
+    // songs belong there too, and a song is just as often looked for by its artist as by its title.
+
+    @Transaction
+    @Query(
+        "SELECT * FROM song WHERE (title LIKE '%' || :query || '%' OR id IN (SELECT songId FROM song_artist_map " +
+            "JOIN artist ON artist.id = song_artist_map.artistId WHERE artist.name LIKE '%' || :query || '%')) " +
+            "AND (inLibrary IS NOT NULL OR liked = 1 OR isDownloaded = 1) LIMIT :previewSize",
+    )
+    fun searchLibrarySongs(
+        query: String,
+        previewSize: Int = Int.MAX_VALUE,
+    ): Flow<List<Song>>
+
+    @Transaction
+    @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
+    @Query(
+        "SELECT *, (SELECT COUNT(1) FROM song_artist_map JOIN song ON song_artist_map.songId = song.id " +
+            "WHERE artistId = artist.id AND (song.inLibrary IS NOT NULL OR song.liked = 1 OR song.isDownloaded = 1)) " +
+            "AS songCount FROM artist WHERE name LIKE '%' || :query || '%' AND (songCount > 0 OR bookmarkedAt IS NOT NULL) " +
+            "LIMIT :previewSize",
+    )
+    fun searchLibraryArtists(
+        query: String,
+        previewSize: Int = Int.MAX_VALUE,
+    ): Flow<List<Artist>>
+
+    @Transaction
+    @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
+    @Query(
+        "SELECT * FROM album WHERE title LIKE '%' || :query || '%' AND (bookmarkedAt IS NOT NULL OR " +
+            "EXISTS(SELECT * FROM song WHERE song.albumId = album.id AND (song.inLibrary IS NOT NULL OR " +
+            "song.liked = 1 OR song.isDownloaded = 1))) LIMIT :previewSize",
+    )
+    fun searchLibraryAlbums(
+        query: String,
+        previewSize: Int = Int.MAX_VALUE,
+    ): Flow<List<Album>>
+
     @Transaction
     @Query("SELECT * FROM song WHERE title LIKE '%' || :query || '%' AND inLibrary IS NOT NULL LIMIT :previewSize")
     fun searchSongs(
