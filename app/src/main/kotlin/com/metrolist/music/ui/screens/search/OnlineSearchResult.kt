@@ -612,8 +612,11 @@ fun OnlineSearchResult(
             ) {
                 LazyColumn(
                     state = lazyListState,
-                    // Keeps the last result above the mini player instead of behind it.
-                    contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
+                    // Bottom only — the top inset is already handled above and would show up as a
+                    // gap between the filter chips and the first result.
+                    contentPadding = LocalPlayerAwareWindowInsets.current
+                        .only(WindowInsetsSides.Bottom)
+                        .asPaddingValues(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     if (isShowingSummary) {

@@ -232,7 +232,8 @@ fun SourceSearchResult(
         )
 
         Text(
-            text = stringResource(R.string.search_in_sources_line),
+            text = source?.let { stringResource(R.string.search_in_source, providerName(it)) }
+                ?: stringResource(R.string.search_in_sources_line),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -249,16 +250,6 @@ fun SourceSearchResult(
                 ),
                 currentValue = filter,
                 onValueUpdate = { viewModel.filter.value = it },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            // One source at a time digs much deeper than the mixed view, which has to leave room
-            // for every source.
-            ChipsRow(
-                chips = listOf<Pair<AudioProviderId?, String>>(
-                    null to stringResource(R.string.filter_all),
-                ) + SourceSearch.PROVIDERS.map { it as AudioProviderId? to providerName(it) },
-                currentValue = source,
-                onValueUpdate = { viewModel.source.value = it },
                 modifier = Modifier.fillMaxWidth(),
             )
         } else {
@@ -287,8 +278,11 @@ fun SourceSearchResult(
 
         LazyColumn(
             state = lazyListState,
-            // Keeps the last track above the mini player instead of behind it.
-            contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
+            // Only the bottom: the last track stays above the mini player, and no gap appears
+            // between the chips and the first row.
+            contentPadding = LocalPlayerAwareWindowInsets.current
+                .only(WindowInsetsSides.Bottom)
+                .asPaddingValues(),
             modifier = Modifier.fillMaxSize(),
         ) {
             if (selectedArtist == null && filter == SourceSearchFilter.ARTISTS) {
@@ -344,7 +338,11 @@ fun SourceSearchResult(
                                 onClick = { play(shownTracks, index) },
                                 onLongClick = {
                                     menuState.show {
-                                        SourceTrackMenu(match = match, onDismiss = menuState::dismiss)
+                                        SourceTrackMenu(
+                                            match = match,
+                                            onDismiss = menuState::dismiss,
+                                            navController = navController,
+                                        )
                                     }
                                 },
                             )

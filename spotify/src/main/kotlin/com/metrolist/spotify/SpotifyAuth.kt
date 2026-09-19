@@ -57,6 +57,32 @@ object SpotifyAuth {
      * 3. Generates a 6-digit TOTP (SHA1, 30s interval)
      * 4. Calls /api/token with the TOTP and sp_dc cookie
      */
+    /**
+     * A token for someone who isn't signed in. Spotify's web player hands one out to anybody and it
+     * is enough for the public catalog — search, albums, artists, playlists — but not for a library.
+     */
+    suspend fun fetchAnonymousToken(): Result<SpotifyInternalToken> = runCatching {
+        val nuance = fetchNuance()
+        val serverTimeSec = fetchServerTime()
+        val totp = generateTotp(nuance.s, serverTimeSec)
+
+        val tokenUrl = buildString {
+            append(TOKEN_URL)
+            append("?reason=init")
+            append("&productType=web-player")
+            append("&totp=$totp")
+            append("&totpServer=$totp")
+            append("&totpVer=${nuance.v}")
+        }
+
+        val body = withContext(Dispatchers.IO) { httpGet(tokenUrl, emptyMap()) }
+        val token = json.decodeFromString<SpotifyInternalToken>(body)
+        if (token.accessToken.isBlank()) {
+            throw Spotify.SpotifyException(401, "Spotify refused an anonymous token")
+        }
+        token
+    }
+
     suspend fun fetchAccessToken(
         spDc: String,
         spKey: String = "",

@@ -1303,4 +1303,13 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="search_library_account">In your music account</string>
     <string name="search_source_disabled">%1$s is switched off in Settings → Music sources</string>
     <string name="search_source_needs_account">%1$s needs an account — connect it in Settings → Music sources</string>
+    <string name="search_all_sources">All sources</string>
+    <string name="search_source_spotify">Spotify</string>
+    <string name="search_this_artist">Find this performer</string>
+    <string name="open_file_location">Show in folder</string>
+    <string name="open_file_location_desc">Open the downloaded file in your file manager</string>
+    <string name="file_not_found">The file is no longer there</string>
+    <string name="yandex_vpn_hint">If the Yandex page does not open, turn the VPN off: Yandex blocks its login page for many VPN servers.</string>
+    <string name="login_page_failed">The page would not load</string>
+    <string name="login_page_failed_hint">Check the connection and try again.</string>
 </resources>

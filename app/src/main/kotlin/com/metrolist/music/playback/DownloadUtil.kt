@@ -66,7 +66,7 @@ constructor(
     val databaseProvider: DatabaseProvider,
     @DownloadCache val downloadCache: SimpleCache,
     @PlayerCache val playerCache: SimpleCache,
-    private val downloadExporter: DownloadExporter,
+    val downloadExporter: DownloadExporter,
 ) {
     private val TAG = "DownloadUtil"
     private val appContext = context
@@ -296,6 +296,31 @@ constructor(
             result[cursor.download.request.id] = cursor.download
         }
         downloads.value = result
+        reconcileWithDownloads()
+    }
+
+    /**
+     * The "downloaded" flag in the database and the actual downloads can drift apart — the files can
+     * be deleted from outside the app, or the download index can be cleared while the app isn't
+     * running — and then the library keeps counting tracks that are no longer there. Anything the
+     * download manager doesn't know about (or hasn't finished) loses the flag.
+     */
+    fun reconcileWithDownloads() {
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                val completed = downloads.value
+                    .filterValues { it.state == Download.STATE_COMPLETED }
+                    .keys
+                val claimed = database.downloadedSongIdsBlocking()
+                val stale = claimed.filterNot { it in completed }
+                if (stale.isEmpty()) return@runCatching
+                Timber.tag(TAG).i("Clearing the download flag of %d song(s) with no download left", stale.size)
+                database.query {
+                    stale.forEach { updateDownloadedInfo(it, false, null) }
+                }
+                stale.forEach { downloadExporter.forgetExported(it) }
+            }.onFailure { Timber.tag(TAG).e(it, "Reconciling downloads failed") }
+        }
     }
 
     /** Network-level failures mean "YouTube unreachable"; anything else is about this particular video. */

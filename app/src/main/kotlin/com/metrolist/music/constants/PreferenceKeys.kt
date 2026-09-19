@@ -154,6 +154,9 @@ val DownloadFolderUriKey = stringPreferencesKey("downloadFolderUri")
 // doesn't create duplicate files. Cleared per-id when the download is removed.
 val ExportedSongIdsKey = stringSetPreferencesKey("exportedSongIds")
 
+/** "songId<sep>uri" of the file each download was written to, for "show in folder". */
+val ExportedUrisKey = stringSetPreferencesKey("exportedSongUris")
+
 /** Downloads that finished but whose file hasn't landed in the user's folder yet (retried on start). */
 val PendingExportSongIdsKey = stringSetPreferencesKey("pendingExportSongIds")
 
@@ -617,6 +620,9 @@ val SleepTimerDayTimesKey = stringPreferencesKey("sleepTimerDayTimes")
 
 /** Whether the experimental "search the sources directly" mode is offered in the search picker. */
 val ExperimentalSearchEnabledKey = booleanPreferencesKey("experimentalSearchEnabled")
+
+/** Which single source the experimental search uses; empty = all of them at once. */
+val ExperimentalSearchSourceKey = stringPreferencesKey("experimentalSearchSource")
 
 /** Set once the user has seen what the experimental search mode can't do. */
 val ExperimentalSearchAckKey = booleanPreferencesKey("experimentalSearchAcknowledged")

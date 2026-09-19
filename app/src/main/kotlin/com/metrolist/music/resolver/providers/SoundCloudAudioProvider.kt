@@ -130,16 +130,27 @@ class SoundCloudAudioProvider(
     }
 
     private suspend fun searchTracks(text: String, limit: Int = 25): List<ScTrack> = withClientId { cid ->
-        val url = "https://api-v2.soundcloud.com/search/tracks".toHttpUrl().newBuilder()
-            .addQueryParameter("q", text)
-            .addQueryParameter("client_id", cid)
-            .addQueryParameter("limit", limit.coerceIn(1, 100).toString())
-            .addQueryParameter("offset", "0")
-            .addQueryParameter("app_locale", "en")
-            .build().toString()
-        val body = get(url) ?: return@withClientId emptyList()
-        val collection = JSONObject(body).optJSONArray("collection") ?: JSONArray()
-        (0 until collection.length()).mapNotNull { i -> collection.optJSONObject(i)?.let(::parseTrack) }
+        // SoundCloud answers at most 50 per request, so more than that is paged through.
+        val wanted = limit.coerceIn(1, 200)
+        val out = mutableListOf<ScTrack>()
+        var offset = 0
+        while (out.size < wanted) {
+            val page = (wanted - out.size).coerceAtMost(50)
+            val url = "https://api-v2.soundcloud.com/search/tracks".toHttpUrl().newBuilder()
+                .addQueryParameter("q", text)
+                .addQueryParameter("client_id", cid)
+                .addQueryParameter("limit", page.toString())
+                .addQueryParameter("offset", offset.toString())
+                .addQueryParameter("app_locale", "en")
+                .build().toString()
+            val body = get(url) ?: break
+            val collection = JSONObject(body).optJSONArray("collection") ?: JSONArray()
+            if (collection.length() == 0) break
+            out += (0 until collection.length()).mapNotNull { i -> collection.optJSONObject(i)?.let(::parseTrack) }
+            offset += collection.length()
+            if (collection.length() < page) break
+        }
+        out
     }.orEmpty()
 
     override suspend fun searchFree(text: String, limit: Int): List<ProviderMatch> {

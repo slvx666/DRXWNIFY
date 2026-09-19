@@ -6,6 +6,8 @@
 package com.metrolist.music.ui.component
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -25,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.metrolist.music.R
 import com.metrolist.music.catalog.Catalog
 import com.metrolist.music.constants.ExperimentalSearchAckKey
@@ -51,6 +54,8 @@ fun SearchSourceButton(
     val hasCatalog = catalogState.isActive
     val (experimentalAvailable, _) = rememberPreference(ExperimentalSearchEnabledKey, defaultValue = true)
     val (acknowledged, setAcknowledged) = rememberPreference(ExperimentalSearchAckKey, defaultValue = false)
+    val (experimentalSource, setExperimentalSource) =
+        rememberPreference(com.metrolist.music.constants.ExperimentalSearchSourceKey, defaultValue = "")
 
     var expanded by remember { mutableStateOf(false) }
     var showWarning by remember { mutableStateOf(false) }
@@ -131,9 +136,58 @@ fun SearchSourceButton(
                         if (isExperimental && !acknowledged) showWarning = true else onSelect(source)
                     },
                 )
+                // The sources the experimental mode can use hang under it, like a small tree, so
+                // they don't need a second row of chips on the results screen.
+                if (isExperimental) {
+                    val sourceEntries = listOf<Pair<String, String>>("" to stringResource(R.string.search_all_sources)) +
+                        com.metrolist.music.resolver.SourceSearch.PROVIDERS.map { it.name to providerLabel(it) }
+                    sourceEntries.forEach { (value, label) ->
+                        val picked = experimentalSource == value
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (picked) {
+                                        SearchExperimentalColor
+                                    } else {
+                                        LocalContentColor.current.copy(alpha = 0.8f)
+                                    },
+                                )
+                            },
+                            leadingIcon = {
+                                // Indent, so the entries read as children of the mode above them.
+                                Spacer(Modifier.width(20.dp))
+                            },
+                            trailingIcon = {
+                                if (picked && current == SearchSource.SOURCES) {
+                                    Icon(painterResource(R.drawable.check), contentDescription = null)
+                                }
+                            },
+                            onClick = {
+                                expanded = false
+                                setExperimentalSource(value)
+                                if (current != SearchSource.SOURCES) {
+                                    if (acknowledged) onSelect(SearchSource.SOURCES) else showWarning = true
+                                }
+                            },
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+/** "VK", "SoundCloud", … as the user knows them. */
+fun providerLabel(id: com.metrolist.music.resolver.AudioProviderId): String = when (id) {
+    com.metrolist.music.resolver.AudioProviderId.VK -> "VK"
+    com.metrolist.music.resolver.AudioProviderId.SOUNDCLOUD -> "SoundCloud"
+    com.metrolist.music.resolver.AudioProviderId.BANDCAMP -> "Bandcamp"
+    com.metrolist.music.resolver.AudioProviderId.AUDIUS -> "Audius"
+    com.metrolist.music.resolver.AudioProviderId.YOUTUBE -> "YouTube"
+    com.metrolist.music.resolver.AudioProviderId.SOULSEEK -> "Soulseek"
+    com.metrolist.music.resolver.AudioProviderId.QOBUZ -> "Qobuz"
 }
 
 fun searchSourceIcon(source: SearchSource): Int = when (source) {
@@ -145,7 +199,7 @@ fun searchSourceIcon(source: SearchSource): Int = when (source) {
 
 fun searchSourceLabel(source: SearchSource, hasCatalog: Boolean): Int = when (source) {
     SearchSource.LOCAL -> R.string.search_source_library
-    SearchSource.ONLINE -> if (hasCatalog) R.string.search_source_catalog else R.string.search_source_youtube
+    SearchSource.ONLINE -> if (hasCatalog) R.string.search_source_catalog else R.string.search_source_spotify
     SearchSource.YOUTUBE -> R.string.search_source_youtube
     SearchSource.SOURCES -> R.string.search_source_experimental
 }

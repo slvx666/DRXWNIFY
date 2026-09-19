@@ -87,6 +87,7 @@ fun YandexLoginScreen(navController: NavController) {
         navController = navController,
         title = stringResource(R.string.yandex_login),
         startUrl = YandexMusic.OAUTH_URL,
+        note = stringResource(R.string.yandex_vpn_hint),
         onToken = { params ->
             val token = params["access_token"] ?: return@OAuthTokenLoginScreen "no token"
             YandexMusic.accessToken = token
@@ -334,6 +335,8 @@ private fun OAuthTokenLoginScreen(
     var loading by remember { mutableStateOf(true) }
     var processing by remember { mutableStateOf(false) }
     var showPasteDialog by remember { mutableStateOf(false) }
+    var loadFailed by remember { mutableStateOf(false) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
     val handled = remember { AtomicBoolean(false) }
 
     fun finish(params: Map<String, String>) {
@@ -402,7 +405,7 @@ private fun OAuthTokenLoginScreen(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
                     CookieManager.getInstance().setAcceptCookie(true)
-                    WebView(ctx).apply {
+                    WebView(ctx).also { webView = it }.apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         // Without an explicit focus the page's inputs can end up sharing focus with
@@ -424,8 +427,22 @@ private fun OAuthTokenLoginScreen(
                                 return true
                             }
 
+                            override fun onReceivedError(
+                                view: WebView?,
+                                request: WebResourceRequest?,
+                                error: android.webkit.WebResourceError?,
+                            ) {
+                                // Only the login page itself matters; a failing tracker or font is
+                                // not worth a warning.
+                                if (request?.isForMainFrame == true) {
+                                    loading = false
+                                    loadFailed = true
+                                }
+                            }
+
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 loading = true
+                                loadFailed = false
                                 tokenParams(url)?.let {
                                     view?.stopLoading()
                                     finish(it)
@@ -445,6 +462,36 @@ private fun OAuthTokenLoginScreen(
             // Overlay, so the page never gets re-laid out mid-typing when loading toggles.
             if (loading || processing) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+            }
+            // The usual reason a login page refuses to load is a VPN the service doesn't like.
+            if (loadFailed) {
+                androidx.compose.material3.Card(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp),
+                ) {
+                    Column(Modifier.padding(20.dp)) {
+                        Text(
+                            text = stringResource(R.string.login_page_failed),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = note ?: stringResource(R.string.login_page_failed_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        TextButton(
+                            onClick = {
+                                loadFailed = false
+                                webView?.loadUrl(startUrl)
+                            },
+                        ) {
+                            Text(stringResource(R.string.retry))
+                        }
+                    }
+                }
             }
         }
     }

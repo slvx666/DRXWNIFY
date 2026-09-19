@@ -40,6 +40,41 @@ object SpotifyTokenManager {
      *
      * @return true if a valid token is set on [Spotify.accessToken], false otherwise
      */
+    /** An anonymous token and when it stops working; enough for the public catalog. */
+    @Volatile
+    private var anonymousToken: Pair<String, Long>? = null
+    private val anonymousMutex = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * Makes Spotify usable without an account: its web player hands anyone a token that can search
+     * and open albums, artists and playlists (but never a library). Used when nothing is linked, so
+     * search still finds music instead of falling back to YouTube.
+     */
+    suspend fun ensurePublicAccess(): Boolean {
+        anonymousToken?.takeIf { System.currentTimeMillis() < it.second }?.let {
+            Spotify.accessToken = it.first
+            return true
+        }
+        return anonymousMutex.withLock {
+            anonymousToken?.takeIf { System.currentTimeMillis() < it.second }?.let {
+                Spotify.accessToken = it.first
+                return@withLock true
+            }
+            SpotifyAuth.fetchAnonymousToken().fold(
+                onSuccess = { token ->
+                    anonymousToken = token.accessToken to token.accessTokenExpirationTimestampMs
+                    Spotify.accessToken = token.accessToken
+                    Timber.d("SpotifyTokenManager: using an anonymous token for public browsing")
+                    true
+                },
+                onFailure = {
+                    Timber.w(it, "SpotifyTokenManager: no anonymous token")
+                    false
+                },
+            )
+        }
+    }
+
     suspend fun ensureAuthenticated(): Boolean {
         val settings = dataStore.data.first()
         val accessToken = settings[SpotifyAccessTokenKey] ?: ""

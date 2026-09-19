@@ -103,7 +103,8 @@ fun SpotifyTrackMenu(
     )
 
     // Download state: the track may be downloaded under its YouTube id or its fallback id.
-    val downloads by com.metrolist.music.LocalDownloadUtil.current.downloads.collectAsState()
+    val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
+    val downloads by downloadUtil.downloads.collectAsState()
     val downloadCandidates by produceState(initialValue = emptyList<String>(), track.id) {
         value = withContext(Dispatchers.IO) {
             listOfNotNull(
@@ -251,7 +252,7 @@ fun SpotifyTrackMenu(
     Spacer(modifier = Modifier.height(12.dp))
 
     Material3MenuGroup(
-        items = listOf(
+        items = listOfNotNull(
             Material3MenuItemData(
                 title = {
                     Text(text = stringResource(if (isLiked) R.string.action_remove_like else R.string.action_like))
@@ -342,6 +343,26 @@ fun SpotifyTrackMenu(
                     }
                 },
             ),
+            downloadedId?.let { id ->
+                Material3MenuItemData(
+                title = { Text(text = stringResource(R.string.open_file_location)) },
+                description = { Text(text = stringResource(R.string.open_file_location_desc)) },
+                icon = {
+                    Icon(painter = painterResource(R.drawable.folder), contentDescription = null)
+                },
+                onClick = {
+                    onDismiss()
+                    val appContext = context.applicationContext
+                    coroutineScope.launch {
+                        com.metrolist.music.utils.openDownloadLocation(
+                            appContext,
+                            downloadUtil.downloadExporter,
+                            id,
+                        )
+                    }
+                },
+                )
+            },
             Material3MenuItemData(
                 title = { Text(text = stringResource(R.string.play_next)) },
                 description = { Text(text = stringResource(R.string.play_next_desc)) },

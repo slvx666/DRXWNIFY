@@ -122,7 +122,8 @@ fun SongMenu(
     val playerConnection = LocalPlayerConnection.current ?: return
     val songState = database.song(originalSong.id).collectAsState(initial = originalSong)
     val song = songState.value ?: originalSong
-    val download by LocalDownloadUtil.current
+    val downloadUtil = LocalDownloadUtil.current
+    val download by downloadUtil
         .getDownload(originalSong.id)
         .collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
@@ -567,7 +568,7 @@ fun SongMenu(
         item {
             NewActionGrid(
                 actions =
-                    listOf(
+                    listOfNotNull(
                         NewAction(
                             icon = {
                                 Icon(
@@ -592,7 +593,7 @@ fun SongMenu(
                             text = stringResource(R.string.add_to_playlist),
                             onClick = { showChoosePlaylistDialog = true },
                         ),
-                        NewAction(
+                        if (com.metrolist.music.resolver.SourceSearch.isSourceTrack(song.id)) null else NewAction(
                             icon = {
                                 Icon(
                                     painter = painterResource(R.drawable.share),
@@ -963,7 +964,33 @@ fun SongMenu(
         item {
             Material3MenuGroup(
                 items =
-                    listOf(
+                    listOfNotNull(
+                        // Where the file actually landed, for a track that finished downloading.
+                        if (download?.state == Download.STATE_COMPLETED) {
+                            Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.open_file_location)) },
+                                description = { Text(text = stringResource(R.string.open_file_location_desc)) },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.folder),
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = {
+                                    onDismiss()
+                                    val appContext = context.applicationContext
+                                    coroutineScope.launch {
+                                        com.metrolist.music.utils.openDownloadLocation(
+                                            appContext,
+                                            downloadUtil.downloadExporter,
+                                            song.id,
+                                        )
+                                    }
+                                },
+                            )
+                        } else {
+                            null
+                        },
                         when (download?.state) {
                             Download.STATE_COMPLETED -> {
                                 Material3MenuItemData(

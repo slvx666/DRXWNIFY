@@ -82,7 +82,7 @@ object SourceSearch {
     suspend fun search(
         text: String,
         only: AudioProviderId? = null,
-        perProvider: Int = if (only != null) 60 else 25,
+        perProvider: Int = if (only != null) 120 else 25,
     ): List<ProviderMatch> {
         val query = text.trim()
         if (query.isBlank()) return emptyList()

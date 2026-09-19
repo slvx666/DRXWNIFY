@@ -122,13 +122,10 @@ constructor(
         val source = prefs[com.metrolist.music.constants.SearchSourceKey]
             ?.let { name -> com.metrolist.music.constants.SearchSource.entries.firstOrNull { it.name == name } }
         if (source == com.metrolist.music.constants.SearchSource.YOUTUBE) return false
-        val enabled = prefs[EnableSpotifyKey] ?: false
-        val useForSearch = prefs[UseSpotifySearchKey] ?: false
-        val hasToken = (prefs[SpotifyAccessTokenKey] ?: "").isNotEmpty()
-        val hasYandex = (prefs[com.metrolist.music.constants.YandexAccessTokenKey] ?: "").isNotEmpty()
-        // Metadata always comes from the linked account (Spotify by default, else Yandex Music);
-        // YouTube search is only used when no music account is connected.
-        return (enabled && hasToken) || hasYandex
+        // With no account at all, Spotify's public catalog is still searched (anonymously) — it is
+        // the better search, and YouTube is one tap away in the picker. initSpotifySearch() falls
+        // back to YouTube by itself if that doesn't work out.
+        return true
     }
 
     private fun initYouTubeSearch() {

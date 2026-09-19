@@ -2139,8 +2139,13 @@ class MusicService :
      * to toggle only the local flag, which did nothing for a track liked on Spotify).
      */
     fun toggleLike() {
-        // Tracks found by the experimental source search have no catalog entry to like.
-        if (com.metrolist.music.resolver.SourceSearch.isSourceTrack(player.currentMediaItem?.mediaId)) return
+        // A source-search track has no catalog entry, so with an account connected there is nothing
+        // to like it in. Without one, likes are local anyway and it works like any other track.
+        if (com.metrolist.music.resolver.SourceSearch.isSourceTrack(player.currentMediaItem?.mediaId) &&
+            com.metrolist.music.catalog.Catalog.isActive
+        ) {
+            return
+        }
         val song = currentSong.value?.song
         if (song?.isEpisode == true) {
             scope.launch { toggleEpisodeSaveForLater(song) }

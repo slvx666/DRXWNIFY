@@ -1202,6 +1202,10 @@ interface DatabaseDao {
     @Query("UPDATE song SET isDownloaded = :downloaded, dateDownload = :date WHERE id = :songId")
     fun updateDownloadedInfo(songId: String, downloaded: Boolean, date: LocalDateTime?)
 
+    /** Ids the database believes are downloaded, for reconciling with what is actually on disk. */
+    @Query("SELECT id FROM song WHERE isDownloaded = 1")
+    fun downloadedSongIdsBlocking(): List<String>
+
     fun localSongs(
         sortType: SongSortType,
         descending: Boolean,

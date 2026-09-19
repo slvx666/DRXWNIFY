@@ -799,6 +799,15 @@ private fun extractAndFetchToken(
                 // …and for the home page, otherwise the user keeps seeing the stock
                 // YouTube recommendations after connecting the account.
                 prefs[com.metrolist.music.constants.UseSpotifyHomeKey] = true
+                // Everything else the integration offers starts switched on as well, but only on a
+                // first connection — a later re-login must not undo the user's own choices.
+                // "Approximate matches" stays off: it trades playing the right track for coverage.
+                if (prefs[com.metrolist.music.constants.SpotifyHomeOnlyKey] == null) {
+                    prefs[com.metrolist.music.constants.SpotifyHomeOnlyKey] = true
+                }
+                if (prefs[com.metrolist.music.constants.SpotifySyncLikesKey] == null) {
+                    prefs[com.metrolist.music.constants.SpotifySyncLikesKey] = true
+                }
                 if (prefs[com.metrolist.music.constants.YandexAccessTokenKey].isNullOrEmpty()) {
                     prefs[com.metrolist.music.constants.PrimaryMetadataSourceKey] =
                         com.metrolist.music.constants.MetadataSource.SPOTIFY.name

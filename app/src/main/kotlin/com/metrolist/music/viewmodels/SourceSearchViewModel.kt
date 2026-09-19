@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import com.metrolist.music.utils.dataStore
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -45,6 +47,7 @@ data class SourceArtist(
 class SourceSearchViewModel
 @Inject
 constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     val query = try {
@@ -58,8 +61,17 @@ constructor(
 
     val filter = MutableStateFlow(SourceSearchFilter.TRACKS)
 
-    /** null = every usable source at once; otherwise only that one, which then returns far more. */
-    val source = MutableStateFlow<AudioProviderId?>(null)
+    /**
+     * null = every usable source at once; otherwise only that one, which then returns far more.
+     * Chosen in the search box's source picker, so it survives leaving the screen.
+     */
+    val source: StateFlow<AudioProviderId?> = context.dataStore.data
+        .map { prefs ->
+            prefs[com.metrolist.music.constants.ExperimentalSearchSourceKey]
+                ?.let { name -> AudioProviderId.entries.firstOrNull { it.name == name } }
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** Non-null while one artist's tracks are shown instead of the result list. */
     val selectedArtist = MutableStateFlow<String?>(null)
@@ -88,16 +100,28 @@ constructor(
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            // Re-runs whenever the user narrows the search down to one source.
+            // Re-runs whenever the user narrows the search down to one source. The first run must
+            // leave an artist opened straight from a track's menu alone.
+            var firstRun = true
             source.collectLatest { only ->
                 isLoading.value = true
-                closeArtist()
+                if (!firstRun) closeArtist()
+                firstRun = false
                 val found = SourceSearch.search(query, only)
                 results.value = found
                 isLoading.value = false
                 // Remember where each result came from, so it still plays (and downloads) after a restart.
                 SourceSearch.remember(found)
             }
+        }
+    }
+
+    init {
+        // Opened from a track's menu: show that performer straight away.
+        SourceSearchViewModel.pendingArtist?.let { artist ->
+            pendingArtist = null
+            filter.value = SourceSearchFilter.ARTISTS
+            openArtist(artist)
         }
     }
 
@@ -118,6 +142,12 @@ constructor(
             artistLoading.value = false
             SourceSearch.remember(merged)
         }
+    }
+
+    companion object {
+        /** Set right before navigating from "find this performer" in a track's menu. */
+        @Volatile
+        var pendingArtist: String? = null
     }
 
     fun closeArtist() {

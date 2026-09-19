@@ -1007,4 +1007,13 @@
     <string name="search_library_account">В музыкальном аккаунте</string>
     <string name="search_source_disabled">%1$s выключен в «Настройки → Источники музыки»</string>
     <string name="search_source_needs_account">Для %1$s нужен аккаунт — подключи его в «Настройки → Источники музыки»</string>
+    <string name="search_all_sources">Все источники</string>
+    <string name="search_source_spotify">Spotify</string>
+    <string name="search_this_artist">Найти исполнителя</string>
+    <string name="open_file_location">Перейти к расположению</string>
+    <string name="open_file_location_desc">Открыть скачанный файл в проводнике</string>
+    <string name="file_not_found">Файла больше нет на месте</string>
+    <string name="yandex_vpn_hint">Если страница Яндекса не открывается — выключи VPN: с многих серверов Яндекс не пускает на страницу входа.</string>
+    <string name="login_page_failed">Страница не открылась</string>
+    <string name="login_page_failed_hint">Проверь соединение и попробуй снова.</string>
 </resources>

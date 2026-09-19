@@ -270,9 +270,12 @@ fun QueueMenu(
     ) {
         // Quick actions grid
         item {
+            // A track from the experimental source search has no page anywhere and no catalog
+            // entry: a shared link would point at the wrong song, and a radio can't be built.
+            val isSourceTrack = com.metrolist.music.resolver.SourceSearch.isSourceTrack(mediaMetadata.id)
             NewActionGrid(
-                actions = listOf(
-                    NewAction(
+                actions = listOfNotNull(
+                    if (isSourceTrack) null else NewAction(
                         icon = {
                             Icon(
                                 painter = painterResource(R.drawable.radio),
@@ -308,7 +311,7 @@ fun QueueMenu(
                         text = stringResource(R.string.add_to_playlist),
                         onClick = { showChoosePlaylistDialog = true }
                     ),
-                    NewAction(
+                    if (isSourceTrack) null else NewAction(
                         icon = {
                             Icon(
                                 painter = painterResource(R.drawable.share),

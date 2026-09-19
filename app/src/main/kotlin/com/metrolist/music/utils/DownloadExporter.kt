@@ -25,6 +25,8 @@ import com.arthenica.ffmpegkit.ReturnCode
 import com.metrolist.music.constants.DownloadFolderUriKey
 import com.metrolist.music.constants.ExportFolderHintsKey
 import com.metrolist.music.constants.ExportedSongIdsKey
+import androidx.core.net.toUri
+import com.metrolist.music.constants.ExportedUrisKey
 import com.metrolist.music.constants.PendingExportSongIdsKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.di.ApplicationScope
@@ -140,7 +142,7 @@ class DownloadExporter @Inject constructor(
             try {
                 val playlistFolder = folderHint(songId)
                 runCatching { exportInternal(songId, playlistFolder) }
-                    .onSuccess { markExported(songId) }
+                    .onSuccess { uri -> markExported(songId, uri) }
                     .onFailure {
                         // Left in the pending set so the next app start tries again.
                         DownloadExportState.markFailed(songId)
@@ -162,14 +164,31 @@ class DownloadExporter @Inject constructor(
             prefs[ExportedSongIdsKey]?.let { current ->
                 if (songId in current) prefs[ExportedSongIdsKey] = current - songId
             }
+            prefs[ExportedUrisKey]?.let { current ->
+                val left = current.filterNot { it.substringBefore(HINT_SEPARATOR) == songId }.toSet()
+                if (left.size != current.size) prefs[ExportedUrisKey] = left
+            }
         }
     }
 
     private suspend fun isExported(songId: String): Boolean =
         context.dataStore.get(ExportedSongIdsKey, emptySet()).contains(songId)
 
-    private suspend fun markExported(songId: String) {
+    /** Where [songId] was written, so "show in folder" can open it. Null for older downloads. */
+    suspend fun exportedUri(songId: String): android.net.Uri? =
+        context.dataStore.get(ExportedUrisKey, emptySet())
+            .firstOrNull { it.substringBefore(HINT_SEPARATOR) == songId }
+            ?.substringAfter(HINT_SEPARATOR)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { runCatching { it.toUri() }.getOrNull() }
+
+    private suspend fun markExported(songId: String, uri: android.net.Uri? = null) {
         context.dataStore.edit { prefs ->
+            if (uri != null) {
+                prefs[ExportedUrisKey] = (prefs[ExportedUrisKey] ?: emptySet())
+                    .filterNot { it.substringBefore(HINT_SEPARATOR) == songId }
+                    .toSet() + "$songId$HINT_SEPARATOR$uri"
+            }
             prefs[ExportedSongIdsKey] = (prefs[ExportedSongIdsKey] ?: emptySet()) + songId
             prefs[PendingExportSongIdsKey] = (prefs[PendingExportSongIdsKey] ?: emptySet()) - songId
             prefs[ExportFolderHintsKey] = (prefs[ExportFolderHintsKey] ?: emptySet())

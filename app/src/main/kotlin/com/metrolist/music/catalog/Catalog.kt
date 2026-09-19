@@ -122,7 +122,9 @@ object Catalog {
     suspend fun ensureAuthenticated(): Boolean = when (source) {
         MetadataSource.SPOTIFY -> SpotifyTokenManager.ensureAuthenticated()
         MetadataSource.YANDEX -> YandexMusic.isAuthenticated()
-        null -> false
+        // No account: Spotify's public catalog is still open to anonymous clients, so search and
+        // browsing work. Anything to do with a library stays unavailable ([noAccount]).
+        null -> SpotifyTokenManager.ensurePublicAccess()
     }
 
     private fun noAccount(): Nothing = throw IllegalStateException("No music account connected")
@@ -358,6 +360,7 @@ object Catalog {
         when (source) {
             MetadataSource.SPOTIFY -> Spotify.search(query, types, limit, offset)
             MetadataSource.YANDEX -> YandexMusic.search(query, types, limit, offset)
-            null -> runCatching { noAccount() }
+            // Public catalog, no account needed (see [ensureAuthenticated]).
+            null -> Spotify.search(query, types, limit, offset)
         }
 }

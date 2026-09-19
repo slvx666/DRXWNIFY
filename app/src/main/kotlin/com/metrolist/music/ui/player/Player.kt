@@ -322,8 +322,11 @@ fun BottomSheetPlayer(
 
     val playbackState by playerConnection.playbackState.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
-    // Experimental source-search tracks exist only as audio: no likes, no artist/album, no radio.
+    // Experimental source-search tracks exist only as audio: no artist/album pages and no radio.
+    // Liking works when there is no account, because then likes never leave the device.
     val isSourceTrack = com.metrolist.music.resolver.SourceSearch.isSourceTrack(mediaMetadata?.id)
+    val catalogActive by com.metrolist.music.catalog.Catalog.state.collectAsState()
+    val likeBlocked = isSourceTrack && catalogActive.isActive
     val currentSong by playerConnection.currentSong.collectAsState(initial = null)
 
     // A track liked directly on Spotify (not via the app) has no local `liked` flag, so also light the
@@ -1319,7 +1322,7 @@ fun BottomSheetPlayer(
                                 val isEpisode = currentSong?.song?.isEpisode == true
                                 val isFavorite = (if (isEpisode) currentSong?.song?.inLibrary != null else currentSong?.song?.liked == true) || spotifyLiked
                                 FilledIconButton(
-                                    enabled = !isSourceTrack,
+                                    enabled = !likeBlocked,
                                     onClick = {
                                         playerConnection.toggleLike()
                                         currentSpotifyLikeId?.let {
@@ -1910,7 +1913,7 @@ fun BottomSheetPlayer(
                                 val isFavorite = (if (isEpisode) currentSong?.song?.inLibrary != null else currentSong?.song?.liked == true) || spotifyLiked
                                 ResizableIconButton(
                                     icon = if (isFavorite) R.drawable.favorite else R.drawable.favorite_border,
-                                    enabled = !isSourceTrack,
+                                    enabled = !likeBlocked,
                                     color = if (isFavorite) MaterialTheme.colorScheme.error else TextBackgroundColor,
                                     modifier =
                                         Modifier

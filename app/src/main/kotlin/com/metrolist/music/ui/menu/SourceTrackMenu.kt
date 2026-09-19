@@ -58,13 +58,15 @@ import kotlinx.coroutines.launch
 fun SourceTrackMenu(
     match: ProviderMatch,
     onDismiss: () -> Unit,
+    navController: androidx.navigation.NavController? = null,
 ) {
     val context = LocalContext.current
     val playerConnection = LocalPlayerConnection.current ?: return
     val coroutineScope = rememberCoroutineScope()
 
     val mediaId = SourceSearch.mediaIdOf(match)
-    val downloads by LocalDownloadUtil.current.downloads.collectAsState()
+    val downloadUtil = LocalDownloadUtil.current
+    val downloads by downloadUtil.downloads.collectAsState()
     val downloadState = downloads[mediaId]?.state
     val isDownloaded = downloadState == Download.STATE_COMPLETED
     val isDownloading = downloadState == Download.STATE_DOWNLOADING || downloadState == Download.STATE_QUEUED
@@ -112,7 +114,49 @@ fun SourceTrackMenu(
     Spacer(modifier = Modifier.height(12.dp))
 
     Material3MenuGroup(
-        items = listOf(
+        items = listOfNotNull(
+            // There is no artist page for a source track, so this searches the sources for the
+            // performer instead — the closest thing that actually works.
+            if (navController != null && match.artist.isNotBlank()) {
+                Material3MenuItemData(
+                    title = { Text(text = stringResource(R.string.search_this_artist)) },
+                    description = { Text(text = match.artist) },
+                    icon = {
+                        Icon(painter = painterResource(R.drawable.artist), contentDescription = null)
+                    },
+                    onClick = {
+                        onDismiss()
+                        com.metrolist.music.viewmodels.SourceSearchViewModel.pendingArtist = match.artist
+                        navController.navigate(
+                            "search/" + java.net.URLEncoder.encode(match.artist, "UTF-8"),
+                        )
+                    },
+                )
+            } else {
+                null
+            },
+            if (isDownloaded) {
+                Material3MenuItemData(
+                    title = { Text(text = stringResource(R.string.open_file_location)) },
+                    description = { Text(text = stringResource(R.string.open_file_location_desc)) },
+                    icon = {
+                        Icon(painter = painterResource(R.drawable.folder), contentDescription = null)
+                    },
+                    onClick = {
+                        onDismiss()
+                        val appContext = context.applicationContext
+                        coroutineScope.launch {
+                            com.metrolist.music.utils.openDownloadLocation(
+                                appContext,
+                                downloadUtil.downloadExporter,
+                                mediaId,
+                            )
+                        }
+                    },
+                )
+            } else {
+                null
+            },
             Material3MenuItemData(
                 title = { Text(text = stringResource(R.string.play_next)) },
                 description = { Text(text = stringResource(R.string.play_next_desc)) },

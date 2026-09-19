@@ -113,8 +113,13 @@ class VkAudioProvider(
 
     override suspend fun searchFree(text: String, limit: Int): List<ProviderMatch> {
         if (!isReady() || text.isBlank()) return emptyList()
-        val items = runCatching { fetch(text, limit.coerceIn(1, 100)) }
-            .onFailure { Timber.tag("SourceSearch").w("vk free search: %s", it.message) }
+        // Unlike the gated search this keeps tracks that came back without a stream URL: VK leaves
+        // it out of search results for many accounts and hands it over on audio.getById instead,
+        // which is exactly what stream() does. Dropping them here meant "VK found nothing at all".
+        val items = runCatching { fetch(text, limit.coerceIn(1, 300), requireUrl = false) }
+            .onFailure {
+                com.metrolist.music.resolver.AudioDiagnostics.warn("source search VK ✘ '$text': ${it.message}")
+            }
             .getOrDefault(emptyList())
         val now = System.currentTimeMillis()
         return items.take(limit).map { audio ->
@@ -131,13 +136,21 @@ class VkAudioProvider(
         }
     }
 
-    /** Raw search results that are actually playable for this account (no URL = restricted). */
-    private suspend fun fetch(text: String, count: Int): List<VkAudio> = throttled {
-        val root = call("audio.search", mapOf("q" to text, "count" to count.toString(), "auto_complete" to "1", "sort" to "2"))
-            ?: throw IllegalStateException("VK API HTTP error")
-        val arr = root.optJSONObject("response")?.optJSONArray("items")
-        (0 until (arr?.length() ?: 0)).mapNotNull { arr?.optJSONObject(it)?.let(::parse) }
-    }.filter { it.url != null && !it.url.contains(".m3u8") }
+    /**
+     * Raw search results. [requireUrl] drops everything the account can't stream right now, which is
+     * what the gated resolver wants; the free search keeps them, because a missing URL in a search
+     * result doesn't mean the track is restricted — audio.getById still returns one.
+     */
+    private suspend fun fetch(text: String, count: Int, requireUrl: Boolean = true): List<VkAudio> {
+        val raw = throttled {
+            val root = call("audio.search", mapOf("q" to text, "count" to count.toString(), "auto_complete" to "1", "sort" to "2"))
+                ?: throw IllegalStateException("VK API HTTP error")
+            val arr = root.optJSONObject("response")?.optJSONArray("items")
+            (0 until (arr?.length() ?: 0)).mapNotNull { arr?.optJSONObject(it)?.let(::parse) }
+        }
+        val playable = raw.filter { it.url == null || !it.url.contains(".m3u8") }
+        return if (requireUrl) playable.filter { it.url != null } else playable
+    }
 
     override suspend fun search(query: AudioQuery): ProviderMatch? {
         if (!isReady()) return null
