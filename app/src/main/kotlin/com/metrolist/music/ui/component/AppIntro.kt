@@ -105,7 +105,8 @@ fun AppIntro(
     val iconSizePx = with(density) { IconSize.roundToPx() }
     val icon = remember {
         runCatching {
-            ResourcesCompat.getDrawable(context.resources, R.mipmap.ic_launcher, context.theme)
+            (ResourcesCompat.getDrawable(context.resources, R.drawable.ic_launcher_static_foreground, context.theme)
+                ?: ResourcesCompat.getDrawable(context.resources, R.mipmap.ic_launcher, context.theme))
                 ?.toBitmap(iconSizePx, iconSizePx)?.asImageBitmap()
         }.getOrNull()
     }
