@@ -66,6 +66,7 @@ import com.metrolist.music.constants.VkUserIdKey
 import com.metrolist.music.constants.YandexAccessTokenKey
 import com.metrolist.music.constants.YandexUidKey
 import com.metrolist.music.constants.YandexUsernameKey
+import com.metrolist.music.resolver.providers.VkAudioAccess
 import com.metrolist.music.resolver.providers.VkAudioProvider
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.TextFieldDialog
@@ -131,6 +132,21 @@ fun VkLoginScreen(navController: NavController) {
         context.dataStore.edit { prefs ->
             prefs[VkAccessTokenKey] = token
             userId?.let { prefs[VkUserIdKey] = it }
+        }
+        // A token is not the same as music access: VK serves audio.* only to some of them, and the
+        // difference shows up as "VK finds nothing" much later. Ask VK right away and say so.
+        when (val access = VkAudioProvider.checkAudioAccess(token)) {
+            is VkAudioAccess.Ok -> Unit
+            is VkAudioAccess.NoToken -> Unit
+            is VkAudioAccess.Failed -> Toast.makeText(
+                context,
+                context.getString(
+                    R.string.vk_check_audio_failed,
+                    access.code?.toString() ?: "—",
+                    access.message,
+                ) + "\n" + context.getString(R.string.vk_check_audio_relogin),
+                Toast.LENGTH_LONG,
+            ).show()
         }
     }
 

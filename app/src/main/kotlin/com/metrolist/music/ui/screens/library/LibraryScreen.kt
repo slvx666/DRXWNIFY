@@ -8,6 +8,8 @@ package com.metrolist.music.ui.screens.library
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -21,6 +23,12 @@ import com.metrolist.music.constants.ChipSortTypeKey
 import com.metrolist.music.constants.LibraryFilter
 import com.metrolist.music.ui.component.ChipsRow
 import com.metrolist.music.ui.screens.library.local.LocalFilesScreen
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+import com.metrolist.music.ui.component.CreatePlaylistDialog
 import com.metrolist.music.utils.rememberEnumPreference
 
 @Composable
@@ -73,9 +81,26 @@ fun LibraryScreen(navController: NavController) {
         if (resetRequested && filterType != LibraryFilter.LIBRARY) filterType = LibraryFilter.LIBRARY
     }
 
+    var showCreatePlaylistDialog by androidx.compose.runtime.saveable.rememberSaveable {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+
+    if (showCreatePlaylistDialog) {
+        CreatePlaylistDialog(
+            onDismiss = { showCreatePlaylistDialog = false },
+            onPlaylistCreated = { playlistId ->
+                showCreatePlaylistDialog = false
+                navController.navigate("local_playlist/$playlistId")
+            },
+        )
+    }
+
     // P5: Spotify-style library tabs — exactly four chips: Playlists, Albums, Artists, Local.
     val filterContent = @Composable {
-        Row {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             ChipsRow(
                 chips = listOf(
                     LibraryFilter.PLAYLISTS to stringResource(R.string.filter_playlists),
@@ -89,6 +114,17 @@ fun LibraryScreen(navController: NavController) {
                 },
                 modifier = Modifier.weight(1f),
             )
+            if (filterType == LibraryFilter.PLAYLISTS) {
+                IconButton(
+                    onClick = { showCreatePlaylistDialog = true },
+                    modifier = Modifier.padding(end = 8.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.add),
+                        contentDescription = stringResource(R.string.create_playlist),
+                    )
+                }
+            }
         }
     }
 

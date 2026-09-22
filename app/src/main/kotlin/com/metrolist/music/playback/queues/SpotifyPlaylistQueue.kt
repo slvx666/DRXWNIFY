@@ -27,6 +27,17 @@ class SpotifyPlaylistQueue(
 
     override val providedTracks: List<SpotifyTrack>? = initialTracks.takeIf { it.isNotEmpty() }
 
+    override val continues: Boolean
+        get() = playlistId.startsWith("album_")
+
+    override suspend fun continueWith(alreadyQueued: List<SpotifyTrack>): List<SpotifyTrack> {
+        val seed = alreadyQueued.lastOrNull() ?: initialTracks.firstOrNull() ?: return emptyList()
+        val seenIds = alreadyQueued.mapTo(HashSet()) { it.id }
+        return runCatching {
+            com.metrolist.music.playback.SimilarArtistsRadio.build(seed).filter { it.id !in seenIds }
+        }.getOrDefault(emptyList())
+    }
+
     override suspend fun fetchPage(offset: Int, limit: Int): PageResult {
         val result = Catalog.playlistTracks(playlistId, limit = limit, offset = offset).getOrThrow()
         return PageResult(

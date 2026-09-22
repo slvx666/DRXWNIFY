@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,6 +38,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,6 +47,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,7 +56,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,6 +70,11 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import coil3.compose.AsyncImage
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
+import com.metrolist.music.extensions.matchesNormalizedQuery
+import com.metrolist.music.extensions.normalizeForSearch
+import com.metrolist.music.ui.component.CreatePlaylistDialog
+import com.metrolist.music.ui.component.LibrarySearchEmptyPlaceholder
+import com.metrolist.music.ui.component.LibrarySearchHeader
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.SpotifyLibraryViewModel
 import com.metrolist.music.viewmodels.SpotifyLibraryViewModel.Filter
@@ -87,13 +97,46 @@ fun SpotifyLibraryScreen(
     onLocalSelected: () -> Unit,
     viewModel: SpotifyLibraryViewModel = hiltViewModel(),
 ) {
+    val entries by viewModel.entries.collectAsState()
     val filter by viewModel.filter.collectAsState()
     val sort by viewModel.sort.collectAsState()
-    val entries by viewModel.entries.collectAsState()
     val loading by viewModel.loading.collectAsState()
     var grid by rememberPreference(LibraryGridKey, false)
+    val keyboardController = LocalSoftwareKeyboardController.current
 
-    androidx.activity.compose.BackHandler(enabled = filter != Filter.ALL) { viewModel.clearFilter() }
+    var showCreatePlaylistDialog by rememberSaveable { mutableStateOf(false) }
+
+    if (showCreatePlaylistDialog) {
+        CreatePlaylistDialog(
+            onDismiss = { showCreatePlaylistDialog = false },
+            onPlaylistCreated = { playlistId ->
+                showCreatePlaylistDialog = false
+                navController.navigate("local_playlist/$playlistId")
+            },
+        )
+    }
+
+    var isSearchActive by rememberSaveable { mutableStateOf(false) }
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val normalizedQuery = remember(searchQuery) { searchQuery.normalizeForSearch() }
+    val filteredEntries = remember(entries, normalizedQuery) {
+        if (normalizedQuery.isBlank()) {
+            entries
+        } else {
+            entries.filter { entry ->
+                matchesNormalizedQuery(normalizedQuery, entry.name, entry.creator)
+            }
+        }
+    }
+
+    androidx.activity.compose.BackHandler(enabled = isSearchActive || filter != Filter.ALL) {
+        if (isSearchActive) {
+            isSearchActive = false
+            viewModel.updateSearchQuery("")
+        } else {
+            viewModel.clearFilter()
+        }
+    }
 
     // Tapping the Library tab again: back to the unfiltered list, scrolled to the top.
     val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
@@ -103,6 +146,10 @@ fun SpotifyLibraryScreen(
         ?.collectAsState()
     androidx.compose.runtime.LaunchedEffect(resetRequested?.value) {
         if (resetRequested?.value == true) {
+            if (isSearchActive) {
+                isSearchActive = false
+                viewModel.updateSearchQuery("")
+            }
             viewModel.clearFilter()
             gridState.animateScrollToItem(0)
             backStackEntry?.savedStateHandle?.set("scrollToTop", false)
@@ -122,12 +169,18 @@ fun SpotifyLibraryScreen(
                 onSelect = { viewModel.toggleFilter(it) },
                 onClear = { viewModel.clearFilter() },
                 onLocal = onLocalSelected,
+                onCreatePlaylist = { showCreatePlaylistDialog = true },
             )
         }
         item(key = "sort", span = { GridItemSpan(maxLineSpan) }) {
             SortRow(
                 sort = sort,
                 grid = grid,
+                isSearchActive = isSearchActive,
+                searchQuery = searchQuery,
+                onSearchQueryChange = viewModel::updateSearchQuery,
+                onSearchActiveChange = { isSearchActive = it },
+                keyboardController = keyboardController,
                 onSort = viewModel::setSort,
                 onToggleGrid = { grid = !grid },
             )
@@ -139,7 +192,15 @@ fun SpotifyLibraryScreen(
                 }
             }
         }
-        items(entries, key = { it.uri.ifBlank { it.id } }) { entry ->
+        if (filteredEntries.isEmpty() && isSearchActive && normalizedQuery.isNotBlank()) {
+            item(key = "empty_search", span = { GridItemSpan(maxLineSpan) }) {
+                LibrarySearchEmptyPlaceholder(
+                    text = stringResource(R.string.no_results_found),
+                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                )
+            }
+        }
+        items(filteredEntries, key = { it.uri.ifBlank { it.id } }) { entry ->
             val onClick = { openEntry(navController, entry) }
             if (grid) LibraryGridCell(entry, onClick) else LibraryRow(entry, onClick)
         }
@@ -155,6 +216,7 @@ fun LibraryChips(
     onSelect: (Filter) -> Unit,
     onClear: () -> Unit,
     onLocal: () -> Unit,
+    onCreatePlaylist: (() -> Unit)? = null,
 ) {
     val labels = listOf(
         Filter.PLAYLISTS to stringResource(R.string.filter_playlists),
@@ -186,6 +248,18 @@ fun LibraryChips(
                 } else {
                     val f = Filter.valueOf(current)
                     Chip(labels.first { it.first == f }.second, selected = true) { onSelect(f) }
+                    if (f == Filter.PLAYLISTS && onCreatePlaylist != null) {
+                        IconButton(
+                            onClick = onCreatePlaylist,
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.add),
+                                contentDescription = stringResource(R.string.create_playlist),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -222,7 +296,17 @@ private fun CloseChip(onClick: () -> Unit) {
 }
 
 @Composable
-private fun SortRow(sort: Sort, grid: Boolean, onSort: (Sort) -> Unit, onToggleGrid: () -> Unit) {
+private fun SortRow(
+    sort: Sort,
+    grid: Boolean,
+    isSearchActive: Boolean,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onSearchActiveChange: (Boolean) -> Unit,
+    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
+    onSort: (Sort) -> Unit,
+    onToggleGrid: () -> Unit,
+) {
     var menu by remember { mutableStateOf(false) }
     val sortLabel = stringResource(
         when (sort) {
@@ -232,9 +316,16 @@ private fun SortRow(sort: Sort, grid: Boolean, onSort: (Sort) -> Unit, onToggleG
             Sort.CREATOR -> R.string.lib_sort_creator
         },
     )
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    LibrarySearchHeader(
+        isSearchActive = isSearchActive,
+        searchQuery = searchQuery,
+        onSearchQueryChange = onSearchQueryChange,
+        onBack = {
+            onSearchActiveChange(false)
+            onSearchQueryChange("")
+        },
+        keyboardController = keyboardController,
+        modifier = Modifier.padding(start = 16.dp),
     ) {
         Box {
             Row(
@@ -266,11 +357,26 @@ private fun SortRow(sort: Sort, grid: Boolean, onSort: (Sort) -> Unit, onToggleG
             }
         }
         Spacer(Modifier.weight(1f))
-        Icon(
-            painter = painterResource(if (grid) R.drawable.list else R.drawable.grid_view),
-            contentDescription = null,
-            modifier = Modifier.size(22.dp).clip(RoundedCornerShape(4.dp)).clickable(onClick = onToggleGrid),
-        )
+        IconButton(
+            onClick = { onSearchActiveChange(true) },
+            modifier = Modifier.padding(start = 8.dp).size(40.dp),
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.search),
+                contentDescription = stringResource(R.string.search),
+            )
+        }
+        IconButton(
+            onClick = onToggleGrid,
+            modifier = Modifier.padding(end = 8.dp).size(40.dp),
+        ) {
+            Icon(
+                painter = painterResource(if (grid) R.drawable.list else R.drawable.grid_view),
+                contentDescription = stringResource(
+                    if (grid) R.string.switch_to_list_view else R.string.switch_to_grid_view,
+                ),
+            )
+        }
     }
 }
 
@@ -289,11 +395,16 @@ private fun entrySubtitle(entry: SpotifyLibraryEntry): String {
             },
         )
     }
-    val creator = when (entry.kind) {
+    val creator = when {
+        // Own playlist: its size says more than an owner name it does not have.
+        entry.uri.startsWith(SpotifyLibraryViewModel.LOCAL_PLAYLIST_URI_PREFIX) ->
+            pluralStringResource(R.plurals.n_song, entry.totalCount, entry.totalCount)
+        else -> when (entry.kind) {
         SpotifyLibraryEntry.Kind.FOLDER ->
             entry.totalCount.takeIf { it > 0 }?.let { stringResource(R.string.lib_folder_count, it) }
         SpotifyLibraryEntry.Kind.ARTIST -> null
         else -> entry.creator
+        }
     }
     return if (creator.isNullOrBlank()) type else "$type • $creator"
 }
@@ -316,12 +427,39 @@ private fun EntryArtwork(entry: SpotifyLibraryEntry, modifier: Modifier) {
         ) {
             Icon(painterResource(R.drawable.folder), null, modifier = Modifier.fillMaxSize(0.4f))
         }
-        else -> AsyncImage(
-            model = entry.imageUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = modifier.clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
-        )
+        // A playlist made in the app has no cover of its own: the first four tracks make one.
+        else -> if (entry.thumbnails.size >= 4) {
+            Column(
+                modifier = modifier.clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            ) {
+                listOf(entry.thumbnails.take(2), entry.thumbnails.drop(2).take(2)).forEach { row ->
+                    Row(Modifier.weight(1f)) {
+                        row.forEach { url ->
+                            AsyncImage(
+                                model = url,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                            )
+                        }
+                    }
+                }
+            }
+        } else if (entry.imageUrl == null && entry.kind == SpotifyLibraryEntry.Kind.PLAYLIST) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = modifier.clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            ) {
+                Icon(painterResource(R.drawable.queue_music), null, modifier = Modifier.fillMaxSize(0.4f))
+            }
+        } else {
+            AsyncImage(
+                model = entry.imageUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = modifier.clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            )
+        }
     }
 }
 
@@ -387,6 +525,11 @@ private fun LibraryGridCell(entry: SpotifyLibraryEntry, onClick: () -> Unit) {
 }
 
 private fun openEntry(navController: NavController, entry: SpotifyLibraryEntry) {
+    // Playlists made inside the app live in the local database, not in the connected account.
+    if (entry.uri.startsWith(SpotifyLibraryViewModel.LOCAL_PLAYLIST_URI_PREFIX)) {
+        navController.navigate("local_playlist/${entry.id}")
+        return
+    }
     when (entry.kind) {
         SpotifyLibraryEntry.Kind.LIKED_SONGS -> navController.navigate("spotify_liked_songs")
         SpotifyLibraryEntry.Kind.PLAYLIST -> navController.navigate("spotify_playlist/${entry.id}")

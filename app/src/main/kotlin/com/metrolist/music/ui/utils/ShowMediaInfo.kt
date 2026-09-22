@@ -50,6 +50,12 @@ import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.shimmer.ShimmerHost
 import com.metrolist.music.ui.component.shimmer.TextPlaceholder
 
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.media3.exoplayer.offline.Download
+import com.metrolist.music.LocalDownloadUtil
+import kotlinx.coroutines.launch
+
 @Composable
 fun ShowMediaInfo(videoId: String) {
     if (videoId.isBlank() || videoId.isEmpty()) return
@@ -67,6 +73,9 @@ fun ShowMediaInfo(videoId: String) {
 
     val playerConnection = LocalPlayerConnection.current
     val context = LocalContext.current
+    val downloadUtil = LocalDownloadUtil.current
+    val download by downloadUtil.getDownload(videoId).collectAsState(initial = null)
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit, videoId) {
         info = YouTube.getMediaInfo(videoId).getOrNull()
@@ -160,6 +169,41 @@ fun ShowMediaInfo(videoId: String) {
                             onClick = {
                                 cm.setPrimaryClip(ClipData.newPlainText("text", displayText))
                                 Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
+                            },
+                        )
+                    }
+
+                    if (download?.state == Download.STATE_COMPLETED) {
+                        cardsBaseList += Material3SettingsItem(
+                            title = { Text(stringResource(R.string.open_file_location)) },
+                            description = { Text(stringResource(R.string.open_file_location_desc)) },
+                            icon = painterResource(R.drawable.folder),
+                            onClick = {
+                                val appContext = context.applicationContext
+                                coroutineScope.launch {
+                                    com.metrolist.music.utils.openDownloadLocation(
+                                        appContext,
+                                        downloadUtil.downloadExporter,
+                                        videoId,
+                                    )
+                                }
+                            },
+                        )
+                    }
+                    if (download?.state == Download.STATE_COMPLETED) {
+                        cardsBaseList += Material3SettingsItem(
+                            title = { Text(stringResource(R.string.share_file)) },
+                            description = { Text(stringResource(R.string.share_file_desc)) },
+                            icon = painterResource(R.drawable.share),
+                            onClick = {
+                                val appContext = context.applicationContext
+                                coroutineScope.launch {
+                                    com.metrolist.music.utils.shareDownloadedFile(
+                                        appContext,
+                                        downloadUtil.downloadExporter,
+                                        videoId,
+                                    )
+                                }
                             },
                         )
                     }

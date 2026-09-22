@@ -41,17 +41,46 @@ class LocalAlbumRadio(
 
     override suspend fun nextPage(): List<MediaItem> = withContext(IO) {
         if (!firstTimeLoaded) {
-            playlistId = YouTube.album(albumWithSongs.album.id).getOrThrow().album.playlistId
-            val nextResult = YouTube.next(endpoint, continuation).getOrThrow()
-            continuation = nextResult.continuation
+            val albumPlaylistId = runCatching {
+                YouTube.album(albumWithSongs.album.id).getOrThrow().album.playlistId
+            }.getOrNull()
+
+            if (albumPlaylistId != null) {
+                playlistId = albumPlaylistId
+                val nextResult = runCatching { YouTube.next(endpoint, continuation).getOrThrow() }.getOrNull()
+                if (nextResult != null && nextResult.items.size > albumWithSongs.songs.size) {
+                    continuation = nextResult.continuation
+                    firstTimeLoaded = true
+                    return@withContext nextResult.items.subList(
+                        albumWithSongs.songs.size,
+                        nextResult.items.size
+                    ).map { it.toMediaItem() }
+                }
+            }
+
+            // Fallback to YouTube radio (RDAMVM) based on the last song in the album
+            val seedSong = albumWithSongs.songs.lastOrNull()
+            if (seedSong != null) {
+                playlistId = "RDAMVM${seedSong.id}"
+                val radioEndpoint = WatchEndpoint(
+                    videoId = seedSong.id,
+                    playlistId = playlistId
+                )
+                val radioResult = runCatching { YouTube.next(radioEndpoint, null).getOrThrow() }.getOrNull()
+                if (radioResult != null) {
+                    continuation = radioResult.continuation
+                    firstTimeLoaded = true
+                    val existingIds = albumWithSongs.songs.mapTo(HashSet()) { it.id }
+                    return@withContext radioResult.items.filter { it.id !in existingIds }.map { it.toMediaItem() }
+                }
+            }
+
             firstTimeLoaded = true
-            return@withContext nextResult.items.subList(
-                albumWithSongs.songs.size,
-                nextResult.items.size
-            ).map { it.toMediaItem() }
+            return@withContext emptyList()
         }
-        val nextResult = YouTube.next(endpoint, continuation).getOrThrow()
-        continuation = nextResult.continuation
-        nextResult.items.map { it.toMediaItem() }
+
+        val nextResult = runCatching { YouTube.next(endpoint, continuation).getOrThrow() }.getOrNull()
+        continuation = nextResult?.continuation
+        nextResult?.items?.map { it.toMediaItem() }.orEmpty()
     }
 }

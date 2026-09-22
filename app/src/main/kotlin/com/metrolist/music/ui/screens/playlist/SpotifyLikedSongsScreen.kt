@@ -100,6 +100,10 @@ import com.metrolist.music.viewmodels.SpotifyLikedSongsViewModel
 import com.metrolist.spotify.SpotifyMapper
 import com.metrolist.spotify.models.SpotifyTrack
 
+import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.ui.menu.PlayerMenu
+import com.metrolist.music.utils.toSongItem
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SpotifyLikedSongsScreen(
@@ -517,8 +521,28 @@ fun SpotifyLikedSongsScreen(
                         )
                     },
                     trailingContent = {
-                        // Downloaded badge on the right.
-                        com.metrolist.music.ui.component.Icon.Download(trackDownloadState)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Downloaded badge on the right.
+                            com.metrolist.music.ui.component.Icon.Download(trackDownloadState)
+                            androidx.compose.material3.IconButton(
+                                onClick = {
+                                    menuState.show {
+                                        PlayerMenu(
+                                            mediaMetadata = track.toSongItem().toMediaMetadata(),
+                                            spotifyTrack = track,
+                                            navController = navController,
+                                            isCurrentTrack = false,
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+                                },
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.more_vert),
+                                    contentDescription = null,
+                                )
+                            }
+                        }
                     },
                     thumbnailContent = {
                         ItemThumbnail(
@@ -543,11 +567,12 @@ fun SpotifyLikedSongsScreen(
                             },
                             onLongClick = {
                                 menuState.show {
-                                    SpotifyTrackMenu(
-                                        track = track,
-                                        mapper = mapper,
-                                        onDismiss = menuState::dismiss,
+                                    PlayerMenu(
+                                        mediaMetadata = track.toSongItem().toMediaMetadata(),
+                                        spotifyTrack = track,
                                         navController = navController,
+                                        isCurrentTrack = false,
+                                        onDismiss = menuState::dismiss,
                                     )
                                 }
                             },

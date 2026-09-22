@@ -68,6 +68,10 @@ import com.metrolist.music.viewmodels.SpotifyArtistViewModel
 import com.metrolist.spotify.SpotifyMapper
 import com.metrolist.spotify.models.SpotifyAlbum
 
+import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.ui.menu.PlayerMenu
+import com.metrolist.music.utils.toSongItem
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpotifyArtistScreen(
@@ -240,6 +244,37 @@ fun SpotifyArtistScreen(
                             track.artists.joinToString { it.name },
                             makeTimeString(track.durationMs.toLong()),
                         ),
+                        trailingContent = {
+                            IconButton(
+                                onClick = {
+                                    menuState.show {
+                                        PlayerMenu(
+                                            mediaMetadata = track.toSongItem().toMediaMetadata(),
+                                            spotifyTrack = track,
+                                            navController = navController,
+                                            isCurrentTrack = false,
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+                                },
+                                onLongClick = {
+                                    menuState.show {
+                                        PlayerMenu(
+                                            mediaMetadata = track.toSongItem().toMediaMetadata(),
+                                            spotifyTrack = track,
+                                            navController = navController,
+                                            isCurrentTrack = false,
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+                                },
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.more_vert),
+                                    contentDescription = null,
+                                )
+                            }
+                        },
                         thumbnailContent = {
                             ItemThumbnail(
                                 thumbnailUrl = SpotifyMapper.getTrackThumbnail(track),
@@ -264,11 +299,12 @@ fun SpotifyArtistScreen(
                                 },
                                 onLongClick = {
                                     menuState.show {
-                                        com.metrolist.music.ui.menu.SpotifyTrackMenu(
-                                            track = track,
-                                            mapper = viewModel.mapper,
-                                            onDismiss = menuState::dismiss,
+                                        PlayerMenu(
+                                            mediaMetadata = track.toSongItem().toMediaMetadata(),
+                                            spotifyTrack = track,
                                             navController = navController,
+                                            isCurrentTrack = false,
+                                            onDismiss = menuState::dismiss,
                                         )
                                     }
                                 },

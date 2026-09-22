@@ -399,13 +399,8 @@ fun AutoPlaylistScreen(
                 TextButton(
                     onClick = {
                         showRemoveDownloadDialog = false
-                        songs!!.forEach { song ->
-                            DownloadService.sendRemoveDownload(
-                                context,
-                                ExoDownloadService::class.java,
-                                song.song.id,
-                                false,
-                            )
+                        songs?.let { sList ->
+                            downloadUtil.removeDownloads(sList.map { it.song.id })
                         }
                     },
                 ) {
@@ -488,7 +483,7 @@ fun AutoPlaylistScreen(
 
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val pullRefreshState = rememberPullToRefreshState()
-    val canRefresh = playlistType == PlaylistType.LIKE || playlistType == PlaylistType.UPLOADED
+    val canRefresh = playlistType == PlaylistType.LIKE || playlistType == PlaylistType.UPLOADED || playlistType == PlaylistType.DOWNLOAD
 
     Box(
         modifier =
@@ -526,6 +521,7 @@ fun AutoPlaylistScreen(
                                 songs = songs!!,
                                 likeLength = likeLength,
                                 downloadState = downloadState,
+                                playlistType = playlistType,
                                 onShowRemoveDownloadDialog = { showRemoveDownloadDialog = true },
                                 menuState = menuState,
                                 modifier = Modifier.animateItem(),
@@ -824,12 +820,14 @@ private fun AutoPlaylistHeader(
     songs: List<Song>,
     likeLength: Int,
     downloadState: Int,
+    playlistType: PlaylistType = PlaylistType.OTHER,
     onShowRemoveDownloadDialog: () -> Unit,
     menuState: com.metrolist.music.ui.component.MenuState,
     modifier: Modifier = Modifier,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val context = LocalContext.current
+    val downloadUtil = LocalDownloadUtil.current
 
     Column(
         modifier =
@@ -965,20 +963,13 @@ private fun AutoPlaylistHeader(
                                 )
                             },
                             onDownload = {
-                                when (downloadState) {
-                                    Download.STATE_COMPLETED -> {
+                                when {
+                                    playlistType == PlaylistType.DOWNLOAD || downloadState == Download.STATE_COMPLETED -> {
                                         onShowRemoveDownloadDialog()
                                     }
 
-                                    Download.STATE_DOWNLOADING -> {
-                                        songs.forEach { song ->
-                                            DownloadService.sendRemoveDownload(
-                                                context,
-                                                ExoDownloadService::class.java,
-                                                song.song.id,
-                                                false,
-                                            )
-                                        }
+                                    downloadState == Download.STATE_DOWNLOADING -> {
+                                        downloadUtil.removeDownloads(songs.map { it.song.id })
                                     }
 
                                     else -> {
@@ -1002,6 +993,7 @@ private fun AutoPlaylistHeader(
                             onDismiss = { menuState.dismiss() },
                             songs = songs,
                             playlistName = name,
+                            isDownloadedPlaylist = playlistType == PlaylistType.DOWNLOAD,
                         )
                     }
                 },

@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -37,6 +38,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,7 +49,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.metrolist.music.resolver.providers.VkAudioProvider
+import com.metrolist.music.resolver.providers.VkAudioAccess
 import androidx.navigation.NavController
+import kotlinx.coroutines.launch
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
 import com.metrolist.music.catalog.Catalog
@@ -292,6 +297,7 @@ fun MusicSourcesSettings(
                 )
             }
             if (id == AudioProviderId.VK) {
+                VkAudioAccessCheck(token = vkToken)
                 PreferenceEntry(
                     title = { Text(if (vkToken.isNotEmpty()) stringResource(R.string.vk_connected) else stringResource(R.string.vk_login)) },
                     description = (vkUserId.takeIf { vkToken.isNotEmpty() && it.isNotEmpty() }?.let { "id$it" }
@@ -482,5 +488,55 @@ private fun InfoText(text: String) {
             )
         },
         icon = { Icon(painterResource(R.drawable.info), null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+    )
+}
+
+/**
+ * Asks VK, right here, whether this token may use the audio API — the one thing that decides
+ * whether VK can find anything at all. On failure it shows VK's own error, and says what to do
+ * about the one that keeps happening: a token taken from VK's web page cannot read audio, only a
+ * login+password one can.
+ */
+@Composable
+private fun VkAudioAccessCheck(token: String) {
+    if (token.isEmpty()) return
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var result by remember(token) { mutableStateOf<VkAudioAccess?>(null) }
+
+    val description = when (val r = result) {
+        null -> stringResource(R.string.vk_check_audio_hint)
+        is VkAudioAccess.Ok -> stringResource(R.string.vk_check_audio_ok)
+        is VkAudioAccess.NoToken -> stringResource(R.string.vk_login_required)
+        is VkAudioAccess.Failed ->
+            stringResource(
+                R.string.vk_check_audio_failed,
+                r.code?.toString() ?: "—",
+                r.message,
+            ) + (if (r.code == 15 || r.code == 5) "\n" + stringResource(R.string.vk_check_audio_relogin) else "")
+    }
+
+    PreferenceEntry(
+        title = { Text(stringResource(R.string.vk_check_audio)) },
+        description = description,
+        icon = { Spacer(Modifier.size(24.dp)) },
+        trailingContent = {
+            OutlinedButton(
+                enabled = !busy,
+                onClick = {
+                    busy = true
+                    scope.launch {
+                        result = VkAudioProvider.checkAudioAccess(token)
+                        busy = false
+                    }
+                },
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Text(stringResource(R.string.vk_check_audio_action))
+                }
+            }
+        },
     )
 }

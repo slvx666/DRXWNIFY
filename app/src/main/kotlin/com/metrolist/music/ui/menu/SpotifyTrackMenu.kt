@@ -363,6 +363,26 @@ fun SpotifyTrackMenu(
                 },
                 )
             },
+            downloadedId?.let { id ->
+                Material3MenuItemData(
+                title = { Text(text = stringResource(R.string.share_file)) },
+                description = { Text(text = stringResource(R.string.share_file_desc)) },
+                icon = {
+                    Icon(painter = painterResource(R.drawable.share), contentDescription = null)
+                },
+                onClick = {
+                    onDismiss()
+                    val appContext = context.applicationContext
+                    coroutineScope.launch {
+                        com.metrolist.music.utils.shareDownloadedFile(
+                            appContext,
+                            downloadUtil.downloadExporter,
+                            id,
+                        )
+                    }
+                },
+                )
+            },
             Material3MenuItemData(
                 title = { Text(text = stringResource(R.string.play_next)) },
                 description = { Text(text = stringResource(R.string.play_next_desc)) },

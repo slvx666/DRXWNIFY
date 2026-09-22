@@ -319,6 +319,7 @@ fun AutoPlaylistMenu(
     onDismiss: () -> Unit,
     songs: List<Song> = emptyList(),
     playlistName: String = "Playlist",
+    isDownloadedPlaylist: Boolean = false,
 ) {
     val listenTogetherManager = LocalListenTogetherManager.current
     val isGuest = listenTogetherManager?.isInRoom == true && !listenTogetherManager.isHost
@@ -328,8 +329,8 @@ fun AutoPlaylistMenu(
     val (showExportDialog, setShowExportDialog) = remember { mutableStateOf(false) }
 
     val downloadMenuItem =
-        when (downloadState) {
-            Download.STATE_COMPLETED -> {
+        when {
+            downloadState == Download.STATE_COMPLETED || isDownloadedPlaylist -> {
                 Material3MenuItemData(
                     title = { Text(stringResource(R.string.remove_download)) },
                     description = { Text(stringResource(R.string.remove_download_playlist_desc)) },
@@ -346,7 +347,7 @@ fun AutoPlaylistMenu(
                 )
             }
 
-            Download.STATE_QUEUED, Download.STATE_DOWNLOADING -> {
+            downloadState == Download.STATE_QUEUED || downloadState == Download.STATE_DOWNLOADING -> {
                 Material3MenuItemData(
                     title = { Text(stringResource(R.string.downloading)) },
                     description = { Text(stringResource(R.string.download_in_progress_desc)) },

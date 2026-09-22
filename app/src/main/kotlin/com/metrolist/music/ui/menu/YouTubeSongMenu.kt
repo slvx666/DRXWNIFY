@@ -104,7 +104,8 @@ fun YouTubeSongMenu(
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
     val librarySong by database.song(song.id).collectAsState(initial = null)
-    val download by LocalDownloadUtil.current.getDownload(song.id).collectAsState(initial = null)
+    val downloadUtil = LocalDownloadUtil.current
+    val download by downloadUtil.getDownload(song.id).collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
     val syncUtils = LocalSyncUtils.current
     val listenTogetherManager = LocalListenTogetherManager.current
@@ -601,7 +602,55 @@ fun YouTubeSongMenu(
 
         item {
             Material3MenuGroup(
-                items = listOf(
+                items = listOfNotNull(
+                    if (download?.state == Download.STATE_COMPLETED) {
+                        Material3MenuItemData(
+                            title = { Text(text = stringResource(R.string.open_file_location)) },
+                            description = { Text(text = stringResource(R.string.open_file_location_desc)) },
+                            icon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.folder),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            },
+                            onClick = {
+                                onDismiss()
+                                val appContext = context.applicationContext
+                                coroutineScope.launch {
+                                    com.metrolist.music.utils.openDownloadLocation(
+                                        appContext,
+                                        downloadUtil.downloadExporter,
+                                        song.id,
+                                    )
+                                }
+                            },
+                        )
+                    } else null,
+                    if (download?.state == Download.STATE_COMPLETED) {
+                        Material3MenuItemData(
+                            title = { Text(text = stringResource(R.string.share_file)) },
+                            description = { Text(text = stringResource(R.string.share_file_desc)) },
+                            icon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.share),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            },
+                            onClick = {
+                                onDismiss()
+                                val appContext = context.applicationContext
+                                coroutineScope.launch {
+                                    com.metrolist.music.utils.shareDownloadedFile(
+                                        appContext,
+                                        downloadUtil.downloadExporter,
+                                        song.id,
+                                    )
+                                }
+                            },
+                        )
+                    } else null,
                     when (download?.state) {
                         Download.STATE_COMPLETED -> {
                             Material3MenuItemData(

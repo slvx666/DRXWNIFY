@@ -1000,6 +1000,9 @@
 
 Такие треки — это только аудио: их можно слушать, ставить в очередь и скачивать, но нельзя лайкнуть, у них нет страниц исполнителя и альбома и радио. Названия и обложки берутся у того, кто залил трек.</string>
     <string name="search_sources_empty">В источниках ничего не нашлось</string>
+    <string name="search_sources_short">Ищет напрямую в VK, SoundCloud, Bandcamp и Audius. Такие треки играют и скачиваются, но без лайков, страниц исполнителя и радио.</string>
+    <string name="source_status_off">выключен</string>
+    <string name="source_status_needs_account">нужен вход</string>
     <string name="search_sources_setting">Экспериментальный поиск по источникам</string>
     <string name="search_sources_setting_description">Добавляет в поиск пункт «Напрямую в источниках»: ищет треки в VK, SoundCloud, Bandcamp и Audius, без лайков, страниц исполнителя и альбома и радио.</string>
     <string name="got_it">Понятно</string>
@@ -1011,9 +1014,17 @@
     <string name="search_source_spotify">Spotify</string>
     <string name="search_this_artist">Найти исполнителя</string>
     <string name="open_file_location">Перейти к расположению</string>
-    <string name="open_file_location_desc">Открыть скачанный файл в проводнике</string>
     <string name="file_not_found">Файла больше нет на месте</string>
+    <string name="open_file_location_desc">Открыть папку, в которую скачан трек</string>
+    <string name="share_file">Поделиться файлом</string>
+    <string name="share_file_desc">Отправить скачанный файл в другое приложение</string>
     <string name="yandex_vpn_hint">Если страница Яндекса не открывается — выключи VPN: с многих серверов Яндекс не пускает на страницу входа.</string>
     <string name="login_page_failed">Страница не открылась</string>
     <string name="login_page_failed_hint">Проверь соединение и попробуй снова.</string>
+    <string name="vk_check_audio">Доступ VK к музыке</string>
+    <string name="vk_check_audio_action">Проверить</string>
+    <string name="vk_check_audio_hint">Спросить у VK, разрешён ли этому входу музыкальный API</string>
+    <string name="vk_check_audio_ok">VK отвечает — поиск музыки работает</string>
+    <string name="vk_check_audio_failed">VK отказал: ошибка %1$s — %2$s</string>
+    <string name="vk_check_audio_relogin">Войди заново по логину и паролю: токен, взятый со страницы VK, музыку читать не может.</string>
 </resources>

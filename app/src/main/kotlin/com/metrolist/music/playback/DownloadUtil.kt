@@ -17,6 +17,7 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
+import androidx.media3.exoplayer.offline.DownloadService
 import com.metrolist.innertube.YouTube
 import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.constants.AudioQualityKey
@@ -305,6 +306,58 @@ constructor(
      * running — and then the library keeps counting tracks that are no longer there. Anything the
      * download manager doesn't know about (or hasn't finished) loses the flag.
      */
+    fun removeDownload(songId: String) {
+        scope.launch(Dispatchers.IO) {
+            database.updateDownloadedInfo(songId, false, null)
+            downloadExporter.forgetExported(songId)
+            downloads.update { map ->
+                map.toMutableMap().apply { remove(songId) }
+            }
+            DownloadService.sendRemoveDownload(
+                appContext,
+                ExoDownloadService::class.java,
+                songId,
+                false,
+            )
+        }
+    }
+
+    fun removeDownloads(songIds: Collection<String>) {
+        if (songIds.isEmpty()) return
+        scope.launch(Dispatchers.IO) {
+            database.query {
+                songIds.forEach { updateDownloadedInfo(it, false, null) }
+            }
+            songIds.forEach { id ->
+                downloadExporter.forgetExported(id)
+                DownloadService.sendRemoveDownload(
+                    appContext,
+                    ExoDownloadService::class.java,
+                    id,
+                    false,
+                )
+            }
+            downloads.update { map ->
+                map.toMutableMap().apply {
+                    songIds.forEach { remove(it) }
+                }
+            }
+        }
+    }
+
+    fun clearAllDownloads() {
+        scope.launch(Dispatchers.IO) {
+            val allDownloaded = database.downloadedSongIdsBlocking()
+            removeDownloads(allDownloaded)
+        }
+    }
+
+    /**
+     * The "downloaded" flag in the database and the actual downloads can drift apart — the files can
+     * be deleted from outside the app, or the download index can be cleared while the app isn't
+     * running — and then the library keeps counting tracks that are no longer there. Anything the
+     * download manager doesn't know about (or hasn't finished) loses the flag.
+     */
     fun reconcileWithDownloads() {
         scope.launch(Dispatchers.IO) {
             runCatching {
@@ -312,13 +365,41 @@ constructor(
                     .filterValues { it.state == Download.STATE_COMPLETED }
                     .keys
                 val claimed = database.downloadedSongIdsBlocking()
-                val stale = claimed.filterNot { it in completed }
+                val stale = claimed.filterNot { it in completed }.toMutableSet()
+
+                // Check completed downloads: if neither cache nor exported file exists, it's stale.
+                for (id in claimed) {
+                    if (id in stale) continue
+                    val hasCachedBytes = playerCache.isCached(id, 0, 1) || downloadCache.isCached(id, 0, 1)
+                    if (!hasCachedBytes) {
+                        val exportedUri = downloadExporter.exportedUri(id)
+                        val exportedExists = exportedUri?.let { uri ->
+                            runCatching {
+                                if (uri.scheme == "file") {
+                                    java.io.File(uri.path ?: "").exists()
+                                } else {
+                                    appContext.contentResolver.openInputStream(uri)?.use { true } ?: false
+                                }
+                            }.getOrDefault(false)
+                        } ?: false
+
+                        if (!exportedExists) {
+                            stale.add(id)
+                        }
+                    }
+                }
+
                 if (stale.isEmpty()) return@runCatching
                 Timber.tag(TAG).i("Clearing the download flag of %d song(s) with no download left", stale.size)
                 database.query {
                     stale.forEach { updateDownloadedInfo(it, false, null) }
                 }
                 stale.forEach { downloadExporter.forgetExported(it) }
+                downloads.update { map ->
+                    map.toMutableMap().apply {
+                        stale.forEach { remove(it) }
+                    }
+                }
             }.onFailure { Timber.tag(TAG).e(it, "Reconciling downloads failed") }
         }
     }

@@ -5,34 +5,46 @@
 
 package com.metrolist.music.ui.component
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.metrolist.music.R
 import com.metrolist.music.catalog.Catalog
 import com.metrolist.music.constants.ExperimentalSearchAckKey
 import com.metrolist.music.constants.ExperimentalSearchEnabledKey
+import com.metrolist.music.constants.ExperimentalSearchSourceKey
 import com.metrolist.music.constants.SearchSource
+import com.metrolist.music.resolver.AudioProviderId
+import com.metrolist.music.resolver.SourceSearch
 import com.metrolist.music.utils.rememberPreference
 
 /** Amber, not red: the experimental mode is a caveat, not an error. */
@@ -42,6 +54,11 @@ val SearchExperimentalColor = Color(0xFFE0A030)
  * The little button next to the search box's clear button: it says where the search is going and
  * lets the source be changed at any moment, from the search input as well as from the results.
  * In the experimental mode it turns into an amber exclamation mark.
+ *
+ * Tapping it opens one sheet with everything in it: the normal places to search as plain rows, and
+ * below them a single amber block that holds the experimental sources together — its own heading,
+ * one line saying what the mode does, and the sources as chips that also show when one is switched
+ * off or still needs an account (the usual reason a source "finds nothing").
  */
 @Composable
 fun SearchSourceButton(
@@ -50,49 +67,37 @@ fun SearchSourceButton(
     modifier: Modifier = Modifier,
     tint: Color? = null,
 ) {
+    val menuState = LocalMenuState.current
     val catalogState by Catalog.state.collectAsState()
     val hasCatalog = catalogState.isActive
     val (experimentalAvailable, _) = rememberPreference(ExperimentalSearchEnabledKey, defaultValue = true)
-    val (acknowledged, setAcknowledged) = rememberPreference(ExperimentalSearchAckKey, defaultValue = false)
+    val (_, setAcknowledged) = rememberPreference(ExperimentalSearchAckKey, defaultValue = false)
     val (experimentalSource, setExperimentalSource) =
-        rememberPreference(com.metrolist.music.constants.ExperimentalSearchSourceKey, defaultValue = "")
-
-    var expanded by remember { mutableStateOf(false) }
-    var showWarning by remember { mutableStateOf(false) }
-
-    if (showWarning) {
-        AlertDialog(
-            onDismissRequest = { showWarning = false },
-            icon = {
-                Icon(
-                    painter = painterResource(R.drawable.search_experimental),
-                    contentDescription = null,
-                    tint = SearchExperimentalColor,
-                )
-            },
-            title = { Text(text = stringResource(R.string.search_sources_title)) },
-            text = { Text(text = stringResource(R.string.search_sources_warning)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        setAcknowledged(true)
-                        showWarning = false
-                        onSelect(SearchSource.SOURCES)
-                    },
-                ) {
-                    Text(text = stringResource(R.string.got_it))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showWarning = false }) {
-                    Text(text = stringResource(android.R.string.cancel))
-                }
-            },
-        )
-    }
+        rememberPreference(ExperimentalSearchSourceKey, defaultValue = "")
 
     Box(modifier = modifier) {
-        IconButton(onClick = { expanded = true }) {
+        IconButton(
+            onClick = {
+                menuState.show {
+                    SearchSourceSheet(
+                        current = current,
+                        hasCatalog = hasCatalog,
+                        experimentalAvailable = experimentalAvailable,
+                        experimentalSource = experimentalSource,
+                        onSelect = { source ->
+                            menuState.dismiss()
+                            onSelect(source)
+                        },
+                        onSelectExperimental = { value ->
+                            menuState.dismiss()
+                            setExperimentalSource(value)
+                            setAcknowledged(true)
+                            if (current != SearchSource.SOURCES) onSelect(SearchSource.SOURCES)
+                        },
+                    )
+                }
+            },
+        ) {
             Icon(
                 painter = painterResource(searchSourceIcon(current)),
                 contentDescription = stringResource(R.string.search_source_picker),
@@ -103,74 +108,94 @@ fun SearchSourceButton(
                 },
             )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            val sources = buildList {
-                add(SearchSource.LOCAL)
-                add(SearchSource.ONLINE)
-                if (hasCatalog) add(SearchSource.YOUTUBE)
-                if (experimentalAvailable) add(SearchSource.SOURCES)
-            }
-            sources.forEach { source ->
-                val isExperimental = source == SearchSource.SOURCES
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = stringResource(searchSourceLabel(source, hasCatalog)),
-                            color = if (isExperimental) SearchExperimentalColor else LocalContentColor.current,
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            painter = painterResource(searchSourceIcon(source)),
-                            contentDescription = null,
-                            tint = if (isExperimental) SearchExperimentalColor else LocalContentColor.current,
-                        )
-                    },
-                    trailingIcon = {
-                        if (source == current) {
-                            Icon(painter = painterResource(R.drawable.check), contentDescription = null)
-                        }
-                    },
-                    onClick = {
-                        expanded = false
-                        if (isExperimental && !acknowledged) showWarning = true else onSelect(source)
-                    },
+    }
+}
+
+@Composable
+private fun SearchSourceSheet(
+    current: SearchSource,
+    hasCatalog: Boolean,
+    experimentalAvailable: Boolean,
+    experimentalSource: String,
+    onSelect: (SearchSource) -> Unit,
+    onSelectExperimental: (String) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+        Text(
+            text = stringResource(R.string.search_source_picker),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
+        )
+
+        val standardSources = buildList {
+            add(SearchSource.LOCAL)
+            add(SearchSource.ONLINE)
+            if (hasCatalog) add(SearchSource.YOUTUBE)
+        }
+        standardSources.forEach { source ->
+            SourceRow(
+                label = stringResource(searchSourceLabel(source, hasCatalog)),
+                icon = searchSourceIcon(source),
+                selected = source == current,
+                onClick = { onSelect(source) },
+            )
+        }
+
+        if (!experimentalAvailable) return@Column
+
+        Spacer(Modifier.height(12.dp))
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = SearchExperimentalColor.copy(alpha = 0.08f),
+            border = BorderStroke(1.dp, SearchExperimentalColor.copy(alpha = 0.35f)),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painter = painterResource(R.drawable.search_experimental),
+                        contentDescription = null,
+                        tint = SearchExperimentalColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.search_sources_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = SearchExperimentalColor,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = stringResource(R.string.search_sources_short),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                // The sources the experimental mode can use hang under it, like a small tree, so
-                // they don't need a second row of chips on the results screen.
-                if (isExperimental) {
-                    val sourceEntries = listOf<Pair<String, String>>("" to stringResource(R.string.search_all_sources)) +
-                        com.metrolist.music.resolver.SourceSearch.PROVIDERS.map { it.name to providerLabel(it) }
-                    sourceEntries.forEach { (value, label) ->
-                        val picked = experimentalSource == value
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = if (picked) {
-                                        SearchExperimentalColor
-                                    } else {
-                                        LocalContentColor.current.copy(alpha = 0.8f)
-                                    },
-                                )
+                Spacer(Modifier.height(12.dp))
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    SourceChip(
+                        label = stringResource(R.string.search_all_sources),
+                        note = null,
+                        selected = current == SearchSource.SOURCES && experimentalSource.isBlank(),
+                        onClick = { onSelectExperimental("") },
+                    )
+                    SourceSearch.PROVIDERS.forEach { provider ->
+                        SourceChip(
+                            label = providerLabel(provider),
+                            note = when (SourceSearch.statusOf(provider)) {
+                                SourceSearch.Status.READY -> null
+                                SourceSearch.Status.DISABLED -> stringResource(R.string.source_status_off)
+                                SourceSearch.Status.NEEDS_ACCOUNT -> stringResource(R.string.source_status_needs_account)
                             },
-                            leadingIcon = {
-                                // Indent, so the entries read as children of the mode above them.
-                                Spacer(Modifier.width(20.dp))
-                            },
-                            trailingIcon = {
-                                if (picked && current == SearchSource.SOURCES) {
-                                    Icon(painterResource(R.drawable.check), contentDescription = null)
-                                }
-                            },
-                            onClick = {
-                                expanded = false
-                                setExperimentalSource(value)
-                                if (current != SearchSource.SOURCES) {
-                                    if (acknowledged) onSelect(SearchSource.SOURCES) else showWarning = true
-                                }
-                            },
+                            selected = current == SearchSource.SOURCES && experimentalSource == provider.name,
+                            onClick = { onSelectExperimental(provider.name) },
                         )
                     }
                 }
@@ -179,15 +204,105 @@ fun SearchSourceButton(
     }
 }
 
+@Composable
+private fun SourceRow(
+    label: String,
+    icon: Int,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.width(16.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        if (selected) {
+            Icon(
+                painter = painterResource(R.drawable.check),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+/** One experimental source. [note] is why it cannot answer right now ("off", "sign-in needed"). */
+@Composable
+private fun SourceChip(
+    label: String,
+    note: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (selected) SearchExperimentalColor.copy(alpha = 0.22f) else Color.Transparent,
+            )
+            .let {
+                if (selected) it else it.border(
+                    BorderStroke(1.dp, SearchExperimentalColor.copy(alpha = 0.35f)),
+                    RoundedCornerShape(12.dp),
+                )
+            }
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Column {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (selected) SearchExperimentalColor else MaterialTheme.colorScheme.onSurface,
+            )
+            if (note != null) {
+                Text(
+                    text = note,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (selected) {
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                painter = painterResource(R.drawable.check),
+                contentDescription = null,
+                tint = SearchExperimentalColor,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}
+
 /** "VK", "SoundCloud", … as the user knows them. */
-fun providerLabel(id: com.metrolist.music.resolver.AudioProviderId): String = when (id) {
-    com.metrolist.music.resolver.AudioProviderId.VK -> "VK"
-    com.metrolist.music.resolver.AudioProviderId.SOUNDCLOUD -> "SoundCloud"
-    com.metrolist.music.resolver.AudioProviderId.BANDCAMP -> "Bandcamp"
-    com.metrolist.music.resolver.AudioProviderId.AUDIUS -> "Audius"
-    com.metrolist.music.resolver.AudioProviderId.YOUTUBE -> "YouTube"
-    com.metrolist.music.resolver.AudioProviderId.SOULSEEK -> "Soulseek"
-    com.metrolist.music.resolver.AudioProviderId.QOBUZ -> "Qobuz"
+fun providerLabel(id: AudioProviderId): String = when (id) {
+    AudioProviderId.VK -> "VK"
+    AudioProviderId.SOUNDCLOUD -> "SoundCloud"
+    AudioProviderId.BANDCAMP -> "Bandcamp"
+    AudioProviderId.AUDIUS -> "Audius"
+    AudioProviderId.YOUTUBE -> "YouTube"
+    AudioProviderId.SOULSEEK -> "Soulseek"
+    AudioProviderId.QOBUZ -> "Qobuz"
 }
 
 fun searchSourceIcon(source: SearchSource): Int = when (source) {

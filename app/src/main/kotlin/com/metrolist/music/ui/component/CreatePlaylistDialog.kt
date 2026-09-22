@@ -93,14 +93,16 @@ fun CreatePlaylistDialog(
             }
         },
         extraContent = {
-            if (allowSyncing) {
+            // The toggle only means "keep a copy on YouTube Music", so it is offered only to an
+            // account that has one: without it the switch just refused with a toast.
+            if (allowSyncing && isSignedIn) {
                 Row(
                     modifier = Modifier.padding(vertical = 16.dp, horizontal = 40.dp),
                 ) {
                     Column {
                         Text(
-                            text = stringResource(R.string.sync_playlist),
-                            style = MaterialTheme.typography.titleLarge,
+                            text = stringResource(R.string.sync_playlist_desc),
+                            style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
                             text = stringResource(R.string.allows_for_sync_witch_youtube),

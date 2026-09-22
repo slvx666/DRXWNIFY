@@ -84,6 +84,7 @@ fun StorageSettings(
 ) {
     val context = LocalContext.current
     val database = LocalDatabase.current
+    val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
     val imageDiskCache = context.imageLoader.diskCache ?: return
     val playerCache = LocalPlayerConnection.current?.service?.playerCache ?: return
     val downloadCache = LocalPlayerConnection.current?.service?.downloadCache ?: return
@@ -210,6 +211,7 @@ fun StorageSettings(
             title = stringResource(R.string.clear_all_downloads),
             onDismiss = { clearDownloads = false },
             onConfirm = {
+                downloadUtil.clearAllDownloads()
                 coroutineScope.launch(Dispatchers.IO) {
                     downloadCache.keys.forEach { key ->
                         downloadCache.removeResource(key)

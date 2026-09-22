@@ -64,7 +64,7 @@ private val MetalMania = FontFamily(Font(R.font.metal_mania))
 /** Decelerating curve so letters glide into place instead of stopping abruptly. */
 private val RiseEasing = CubicBezierEasing(0.2f, 0.8f, 0.3f, 1f)
 
-private val IconSize = 168.dp
+private val IconSize = 208.dp
 private const val ICON_IN_MS = 400
 private const val ICON_OUT_MS = 600
 private const val LETTERS_START_MS = 280L
@@ -105,7 +105,9 @@ fun AppIntro(
     val iconSizePx = with(density) { IconSize.roundToPx() }
     val icon = remember {
         runCatching {
-            (ResourcesCompat.getDrawable(context.resources, R.drawable.ic_launcher_static_foreground, context.theme)
+            // The intro asset is the launcher logo with its dark margin trimmed off, so the mark
+            // itself fills the frame instead of sitting small inside an invisible black square.
+            (ResourcesCompat.getDrawable(context.resources, R.drawable.ic_launcher_intro, context.theme)
                 ?: ResourcesCompat.getDrawable(context.resources, R.mipmap.ic_launcher, context.theme))
                 ?.toBitmap(iconSizePx, iconSizePx)?.asImageBitmap()
         }.getOrNull()

@@ -188,14 +188,7 @@ fun SelectionSongMenu(
                 TextButton(
                     onClick = {
                         showRemoveDownloadDialog = false
-                        songSelection.forEach { song ->
-                            DownloadService.sendRemoveDownload(
-                                context,
-                                ExoDownloadService::class.java,
-                                song.song.id,
-                                false,
-                            )
-                        }
+                        downloadUtil.removeDownloads(songSelection.map { it.song.id })
                     },
                 ) {
                     Text(text = stringResource(android.R.string.ok))

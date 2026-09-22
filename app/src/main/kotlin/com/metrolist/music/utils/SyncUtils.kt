@@ -434,7 +434,7 @@ class SyncUtils @Inject constructor(
     suspend fun syncUploadedAlbumsSuspend() = executeSyncUploadedAlbums()
     suspend fun syncArtistsSubscriptionsSuspend() = executeSyncArtistsSubscriptions()
     suspend fun syncSpotifyFollowedArtistsSuspend() = executeSyncSpotifyFollowedArtists()
-    suspend fun syncSpotifyLikedSongsSuspend() = executeSyncSpotifyLikedSongs()
+    suspend fun syncSpotifyLikedSongsSuspend(force: Boolean = true) = executeSyncSpotifyLikedSongs(force)
     suspend fun syncPodcastSubscriptionsSuspend() = executeSyncPodcastSubscriptions()
     suspend fun syncEpisodesForLaterSuspend() = executeSyncEpisodesForLater()
     suspend fun syncSavedPlaylistsSuspend() = executeSyncSavedPlaylists()
@@ -1222,8 +1222,8 @@ class SyncUtils @Inject constructor(
      *        not-yet-resolved tracks), the unlike branch only fires for songs
      *        with an existing [SpotifyMatchEntity] for their YouTube id.
      */
-    private suspend fun executeSyncSpotifyLikedSongs() = withContext(Dispatchers.IO) {
-        if (!spotifySyncLikes) {
+    private suspend fun executeSyncSpotifyLikedSongs(force: Boolean = false) = withContext(Dispatchers.IO) {
+        if (!spotifySyncLikes && !force) {
             Timber.d("Skipping Spotify liked songs sync - bidirectional sync disabled")
             return@withContext
         }

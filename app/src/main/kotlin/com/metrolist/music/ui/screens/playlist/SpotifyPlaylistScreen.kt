@@ -117,6 +117,10 @@ import timber.log.Timber
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
+import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.ui.menu.PlayerMenu
+import com.metrolist.music.utils.toSongItem
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SpotifyPlaylistScreen(
@@ -580,6 +584,33 @@ fun SpotifyPlaylistScreen(
                                             contentDescription = null,
                                         )
                                     }
+                                } else {
+                                    androidx.compose.material3.IconButton(
+                                        onClick = {
+                                            menuState.show {
+                                                PlayerMenu(
+                                                    mediaMetadata = track.toSongItem().toMediaMetadata(),
+                                                    spotifyTrack = track,
+                                                    navController = navController,
+                                                    isCurrentTrack = false,
+                                                    onRemoveFromPlaylist = {
+                                                        viewModel.removeTrack(track)
+                                                        Toast.makeText(
+                                                            context,
+                                                            context.getString(R.string.spotify_track_removed),
+                                                            Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                    },
+                                                    onDismiss = menuState::dismiss,
+                                                )
+                                            }
+                                        },
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.more_vert),
+                                            contentDescription = null,
+                                        )
+                                    }
                                 }
                             },
                             modifier = Modifier
@@ -597,11 +628,11 @@ fun SpotifyPlaylistScreen(
                                     },
                                     onLongClick = {
                                         menuState.show {
-                                            SpotifyTrackMenu(
-                                                track = track,
-                                                mapper = mapper,
-                                                onDismiss = menuState::dismiss,
+                                            PlayerMenu(
+                                                mediaMetadata = track.toSongItem().toMediaMetadata(),
+                                                spotifyTrack = track,
                                                 navController = navController,
+                                                isCurrentTrack = false,
                                                 onRemoveFromPlaylist = {
                                                     viewModel.removeTrack(track)
                                                     Toast.makeText(
@@ -610,6 +641,7 @@ fun SpotifyPlaylistScreen(
                                                         Toast.LENGTH_SHORT,
                                                     ).show()
                                                 },
+                                                onDismiss = menuState::dismiss,
                                             )
                                         }
                                     },

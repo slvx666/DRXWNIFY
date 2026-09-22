@@ -991,6 +991,31 @@ fun SongMenu(
                         } else {
                             null
                         },
+                        if (download?.state == Download.STATE_COMPLETED) {
+                            Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.share_file)) },
+                                description = { Text(text = stringResource(R.string.share_file_desc)) },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.share),
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = {
+                                    onDismiss()
+                                    val appContext = context.applicationContext
+                                    coroutineScope.launch {
+                                        com.metrolist.music.utils.shareDownloadedFile(
+                                            appContext,
+                                            downloadUtil.downloadExporter,
+                                            song.id,
+                                        )
+                                    }
+                                },
+                            )
+                        } else {
+                            null
+                        },
                         when (download?.state) {
                             Download.STATE_COMPLETED -> {
                                 Material3MenuItemData(

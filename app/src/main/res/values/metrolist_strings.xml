@@ -1296,6 +1296,9 @@
 
 Such tracks are audio only: play them, queue them and download them — but they can’t be liked, they have no artist or album pages and no radio. Titles and covers come from whoever uploaded them.</string>
     <string name="search_sources_empty">The sources have nothing for this query</string>
+    <string name="search_sources_short">Searches VK, SoundCloud, Bandcamp and Audius directly. Such tracks play and download, but have no likes, artist pages or radio.</string>
+    <string name="source_status_off">off</string>
+    <string name="source_status_needs_account">sign-in needed</string>
     <string name="search_sources_setting">Experimental source search</string>
     <string name="search_sources_setting_description">Adds "Sources directly" to the search box: looks for tracks in VK, SoundCloud, Bandcamp and Audius, with no likes, artist/album pages or radio.</string>
     <string name="got_it">Got it</string>
@@ -1307,9 +1310,17 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="search_source_spotify">Spotify</string>
     <string name="search_this_artist">Find this performer</string>
     <string name="open_file_location">Show in folder</string>
-    <string name="open_file_location_desc">Open the downloaded file in your file manager</string>
     <string name="file_not_found">The file is no longer there</string>
+    <string name="open_file_location_desc">Open the folder it was downloaded into</string>
+    <string name="share_file">Share the file</string>
+    <string name="share_file_desc">Send the downloaded file to another app</string>
     <string name="yandex_vpn_hint">If the Yandex page does not open, turn the VPN off: Yandex blocks its login page for many VPN servers.</string>
     <string name="login_page_failed">The page would not load</string>
     <string name="login_page_failed_hint">Check the connection and try again.</string>
+    <string name="vk_check_audio">VK audio access</string>
+    <string name="vk_check_audio_action">Check</string>
+    <string name="vk_check_audio_hint">Ask VK whether this login may use its music API</string>
+    <string name="vk_check_audio_ok">VK answers — music search works</string>
+    <string name="vk_check_audio_failed">VK refused: error %1$s — %2$s</string>
+    <string name="vk_check_audio_relogin">Sign in again with your login and password: a token taken from VK’s web page cannot read music.</string>
 </resources>

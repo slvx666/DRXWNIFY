@@ -75,6 +75,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.music.ui.menu.PlayerMenu
+import com.metrolist.music.utils.toSongItem
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpotifyAlbumScreen(
@@ -385,7 +389,38 @@ fun SpotifyAlbumScreen(
                         }
                     },
                     trailingContent = {
-                        com.metrolist.music.ui.component.Icon.Download(trackDownloadState)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            com.metrolist.music.ui.component.Icon.Download(trackDownloadState)
+                            IconButton(
+                                onClick = {
+                                    menuState.show {
+                                        PlayerMenu(
+                                            mediaMetadata = track.toSongItem().toMediaMetadata(),
+                                            spotifyTrack = track,
+                                            navController = navController,
+                                            isCurrentTrack = false,
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+                                },
+                                onLongClick = {
+                                    menuState.show {
+                                        PlayerMenu(
+                                            mediaMetadata = track.toSongItem().toMediaMetadata(),
+                                            spotifyTrack = track,
+                                            navController = navController,
+                                            isCurrentTrack = false,
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+                                },
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.more_vert),
+                                    contentDescription = null,
+                                )
+                            }
+                        }
                     },
                     thumbnailContent = {
                         ItemThumbnail(
@@ -412,11 +447,12 @@ fun SpotifyAlbumScreen(
                             },
                             onLongClick = {
                                 menuState.show {
-                                    com.metrolist.music.ui.menu.SpotifyTrackMenu(
-                                        track = track,
-                                        mapper = viewModel.mapper,
-                                        onDismiss = menuState::dismiss,
+                                    PlayerMenu(
+                                        mediaMetadata = track.toSongItem().toMediaMetadata(),
+                                        spotifyTrack = track,
                                         navController = navController,
+                                        isCurrentTrack = false,
+                                        onDismiss = menuState::dismiss,
                                     )
                                 }
                             },

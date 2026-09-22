@@ -8,6 +8,8 @@ package com.metrolist.music.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.metrolist.music.catalog.Catalog
+import com.metrolist.music.constants.PlaylistSortType
+import com.metrolist.music.db.MusicDatabase
 import com.metrolist.spotify.models.SpotifyLibraryEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -24,7 +27,9 @@ import javax.inject.Inject
 
 /** Backs the Spotify-style "My Library": Spotify's own order (pinned → Recents), filters and sort. */
 @HiltViewModel
-class SpotifyLibraryViewModel @Inject constructor() : ViewModel() {
+class SpotifyLibraryViewModel @Inject constructor(
+    database: MusicDatabase,
+) : ViewModel() {
 
     enum class Filter(val gql: String?) { ALL(null), PLAYLISTS("Playlists"), ALBUMS("Albums"), ARTISTS("Artists") }
     enum class Sort { RECENTS, RECENTLY_ADDED, ALPHABETICAL, CREATOR }
@@ -35,6 +40,9 @@ class SpotifyLibraryViewModel @Inject constructor() : ViewModel() {
     private val _sort = MutableStateFlow(Sort.RECENTS)
     val sort: StateFlow<Sort> = _sort.asStateFlow()
 
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
@@ -42,9 +50,36 @@ class SpotifyLibraryViewModel @Inject constructor() : ViewModel() {
     private val cache = MutableStateFlow<Map<Filter, List<SpotifyLibraryEntry>>>(emptyMap())
     private var loadJob: Job? = null
 
-    val entries: StateFlow<List<SpotifyLibraryEntry>> =
-        combine(cache, _filter, _sort) { c, f, s -> applySort(c[f].orEmpty(), s) }
+    /**
+     * Playlists made inside the app. They belong to no streaming account, so the library of the
+     * connected account never mentions them — without this they would be created and then vanish.
+     * They are shown first, above the account's own playlists.
+     */
+    private val localPlaylists: StateFlow<List<SpotifyLibraryEntry>> =
+        database.playlists(PlaylistSortType.CREATE_DATE, descending = true)
+            .map { playlists ->
+                playlists
+                    .filter { it.playlist.isEditable }
+                    .map { playlist ->
+                        SpotifyLibraryEntry(
+                            kind = SpotifyLibraryEntry.Kind.PLAYLIST,
+                            id = playlist.id,
+                            uri = LOCAL_PLAYLIST_URI_PREFIX + playlist.id,
+                            name = playlist.playlist.name,
+                            creator = null,
+                            imageUrl = playlist.thumbnails.firstOrNull(),
+                            totalCount = playlist.songCount,
+                            thumbnails = playlist.thumbnails.take(4),
+                        )
+                    }
+            }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val entries: StateFlow<List<SpotifyLibraryEntry>> =
+        combine(cache, _filter, _sort, localPlaylists) { c, f, s, local ->
+            val own = if (f == Filter.ALL || f == Filter.PLAYLISTS) local else emptyList()
+            own + applySort(c[f].orEmpty(), s)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
         load(Filter.ALL)
@@ -63,6 +98,10 @@ class SpotifyLibraryViewModel @Inject constructor() : ViewModel() {
 
     fun setSort(s: Sort) {
         _sort.value = s
+    }
+
+    fun updateSearchQuery(query: String) {
+        _searchQuery.value = query
     }
 
     fun refresh() {
@@ -119,8 +158,11 @@ class SpotifyLibraryViewModel @Inject constructor() : ViewModel() {
         return pinned + sortedRest
     }
 
-    private companion object {
-        const val PAGE = 50
-        const val MAX_ITEMS = 1000
+    companion object {
+        /** Marks an entry that lives in this app's database, not in the connected account. */
+        const val LOCAL_PLAYLIST_URI_PREFIX = "meld:playlist:"
+
+        private const val PAGE = 50
+        private const val MAX_ITEMS = 1000
     }
 }

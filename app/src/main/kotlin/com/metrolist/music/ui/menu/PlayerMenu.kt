@@ -97,13 +97,18 @@ import com.metrolist.music.ui.component.YouTubeMatchDialog
 import com.metrolist.music.ui.component.BottomSheetState
 import com.metrolist.music.ui.component.ListDialog
 import com.metrolist.music.ui.component.Material3MenuGroup
+import androidx.compose.ui.draw.clip
+import coil3.compose.AsyncImage
+import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.Material3MenuItemData
 import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.NewActionGrid
 import com.metrolist.music.ui.component.VolumeSlider
+import com.metrolist.music.ui.utils.ShowMediaInfo
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.log2
 import kotlin.math.pow
 import kotlin.math.round
@@ -112,9 +117,12 @@ import kotlin.math.round
 fun PlayerMenu(
     mediaMetadata: MediaMetadata?,
     navController: NavController,
-    playerBottomSheetState: BottomSheetState,
+    playerBottomSheetState: BottomSheetState? = null,
     isQueueTrigger: Boolean? = false,
-    onShowDetailsDialog: () -> Unit,
+    isCurrentTrack: Boolean = true,
+    spotifyTrack: com.metrolist.spotify.models.SpotifyTrack? = null,
+    onRemoveFromPlaylist: (() -> Unit)? = null,
+    onShowDetailsDialog: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     mediaMetadata ?: return
@@ -122,6 +130,7 @@ fun PlayerMenu(
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
     val playerVolume = playerConnection.service.playerVolume.collectAsState()
+    val bottomSheetPageState = LocalBottomSheetPageState.current
 
     // Cast state for volume control - safely access castConnectionHandler to prevent crashes
     val castHandler =
@@ -141,9 +150,37 @@ fun PlayerMenu(
     val librarySong by database.song(mediaMetadata.id).collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
 
-    val download by LocalDownloadUtil.current
+    val downloadUtil = LocalDownloadUtil.current
+    val downloads by downloadUtil.downloads.collectAsState()
+    val directDownload by downloadUtil
         .getDownload(mediaMetadata.id)
         .collectAsState(initial = null)
+
+    val downloadCandidates by produceState(initialValue = listOf(mediaMetadata.id), mediaMetadata.id, spotifyTrack?.id) {
+        value = withContext(Dispatchers.IO) {
+            val sId = spotifyTrack?.id
+                ?: (if (mediaMetadata.id.isSpotifyId()) mediaMetadata.id.stripSpotifyPrefix() else null)
+                ?: database.getSpotifyMatchByYouTubeId(mediaMetadata.id)?.spotifyId
+            listOfNotNull(
+                mediaMetadata.id,
+                sId?.let { database.getSpotifyMatch(it)?.youtubeId },
+                sId?.let { com.metrolist.music.resolver.FallbackIds.of(it) },
+            ).distinct()
+        }
+    }
+    val downloadedCandidateId = downloadCandidates.firstOrNull {
+        downloads[it]?.state == Download.STATE_COMPLETED
+    }
+    val downloadingCandidateId = downloadCandidates.firstOrNull {
+        val s = downloads[it]?.state
+        s == Download.STATE_DOWNLOADING || s == Download.STATE_QUEUED
+    }
+    val effectiveDownloadState = when {
+        downloadedCandidateId != null -> Download.STATE_COMPLETED
+        downloadingCandidateId != null -> Download.STATE_DOWNLOADING
+        else -> directDownload?.state
+    }
+    val effectiveDownloadId = downloadedCandidateId ?: downloadingCandidateId ?: mediaMetadata.id
 
     // Recover the originating Spotify track for the current media so "View artist" / "View album"
     // work for Spotify-sourced tracks (whose YouTube MediaItem carries no album and often id-less
@@ -196,7 +233,7 @@ fun PlayerMenu(
         } else {
             navController.navigate("artist/$navId")
         }
-        playerBottomSheetState.collapseSoft()
+        playerBottomSheetState?.collapseSoft()
         onDismiss()
     }
 
@@ -219,6 +256,84 @@ fun PlayerMenu(
     var showAddToSpotifyPlaylist by rememberSaveable { mutableStateOf(false) }
     val spotifyMapper = remember { SpotifyYouTubeMapper(database) }
 
+    val playNextTrack: () -> Unit = {
+        onDismiss()
+        coroutineScope.launch {
+            if (spotifyTrack != null) {
+                val item = withContext(Dispatchers.IO) {
+                    spotifyMapper.resolveToMediaItem(spotifyTrack)
+                }
+                if (item != null) {
+                    playerConnection.playNext(item)
+                    Toast.makeText(context, context.getString(R.string.added_to_play_next), Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, context.getString(R.string.spotify_no_tracks), Toast.LENGTH_SHORT).show()
+                }
+            } else if (mediaMetadata.id.isSpotifyId()) {
+                val sid = mediaMetadata.id.stripSpotifyPrefix()
+                val spTrack = withContext(Dispatchers.IO) {
+                    com.metrolist.music.catalog.Catalog.getTrack(sid).getOrNull()
+                }
+                if (spTrack != null) {
+                    val item = withContext(Dispatchers.IO) {
+                        spotifyMapper.resolveToMediaItem(spTrack)
+                    }
+                    if (item != null) {
+                        playerConnection.playNext(item)
+                        Toast.makeText(context, context.getString(R.string.added_to_play_next), Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, context.getString(R.string.spotify_no_tracks), Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    playerConnection.playNext(mediaMetadata.toMediaItem())
+                    Toast.makeText(context, context.getString(R.string.added_to_play_next), Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                playerConnection.playNext(mediaMetadata.toMediaItem())
+                Toast.makeText(context, context.getString(R.string.added_to_play_next), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val addToQueueTrack: () -> Unit = {
+        onDismiss()
+        coroutineScope.launch {
+            if (spotifyTrack != null) {
+                val item = withContext(Dispatchers.IO) {
+                    spotifyMapper.resolveToMediaItem(spotifyTrack)
+                }
+                if (item != null) {
+                    playerConnection.addToQueue(item)
+                    Toast.makeText(context, context.getString(R.string.added_to_queue), Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, context.getString(R.string.spotify_no_tracks), Toast.LENGTH_SHORT).show()
+                }
+            } else if (mediaMetadata.id.isSpotifyId()) {
+                val sid = mediaMetadata.id.stripSpotifyPrefix()
+                val spTrack = withContext(Dispatchers.IO) {
+                    com.metrolist.music.catalog.Catalog.getTrack(sid).getOrNull()
+                }
+                if (spTrack != null) {
+                    val item = withContext(Dispatchers.IO) {
+                        spotifyMapper.resolveToMediaItem(spTrack)
+                    }
+                    if (item != null) {
+                        playerConnection.addToQueue(item)
+                        Toast.makeText(context, context.getString(R.string.added_to_queue), Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, context.getString(R.string.spotify_no_tracks), Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    playerConnection.addToQueue(mediaMetadata.toMediaItem())
+                    Toast.makeText(context, context.getString(R.string.added_to_queue), Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                playerConnection.addToQueue(mediaMetadata.toMediaItem())
+                Toast.makeText(context, context.getString(R.string.added_to_queue), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val resolvedSpotifyMatch by produceState<com.metrolist.music.db.entities.SpotifyMatchEntity?>(
         initialValue = null,
         mediaMetadata.id,
@@ -234,7 +349,9 @@ fun PlayerMenu(
         title = mediaMetadata.title,
         artist = mediaMetadata.artists.firstOrNull()?.name ?: "",
         durationSec = mediaMetadata.duration,
-        spotifyUri = resolvedSpotifyMatch?.spotifyId?.let { "spotify:track:$it" },
+        spotifyUri = resolvedSpotifyMatch?.spotifyId?.let { "spotify:track:$it" }
+            ?: (if (mediaMetadata.id.isSpotifyId()) "spotify:track:${mediaMetadata.id.stripSpotifyPrefix()}" else null)
+            ?: (spotifyTrack?.id?.let { "spotify:track:$it" }),
         mapper = spotifyMapper,
         onDismiss = { showAddToSpotifyPlaylist = false },
     )
@@ -291,7 +408,9 @@ fun PlayerMenu(
                 insert(mediaMetadata)
             }
             coroutineScope.launch(Dispatchers.IO) {
-                playlist.playlist.browseId?.let { YouTube.addToPlaylist(it, mediaMetadata.id) }
+                if (!mediaMetadata.id.isSpotifyId()) {
+                    playlist.playlist.browseId?.let { YouTube.addToPlaylist(it, mediaMetadata.id) }
+                }
             }
             listOf(mediaMetadata.id)
         },
@@ -400,88 +519,297 @@ fun PlayerMenu(
                 bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
             ),
     ) {
-        // Download is the first action in the menu.
+        if (!isCurrentTrack) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AsyncImage(
+                        model = mediaMetadata.thumbnailUrl ?: spotifyTrack?.album?.images?.firstOrNull()?.url,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = mediaMetadata.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = mediaMetadata.artists.joinToString { it.name },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            item { Spacer(modifier = Modifier.height(8.dp)) }
+        }
+
         item {
             Material3MenuGroup(
                 items =
-                    listOf(
-                        when (download?.state) {
-                            Download.STATE_COMPLETED -> {
+                    buildList {
+                        if (effectiveDownloadState == Download.STATE_COMPLETED) {
+                            add(
                                 Material3MenuItemData(
-                                    title = {
-                                        Text(
-                                            text = stringResource(R.string.remove_download),
-                                        )
-                                    },
+                                    title = { Text(text = stringResource(R.string.open_file_location)) },
+                                    description = { Text(text = stringResource(R.string.open_file_location_desc)) },
                                     icon = {
                                         Icon(
-                                            painter = painterResource(R.drawable.offline),
+                                            painter = painterResource(R.drawable.folder),
                                             contentDescription = null,
                                             modifier = Modifier.size(24.dp),
                                         )
                                     },
                                     onClick = {
-                                        DownloadService.sendRemoveDownload(
-                                            context,
-                                            ExoDownloadService::class.java,
-                                            mediaMetadata.id,
-                                            false,
+                                        onDismiss()
+                                        val appContext = context.applicationContext
+                                        coroutineScope.launch {
+                                            com.metrolist.music.utils.openDownloadLocation(
+                                                appContext,
+                                                downloadUtil.downloadExporter,
+                                                effectiveDownloadId,
+                                            )
+                                        }
+                                    },
+                                )
+                            )
+                        }
+                        if (effectiveDownloadState == Download.STATE_COMPLETED) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.share_file)) },
+                                    description = { Text(text = stringResource(R.string.share_file_desc)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.share),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
                                         )
                                     },
+                                    onClick = {
+                                        onDismiss()
+                                        val appContext = context.applicationContext
+                                        coroutineScope.launch {
+                                            com.metrolist.music.utils.shareDownloadedFile(
+                                                appContext,
+                                                downloadUtil.downloadExporter,
+                                                effectiveDownloadId,
+                                            )
+                                        }
+                                    },
+                                )
+                            )
+                        }
+
+                        when (effectiveDownloadState) {
+                            Download.STATE_COMPLETED -> {
+                                add(
+                                    Material3MenuItemData(
+                                        title = {
+                                            Text(
+                                                text = stringResource(R.string.remove_download),
+                                            )
+                                        },
+                                        icon = {
+                                            Icon(
+                                                painter = painterResource(R.drawable.offline),
+                                                contentDescription = null,
+                                                modifier = Modifier.size(24.dp),
+                                            )
+                                        },
+                                        onClick = {
+                                            DownloadService.sendRemoveDownload(
+                                                context,
+                                                ExoDownloadService::class.java,
+                                                effectiveDownloadId,
+                                                false,
+                                            )
+                                        },
+                                    )
                                 )
                             }
 
                             Download.STATE_QUEUED, Download.STATE_DOWNLOADING -> {
-                                Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.downloading)) },
-                                    icon = {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            strokeWidth = 2.dp,
-                                        )
-                                    },
-                                    onClick = {
-                                        DownloadService.sendRemoveDownload(
-                                            context,
-                                            ExoDownloadService::class.java,
-                                            mediaMetadata.id,
-                                            false,
-                                        )
-                                    },
+                                add(
+                                    Material3MenuItemData(
+                                        title = { Text(text = stringResource(R.string.downloading)) },
+                                        icon = {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(24.dp),
+                                                strokeWidth = 2.dp,
+                                            )
+                                        },
+                                        onClick = {
+                                            DownloadService.sendRemoveDownload(
+                                                context,
+                                                ExoDownloadService::class.java,
+                                                effectiveDownloadId,
+                                                false,
+                                            )
+                                        },
+                                    )
                                 )
                             }
 
                             else -> {
+                                add(
+                                    Material3MenuItemData(
+                                        title = { Text(text = stringResource(R.string.action_download)) },
+                                        icon = {
+                                            Icon(
+                                                painter = painterResource(R.drawable.download),
+                                                contentDescription = null,
+                                                modifier = Modifier.size(24.dp),
+                                            )
+                                        },
+                                        onClick = {
+                                            if (spotifyTrack != null || mediaMetadata.id.isSpotifyId()) {
+                                                val appContext = context.applicationContext
+                                                coroutineScope.launch(Dispatchers.IO) {
+                                                    val trackToResolve = spotifyTrack ?: runCatching {
+                                                        val sid = mediaMetadata.id.stripSpotifyPrefix()
+                                                        com.metrolist.music.catalog.Catalog.getTrack(sid).getOrNull()
+                                                    }.getOrNull()
+                                                    val mediaItem = trackToResolve?.let { spotifyMapper.resolveToMediaItem(it) }
+                                                    if (mediaItem == null) {
+                                                        withContext(Dispatchers.Main) {
+                                                            Toast.makeText(appContext, appContext.getString(R.string.spotify_no_tracks), Toast.LENGTH_SHORT).show()
+                                                        }
+                                                        return@launch
+                                                    }
+                                                    val request = DownloadRequest
+                                                        .Builder(mediaItem.mediaId, mediaItem.mediaId.toUri())
+                                                        .setCustomCacheKey(mediaItem.mediaId)
+                                                        .setData(mediaMetadata.title.toByteArray())
+                                                        .build()
+                                                    DownloadService.sendAddDownload(
+                                                        appContext,
+                                                        ExoDownloadService::class.java,
+                                                        request,
+                                                        false,
+                                                    )
+                                                }
+                                            } else {
+                                                database.transaction {
+                                                    upsertMetadata(mediaMetadata)
+                                                }
+                                                val downloadRequest =
+                                                    DownloadRequest
+                                                        .Builder(mediaMetadata.id, mediaMetadata.id.toUri())
+                                                        .setCustomCacheKey(mediaMetadata.id)
+                                                        .setData(mediaMetadata.title.toByteArray())
+                                                        .build()
+                                                DownloadService.sendAddDownload(
+                                                    context,
+                                                    ExoDownloadService::class.java,
+                                                    downloadRequest,
+                                                    false,
+                                                )
+                                            }
+                                        },
+                                    )
+                                )
+                            }
+                        }
+
+                        if (!isCurrentTrack) {
+                            add(
                                 Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.action_download)) },
+                                    title = { Text(text = stringResource(R.string.play_next)) },
+                                    description = { Text(text = stringResource(R.string.play_next_desc)) },
                                     icon = {
                                         Icon(
-                                            painter = painterResource(R.drawable.download),
+                                            painter = painterResource(R.drawable.queue_play_next),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = playNextTrack,
+                                )
+                            )
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.add_to_queue)) },
+                                    description = { Text(text = stringResource(R.string.add_to_queue_desc)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.queue_music),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = addToQueueTrack,
+                                )
+                            )
+                        }
+
+                        add(
+                            Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.add_to_playlist)) },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.playlist_add),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                onClick = {
+                                    showChoosePlaylistDialog = true
+                                },
+                            )
+                        )
+
+                        if (com.metrolist.spotify.Spotify.isAuthenticated()) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.spotify_add_to_playlist)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.spotify),
                                             contentDescription = null,
                                             modifier = Modifier.size(24.dp),
                                         )
                                     },
                                     onClick = {
-                                        database.transaction {
-                                            upsertMetadata(mediaMetadata)
-                                        }
-                                        val downloadRequest =
-                                            DownloadRequest
-                                                .Builder(mediaMetadata.id, mediaMetadata.id.toUri())
-                                                .setCustomCacheKey(mediaMetadata.id)
-                                                .setData(mediaMetadata.title.toByteArray())
-                                                .build()
-                                        DownloadService.sendAddDownload(
-                                            context,
-                                            ExoDownloadService::class.java,
-                                            downloadRequest,
-                                            false,
-                                        )
+                                        showAddToSpotifyPlaylist = true
                                     },
                                 )
-                            }
-                        },
-                    ),
+                            )
+                        }
+
+                        if (onRemoveFromPlaylist != null) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.remove_from_playlist)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.delete),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = {
+                                        onDismiss()
+                                        onRemoveFromPlaylist()
+                                    },
+                                )
+                            )
+                        }
+                    },
             )
         }
 
@@ -558,7 +886,7 @@ fun PlayerMenu(
                                             spotifyTarget != null -> navController.navigate("spotify_album/$spotifyTarget")
                                             nativeAlbumId != null -> navController.navigate("album/$nativeAlbumId")
                                         }
-                                        playerBottomSheetState.collapseSoft()
+                                        playerBottomSheetState?.collapseSoft()
                                         onDismiss()
                                     },
                                 ),
@@ -715,7 +1043,14 @@ fun PlayerMenu(
                                     )
                                 },
                                 onClick = {
-                                    onShowDetailsDialog()
+                                    if (onShowDetailsDialog != null) {
+                                        onShowDetailsDialog()
+                                    } else {
+                                        val detailsId = resolvedSpotifyMatch?.youtubeId ?: mediaMetadata.id
+                                        bottomSheetPageState.show {
+                                            ShowMediaInfo(detailsId)
+                                        }
+                                    }
                                     onDismiss()
                                 },
                             ),

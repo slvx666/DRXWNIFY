@@ -13,6 +13,7 @@ import com.metrolist.music.resolver.ProviderMatch
 import com.metrolist.spotify.SpotifyMapper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -137,11 +138,11 @@ class VkAudioProvider(
     }
 
     /**
-     * Raw search results. [requireUrl] drops everything the account can't stream right now, which is
-     * what the gated resolver wants; the free search keeps them, because a missing URL in a search
-     * result doesn't mean the track is restricted — audio.getById still returns one.
+     * Raw search results. VK leaves stream URLs out of search results for many accounts,
+     * so [requireUrl] is false by default: the actual URL is fetched via audio.getById
+     * when [stream] is called.
      */
-    private suspend fun fetch(text: String, count: Int, requireUrl: Boolean = true): List<VkAudio> {
+    private suspend fun fetch(text: String, count: Int, requireUrl: Boolean = false): List<VkAudio> {
         val raw = throttled {
             val root = call("audio.search", mapOf("q" to text, "count" to count.toString(), "auto_complete" to "1", "sort" to "2"))
                 ?: throw IllegalStateException("VK API HTTP error")
@@ -157,8 +158,8 @@ class VkAudioProvider(
         val text = ProviderGate.searchText(query)
         if (text.isBlank()) return null
         // Errors (bad token, API refused) propagate so the audio search log shows the real reason.
-        // A track without a (non-HLS) URL is restricted for this account/region — not playable.
-        val items = fetch(text, 30)
+        // VK leaves URLs out of search results for most accounts; stream() fetches them via audio.getById.
+        val items = fetch(text, 30, requireUrl = false)
         if (items.isEmpty()) return null
 
         val chosen = ProviderGate.ranked(
@@ -206,6 +207,48 @@ class VkAudioProvider(
     }
 
     companion object {
+        /**
+         * Asks VK for one track with [token], so "VK finds nothing" stops being a guess.
+         *
+         * The usual cause is the token itself: VK only serves the audio API to the Kate Mobile
+         * client, and only to a token from the login+password flow — the one taken from VK's own
+         * web page (implicit grant) can read the profile but is refused by audio.* with error 15.
+         */
+        suspend fun checkAudioAccess(token: String): VkAudioAccess = withContext(Dispatchers.IO) {
+            if (token.isBlank()) return@withContext VkAudioAccess.NoToken
+            val http = OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .build()
+            val body = FormBody.Builder()
+                .add("q", "test")
+                .add("count", "1")
+                .add("access_token", token)
+                .add("v", API_VERSION)
+                .build()
+            val request = Request.Builder()
+                .url("https://api.vk.com/method/audio.search")
+                .header("User-Agent", KATE_USER_AGENT)
+                .post(body)
+                .build()
+            runCatching {
+                http.newCall(request).execute().use { response ->
+                    val text = response.body?.string().orEmpty()
+                    if (!response.isSuccessful && text.isBlank()) {
+                        return@use VkAudioAccess.Failed(null, "HTTP ${response.code}")
+                    }
+                    val root = JSONObject(text)
+                    root.optJSONObject("error")?.let { err ->
+                        return@use VkAudioAccess.Failed(
+                            err.optInt("error_code"),
+                            err.optString("error_msg").ifBlank { "unknown error" },
+                        )
+                    }
+                    VkAudioAccess.Ok(root.optJSONObject("response")?.optInt("count", 0) ?: 0)
+                }
+            }.getOrElse { VkAudioAccess.Failed(null, it.message ?: it.javaClass.simpleName) }
+        }
+
         const val API_VERSION = "5.131"
 
         /** Kate Mobile's public client — the one VK still serves the audio API to. */
@@ -227,4 +270,12 @@ class VkAudioProvider(
         fun toMp3Url(url: String): String =
             if (url.contains("index.m3u8")) M3U8_TO_MP3.replace(url) { m -> "${m.groupValues[1]}/${m.groupValues[2]}.mp3" } else url
     }
+}
+
+/** Outcome of [VkAudioProvider.checkAudioAccess]. */
+sealed interface VkAudioAccess {
+    /** VK answered; [total] is how many tracks it says it has for the test query. */
+    data class Ok(val total: Int) : VkAudioAccess
+    data class Failed(val code: Int?, val message: String) : VkAudioAccess
+    data object NoToken : VkAudioAccess
 }
