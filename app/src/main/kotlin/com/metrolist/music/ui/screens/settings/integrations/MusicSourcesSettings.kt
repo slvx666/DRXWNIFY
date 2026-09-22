@@ -513,7 +513,15 @@ private fun VkAudioAccessCheck(token: String) {
                 R.string.vk_check_audio_failed,
                 r.code?.toString() ?: "—",
                 r.message,
-            ) + (if (r.code == 15 || r.code == 5) "\n" + stringResource(R.string.vk_check_audio_relogin) else "")
+            ) + (
+                // 3 "unknown method", 5 "auth failed", 15 "access denied": in practice all three
+                // mean the same thing — this token may not touch VK's music API.
+                if (r.code == 3 || r.code == 5 || r.code == 15) {
+                    "\n" + stringResource(R.string.vk_check_audio_relogin)
+                } else {
+                    ""
+                }
+                )
     }
 
     PreferenceEntry(

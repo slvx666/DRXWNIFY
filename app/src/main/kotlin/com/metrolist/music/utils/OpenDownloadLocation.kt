@@ -5,7 +5,6 @@
 
 package com.metrolist.music.utils
 
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -23,8 +22,13 @@ private const val DIRECTORY_MIME = "vnd.android.document/directory"
 /**
  * Opens the FOLDER a download was written to, so the file can be picked up from there (shared to
  * Telegram, copied to a PC…). Opening the file itself would just hand it to a player, which is the
- * one thing this action is not for; when no file manager answers, the share sheet is offered
- * instead so the track can still leave the app.
+ * one thing this action is not for.
+ *
+ * Opening a folder is best-effort: the file managers that answer such an intent differ per phone,
+ * and the system refuses the intent outright unless the app holds a permission for that document
+ * tree (which it only does when the user picked a download folder themselves). Every failure —
+ * including that refusal, which used to crash the app — falls through to the share sheet, so the
+ * track always has a way out of the app.
  */
 suspend fun openDownloadLocation(
     context: Context,
@@ -35,11 +39,8 @@ suspend fun openDownloadLocation(
     val folder = withContext(Dispatchers.IO) { folderUriOf(context, uri) }
 
     withContext(Dispatchers.Main) {
-        val opened = folder != null && startViewing(context, folder, DIRECTORY_MIME)
-        if (!opened) {
-            // No file manager took the folder: sharing the file is the next best way out of the app.
-            shareFile(context, uri)
-        }
+        val opened = folder != null && hasAccessTo(context, folder) && startViewing(context, folder)
+        if (!opened) shareFile(context, uri)
     }
 }
 
@@ -80,29 +81,42 @@ private fun shareFile(context: Context, uri: Uri) {
     }
     try {
         context.startActivity(
-            Intent.createChooser(intent, context.getString(R.string.open_file_location))
+            Intent.createChooser(intent, context.getString(R.string.share_file))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
-    } catch (e: ActivityNotFoundException) {
+    } catch (e: Throwable) {
         Timber.w(e, "Nothing can share %s", uri)
         Toast.makeText(context, uri.toString(), Toast.LENGTH_LONG).show()
     }
 }
 
-private fun startViewing(context: Context, uri: Uri, mime: String): Boolean {
+/**
+ * True when this app may hand [uri] to another app. A document under a tree the user granted us
+ * qualifies; one we merely built a path for (the MediaStore case) does not, and passing it on
+ * throws [SecurityException] from the system, not from the receiving app.
+ */
+private fun hasAccessTo(context: Context, uri: Uri): Boolean =
+    context.contentResolver.persistedUriPermissions.any { permission ->
+        permission.isReadPermission && DocumentsContract.isTreeUri(permission.uri) &&
+            uri.toString().startsWith(permission.uri.toString().substringBefore("/document/"))
+    }
+
+private fun startViewing(context: Context, uri: Uri): Boolean {
     val intent = Intent(Intent.ACTION_VIEW).apply {
-        setDataAndType(uri, mime)
+        setDataAndType(uri, DIRECTORY_MIME)
         addFlags(
             Intent.FLAG_GRANT_READ_URI_PERMISSION or
                 Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
                 Intent.FLAG_ACTIVITY_NEW_TASK,
         )
     }
+    // Anything can go wrong here (no file manager, no permission for the document, a manufacturer
+    // file app that rejects the intent) and none of it is worth a crash: the caller shares instead.
     return try {
         context.startActivity(intent)
         true
-    } catch (e: ActivityNotFoundException) {
-        Timber.d(e, "No file manager for %s", uri)
+    } catch (e: Throwable) {
+        Timber.d(e, "Could not open the folder %s", uri)
         false
     }
 }
@@ -121,7 +135,7 @@ private fun folderUriOf(context: Context, fileUri: Uri): Uri? = runCatching {
             val documentId = DocumentsContract.getDocumentId(fileUri)
             val parentId = documentId.substringBeforeLast('/', missingDelimiterValue = "")
                 .takeIf { it.isNotBlank() && it != documentId } ?: return@runCatching null
-            if (isTreeUri(fileUri)) {
+            if (DocumentsContract.isTreeUri(fileUri)) {
                 DocumentsContract.buildDocumentUriUsingTree(fileUri, parentId)
             } else {
                 DocumentsContract.buildDocumentUri(
@@ -147,7 +161,5 @@ private fun folderUriOf(context: Context, fileUri: Uri): Uri? = runCatching {
         else -> null
     }
 }.onFailure { Timber.d(it, "Could not derive the folder of %s", fileUri) }.getOrNull()
-
-private fun isTreeUri(uri: Uri): Boolean = uri.pathSegments.firstOrNull() == "tree"
 
 private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"

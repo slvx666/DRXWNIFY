@@ -793,6 +793,9 @@ object YTPlayerUtils {
             .onFailure { Timber.tag(logTag).e(it, "Failed to fetch metadata") }
     }
 
+    /** Ceiling for AUTO on a metered network: the 128 kbps tier, not YouTube's smallest stream. */
+    private const val METERED_MAX_BITRATE = 140_000
+
     private fun findFormat(
         playerResponse: PlayerResponse,
         audioQuality: AudioQuality,
@@ -801,20 +804,39 @@ object YTPlayerUtils {
     ): PlayerResponse.StreamingData.Format? {
         Timber.tag(logTag).d("Finding format with audioQuality: $audioQuality, network metered: ${connectivityManager.isActiveNetworkMetered}, preferAac: $preferAac")
 
-        val format = playerResponse.streamingData?.adaptiveFormats
+        val candidates = playerResponse.streamingData?.adaptiveFormats
             ?.filter { it.isAudio && it.isOriginal }
-            ?.maxByOrNull {
-                it.bitrate * when (audioQuality) {
-                    AudioQuality.AUTO -> if (connectivityManager.isActiveNetworkMetered) -1 else 1
-                    AudioQuality.HIGH -> 1
-                    AudioQuality.LOW -> -1
-                } + when {
-                    // Download path: prefer AAC (audio/mp4) so no transcode is needed on export.
-                    preferAac -> if (it.mimeType.startsWith("audio/mp4")) 10240 else 0
-                    // Playback default: prefer the Opus (audio/webm) stream.
-                    else -> if (it.mimeType.startsWith("audio/webm")) 10240 else 0
-                }
+            .orEmpty()
+
+        // Codec preference, worth a little but never enough to beat a real quality difference.
+        fun codecBonus(f: PlayerResponse.StreamingData.Format): Int = when {
+            // Download path: prefer AAC (audio/mp4) so no transcode is needed on export.
+            preferAac -> if (f.mimeType.startsWith("audio/mp4")) 10240 else 0
+            // Playback default: prefer the Opus (audio/webm) stream.
+            else -> if (f.mimeType.startsWith("audio/webm")) 10240 else 0
+        }
+
+        val metered = connectivityManager.isActiveNetworkMetered
+        val format = when {
+            candidates.isEmpty() -> null
+
+            audioQuality == AudioQuality.LOW -> candidates.minByOrNull { it.bitrate - codecBonus(it) }
+
+            /*
+             * AUTO on mobile data used to take the SMALLEST stream YouTube offers — itag 249, about
+             * 50-60 kbps Opus, which is what "why does it sound like 57 kbps" was. It now saves data
+             * the sane way: the best stream that stays within [METERED_MAX_BITRATE] (≈ the 128 kbps
+             * AAC / mid Opus tier), and only if everything on offer is above it does the smallest
+             * one win. A download is kept forever, so it always takes the best stream regardless.
+             */
+            audioQuality == AudioQuality.AUTO && metered && !preferAac -> {
+                candidates.filter { it.bitrate <= METERED_MAX_BITRATE }
+                    .maxByOrNull { it.bitrate + codecBonus(it) }
+                    ?: candidates.minByOrNull { it.bitrate - codecBonus(it) }
             }
+
+            else -> candidates.maxByOrNull { it.bitrate + codecBonus(it) }
+        }
 
         if (format != null) {
             Timber.tag(logTag).d("Selected format: ${format.mimeType}, bitrate: ${format.bitrate}")

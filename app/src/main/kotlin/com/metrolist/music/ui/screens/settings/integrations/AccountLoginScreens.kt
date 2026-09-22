@@ -135,18 +135,20 @@ fun VkLoginScreen(navController: NavController) {
         }
         // A token is not the same as music access: VK serves audio.* only to some of them, and the
         // difference shows up as "VK finds nothing" much later. Ask VK right away and say so.
-        when (val access = VkAudioProvider.checkAudioAccess(token)) {
-            is VkAudioAccess.Ok -> Unit
-            is VkAudioAccess.NoToken -> Unit
-            is VkAudioAccess.Failed -> Toast.makeText(
-                context,
-                context.getString(
-                    R.string.vk_check_audio_failed,
-                    access.code?.toString() ?: "—",
-                    access.message,
-                ) + "\n" + context.getString(R.string.vk_check_audio_relogin),
-                Toast.LENGTH_LONG,
-            ).show()
+        // The check runs on an IO thread, so the toast has to be handed back to the main one.
+        val access = VkAudioProvider.checkAudioAccess(token)
+        if (access is VkAudioAccess.Failed) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(
+                    context,
+                    context.getString(
+                        R.string.vk_check_audio_failed,
+                        access.code?.toString() ?: "—",
+                        access.message,
+                    ) + "\n" + context.getString(R.string.vk_check_audio_relogin),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 

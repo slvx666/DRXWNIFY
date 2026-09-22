@@ -36,10 +36,14 @@ data class Playlist(
     override val thumbnailUrl: String?
         get() = null
     
+    /**
+     * The playlist's cover, as a list because the item components take one. A playlist shows ONE
+     * cover now — its own if it has one, else a track's artwork — instead of the four-cover collage.
+     */
     val thumbnails: List<String>
         get() {
             return if (playlist.thumbnailUrl != null)
                 listOf(playlist.thumbnailUrl)
-            else songThumbnails.filterNotNull()
+            else listOfNotNull(songThumbnails.filterNotNull().firstOrNull())
         }
 }

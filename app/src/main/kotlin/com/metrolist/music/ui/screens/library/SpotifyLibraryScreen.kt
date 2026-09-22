@@ -427,25 +427,9 @@ private fun EntryArtwork(entry: SpotifyLibraryEntry, modifier: Modifier) {
         ) {
             Icon(painterResource(R.drawable.folder), null, modifier = Modifier.fillMaxSize(0.4f))
         }
-        // A playlist made in the app has no cover of its own: the first four tracks make one.
-        else -> if (entry.thumbnails.size >= 4) {
-            Column(
-                modifier = modifier.clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            ) {
-                listOf(entry.thumbnails.take(2), entry.thumbnails.drop(2).take(2)).forEach { row ->
-                    Row(Modifier.weight(1f)) {
-                        row.forEach { url ->
-                            AsyncImage(
-                                model = url,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.weight(1f).fillMaxHeight(),
-                            )
-                        }
-                    }
-                }
-            }
-        } else if (entry.imageUrl == null && entry.kind == SpotifyLibraryEntry.Kind.PLAYLIST) {
+        // A playlist with no cover of its own falls back to an icon; its artwork (the last track
+        // added to it) arrives as imageUrl like any other entry's.
+        else -> if (entry.imageUrl == null && entry.kind == SpotifyLibraryEntry.Kind.PLAYLIST) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = modifier.clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHighest),

@@ -41,6 +41,7 @@ import com.metrolist.music.db.entities.Playlist
 import com.metrolist.music.db.entities.PlaylistEntity
 import com.metrolist.music.db.entities.PlaylistSong
 import com.metrolist.music.db.entities.PlaylistSongMap
+import com.metrolist.music.db.entities.PlaylistThumbnail
 import com.metrolist.music.db.entities.PodcastEntity
 import com.metrolist.music.db.entities.RecognitionHistory
 import com.metrolist.music.db.entities.RelatedSongMap
@@ -1141,6 +1142,24 @@ interface DatabaseDao {
         playlistId: String,
         songIds: List<String>,
     ): List<String>
+
+    /**
+     * Cover of the LAST track added to each playlist — what a playlist without a cover of its own
+     * shows. A plain query, not the `playlist_song_map_preview` view (that one holds the FIRST four
+     * songs, for the old cover collage).
+     */
+    @Query(
+        """
+        SELECT m.playlistId AS playlistId,
+               (SELECT s.thumbnailUrl FROM playlist_song_map m2
+                  JOIN song s ON s.id = m2.songId
+                 WHERE m2.playlistId = m.playlistId AND s.thumbnailUrl IS NOT NULL
+                 ORDER BY m2.position DESC LIMIT 1) AS thumbnailUrl
+          FROM playlist_song_map m
+         GROUP BY m.playlistId
+        """,
+    )
+    fun playlistLatestThumbnails(): Flow<List<PlaylistThumbnail>>
 
     @Query("UPDATE playlist SET lastUpdateTime = :now WHERE id = :playlistId")
     fun updatePlaylistLastUpdated(

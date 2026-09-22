@@ -588,7 +588,8 @@ fun BottomSheetPlayer(
             }
         }
 
-    val download by LocalDownloadUtil.current
+    val downloadUtil = LocalDownloadUtil.current
+    val download by downloadUtil
         .getDownload(mediaMetadata?.id ?: "")
         .collectAsState(initial = null)
     val database = LocalDatabase.current
@@ -1196,16 +1197,31 @@ fun BottomSheetPlayer(
                             } else {
                                 FilledIconButton(
                                     onClick = {
-                                        val intent =
-                                            Intent().apply {
-                                                action = Intent.ACTION_SEND
-                                                type = "text/plain"
-                                                putExtra(
-                                                    Intent.EXTRA_TEXT,
-                                                    "https://music.youtube.com/watch?v=${mediaMetadata.id}",
+                                        // A downloaded track shares as the file itself (that is what
+                                        // the button is for once it is on the phone); everything else
+                                        // shares a link to it.
+                                        if (download?.state == Download.STATE_COMPLETED) {
+                                            val songId = mediaMetadata.id
+                                            val appContext = context.applicationContext
+                                            scope.launch {
+                                                com.metrolist.music.utils.shareDownloadedFile(
+                                                    appContext,
+                                                    downloadUtil.downloadExporter,
+                                                    songId,
                                                 )
                                             }
-                                        context.startActivity(Intent.createChooser(intent, null))
+                                        } else {
+                                            val intent =
+                                                Intent().apply {
+                                                    action = Intent.ACTION_SEND
+                                                    type = "text/plain"
+                                                    putExtra(
+                                                        Intent.EXTRA_TEXT,
+                                                        "https://music.youtube.com/watch?v=${mediaMetadata.id}",
+                                                    )
+                                                }
+                                            context.startActivity(Intent.createChooser(intent, null))
+                                        }
                                     },
                                     shape = shareShape,
                                     colors =

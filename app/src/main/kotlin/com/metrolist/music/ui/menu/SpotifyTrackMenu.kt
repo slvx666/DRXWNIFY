@@ -124,6 +124,7 @@ fun SpotifyTrackMenu(
 
     var showYouTubeMatchDialog by rememberSaveable { mutableStateOf(false) }
     var showAddToPlaylistDialog by rememberSaveable { mutableStateOf(false) }
+    var showAddToLocalPlaylistDialog by rememberSaveable { mutableStateOf(false) }
     var showSelectArtistDialog by rememberSaveable { mutableStateOf(false) }
 
 
@@ -454,6 +455,21 @@ fun SpotifyTrackMenu(
         items = buildList {
             add(
                 Material3MenuItemData(
+                    title = { Text(text = stringResource(R.string.add_to_playlist)) },
+                    description = { Text(text = stringResource(R.string.add_to_playlist_local_desc)) },
+                    icon = {
+                        Icon(
+                            painter = painterResource(R.drawable.playlist_add),
+                            contentDescription = null,
+                        )
+                    },
+                    onClick = {
+                        showAddToLocalPlaylistDialog = true
+                    },
+                ),
+            )
+            add(
+                Material3MenuItemData(
                     title = { Text(text = stringResource(R.string.spotify_add_to_playlist)) },
                     description = { Text(text = stringResource(R.string.spotify_add_to_playlist_desc)) },
                     icon = {
@@ -510,6 +526,15 @@ fun SpotifyTrackMenu(
             ),
         )
     }
+
+    // The app's own playlists. The track is written to the database as it is, so a track whose
+    // audio has not been resolved yet can be added just as well as a played one.
+    AddToPlaylistDialog(
+        isVisible = showAddToLocalPlaylistDialog,
+        onGetSong = { listOf(mapper.persistWithoutResolving(track).id) },
+        onGetSongIds = { listOf(mapper.persistWithoutResolving(track).id) },
+        onDismiss = { showAddToLocalPlaylistDialog = false },
+    )
 
     AddToSpotifyPlaylistFlow(
         showDialog = showAddToPlaylistDialog,

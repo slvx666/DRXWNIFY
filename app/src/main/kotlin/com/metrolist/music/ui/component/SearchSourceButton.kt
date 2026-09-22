@@ -128,11 +128,9 @@ private fun SearchSourceSheet(
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
         )
 
-        val standardSources = buildList {
-            add(SearchSource.LOCAL)
-            add(SearchSource.ONLINE)
-            if (hasCatalog) add(SearchSource.YOUTUBE)
-        }
+        // YouTube Music is always offered, account or not: it holds artists the catalog does not,
+        // and hiding it was the one way to end up unable to search them at all.
+        val standardSources = listOf(SearchSource.LOCAL, SearchSource.ONLINE, SearchSource.YOUTUBE)
         standardSources.forEach { source ->
             SourceRow(
                 label = stringResource(searchSourceLabel(source, hasCatalog)),
@@ -322,7 +320,7 @@ fun searchSourceLabel(source: SearchSource, hasCatalog: Boolean): Int = when (so
 /** The name of the service that answers a search, for the line under the search box. */
 fun searchSourceName(source: SearchSource, hasCatalog: Boolean, catalogName: String): String = when (source) {
     SearchSource.LOCAL -> ""
-    SearchSource.ONLINE -> if (hasCatalog) catalogName else "YouTube Music"
+    SearchSource.ONLINE -> if (hasCatalog) catalogName else "Spotify"
     SearchSource.YOUTUBE -> "YouTube Music"
     SearchSource.SOURCES -> "VK • SoundCloud • Bandcamp • Audius"
 }

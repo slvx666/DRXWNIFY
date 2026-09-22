@@ -948,7 +948,7 @@
     <string name="vk_code_hint_sms">VK отправил код в SMS %1$s</string>
     <string name="vk_code_hint_app">Введите код из приложения-аутентификатора или из уведомления VK</string>
     <string name="vk_captcha_hint">Введите символы с картинки</string>
-    <string name="vk_login_via_page">Войти через страницу VK</string>
+    <string name="vk_login_via_page">Войти через страницу VK (музыка может не заработать)</string>
     <string name="audio_source_choose">Выбрать источник звука</string>
     <string name="audio_source_choose_desc">Если играет не та запись, выберите нужную</string>
     <string name="audio_source_searching">Ищем во всех источниках…</string>
@@ -1028,4 +1028,6 @@
     <string name="vk_check_audio_failed">VK отказал: ошибка %1$s — %2$s</string>
     <string name="vk_check_audio_relogin">Войди заново по логину и паролю: токен, взятый со страницы VK, музыку читать не может.</string>
     <string name="for_you">Рекомендации</string>
+    <string name="spotify_track_added_to_playlist">Добавлено в «%s»</string>
+    <string name="add_to_playlist_local_desc">Добавить в плейлист этого приложения</string>
 </resources>

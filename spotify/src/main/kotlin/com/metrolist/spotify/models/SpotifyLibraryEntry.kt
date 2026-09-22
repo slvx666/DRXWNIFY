@@ -22,8 +22,6 @@ data class SpotifyLibraryEntry(
     /** ISO-8601 "added at" timestamp, when Spotify provides it. */
     val addedAt: String? = null,
     val totalCount: Int = 0,
-    /** Cover collage for a playlist that has no cover of its own (its first tracks' artwork). */
-    val thumbnails: List<String> = emptyList(),
 ) {
     @Serializable
     enum class Kind { PLAYLIST, ALBUM, ARTIST, LIKED_SONGS, FOLDER }

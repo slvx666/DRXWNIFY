@@ -210,6 +210,27 @@ class SpotifyYouTubeMapper(
         return result is SpotifyMapper.MatchResult.Matched
     }
 
+    /**
+     * A song row for [track] WITHOUT looking for its audio first.
+     *
+     * Adding a track to a playlist must not depend on the network: a track whose audio has not been
+     * resolved yet ("not loaded") used to have no song row, so there was nothing to put in the
+     * playlist. The row is keyed on the catalog track — its already-known YouTube video when there
+     * is one, else the `mfb:` id whose stream is looked up the moment it is played.
+     */
+    suspend fun persistWithoutResolving(track: SpotifyTrack): MediaMetadata = withContext(Dispatchers.IO) {
+        val knownYouTubeId = runCatching { database.getSpotifyMatch(track.id)?.youtubeId }.getOrNull()
+        val id = knownYouTubeId ?: FallbackIds.of(track.id)
+        val metadata = buildMediaMetadata(
+            youtubeId = id,
+            spotifyTrack = track,
+            ytTitle = track.name,
+            ytArtist = track.artists.firstOrNull()?.name.orEmpty(),
+        )
+        persistSpotifyMetadata(metadata, track)
+        metadata
+    }
+
     private fun buildMediaMetadata(
         youtubeId: String,
         spotifyTrack: SpotifyTrack,

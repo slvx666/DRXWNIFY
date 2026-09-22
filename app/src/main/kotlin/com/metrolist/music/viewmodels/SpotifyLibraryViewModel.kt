@@ -56,24 +56,28 @@ class SpotifyLibraryViewModel @Inject constructor(
      * They are shown first, above the account's own playlists.
      */
     private val localPlaylists: StateFlow<List<SpotifyLibraryEntry>> =
-        database.playlists(PlaylistSortType.CREATE_DATE, descending = true)
-            .map { playlists ->
-                playlists
-                    .filter { it.playlist.isEditable }
-                    .map { playlist ->
-                        SpotifyLibraryEntry(
-                            kind = SpotifyLibraryEntry.Kind.PLAYLIST,
-                            id = playlist.id,
-                            uri = LOCAL_PLAYLIST_URI_PREFIX + playlist.id,
-                            name = playlist.playlist.name,
-                            creator = null,
-                            imageUrl = playlist.thumbnails.firstOrNull(),
-                            totalCount = playlist.songCount,
-                            thumbnails = playlist.thumbnails.take(4),
-                        )
-                    }
-            }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        combine(
+            database.playlists(PlaylistSortType.CREATE_DATE, descending = true),
+            database.playlistLatestThumbnails(),
+        ) { playlists, covers ->
+            val coverOf = covers.associate { it.playlistId to it.thumbnailUrl }
+            playlists
+                .filter { it.playlist.isEditable }
+                .map { playlist ->
+                    SpotifyLibraryEntry(
+                        kind = SpotifyLibraryEntry.Kind.PLAYLIST,
+                        id = playlist.id,
+                        uri = LOCAL_PLAYLIST_URI_PREFIX + playlist.id,
+                        name = playlist.playlist.name,
+                        creator = null,
+                        // The cover is the artwork of the track added last, nothing fancier.
+                        imageUrl = playlist.playlist.thumbnailUrl
+                            ?: coverOf[playlist.id]
+                            ?: playlist.thumbnails.firstOrNull(),
+                        totalCount = playlist.songCount,
+                    )
+                }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val entries: StateFlow<List<SpotifyLibraryEntry>> =
         combine(cache, _filter, _sort, localPlaylists) { c, f, s, local ->
