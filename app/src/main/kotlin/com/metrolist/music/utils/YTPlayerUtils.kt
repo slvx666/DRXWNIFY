@@ -793,9 +793,6 @@ object YTPlayerUtils {
             .onFailure { Timber.tag(logTag).e(it, "Failed to fetch metadata") }
     }
 
-    /** Ceiling for AUTO on a metered network: the 128 kbps tier, not YouTube's smallest stream. */
-    private const val METERED_MAX_BITRATE = 140_000
-
     private fun findFormat(
         playerResponse: PlayerResponse,
         audioQuality: AudioQuality,
@@ -816,24 +813,12 @@ object YTPlayerUtils {
             else -> if (f.mimeType.startsWith("audio/webm")) 10240 else 0
         }
 
-        val metered = connectivityManager.isActiveNetworkMetered
         val format = when {
             candidates.isEmpty() -> null
 
+            // Only an explicit "Low" ever picks a small stream. "Auto" takes the best one there is,
+            // metered network or not: a weak connection is not a reason to serve ~57 kbps audio.
             audioQuality == AudioQuality.LOW -> candidates.minByOrNull { it.bitrate - codecBonus(it) }
-
-            /*
-             * AUTO on mobile data used to take the SMALLEST stream YouTube offers — itag 249, about
-             * 50-60 kbps Opus, which is what "why does it sound like 57 kbps" was. It now saves data
-             * the sane way: the best stream that stays within [METERED_MAX_BITRATE] (≈ the 128 kbps
-             * AAC / mid Opus tier), and only if everything on offer is above it does the smallest
-             * one win. A download is kept forever, so it always takes the best stream regardless.
-             */
-            audioQuality == AudioQuality.AUTO && metered && !preferAac -> {
-                candidates.filter { it.bitrate <= METERED_MAX_BITRATE }
-                    .maxByOrNull { it.bitrate + codecBonus(it) }
-                    ?: candidates.minByOrNull { it.bitrate - codecBonus(it) }
-            }
 
             else -> candidates.maxByOrNull { it.bitrate + codecBonus(it) }
         }

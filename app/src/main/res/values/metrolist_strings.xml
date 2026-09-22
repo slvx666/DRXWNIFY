@@ -1325,4 +1325,5 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="vk_check_audio_relogin">Sign in again with your login and password: a token taken from VK’s web page cannot read music.</string>
     <string name="for_you">For you</string>
     <string name="add_to_playlist_local_desc">Add it to a playlist in this app</string>
+    <string name="vk_paste_token_hint">A token that VK’s music API accepts — made by a tool that performs the full music-client handshake (vkaudiotoken and the like). The app checks it right away.</string>
 </resources>

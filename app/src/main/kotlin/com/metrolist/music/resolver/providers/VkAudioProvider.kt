@@ -249,7 +249,11 @@ class VkAudioProvider(
             }.getOrElse { VkAudioAccess.Failed(null, it.message ?: it.javaClass.simpleName) }
         }
 
-        const val API_VERSION = "5.131"
+        /**
+         * VK's music methods are served on the older API version the music clients use; asking for
+         * them on a newer one is answered with "unknown method".
+         */
+        const val API_VERSION = "5.95"
 
         /** Kate Mobile's public client — the one VK still serves the audio API to. */
         const val OAUTH_CLIENT_ID = "2685278"

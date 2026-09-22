@@ -174,6 +174,7 @@ fun VkLoginScreen(navController: NavController) {
     var code by remember { mutableStateOf("") }
     var captchaKey by remember { mutableStateOf("") }
     var needCode by remember { mutableStateOf<VkDirectAuth.Result.NeedCode?>(null) }
+    var showPasteToken by remember { mutableStateOf(false) }
     var captcha by remember { mutableStateOf<VkDirectAuth.Result.NeedCaptcha?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -329,7 +330,35 @@ fun VkLoginScreen(navController: NavController) {
             TextButton(onClick = { useWebLogin = true }, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.vk_login_via_page))
             }
+            // A token made elsewhere (by a tool that performs VK's full music-client handshake) is
+            // the one sure way in while the in-app login cannot produce a music-capable token.
+            TextButton(onClick = { showPasteToken = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.login_paste_token))
+            }
+            Text(
+                text = stringResource(R.string.vk_paste_token_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+    }
+
+    if (showPasteToken) {
+        TextFieldDialog(
+            title = { Text(stringResource(R.string.login_paste_token)) },
+            placeholder = { Text(stringResource(R.string.login_token_hint)) },
+            onDone = { value ->
+                // Accepts a bare token or a whole redirect url with one in it.
+                val pasted = value.trim().substringAfter("access_token=").substringBefore('&').trim()
+                if (pasted.isNotEmpty()) {
+                    scope.launch {
+                        saveToken(pasted, null)
+                        navController.navigateUp()
+                    }
+                }
+            },
+            onDismiss = { showPasteToken = false },
+        )
     }
 }
 

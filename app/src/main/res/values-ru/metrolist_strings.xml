@@ -1030,4 +1030,5 @@
     <string name="for_you">Рекомендации</string>
     <string name="spotify_track_added_to_playlist">Добавлено в «%s»</string>
     <string name="add_to_playlist_local_desc">Добавить в плейлист этого приложения</string>
+    <string name="vk_paste_token_hint">Токен, который принимает музыкальный API VK — полученный утилитой, выполняющей полное рукопожатие музыкального клиента (vkaudiotoken и подобные). Приложение сразу его проверит.</string>
 </resources>
