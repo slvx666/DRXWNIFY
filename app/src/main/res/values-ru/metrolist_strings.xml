@@ -1027,4 +1027,5 @@
     <string name="vk_check_audio_ok">VK отвечает — поиск музыки работает</string>
     <string name="vk_check_audio_failed">VK отказал: ошибка %1$s — %2$s</string>
     <string name="vk_check_audio_relogin">Войди заново по логину и паролю: токен, взятый со страницы VK, музыку читать не может.</string>
+    <string name="for_you">Рекомендации</string>
 </resources>

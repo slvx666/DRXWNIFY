@@ -38,6 +38,9 @@ import com.metrolist.music.utils.SpotifyTokenManager
 import com.metrolist.music.constants.SpotifyTokenExpiryKey
 import com.metrolist.music.constants.UseSpotifyHomeKey
 import com.metrolist.music.constants.WrappedSeenKey
+import com.metrolist.music.catalog.Catalog
+import com.metrolist.music.constants.ArtistSortType
+import com.metrolist.music.constants.SongSortType
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.Album
 import com.metrolist.music.db.entities.LocalItem
@@ -51,6 +54,7 @@ import com.metrolist.spotify.models.SpotifyImage
 import com.metrolist.spotify.models.SpotifyPlaylist
 import com.metrolist.spotify.models.SpotifyPlaylistOwner
 import com.metrolist.spotify.models.SpotifyPlaylistTracksRef
+import com.metrolist.spotify.models.SpotifyTrack
 import com.metrolist.music.extensions.filterVideoSongs
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.models.SectionType
@@ -116,6 +120,13 @@ class HomeViewModel @Inject constructor(
     val forgottenFavorites = MutableStateFlow<List<Song>?>(null)
     val keepListening = MutableStateFlow<List<LocalItem>?>(null)
     val similarRecommendations = MutableStateFlow<List<SimilarRecommendation>?>(null)
+
+    /**
+     * "For you": the section that replaced the speed dial. Tracks by artists close to the ones the
+     * user already likes — taken from the connected account's likes when there is one, and from what
+     * was liked or followed inside the app when there is not (the public catalog answers either way).
+     */
+    val forYou = MutableStateFlow<List<SpotifyTrack>?>(null)
     val accountPlaylists = MutableStateFlow<List<PlaylistItem>?>(null)
     val homePage = MutableStateFlow<HomePage?>(null)
     val explorePage = MutableStateFlow<ExplorePage?>(null)
@@ -129,72 +140,6 @@ class HomeViewModel @Inject constructor(
 
     val allLocalItems = MutableStateFlow<List<LocalItem>>(emptyList())
     val allYtItems = MutableStateFlow<List<YTItem>>(emptyList())
-
-    val pinnedSpeedDialItems: StateFlow<List<SpeedDialItem>> =
-        database.speedDialDao.getAll()
-            .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
-
-    val speedDialItems: StateFlow<List<YTItem>> =
-        combine(
-            database.speedDialDao.getAll(),
-            keepListening,
-            quickPicks
-        ) { pinned, keepListening, quick ->
-            val pinnedItems = pinned.map { it.toYTItem() }
-            val filled = pinnedItems.toMutableList()
-            val targetSize = 27
-
-            if (filled.size < targetSize) {
-                // Keep Listening (History/Heavy Rotation)
-                keepListening?.let { k ->
-                    val needed = targetSize - filled.size
-                    val available = k.filter { item ->
-                        filled.none { p -> p.id == item.id }
-                    }.mapNotNull { item ->
-                        when (item) {
-                            is Song -> SongItem(
-                                id = item.id,
-                                title = item.title,
-                                artists = item.artists.map { Artist(name = it.name, id = it.id) },
-                                thumbnail = item.thumbnailUrl ?: "",
-                                explicit = false
-                            )
-                            is Album -> AlbumItem(
-                                browseId = item.id,
-                                playlistId = item.album.playlistId ?: "",
-                                title = item.title,
-                                artists = item.artists.map { Artist(name = it.name, id = it.id) },
-                                year = item.album.year,
-                                thumbnail = item.thumbnailUrl ?: ""
-                            )
-                            else -> null
-                        }
-                    }
-                    filled.addAll(available.take(needed))
-                }
-            }
-
-            if (filled.size < targetSize) {
-                // Quick Picks
-                quick?.let { q ->
-                    val needed = targetSize - filled.size
-                    val available = q.filter { song ->
-                        filled.none { p -> p.id == song.id }
-                    }.map { song ->
-                        SongItem(
-                            id = song.id,
-                            title = song.title,
-                            artists = song.artists.map { Artist(name = it.name, id = it.id) },
-                            thumbnail = song.thumbnailUrl ?: "",
-                            explicit = false
-                        )
-                    }
-                    filled.addAll(available.take(needed))
-                }
-            }
-            
-            filled.take(targetSize)
-        }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     suspend fun getRandomItem(): YTItem? {
         try {
@@ -503,6 +448,82 @@ class HomeViewModel @Inject constructor(
      * Runs one home section loader in isolation: a failing section (network error, blocked YouTube,
      * unexpected payload, a queue item that isn't a YouTube id…) must never wipe out the whole home page.
      */
+    /**
+     * Builds [forYou]. Seeds are artists the user demonstrably likes; each seed contributes a few
+     * top tracks of artists close to it, so the row is "more of this", not a global chart. Runs off
+     * the catalog, which answers even with no account connected (public access).
+     */
+    private suspend fun loadForYou(hideExplicit: Boolean) {
+        if (!Catalog.ensureAuthenticated()) {
+            forYou.value = null
+            return
+        }
+        val seeds = forYouSeedArtists()
+        if (seeds.isEmpty()) {
+            forYou.value = null
+            return
+        }
+        val picked = mutableListOf<SpotifyTrack>()
+        for (seed in seeds.shuffled().take(4)) {
+            val related = Catalog.relatedArtists(seed).getOrNull().orEmpty()
+                .filter { it.id.isNotEmpty() }
+                .shuffled()
+                .take(3)
+            // Nothing similar on file: the seed's own top tracks still beat an empty row.
+            val artists = related.ifEmpty { Catalog.artist(seed).getOrNull()?.let(::listOf).orEmpty() }
+            for (artist in artists) {
+                val top = Catalog.artistTopTracks(artist.id).getOrNull()?.tracks.orEmpty()
+                picked += top.filter { !hideExplicit || !it.explicit }.take(3)
+            }
+        }
+        forYou.value = picked
+            .filter { it.id.isNotEmpty() && !it.isLocal }
+            .distinctBy { it.id }
+            .shuffled()
+            .take(20)
+            .ifEmpty { null }
+    }
+
+    /** Catalog artist ids the recommendations are grown from, best source first. */
+    private suspend fun forYouSeedArtists(): List<String> {
+        if (Catalog.isActive) {
+            val liked = runCatching { Catalog.likedSongs(limit = 50, offset = 0).getOrNull() }
+                .getOrNull()
+                ?.items
+                ?.flatMap { saved -> saved.track.artists.mapNotNull { it.id } }
+                .orEmpty()
+            if (liked.isNotEmpty()) {
+                // The artist that comes up most often in the likes is the strongest seed.
+                return liked.groupingBy { it }.eachCount().entries
+                    .sortedByDescending { it.value }
+                    .map { it.key }
+                    .take(8)
+            }
+            val followed = runCatching { Catalog.myLibrary(filter = "Artists", limit = 50, offset = 0).getOrNull() }
+                .getOrNull()
+                ?.items
+                ?.map { it.id }
+                ?.filter { it.isNotEmpty() }
+                .orEmpty()
+            if (followed.isNotEmpty()) return followed.take(8)
+        }
+        // No account, or an account with an empty library: use what was liked/followed in the app.
+        val names = (
+            database.likedSongs(SongSortType.CREATE_DATE, descending = true).first()
+                .take(20)
+                .flatMap { song -> song.artists.map { it.name } } +
+                database.artistsBookmarked(ArtistSortType.CREATE_DATE, descending = true).first()
+                    .map { it.artist.name }
+            )
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(6)
+        return names.mapNotNull { name ->
+            Catalog.search(name, types = listOf("artist"), limit = 1).getOrNull()
+                ?.artists?.items?.firstOrNull()?.id?.takeIf { it.isNotEmpty() }
+        }
+    }
+
     private suspend fun <T> section(name: String, fallback: T, block: suspend () -> T): T =
         try {
             block()
@@ -544,6 +565,10 @@ class HomeViewModel @Inject constructor(
             .take(40)
             .map { it.song }
             .filterVideoSongs(hideVideoSongs)
+
+        // Recommendations replace the old speed dial: they are catalog-based, so they are loaded
+        // in every mode, including Spotify-only.
+        section("forYou", Unit) { loadForYou(hideExplicit) }
 
         // When Spotify-only mode is active, skip all YouTube-based content
         if (!isSpotifyOnly) {

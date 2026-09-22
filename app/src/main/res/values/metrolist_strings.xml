@@ -1323,4 +1323,5 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="vk_check_audio_ok">VK answers — music search works</string>
     <string name="vk_check_audio_failed">VK refused: error %1$s — %2$s</string>
     <string name="vk_check_audio_relogin">Sign in again with your login and password: a token taken from VK’s web page cannot read music.</string>
+    <string name="for_you">For you</string>
 </resources>
