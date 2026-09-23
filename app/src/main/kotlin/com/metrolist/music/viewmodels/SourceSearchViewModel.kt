@@ -27,7 +27,7 @@ import java.net.URLDecoder
 import javax.inject.Inject
 
 /** What part of the experimental results is on screen. */
-enum class SourceSearchFilter { TRACKS, ARTISTS }
+enum class SourceSearchFilter { TRACKS, ARTISTS, ALBUMS }
 
 /** One performer found in the results, with how many of their tracks the sources returned. */
 data class SourceArtist(
@@ -58,6 +58,10 @@ constructor(
 
     val results = MutableStateFlow<List<ProviderMatch>>(emptyList())
     val isLoading = MutableStateFlow(true)
+
+    /** VK albums and playlists for the query — whole releases, which a track search can't show. */
+    val vkPlaylists = MutableStateFlow<List<com.metrolist.music.resolver.providers.VkPlaylist>>(emptyList())
+    val vkPlaylistsLoading = MutableStateFlow(false)
 
     val filter = MutableStateFlow(SourceSearchFilter.TRACKS)
 
@@ -107,6 +111,14 @@ constructor(
                 isLoading.value = true
                 if (!firstRun) closeArtist()
                 firstRun = false
+                vkPlaylists.value = emptyList()
+                if ((only == null || only == AudioProviderId.VK) && com.metrolist.music.resolver.VkMusic.isReady) {
+                    vkPlaylistsLoading.value = true
+                    launch {
+                        vkPlaylists.value = com.metrolist.music.resolver.VkMusic.searchPlaylists(query).getOrDefault(emptyList())
+                        vkPlaylistsLoading.value = false
+                    }
+                }
                 val found = SourceSearch.search(query, only)
                 results.value = found
                 isLoading.value = false

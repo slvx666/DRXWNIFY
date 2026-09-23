@@ -95,6 +95,7 @@ private val LibraryGridKey = booleanPreferencesKey("spotify_library_grid")
 fun SpotifyLibraryScreen(
     navController: NavController,
     onLocalSelected: () -> Unit,
+    onVkSelected: (() -> Unit)? = null,
     viewModel: SpotifyLibraryViewModel = hiltViewModel(),
 ) {
     val entries by viewModel.entries.collectAsState()
@@ -170,6 +171,7 @@ fun SpotifyLibraryScreen(
                 onClear = { viewModel.clearFilter() },
                 onLocal = onLocalSelected,
                 onCreatePlaylist = { showCreatePlaylistDialog = true },
+                onVk = onVkSelected,
             )
         }
         item(key = "sort", span = { GridItemSpan(maxLineSpan) }) {
@@ -217,6 +219,9 @@ fun LibraryChips(
     onClear: () -> Unit,
     onLocal: () -> Unit,
     onCreatePlaylist: (() -> Unit)? = null,
+    vkSelected: Boolean = false,
+    /** Shows the "VK" chip (the account's VK playlists); null while VK isn't connected. */
+    onVk: (() -> Unit)? = null,
 ) {
     val labels = listOf(
         Filter.PLAYLISTS to stringResource(R.string.filter_playlists),
@@ -224,7 +229,11 @@ fun LibraryChips(
         Filter.ARTISTS to stringResource(R.string.filter_artists),
     )
     val localLabel = stringResource(R.string.filter_local)
-    val state = if (localSelected) "local" else selected.name
+    val state = when {
+        vkSelected -> "vk"
+        localSelected -> "local"
+        else -> selected.name
+    }
     AnimatedContent(
         targetState = state,
         transitionSpec = { (fadeIn() + slideInHorizontally { it / 6 }) togetherWith fadeOut() },
@@ -239,11 +248,19 @@ fun LibraryChips(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             if (current == Filter.ALL.name) {
-                labels.forEach { (f, label) -> Chip(label, selected = false) { onSelect(f) } }
+                // Order: Albums, Artists, Local, Playlists, VK.
+                labels.filter { it.first != Filter.PLAYLISTS }
+                    .forEach { (f, label) -> Chip(label, selected = false) { onSelect(f) } }
                 Chip(localLabel, selected = false, onClick = onLocal)
+                labels.first { it.first == Filter.PLAYLISTS }.let { (f, label) ->
+                    Chip(label, selected = false) { onSelect(f) }
+                }
+                onVk?.let { Chip("VK", selected = false, onClick = it) }
             } else {
                 CloseChip(onClick = onClear)
-                if (current == "local") {
+                if (current == "vk") {
+                    Chip("VK", selected = true, onClick = onClear)
+                } else if (current == "local") {
                     Chip(localLabel, selected = true, onClick = onClear)
                 } else {
                     val f = Filter.valueOf(current)
@@ -525,3 +542,58 @@ private fun openEntry(navController: NavController, entry: SpotifyLibraryEntry) 
     }
 }
 
+
+/**
+ * Chip row of the library's VK section: a "VK ×" pill that leaves it, then what VK offers —
+ * tracks, albums, playlists. Compact on purpose, so the whole row fits one line on a phone.
+ */
+@Composable
+fun VkLibraryChips(
+    tab: com.metrolist.music.viewmodels.VkLibraryTab,
+    onTab: (com.metrolist.music.viewmodels.VkLibraryTab) -> Unit,
+    onClose: () -> Unit,
+) {
+    val tabs = listOf(
+        com.metrolist.music.viewmodels.VkLibraryTab.TRACKS to stringResource(R.string.vk_tab_tracks),
+        com.metrolist.music.viewmodels.VkLibraryTab.ALBUMS to stringResource(R.string.filter_albums),
+        com.metrolist.music.viewmodels.VkLibraryTab.PLAYLISTS to stringResource(R.string.filter_playlists),
+    )
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onClose),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            ) {
+                Text("VK", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(4.dp))
+                Icon(painterResource(R.drawable.close), contentDescription = null, modifier = Modifier.size(16.dp))
+            }
+        }
+        tabs.forEach { (value, label) ->
+            val selected = value == tab
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = if (selected) SpotifyGreen else MaterialTheme.colorScheme.surfaceContainerHighest,
+                modifier = Modifier.clip(RoundedCornerShape(50)).clickable { onTab(value) },
+            ) {
+                Text(
+                    text = label,
+                    color = if (selected) Color.Black else MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
+}

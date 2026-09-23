@@ -117,6 +117,10 @@ fun SourceSearchResult(
     val source by viewModel.source.collectAsState()
     val artistTracks by viewModel.artistTracks.collectAsState()
     val artistLoading by viewModel.artistLoading.collectAsState()
+    val vkPlaylists by viewModel.vkPlaylists.collectAsState()
+    val vkPlaylistsLoading by viewModel.vkPlaylistsLoading.collectAsState()
+    val vkSearch = source == AudioProviderId.VK ||
+        (source == null && com.metrolist.music.resolver.VkMusic.isReady)
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
     val pauseSearchHistory by rememberPreference(PauseSearchHistoryKey, defaultValue = false)
@@ -244,9 +248,13 @@ fun SourceSearchResult(
 
         if (selectedArtist == null) {
             ChipsRow(
-                chips = listOf(
+                chips = listOfNotNull(
                     SourceSearchFilter.TRACKS to stringResource(R.string.filter_songs),
                     SourceSearchFilter.ARTISTS to stringResource(R.string.filter_artists),
+                    // Whole albums/playlists exist only on VK: the chip is always there while VK is
+                    // part of the search, found anything yet or not.
+                    (SourceSearchFilter.ALBUMS to stringResource(R.string.vk_albums_and_playlists))
+                        .takeIf { vkSearch },
                 ),
                 currentValue = filter,
                 onValueUpdate = { viewModel.filter.value = it },
@@ -285,7 +293,27 @@ fun SourceSearchResult(
                 .asPaddingValues(),
             modifier = Modifier.fillMaxSize(),
         ) {
-            if (selectedArtist == null && filter == SourceSearchFilter.ARTISTS) {
+            if (selectedArtist == null && filter == SourceSearchFilter.ALBUMS) {
+                items(items = vkPlaylists, key = { "vk_${it.key}" }) { playlist ->
+                    com.metrolist.music.ui.screens.vk.VkPlaylistRow(
+                        playlist = playlist,
+                        onClick = {
+                            navController.navigate(com.metrolist.music.ui.screens.vk.vkPlaylistRoute(playlist))
+                        },
+                        modifier = Modifier.animateItem(),
+                    )
+                }
+                if (vkPlaylistsLoading) {
+                    item(key = "vk_loading") { ShimmerHost { repeat(4) { ListItemPlaceHolder() } } }
+                } else if (vkPlaylists.isEmpty()) {
+                    item(key = "vk_empty") {
+                        EmptyPlaceholder(
+                            icon = R.drawable.album,
+                            text = stringResource(R.string.vk_albums_empty),
+                        )
+                    }
+                }
+            } else if (selectedArtist == null && filter == SourceSearchFilter.ARTISTS) {
                 items(
                     items = artists,
                     key = { "artist_${it.name.lowercase()}" },
@@ -351,7 +379,9 @@ fun SourceSearchResult(
                 }
             }
 
-            if (loading) {
+            if (filter == SourceSearchFilter.ALBUMS && selectedArtist == null) {
+                // The albums list has its own loading/empty states above.
+            } else if (loading) {
                 item(key = "loading") {
                     ShimmerHost {
                         repeat(4) { ListItemPlaceHolder() }
@@ -393,5 +423,12 @@ fun providerName(id: AudioProviderId): String = when (id) {
 private fun pluralTracks(count: Int): String =
     androidx.compose.ui.res.pluralStringResource(R.plurals.n_song, count, count)
 
-/** Where this result came from. */
-fun sourceName(match: ProviderMatch): String = providerName(match.provider)
+/**
+ * Where this result came from. A source whose quality is known to be low up front says so here
+ * already (Bandcamp streams are always 128 kbps MP3); the rest is flagged in the player once the
+ * real stream is known.
+ */
+fun sourceName(match: ProviderMatch): String = when (match.provider) {
+    AudioProviderId.BANDCAMP -> "Bandcamp · 128 kbps"
+    else -> providerName(match.provider)
+}

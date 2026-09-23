@@ -76,7 +76,10 @@ object AudioFallbackEngine {
     private val providers: Map<AudioProviderId, AudioProvider> by lazy {
         listOf(
             YouTubeAudioProvider(),
-            VkAudioProvider(token = { appContext.dataStore.get(VkAccessTokenKey, "") }),
+            VkAudioProvider(
+                token = { appContext.dataStore.get(VkAccessTokenKey, "") },
+                userId = { appContext.dataStore.get(com.metrolist.music.constants.VkUserIdKey, "") },
+            ),
             com.metrolist.music.resolver.providers.BandcampAudioProvider(),
             com.metrolist.music.resolver.providers.AudiusAudioProvider(),
             com.metrolist.music.resolver.providers.SoulseekAudioProvider(

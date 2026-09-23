@@ -77,8 +77,15 @@ fun ShowMediaInfo(videoId: String) {
     val download by downloadUtil.getDownload(videoId).collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
 
+    // Views/likes exist only for a YouTube video. For a track from VK, SoundCloud, … the YouTube
+    // lookup can never succeed, and waiting for it is what kept this sheet loading forever.
+    var infoDone by remember { mutableStateOf(false) }
+    val playerMetadata = playerConnection?.mediaMetadata?.collectAsState()?.value
+        ?.takeIf { it.id == videoId }
+
     LaunchedEffect(Unit, videoId) {
-        info = YouTube.getMediaInfo(videoId).getOrNull()
+        info = if (isYouTubeVideoId(videoId)) YouTube.getMediaInfo(videoId).getOrNull() else null
+        infoDone = true
     }
 
     LaunchedEffect(Unit, videoId) {
@@ -103,13 +110,16 @@ fun ShowMediaInfo(videoId: String) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        if (info != null && song != null) {
+        if (infoDone && (song != null || playerMetadata != null)) {
             item(contentType = "MediaDetails") {
                 Column {
                     val baseList = listOf(
-                        stringResource(R.string.song_title) to song?.title,
-                        stringResource(R.string.song_artists) to song?.artists?.joinToString { it.name },
-                        stringResource(R.string.media_id) to song?.id
+                        stringResource(R.string.song_title) to (song?.title ?: playerMetadata?.title),
+                        stringResource(R.string.song_artists) to (
+                            song?.artists?.joinToString { it.name }
+                                ?: playerMetadata?.artists?.joinToString { it.name }
+                            ),
+                        stringResource(R.string.media_id) to videoId,
                     )
 
                     val baseIconsList = listOf(
@@ -132,6 +142,7 @@ fun ShowMediaInfo(videoId: String) {
                         R.drawable.content_copy
                     )
 
+                    val lowQualityNote = stringResource(R.string.low_quality)
                     val extendedList = if (currentFormat != null) {
                         listOf(
                             stringResource(R.string.views) to info?.viewCount?.let(::numberFormatter).orEmpty(),
@@ -140,7 +151,14 @@ fun ShowMediaInfo(videoId: String) {
                             "Itag" to currentFormat?.itag?.toString(),
                             stringResource(R.string.mime_type) to currentFormat?.mimeType,
                             stringResource(R.string.codecs) to currentFormat?.codecs,
-                            stringResource(R.string.bitrate) to currentFormat?.bitrate?.let { "${it / 1000} Kbps" },
+                            stringResource(R.string.bitrate) to currentFormat?.let { f ->
+                                val kbps = "${com.metrolist.music.ui.component.AudioQualityLevel.kbps(f.bitrate)} Kbps"
+                                if (com.metrolist.music.ui.component.AudioQualityLevel.isLow(f.bitrate, f.mimeType)) {
+                                    "$kbps — $lowQualityNote"
+                                } else {
+                                    kbps
+                                }
+                            },
                             stringResource(R.string.sample_rate) to currentFormat?.sampleRate?.let { "$it Hz" },
                             stringResource(R.string.loudness) to currentFormat?.loudnessDb?.let { "$it dB" },
                             stringResource(R.string.volume) to if (playerConnection != null) "${(playerConnection.player.volume * 100).toInt()}%" else null,
@@ -209,6 +227,8 @@ fun ShowMediaInfo(videoId: String) {
                     }
 
                     extendedList.forEachIndexed { index, (label, text) ->
+                        // YouTube-only rows (views, likes) are simply absent for other sources.
+                        if (text != null && text.isBlank()) return@forEachIndexed
                         val displayText = text ?: stringResource(R.string.unknown)
                         cardsExtendedList += Material3SettingsItem(
                             title = { Text(label) },
@@ -269,3 +289,6 @@ fun ShowMediaInfo(videoId: String) {
         }
     }
 }
+/** An 11-character YouTube video id, as opposed to a `mfb:` / source id of another provider. */
+private fun isYouTubeVideoId(id: String): Boolean =
+    id.length == 11 && id.all { it.isLetterOrDigit() || it == '-' || it == '_' }

@@ -41,6 +41,27 @@ fun LibraryScreen(navController: NavController) {
         ?.getStateFlow("scrollToTop", false)
         ?.collectAsState() ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
 
+    // "VK": the connected VK account's own playlists and added albums, next to the other chips.
+    val (vkToken) = com.metrolist.music.utils.rememberPreference(com.metrolist.music.constants.VkAccessTokenKey, "")
+    var showVk by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(resetRequested) {
+        if (resetRequested) showVk = false
+    }
+    val openVk: (() -> Unit)? = if (vkToken.isNotEmpty()) ({ showVk = true }) else null
+    if (showVk && vkToken.isNotEmpty()) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.metrolist.music.ui.component.LocalListItemSizes provides
+                com.metrolist.music.ui.component.LibraryListItemSizes,
+        ) {
+            com.metrolist.music.ui.screens.vk.VkLibraryScreen(
+                navController = navController,
+                onClose = { showVk = false },
+            )
+        }
+        androidx.activity.compose.BackHandler { showVk = false }
+        return
+    }
+
     if (catalogState.isActive) {
         var showLocal by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
         androidx.compose.runtime.LaunchedEffect(resetRequested) {
@@ -66,7 +87,7 @@ fun LibraryScreen(navController: NavController) {
                 )
                 androidx.activity.compose.BackHandler { showLocal = false }
             } else {
-                SpotifyLibraryScreen(navController, onLocalSelected = { showLocal = true })
+                SpotifyLibraryScreen(navController, onLocalSelected = { showLocal = true }, onVkSelected = openVk)
             }
         }
         }
@@ -115,6 +136,7 @@ fun LibraryScreen(navController: NavController) {
             onClear = { filterType = LibraryFilter.LIBRARY },
             onLocal = { filterType = LibraryFilter.LOCAL_FILES },
             onCreatePlaylist = { showCreatePlaylistDialog = true },
+            onVk = openVk,
         )
     }
 

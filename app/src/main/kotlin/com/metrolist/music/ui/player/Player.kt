@@ -1149,6 +1149,11 @@ fun BottomSheetPlayer(
                             }
                         }
                     }
+                    // Only a poor stream is flagged; a good one shows nothing here.
+                    com.metrolist.music.ui.component.LowQualityBadge(
+                        mediaId = mediaMetadata.id,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))

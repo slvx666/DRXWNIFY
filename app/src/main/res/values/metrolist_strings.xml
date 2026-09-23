@@ -1332,4 +1332,16 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="vk_login_email">Email or login</string>
     <string name="password_show">Show password</string>
     <string name="password_hide">Hide password</string>
+    <string name="low_quality_badge">Low quality · %1$d kbps</string>
+    <string name="low_quality">low quality</string>
+    <string name="vk_albums_and_playlists">VK albums</string>
+    <string name="vk_library_needs_login">Connect VK in Settings → Music sources to see its playlists here</string>
+    <string name="vk_library_empty">No playlists or albums in your VK music</string>
+    <string name="vk_playlist_empty">This playlist has no tracks</string>
+    <string name="vk_load_failed">VK did not answer</string>
+    <string name="vk_download_started">Downloading %1$d tracks</string>
+    <string name="vk_tab_tracks">Tracks</string>
+    <string name="vk_music">VK Music</string>
+    <string name="integration_vk_description">Search and play VK music, your albums and playlists</string>
+    <string name="vk_albums_empty">VK has no albums or playlists for this query</string>
 </resources>

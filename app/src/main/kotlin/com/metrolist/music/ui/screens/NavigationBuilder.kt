@@ -319,6 +319,13 @@ fun NavGraphBuilder.navigationBuilder(
     }
 
     composable(
+        route = "vk_playlist/{key}",
+        arguments = listOf(navArgument("key") { type = NavType.StringType }),
+    ) {
+        com.metrolist.music.ui.screens.vk.VkPlaylistScreen(navController)
+    }
+
+    composable(
         route = "local_playlist/{playlistId}",
         arguments =
             listOf(

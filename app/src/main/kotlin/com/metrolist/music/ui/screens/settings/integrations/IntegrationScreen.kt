@@ -16,6 +16,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -49,6 +51,36 @@ fun IntegrationScreen(
         val (ytCookie) = rememberPreference(InnerTubeCookieKey, "")
         val (spotifyToken) = rememberPreference(SpotifyAccessTokenKey, "")
         val (yandexToken) = rememberPreference(YandexAccessTokenKey, "")
+        var vkToken by rememberPreference(com.metrolist.music.constants.VkAccessTokenKey, "")
+        var vkUserId by rememberPreference(com.metrolist.music.constants.VkUserIdKey, "")
+        var showVkLogout by androidx.compose.runtime.saveable.rememberSaveable {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+        if (showVkLogout) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showVkLogout = false },
+                icon = { Icon(painterResource(R.drawable.vk_music), contentDescription = null) },
+                title = { Text(stringResource(R.string.vk_music)) },
+                text = {
+                    Text(
+                        stringResource(R.string.vk_connected) +
+                            (vkUserId.takeIf { it.isNotEmpty() }?.let { " · id$it" } ?: ""),
+                    )
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        vkToken = ""
+                        vkUserId = ""
+                        showVkLogout = false
+                    }) { Text(stringResource(R.string.action_logout)) }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showVkLogout = false }) {
+                        Text(stringResource(android.R.string.cancel))
+                    }
+                },
+            )
+        }
 
         // A check mark on the right marks services this app is already connected to.
         val connected: @Composable () -> Unit = {
@@ -88,6 +120,15 @@ fun IntegrationScreen(
                         navController.navigate(
                             if (yandexToken.isNotEmpty()) "settings/integrations/sources" else "settings/yandex/login",
                         )
+                    }
+                ),
+                IntegrationCardItem(
+                    icon = painterResource(R.drawable.vk_music),
+                    title = { Text(stringResource(R.string.vk_music)) },
+                    description = { Text(stringResource(R.string.integration_vk_description)) },
+                    trailingContent = if (vkToken.isNotEmpty()) connected else null,
+                    onClick = {
+                        if (vkToken.isNotEmpty()) showVkLogout = true else navController.navigate("settings/vk/login")
                     }
                 ),
                 IntegrationCardItem(

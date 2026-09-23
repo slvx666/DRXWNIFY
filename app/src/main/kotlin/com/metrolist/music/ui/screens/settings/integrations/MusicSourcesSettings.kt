@@ -49,8 +49,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.metrolist.music.resolver.providers.VkAudioProvider
-import com.metrolist.music.resolver.providers.VkAudioAccess
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import com.metrolist.music.LocalPlayerAwareWindowInsets
@@ -198,7 +196,6 @@ fun MusicSourcesSettings(
             AudioProviderId.SOULSEEK -> !slskReady
             else -> false
         }
-        var vkUserId by rememberPreference(VkUserIdKey, "")
         val order = AudioProviderId.parseOrder(orderPref)
 
         fun move(id: AudioProviderId, delta: Int) {
@@ -254,8 +251,16 @@ fun MusicSourcesSettings(
                         IconButton(onClick = { move(id, 1) }, onLongClick = {}) {
                             Icon(painterResource(R.drawable.arrow_downward), contentDescription = stringResource(R.string.move_down))
                         }
+                        // VK without an account: the row itself offers the login, so it can't be
+                        // mistaken for a separate setting.
+                        if (id == AudioProviderId.VK && vkToken.isEmpty()) {
+                            OutlinedButton(onClick = { navController.navigate("settings/vk/login") }) {
+                                Text(stringResource(R.string.action_login))
+                            }
+                            return@Row
+                        }
                         Switch(
-                            // VK and Soulseek can't work without an account: locked until it is set.
+                            // Soulseek can't work without an account: locked until it is set.
                             enabled = !needsAccount(id),
                             checked = checked && !needsAccount(id),
                             onCheckedChange = { enabled ->
@@ -294,27 +299,6 @@ fun MusicSourcesSettings(
                     description = stringResource(R.string.soulseek_wifi_only_description),
                     icon = { Spacer(Modifier.size(24.dp)) },
                     trailingContent = { Switch(checked = slskWifiOnly, onCheckedChange = setSlskWifiOnly) },
-                )
-            }
-            if (id == AudioProviderId.VK) {
-                VkAudioAccessCheck(token = vkToken)
-                PreferenceEntry(
-                    title = { Text(if (vkToken.isNotEmpty()) stringResource(R.string.vk_connected) else stringResource(R.string.vk_login)) },
-                    description = (vkUserId.takeIf { vkToken.isNotEmpty() && it.isNotEmpty() }?.let { "id$it" }
-                        ?: stringResource(R.string.vk_login_hint)) + "\n" + stringResource(R.string.vk_privacy_note),
-                    icon = { Spacer(Modifier.size(24.dp)) },
-                    trailingContent = {
-                        if (vkToken.isNotEmpty()) {
-                            OutlinedButton(onClick = {
-                                vkToken = ""
-                                vkUserId = ""
-                            }) { Text(stringResource(R.string.action_logout)) }
-                        } else {
-                            OutlinedButton(onClick = { navController.navigate("settings/vk/login") }) {
-                                Text(stringResource(R.string.action_login))
-                            }
-                        }
-                    },
                 )
             }
         }
@@ -491,58 +475,3 @@ private fun InfoText(text: String) {
     )
 }
 
-/**
- * Asks VK, right here, whether this token may use the audio API — the one thing that decides
- * whether VK can find anything at all. On failure it shows VK's own error.
- */
-@Composable
-private fun VkAudioAccessCheck(token: String) {
-    if (token.isEmpty()) return
-    val scope = rememberCoroutineScope()
-    var busy by remember { mutableStateOf(false) }
-    var result by remember(token) { mutableStateOf<VkAudioAccess?>(null) }
-
-    val description = when (val r = result) {
-        null -> stringResource(R.string.vk_check_audio_hint)
-        is VkAudioAccess.Ok -> stringResource(R.string.vk_check_audio_ok)
-        is VkAudioAccess.NoToken -> stringResource(R.string.vk_login_required)
-        is VkAudioAccess.Failed ->
-            stringResource(
-                R.string.vk_check_audio_failed,
-                r.code?.toString() ?: "—",
-                r.message,
-            ) + (
-                // 3 "unknown method", 5 "auth failed", 15 "access denied": in practice all three
-                // mean the same thing — this token may not touch VK's music API.
-                if (r.code == 3 || r.code == 5 || r.code == 15) {
-                    "\n" + stringResource(R.string.vk_check_audio_relogin)
-                } else {
-                    ""
-                }
-                )
-    }
-
-    PreferenceEntry(
-        title = { Text(stringResource(R.string.vk_check_audio)) },
-        description = description,
-        icon = { Spacer(Modifier.size(24.dp)) },
-        trailingContent = {
-            OutlinedButton(
-                enabled = !busy,
-                onClick = {
-                    busy = true
-                    scope.launch {
-                        result = VkAudioProvider.checkAudioAccess(token)
-                        busy = false
-                    }
-                },
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Text(stringResource(R.string.vk_check_audio_action))
-                }
-            }
-        },
-    )
-}

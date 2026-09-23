@@ -1037,4 +1037,16 @@
     <string name="vk_login_email">Почта или логин</string>
     <string name="password_show">Показать пароль</string>
     <string name="password_hide">Скрыть пароль</string>
+    <string name="low_quality_badge">Низкое качество · %1$d kbps</string>
+    <string name="low_quality">низкое качество</string>
+    <string name="vk_albums_and_playlists">Альбомы VK</string>
+    <string name="vk_library_needs_login">Подключи VK в «Настройки → Источники музыки», чтобы видеть здесь его плейлисты</string>
+    <string name="vk_library_empty">В твоей музыке VK нет плейлистов и альбомов</string>
+    <string name="vk_playlist_empty">В этом плейлисте нет треков</string>
+    <string name="vk_load_failed">VK не ответил</string>
+    <string name="vk_download_started">Скачиваю треков: %1$d</string>
+    <string name="vk_tab_tracks">Треки</string>
+    <string name="vk_music">VK Музыка</string>
+    <string name="integration_vk_description">Поиск и прослушивание музыки VK, твоих альбомов и плейлистов</string>
+    <string name="vk_albums_empty">В VK нет альбомов и плейлистов по этому запросу</string>
 </resources>
