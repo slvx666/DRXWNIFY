@@ -21,15 +21,12 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import com.metrolist.music.R
 import com.metrolist.music.constants.ChipSortTypeKey
 import com.metrolist.music.constants.LibraryFilter
-import com.metrolist.music.ui.component.ChipsRow
 import com.metrolist.music.ui.screens.library.local.LocalFilesScreen
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.metrolist.music.ui.component.CreatePlaylistDialog
 import com.metrolist.music.utils.rememberEnumPreference
+import com.metrolist.music.viewmodels.SpotifyLibraryViewModel
 
 @Composable
 fun LibraryScreen(navController: NavController) {
@@ -95,37 +92,30 @@ fun LibraryScreen(navController: NavController) {
         )
     }
 
-    // P5: Spotify-style library tabs — exactly four chips: Playlists, Albums, Artists, Local.
+    // The same chip row as the account library: all four filters when none is picked; once one is,
+    // only [×] and that filter stay (plus "+" for Playlists), exactly like the Spotify client.
     val filterContent = @Composable {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            ChipsRow(
-                chips = listOf(
-                    LibraryFilter.PLAYLISTS to stringResource(R.string.filter_playlists),
-                    LibraryFilter.ALBUMS to stringResource(R.string.filter_albums),
-                    LibraryFilter.ARTISTS to stringResource(R.string.filter_artists),
-                    LibraryFilter.LOCAL_FILES to stringResource(R.string.filter_local),
-                ),
-                currentValue = filterType,
-                onValueUpdate = {
-                    filterType = if (filterType == it) LibraryFilter.LIBRARY else it
-                },
-                modifier = Modifier.weight(1f),
-            )
-            if (filterType == LibraryFilter.PLAYLISTS) {
-                IconButton(
-                    onClick = { showCreatePlaylistDialog = true },
-                    modifier = Modifier.padding(end = 8.dp),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.add),
-                        contentDescription = stringResource(R.string.create_playlist),
-                    )
+        LibraryChips(
+            selected = when (filterType) {
+                LibraryFilter.PLAYLISTS -> SpotifyLibraryViewModel.Filter.PLAYLISTS
+                LibraryFilter.ALBUMS -> SpotifyLibraryViewModel.Filter.ALBUMS
+                LibraryFilter.ARTISTS -> SpotifyLibraryViewModel.Filter.ARTISTS
+                else -> SpotifyLibraryViewModel.Filter.ALL
+            },
+            localSelected = filterType == LibraryFilter.LOCAL_FILES,
+            onSelect = { picked ->
+                val target = when (picked) {
+                    SpotifyLibraryViewModel.Filter.PLAYLISTS -> LibraryFilter.PLAYLISTS
+                    SpotifyLibraryViewModel.Filter.ALBUMS -> LibraryFilter.ALBUMS
+                    SpotifyLibraryViewModel.Filter.ARTISTS -> LibraryFilter.ARTISTS
+                    SpotifyLibraryViewModel.Filter.ALL -> LibraryFilter.LIBRARY
                 }
-            }
-        }
+                filterType = if (filterType == target) LibraryFilter.LIBRARY else target
+            },
+            onClear = { filterType = LibraryFilter.LIBRARY },
+            onLocal = { filterType = LibraryFilter.LOCAL_FILES },
+            onCreatePlaylist = { showCreatePlaylistDialog = true },
+        )
     }
 
     // Same row proportions as the account library, so the two don't look like different apps.

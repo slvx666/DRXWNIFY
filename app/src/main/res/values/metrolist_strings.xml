@@ -1326,4 +1326,10 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="for_you">For you</string>
     <string name="add_to_playlist_local_desc">Add it to a playlist in this app</string>
     <string name="vk_paste_token_hint">A token that VK’s music API accepts — made by a tool that performs the full music-client handshake (vkaudiotoken and the like). The app checks it right away.</string>
+    <string name="vk_login_by_phone">Phone</string>
+    <string name="vk_login_by_email">Email or login</string>
+    <string name="vk_login_phone">Phone number</string>
+    <string name="vk_login_email">Email or login</string>
+    <string name="password_show">Show password</string>
+    <string name="password_hide">Hide password</string>
 </resources>

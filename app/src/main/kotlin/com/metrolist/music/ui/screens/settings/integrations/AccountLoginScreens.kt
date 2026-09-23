@@ -28,6 +28,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.TextRange
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import coil3.compose.AsyncImage
 import com.metrolist.music.resolver.providers.VkDirectAuth
 import androidx.compose.foundation.layout.Column
@@ -172,9 +178,16 @@ fun VkLoginScreen(navController: NavController) {
     }
 
     val scope = rememberCoroutineScope()
-    var login by rememberSaveable { mutableStateOf("") }
+    // Most VK accounts sign in with a phone number, so that is the default way in; email/login
+    // is one tap away.
+    var byPhone by rememberSaveable { mutableStateOf(true) }
+    var phone by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var email by rememberSaveable { mutableStateOf("") }
+    val login = if (byPhone) PhoneNumberInput.forLogin(phone.text) else email.trim()
+    val loginReady = if (byPhone) PhoneNumberInput.isComplete(phone.text) else login.isNotBlank()
     // Deliberately not saveable: the password never goes into saved instance state.
     var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
     var code by remember { mutableStateOf("") }
     var captchaKey by remember { mutableStateOf("") }
     var needCode by remember { mutableStateOf<VkDirectAuth.Result.NeedCode?>(null) }
@@ -184,7 +197,7 @@ fun VkLoginScreen(navController: NavController) {
     var busy by remember { mutableStateOf(false) }
 
     fun submit() {
-        if (busy || login.isBlank() || password.isEmpty()) return
+        if (busy || !loginReady || password.isEmpty()) return
         busy = true
         error = null
         scope.launch {
@@ -238,15 +251,48 @@ fun VkLoginScreen(navController: NavController) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
-            OutlinedTextField(
-                value = login,
-                onValueChange = { login = it },
-                label = { Text(stringResource(R.string.vk_login_phone_or_email)) },
-                singleLine = true,
-                enabled = !busy,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = byPhone,
+                    onClick = { byPhone = true },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    enabled = !busy,
+                ) { Text(stringResource(R.string.vk_login_by_phone)) }
+                SegmentedButton(
+                    selected = !byPhone,
+                    onClick = { byPhone = false },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    enabled = !busy,
+                ) { Text(stringResource(R.string.vk_login_by_email)) }
+            }
+            Spacer(Modifier.height(8.dp))
+            if (byPhone) {
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { typed ->
+                        // Reformatted on every keystroke; the cursor stays at the end, which is
+                        // where a phone number is typed and corrected.
+                        val formatted = PhoneNumberInput.format(typed.text)
+                        phone = TextFieldValue(formatted, selection = TextRange(formatted.length))
+                    },
+                    label = { Text(stringResource(R.string.vk_login_phone)) },
+                    placeholder = { Text("+7 (999) 123-45-67") },
+                    singleLine = true,
+                    enabled = !busy,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text(stringResource(R.string.vk_login_email)) },
+                    singleLine = true,
+                    enabled = !busy,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = password,
@@ -254,7 +300,17 @@ fun VkLoginScreen(navController: NavController) {
                 label = { Text(stringResource(R.string.password)) },
                 singleLine = true,
                 enabled = !busy,
-                visualTransformation = PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }, onLongClick = {}) {
+                        Icon(
+                            painter = painterResource(if (passwordVisible) R.drawable.visibility_off else R.drawable.visibility),
+                            contentDescription = stringResource(
+                                if (passwordVisible) R.string.password_hide else R.string.password_show,
+                            ),
+                        )
+                    }
+                },
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Password,
                     imeAction = if (needCode == null && captcha == null) ImeAction.Done else ImeAction.Next,
@@ -321,7 +377,7 @@ fun VkLoginScreen(navController: NavController) {
             Spacer(Modifier.height(16.dp))
             Button(
                 onClick = ::submit,
-                enabled = !busy && login.isNotBlank() && password.isNotEmpty(),
+                enabled = !busy && loginReady && password.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (busy) {
