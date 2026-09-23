@@ -10,6 +10,7 @@ import com.metrolist.music.resolver.AudioProviderId
 import com.metrolist.music.resolver.AudioQuery
 import com.metrolist.music.resolver.AudioStream
 import com.metrolist.music.resolver.ProviderMatch
+import com.metrolist.music.playback.datasource.HlsConcatDataSource
 import com.metrolist.spotify.SpotifyMapper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
@@ -31,12 +32,12 @@ class VkAudioProvider(
     private val token: () -> String?,
 ) : AudioProvider {
     override val id = AudioProviderId.VK
-    override val searchTimeoutMs = 6_000L
+    override val searchTimeoutMs = 15_000L
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(6, TimeUnit.SECONDS)
-        .callTimeout(7, TimeUnit.SECONDS)
+        .readTimeout(14, TimeUnit.SECONDS)
+        .callTimeout(15, TimeUnit.SECONDS)
         .build()
 
     override fun isReady(): Boolean = !token().isNullOrBlank()
@@ -71,12 +72,15 @@ class VkAudioProvider(
         }.build()
         val request = Request.Builder()
             .url("https://api.vk.com/method/$method")
-            .header("User-Agent", KATE_USER_AGENT)
+            .header("User-Agent", CLIENT_USER_AGENT)
             .post(body)
             .build()
+        Timber.tag("VkAuth").i("%s → sending %s", method, params)
         http.newCall(request).execute().use { response ->
+            val text = response.body?.string()
+            Timber.tag("VkAuth").i("%s → HTTP %d in %dms: %s", method, response.code, response.receivedResponseAtMillis - response.sentRequestAtMillis, text?.take(600))
             if (!response.isSuccessful) return null
-            val root = JSONObject(response.body?.string() ?: return null)
+            val root = JSONObject(text ?: return null)
             root.optJSONObject("error")?.let { err ->
                 throw VkApiException(err.optInt("error_code"), "VK error ${err.optInt("error_code")}: ${err.optString("error_msg")}")
             }
@@ -119,7 +123,10 @@ class VkAudioProvider(
         // which is exactly what stream() does. Dropping them here meant "VK found nothing at all".
         val items = runCatching { fetch(text, limit.coerceIn(1, 300), requireUrl = false) }
             .onFailure {
-                com.metrolist.music.resolver.AudioDiagnostics.warn("source search VK ✘ '$text': ${it.message}")
+                Timber.tag("VkAuth").w(it, "search '%s' failed", text)
+                com.metrolist.music.resolver.AudioDiagnostics.warn(
+                    "source search VK ✘ '$text': ${it.message ?: it.javaClass.simpleName}",
+                )
             }
             .getOrDefault(emptyList())
         val now = System.currentTimeMillis()
@@ -149,8 +156,9 @@ class VkAudioProvider(
             val arr = root.optJSONObject("response")?.optJSONArray("items")
             (0 until (arr?.length() ?: 0)).mapNotNull { arr?.optJSONObject(it)?.let(::parse) }
         }
-        val playable = raw.filter { it.url == null || !it.url.contains(".m3u8") }
-        return if (requireUrl) playable.filter { it.url != null } else playable
+        // HLS (.m3u8) results are kept: that is how VK serves nearly every track to its official
+        // client, and stream() plays them. Dropping them was why VK "found nothing at all".
+        return if (requireUrl) raw.filter { it.url != null } else raw
     }
 
     override suspend fun search(query: AudioQuery): ProviderMatch? {
@@ -195,9 +203,9 @@ class VkAudioProvider(
                 .getOrNull()
                 ?.also { recentUrls[match.trackId] = it to now }
             ?: return null
-        if (url.contains(".m3u8")) return null // segments of unconverted HLS are AES-encrypted
         return AudioStream(
-            uri = url,
+            // VK's HLS is AES-128 encrypted MPEG-TS: fetched whole, decrypted and demuxed to plain MP3.
+            uri = if (url.contains(".m3u8")) HlsConcatDataSource.wrap(url, whole = true) else url,
             mimeType = "audio/mpeg",
             codecs = "mp3",
             bitrate = 320_000,
@@ -228,7 +236,7 @@ class VkAudioProvider(
                 .build()
             val request = Request.Builder()
                 .url("https://api.vk.com/method/audio.search")
-                .header("User-Agent", KATE_USER_AGENT)
+                .header("User-Agent", CLIENT_USER_AGENT)
                 .post(body)
                 .build()
             runCatching {
@@ -247,22 +255,25 @@ class VkAudioProvider(
                     VkAudioAccess.Ok(root.optJSONObject("response")?.optInt("count", 0) ?: 0)
                 }
             }.getOrElse { VkAudioAccess.Failed(null, it.message ?: it.javaClass.simpleName) }
+                .also { Timber.tag("VkAuth").i("audio access check: %s", it) }
         }
 
-        /**
-         * VK's music methods are served on the older API version the music clients use; asking for
-         * them on a newer one is answered with "unknown method".
-         */
-        const val API_VERSION = "5.95"
+        /** The API version the official Android client speaks; its token and its version go together. */
+        const val API_VERSION = "5.116"
 
-        /** Kate Mobile's public client — the one VK still serves the audio API to. */
-        const val OAUTH_CLIENT_ID = "2685278"
+        /**
+         * VK's official Android client. Kate Mobile no longer gets a music token (VK hands its
+         * "refreshed" token back unchanged, and every audio method answers error 3); a token issued
+         * to the official client is served the audio API directly, with no extra exchange.
+         */
+        const val OAUTH_CLIENT_ID = "2274003"
         const val OAUTH_REDIRECT = "https://oauth.vk.com/blank.html"
         const val OAUTH_URL = "https://oauth.vk.com/authorize?client_id=$OAUTH_CLIENT_ID" +
-            "&display=mobile&redirect_uri=$OAUTH_REDIRECT&scope=audio,offline&response_type=token&v=$API_VERSION"
+            "&display=mobile&redirect_uri=$OAUTH_REDIRECT&scope=all&response_type=token&v=$API_VERSION"
 
-        const val KATE_USER_AGENT =
-            "KateMobileAndroid/56 lite-460 (Android 4.4.2; SDK 19; x86; unknown Android SDK built for x86; en)"
+        /** Requests must look like the client the token belongs to, or VK refuses them. */
+        const val CLIENT_USER_AGENT =
+            "VKAndroidApp/5.52-4543 (Android 5.1.1; SDK 22; x86_64; unknown Android SDK built for x86_64; en; 320x240)"
 
         private const val URL_TTL_MS = 60 * 60 * 1000L
         private const val MIN_CALL_SPACING_MS = 350L

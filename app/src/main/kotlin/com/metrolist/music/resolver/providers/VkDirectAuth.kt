@@ -35,8 +35,13 @@ object VkDirectAuth {
         data class Error(val message: String) : Result
     }
 
-    // Kate Mobile's public client: the one VK still serves the audio API to.
-    private const val CLIENT_SECRET = "lxhD8OD7dMsqtXIm5IUY"
+    // VK's official Android client (see VkAudioProvider.OAUTH_CLIENT_ID for why not Kate).
+    private const val CLIENT_SECRET = "hHbZxrka2uZ6jB1inYsH"
+
+    /** One id per install, like a real device: VK ties the session to it. */
+    private val deviceId: String by lazy {
+        (1..16).map { "0123456789abcdef".random() }.joinToString("")
+    }
 
     private val http by lazy {
         OkHttpClient.Builder()
@@ -59,9 +64,11 @@ object VkDirectAuth {
                 .add("client_secret", CLIENT_SECRET)
                 .add("username", username.trim())
                 .add("password", password)
-                .add("scope", "audio,offline")
+                .add("scope", "all")
                 .add("2fa_supported", "1")
                 .add("v", VkAudioProvider.API_VERSION)
+                .add("lang", "ru")
+                .add("device_id", deviceId)
                 .apply {
                     if (!code.isNullOrBlank()) add("code", code.trim())
                     if (!captchaSid.isNullOrBlank() && !captchaKey.isNullOrBlank()) {
@@ -72,7 +79,7 @@ object VkDirectAuth {
                 .build()
             val request = Request.Builder()
                 .url("https://oauth.vk.com/token")
-                .header("User-Agent", VkAudioProvider.KATE_USER_AGENT)
+                .header("User-Agent", VkAudioProvider.CLIENT_USER_AGENT)
                 .post(body)
                 .build()
             http.newCall(request).execute().use { response ->
@@ -86,6 +93,11 @@ object VkDirectAuth {
         val json = runCatching { JSONObject(text) }.getOrNull()
             ?: return Result.Error("Unexpected response from VK")
         val token = json.optString("access_token")
+        // Outcome only — never the token or anything typed.
+        timber.log.Timber.tag("VkAuth").i(
+            "login answer: %s",
+            if (token.isNotBlank()) "token issued" else "${json.optString("error")} ${json.optString("error_description")}",
+        )
         if (token.isNotBlank()) {
             return Result.Success(token, json.optString("user_id").takeIf { it.isNotBlank() })
         }

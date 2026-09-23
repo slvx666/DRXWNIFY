@@ -49,11 +49,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.datastore.preferences.core.edit
 import com.metrolist.music.resolver.providers.VkAudioProvider
 import com.metrolist.music.resolver.providers.VkAudioAccess
-import com.metrolist.music.resolver.providers.VkMusicToken
-import com.metrolist.music.utils.dataStore
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import com.metrolist.music.LocalPlayerAwareWindowInsets
@@ -496,16 +493,11 @@ private fun InfoText(text: String) {
 
 /**
  * Asks VK, right here, whether this token may use the audio API — the one thing that decides
- * whether VK can find anything at all.
- *
- * A token VK refuses is not simply reported: the check first repeats the exchange its music clients
- * do ([VkMusicToken]) and keeps the result when that works, so a stored token from an older version
- * of the app repairs itself with one tap. Only if that fails too does VK's own error show up.
+ * whether VK can find anything at all. On failure it shows VK's own error.
  */
 @Composable
 private fun VkAudioAccessCheck(token: String) {
     if (token.isEmpty()) return
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var result by remember(token) { mutableStateOf<VkAudioAccess?>(null) }
@@ -540,17 +532,7 @@ private fun VkAudioAccessCheck(token: String) {
                 onClick = {
                     busy = true
                     scope.launch {
-                        var outcome = VkAudioProvider.checkAudioAccess(token)
-                        if (outcome is VkAudioAccess.Failed) {
-                            VkMusicToken.refresh(token).getOrNull()?.let { exchanged ->
-                                val retry = VkAudioProvider.checkAudioAccess(exchanged)
-                                if (retry is VkAudioAccess.Ok) {
-                                    context.dataStore.edit { it[VkAccessTokenKey] = exchanged }
-                                    outcome = retry
-                                }
-                            }
-                        }
-                        result = outcome
+                        result = VkAudioProvider.checkAudioAccess(token)
                         busy = false
                     }
                 },

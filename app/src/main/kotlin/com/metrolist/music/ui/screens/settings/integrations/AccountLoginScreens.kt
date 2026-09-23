@@ -74,7 +74,6 @@ import com.metrolist.music.constants.YandexUidKey
 import com.metrolist.music.constants.YandexUsernameKey
 import com.metrolist.music.resolver.providers.VkAudioAccess
 import com.metrolist.music.resolver.providers.VkAudioProvider
-import com.metrolist.music.resolver.providers.VkMusicToken
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.TextFieldDialog
 import com.metrolist.music.ui.utils.backToMain
@@ -135,12 +134,7 @@ fun VkLoginScreen(navController: NavController) {
     val context = LocalContext.current
     var useWebLogin by rememberSaveable { mutableStateOf(false) }
 
-    suspend fun saveToken(rawToken: String, userId: String?) {
-        // A login token is not a music token: VK answers its audio methods only for one that was
-        // exchanged the way its music clients do it. That exchange happens here, before anything is
-        // stored; when it cannot be done the plain token is kept and the check below reports what
-        // VK said about it.
-        val token = VkMusicToken.refresh(rawToken).getOrElse { rawToken }
+    suspend fun saveToken(token: String, userId: String?) {
         context.dataStore.edit { prefs ->
             prefs[VkAccessTokenKey] = token
             userId?.let { prefs[VkUserIdKey] = it }
