@@ -88,7 +88,9 @@ enum class VkLibraryTab { TRACKS, ALBUMS, PLAYLISTS }
 
 /** The signed-in account's own VK music: tracks, added albums, playlists. */
 @HiltViewModel
-class VkLibraryViewModel @Inject constructor() : ViewModel() {
+class VkLibraryViewModel @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
+) : ViewModel() {
     val tab = MutableStateFlow(VkLibraryTab.ALBUMS)
 
     /** Albums and playlists come in one VK list; the tabs split it. */
@@ -117,11 +119,29 @@ class VkLibraryViewModel @Inject constructor() : ViewModel() {
             isLoading.value = true
             failed.value = false
             VkMusic.myPlaylists()
-                .onSuccess { playlists.value = it }
+                .onSuccess { list ->
+                    // Known answers at once; the rest is worked out from their tracks below.
+                    playlists.value = list.map { p -> VkMusic.knownKind(context, p)?.let { p.copy(isAlbum = it) } ?: p }
+                }
                 .onFailure { failed.value = true }
             isLoading.value = false
+            classifyUnknown()
         }
         if (tab.value == VkLibraryTab.TRACKS) loadTracks()
+    }
+
+    /**
+     * Album or playlist by the tracks: one artist on every track = album, several main artists =
+     * playlist. Each playlist is looked at once (the answer is remembered), updating the tabs live.
+     */
+    private suspend fun classifyUnknown() {
+        for (p in playlists.value) {
+            if (VkMusic.knownKind(context, p) != null) continue
+            val album = VkMusic.isAlbum(context, p) ?: continue
+            if (album != p.isAlbum) {
+                playlists.value = playlists.value.map { if (it.key == p.key) it.copy(isAlbum = album) else it }
+            }
+        }
     }
 
     private fun loadTracks() {

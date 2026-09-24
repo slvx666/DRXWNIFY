@@ -29,6 +29,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +48,7 @@ import com.metrolist.music.constants.SearchSource
 import com.metrolist.music.resolver.AudioProviderId
 import com.metrolist.music.resolver.SourceSearch
 import com.metrolist.music.utils.rememberPreference
+import kotlinx.coroutines.launch
 
 /** Amber, not red: the experimental mode is a caveat, not an error. */
 val SearchExperimentalColor = Color(0xFFE0A030)
@@ -60,6 +63,7 @@ val SearchExperimentalColor = Color(0xFFE0A030)
  * one line saying what the mode does, and the sources as chips that also show when one is switched
  * off or still needs an account (the usual reason a source "finds nothing").
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun SearchSourceButton(
     current: SearchSource,
@@ -67,41 +71,22 @@ fun SearchSourceButton(
     modifier: Modifier = Modifier,
     tint: Color? = null,
 ) {
-    val menuState = LocalMenuState.current
     val catalogState by Catalog.state.collectAsState()
     val hasCatalog = catalogState.isActive
     val (experimentalAvailable, _) = rememberPreference(ExperimentalSearchEnabledKey, defaultValue = true)
     val (_, setAcknowledged) = rememberPreference(ExperimentalSearchAckKey, defaultValue = false)
     val (experimentalSource, setExperimentalSource) =
         rememberPreference(ExperimentalSearchSourceKey, defaultValue = "")
+    var open by remember { androidx.compose.runtime.mutableStateOf(false) }
 
     Box(modifier = modifier) {
-        IconButton(
-            onClick = {
-                menuState.show {
-                    SearchSourceSheet(
-                        current = current,
-                        hasCatalog = hasCatalog,
-                        experimentalAvailable = experimentalAvailable,
-                        experimentalSource = experimentalSource,
-                        onSelect = { source ->
-                            menuState.dismiss()
-                            onSelect(source)
-                        },
-                        onSelectExperimental = { value ->
-                            menuState.dismiss()
-                            setExperimentalSource(value)
-                            setAcknowledged(true)
-                            if (current != SearchSource.SOURCES) onSelect(SearchSource.SOURCES)
-                        },
-                    )
-                }
-            },
-        ) {
+        IconButton(onClick = { open = true }) {
             Icon(
                 painter = painterResource(searchSourceIcon(current)),
                 contentDescription = stringResource(R.string.search_source_picker),
                 tint = when {
+                    // Soulseek, the last resort, keeps its own colour here too.
+                    current == SearchSource.SOURCES && experimentalSource == AudioProviderId.SOULSEEK.name -> LastResortColor
                     current == SearchSource.SOURCES -> SearchExperimentalColor
                     tint != null -> tint
                     else -> MaterialTheme.colorScheme.onSurface
@@ -109,7 +94,42 @@ fun SearchSourceButton(
             )
         }
     }
+
+    if (open) {
+        // Its own sheet, opened fully: the whole list fits at once instead of a half-open sheet
+        // that has to be pulled up.
+        val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        fun closeThen(action: () -> Unit) {
+            scope.launch { sheetState.hide() }.invokeOnCompletion {
+                open = false
+                action()
+            }
+        }
+        androidx.compose.material3.ModalBottomSheet(
+            onDismissRequest = { open = false },
+            sheetState = sheetState,
+        ) {
+            SearchSourceSheet(
+                current = current,
+                hasCatalog = hasCatalog,
+                experimentalAvailable = experimentalAvailable,
+                experimentalSource = experimentalSource,
+                onSelect = { source -> closeThen { onSelect(source) } },
+                onSelectExperimental = { value ->
+                    closeThen {
+                        setExperimentalSource(value)
+                        setAcknowledged(true)
+                        if (current != SearchSource.SOURCES) onSelect(SearchSource.SOURCES)
+                    }
+                },
+            )
+        }
+    }
 }
+
+/** Soulseek's colour: one warm red-orange that says "last resort" without shouting. */
+val LastResortColor = Color(0xFFF0712C)
 
 @Composable
 private fun SearchSourceSheet(
@@ -196,14 +216,14 @@ private fun SearchSourceSheet(
                             onClick = { onSelectExperimental(provider.name) },
                         )
                     }
+                    // Last in the row, in its own warning colour: the source to reach for last.
+                    LastResortSourceChip(
+                        selected = current == SearchSource.SOURCES && experimentalSource == AudioProviderId.SOULSEEK.name,
+                        status = SourceSearch.statusOf(AudioProviderId.SOULSEEK),
+                        onClick = { onSelectExperimental(AudioProviderId.SOULSEEK.name) },
+                    )
                 }
 
-                Spacer(Modifier.height(10.dp))
-                LastResortSourceChip(
-                    selected = current == SearchSource.SOURCES && experimentalSource == AudioProviderId.SOULSEEK.name,
-                    status = SourceSearch.statusOf(AudioProviderId.SOULSEEK),
-                    onClick = { onSelectExperimental(AudioProviderId.SOULSEEK.name) },
-                )
             }
         }
     }
@@ -220,39 +240,25 @@ private fun LastResortSourceChip(
     status: SourceSearch.Status,
     onClick: () -> Unit,
 ) {
-    val warning = androidx.compose.ui.graphics.Brush.horizontalGradient(
-        listOf(Color(0xFFE5484D), Color(0xFFF5B400)),
-    )
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(
-                androidx.compose.ui.graphics.Brush.horizontalGradient(
-                    listOf(Color(0xFFE5484D).copy(alpha = if (selected) 0.30f else 0.12f), Color(0xFFF5B400).copy(alpha = if (selected) 0.30f else 0.12f)),
-                ),
-            )
-            .border(BorderStroke(if (selected) 2.dp else 1.dp, warning), RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(LastResortColor.copy(alpha = if (selected) 0.24f else 0.10f))
+            .border(BorderStroke(1.dp, LastResortColor.copy(alpha = if (selected) 1f else 0.6f)), RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 7.dp),
     ) {
-        Icon(
-            painter = painterResource(R.drawable.search_experimental),
-            contentDescription = null,
-            tint = Color(0xFFE5484D),
-            modifier = Modifier.size(20.dp),
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
+        Column {
             Text(
                 text = "Soulseek",
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (selected) LastResortColor else MaterialTheme.colorScheme.onSurface,
             )
             Text(
                 text = when (status) {
-                    SourceSearch.Status.READY -> stringResource(R.string.soulseek_last_resort)
+                    SourceSearch.Status.READY -> stringResource(R.string.soulseek_last_resort_short)
                     SourceSearch.Status.DISABLED -> stringResource(R.string.source_status_off)
                     SourceSearch.Status.NEEDS_ACCOUNT -> stringResource(R.string.soulseek_last_resort_unavailable)
                 },
@@ -261,11 +267,12 @@ private fun LastResortSourceChip(
             )
         }
         if (selected) {
+            Spacer(Modifier.width(6.dp))
             Icon(
                 painter = painterResource(R.drawable.check),
                 contentDescription = null,
-                tint = Color(0xFFE5484D),
-                modifier = Modifier.size(18.dp),
+                tint = LastResortColor,
+                modifier = Modifier.size(16.dp),
             )
         }
     }
@@ -283,7 +290,7 @@ private fun SourceRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
+            .padding(horizontal = 20.dp, vertical = 11.dp),
     ) {
         Icon(
             painter = painterResource(icon),

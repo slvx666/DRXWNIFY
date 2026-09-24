@@ -1569,7 +1569,7 @@ fun HomeScreen(
                                                                     // A clear press: the cover sinks in under the finger.
                                                                     val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                                                                     val pressed by press.collectIsPressedAsState()
-                                                                    val pressScale by androidx.compose.animation.core.animateFloatAsState(
+                                                                    val holdScale by androidx.compose.animation.core.animateFloatAsState(
                                                                         targetValue = if (pressed) 0.9f else 1f,
                                                                         animationSpec = androidx.compose.animation.core.spring(
                                                                             dampingRatio = 0.55f,
@@ -1577,6 +1577,10 @@ fun HomeScreen(
                                                                         ),
                                                                         label = "forYouPress",
                                                                     )
+                                                                    // A quick tap releases before the hold sink shows, so the tap
+                                                                    // plays the same sink all the way through, a little shallower.
+                                                                    val tapSink = remember { androidx.compose.animation.core.Animatable(1f) }
+                                                                    val pressScale = minOf(holdScale, tapSink.value)
                                                                     ItemThumbnail(
                                                                         thumbnailUrl = cover,
                                                                         isActive = false,
@@ -1593,7 +1597,17 @@ fun HomeScreen(
                                                                                 interactionSource = press,
                                                                                 indication = androidx.compose.material3.ripple(),
                                                                                 onClick = {
-                                                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                                                                    scope.launch {
+                                                                                        tapSink.animateTo(0.92f, androidx.compose.animation.core.tween(110))
+                                                                                        tapSink.animateTo(
+                                                                                            1f,
+                                                                                            androidx.compose.animation.core.spring(
+                                                                                                dampingRatio = 0.55f,
+                                                                                                stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+                                                                                            ),
+                                                                                        )
+                                                                                    }
                                                                                     startRadio(track)
                                                                                 },
                                                                                 onLongClick = {

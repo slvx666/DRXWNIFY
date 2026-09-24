@@ -484,12 +484,21 @@ class HomeViewModel @Inject constructor(
     fun forYouRadioFrom(
         start: SpotifyTrack,
         mapper: com.metrolist.music.playback.SpotifyYouTubeMapper,
-    ) = com.metrolist.music.playback.queues.ForYouQueue(
-        startTracks = listOf(start),
-        sessionFactory = { kotlinx.coroutines.withContext(Dispatchers.IO) { newRadioSession(excludeAlso = start.id) } },
-        mapper = mapper,
-        preload = mapper.quickMetadata(start),
-    )
+    ): com.metrolist.music.playback.queues.ForYouQueue {
+        // The prepared picks follow the tapped track straight away, so the next track is there
+        // to swipe to from the start instead of arriving after the radio has been worked out.
+        val ready = preparedRadio?.also { preparedRadio = null }
+        prepareRadio()
+        val session = ready?.first
+        return com.metrolist.music.playback.queues.ForYouQueue(
+            startTracks = listOf(start) + ready?.second.orEmpty().filter { it.id != start.id },
+            sessionFactory = {
+                session ?: kotlinx.coroutines.withContext(Dispatchers.IO) { newRadioSession(excludeAlso = start.id) }
+            },
+            mapper = mapper,
+            preload = mapper.quickMetadata(start),
+        )
+    }
 
     /** The dice: fresh picks (prepared in the background, so usually instant). */
     suspend fun forYouRadio(

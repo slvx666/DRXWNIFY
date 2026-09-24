@@ -187,15 +187,7 @@ fun SpotifyLibraryScreen(
                 onToggleGrid = { grid = !grid },
             )
         }
-        // The app's own playlists show at once; the account's library arrives later. Until it has,
-        // placeholder rows say so — instead of a list that looks complete but isn't.
-        if (loading) {
-            item(key = "loading_bar", span = { GridItemSpan(maxLineSpan) }) {
-                androidx.compose.material3.LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(2.dp),
-                )
-            }
-        }
+
         if (filteredEntries.isEmpty() && isSearchActive && normalizedQuery.isNotBlank()) {
             item(key = "empty_search", span = { GridItemSpan(maxLineSpan) }) {
                 LibrarySearchEmptyPlaceholder(
@@ -220,12 +212,12 @@ fun SpotifyLibraryScreen(
                 if (grid) LibraryGridCell(entry, onClick) else LibraryRow(entry, onClick)
             }
         }
+        // The app's own playlists show at once; the account's library arrives later. Until it has,
+        // a spinner under the list says more is coming.
         if (loading) {
-            item(key = "loading_rows", span = { GridItemSpan(maxLineSpan) }) {
-                com.metrolist.music.ui.component.shimmer.ShimmerHost {
-                    repeat(if (entries.isEmpty()) 8 else 4) {
-                        com.metrolist.music.ui.component.shimmer.ListItemPlaceHolder()
-                    }
+            item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
+                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
             }
         }

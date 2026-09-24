@@ -247,11 +247,17 @@ fun Thumbnail(
     val thumbnailLazyGridState = rememberLazyGridState()
     
     // Calculate media items data - memoized
+    // Items appended after the current one (a radio that started from a single track) must show
+    // up here too, or there is nothing to swipe to until the track changes.
+    val queueWindows by playerConnection.queueWindows.collectAsState()
     val mediaItemsData by remember(
         playerConnection.player.currentMediaItemIndex,
         playerConnection.player.shuffleModeEnabled,
         swipeThumbnail,
-        mediaMetadata
+        mediaMetadata,
+        queueWindows,
+        canSkipNext,
+        canSkipPrevious,
     ) {
         derivedStateOf {
             getMediaItems(playerConnection.player, swipeThumbnail)

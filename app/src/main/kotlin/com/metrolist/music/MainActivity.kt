@@ -934,7 +934,9 @@ class MainActivity : ComponentActivity() {
 
                 val baseBg = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
 
+                val photoViewerState = com.metrolist.music.ui.component.rememberPhotoViewerHostState()
                 CompositionLocalProvider(
+                    com.metrolist.music.ui.component.LocalPhotoViewer provides photoViewerState,
                     LocalDatabase provides database,
                     LocalContentColor provides if (pureBlack) Color.White else contentColorFor(MaterialTheme.colorScheme.surface),
                     LocalPlayerConnection provides playerConnection,
@@ -1358,6 +1360,9 @@ class MainActivity : ComponentActivity() {
                         state = LocalBottomSheetPageState.current,
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
+
+                    // Covers opened full screen, above everything (the player included).
+                    com.metrolist.music.ui.component.PhotoViewerHost(state = photoViewerState)
 
                     // Top-right "Home" shortcut: shown on deep screens where the bottom navigation bar
                     // is hidden, so the user can jump back to the main screen. Hidden while the player

@@ -110,4 +110,24 @@ object VkMusic {
         }
 
     private const val SAVED_TRACKS_PREFS = "vk_saved_tracks"
+
+    /**
+     * Album or playlist for [playlist], by its tracks ([VkAudioProvider.isAlbumByTracks]); the
+     * answer is kept on the device, so each playlist is looked at once.
+     */
+    suspend fun isAlbum(context: android.content.Context, playlist: VkPlaylist): Boolean? {
+        val prefs = context.getSharedPreferences(KIND_PREFS, android.content.Context.MODE_PRIVATE)
+        if (prefs.contains(playlist.key)) return prefs.getBoolean(playlist.key, false)
+        val album = runCatching { provider?.isAlbumByTracks(playlist) }.getOrNull() ?: return null
+        prefs.edit().putBoolean(playlist.key, album).apply()
+        return album
+    }
+
+    /** Known answers only (no network): for showing the list right away. */
+    fun knownKind(context: android.content.Context, playlist: VkPlaylist): Boolean? {
+        val prefs = context.getSharedPreferences(KIND_PREFS, android.content.Context.MODE_PRIVATE)
+        return if (prefs.contains(playlist.key)) prefs.getBoolean(playlist.key, false) else null
+    }
+
+    private const val KIND_PREFS = "vk_playlist_kind"
 }

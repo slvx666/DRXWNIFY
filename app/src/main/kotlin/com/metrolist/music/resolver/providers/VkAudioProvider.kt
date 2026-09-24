@@ -282,6 +282,39 @@ class VkAudioProvider(
         }
     }
 
+    /**
+     * Album or playlist, decided by its tracks: an album is one artist's — someone who is on every
+     * track, as the main artist or as a guest ("feat."). Two or more different main artists and it
+     * is a playlist. VK's own flags can't be trusted for this (they call collections albums).
+     */
+    suspend fun isAlbumByTracks(playlist: VkPlaylist): Boolean? {
+        if (!isReady()) return null
+        val items = throttled {
+            val params = buildMap {
+                put("owner_id", playlist.ownerId.toString())
+                put("album_id", playlist.id.toString())
+                put("count", "100")
+                playlist.accessKey?.let { put("access_key", it) }
+            }
+            call("audio.get", params)?.optJSONObject("response")?.optJSONArray("items")
+        } ?: return null
+        val perTrack = (0 until items.length()).mapNotNull { i ->
+            val o = items.optJSONObject(i) ?: return@mapNotNull null
+            val names = HashSet<String>()
+            fun addAll(key: String) = o.optJSONArray(key)?.let { arr ->
+                for (j in 0 until arr.length()) arr.optJSONObject(j)?.optString("name")?.let { names += norm(it) }
+            }
+            addAll("main_artists")
+            addAll("featured_artists")
+            o.optString("artist").split(ARTIST_SEPARATORS).forEach { names += norm(it) }
+            names.filter { it.isNotBlank() }.toSet().takeIf { it.isNotEmpty() }
+        }
+        if (perTrack.isEmpty()) return null
+        return perTrack.reduce { common, next -> common intersect next }.isNotEmpty()
+    }
+
+    private fun norm(name: String) = name.trim().lowercase()
+
     /** Every track of [playlist], as playable matches (a missing stream URL is fetched on play). */
     suspend fun playlistTracks(playlist: VkPlaylist): List<ProviderMatch> {
         if (!isReady()) return emptyList()
@@ -528,6 +561,7 @@ class VkAudioProvider(
 
         private const val URL_TTL_MS = 60 * 60 * 1000L
         private const val SEARCH_PAGE = 200
+        private val ARTIST_SEPARATORS = Regex(""",|&| feat\.? | ft\.? | x """, RegexOption.IGNORE_CASE)
         private const val PLAYLIST_PAGE = 100
         private const val MAX_PLAYLISTS = 1000
         private const val MAX_PLAYLIST_TRACKS = 1000
