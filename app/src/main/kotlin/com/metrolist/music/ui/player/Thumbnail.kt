@@ -564,18 +564,22 @@ private fun ThumbnailItem(
                 compositingStrategy = CompositingStrategy.Offscreen
             }
             .pointerInput(Unit) {
+                // The cover is split in four vertical strips: the outer two seek (every tap,
+                // no waiting for a second one), the middle two open the cover at once.
                 detectTapGestures(
-                    onTap = {
-                        if (!hidePlayerThumbnail) coverViewer.open(currentCoverUrl, currentCoverName)
-                    },
                     onLongPress = {
                         if (!hidePlayerThumbnail && !currentCoverUrl.isNullOrBlank()) {
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                             coverViewer.showActions(currentCoverUrl, currentCoverName)
                         }
                     },
-                    onDoubleTap = { offset ->
-                        if (isListenTogetherGuest) return@detectTapGestures
+                    onTap = { offset ->
+                        val strip = size.width / 4f
+                        val inMiddle = offset.x >= strip && offset.x <= size.width - strip
+                        if (inMiddle || isListenTogetherGuest) {
+                            if (!hidePlayerThumbnail) coverViewer.open(currentCoverUrl, currentCoverName)
+                            return@detectTapGestures
+                        }
 
                         val currentPosition = playerConnection.player.currentPosition
                         val duration = playerConnection.player.duration
@@ -593,6 +597,7 @@ private fun ThumbnailItem(
                         val isLeftSide = (layoutDirection == LayoutDirection.Ltr && offset.x < size.width / 2) ||
                                 (layoutDirection == LayoutDirection.Rtl && offset.x > size.width / 2)
 
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         if (isLeftSide) {
                             playerConnection.player.seekTo((currentPosition - skipAmount).coerceAtLeast(0))
                             onSeek(context.getString(R.string.seek_backward_dynamic, skipAmount / 1000), true)

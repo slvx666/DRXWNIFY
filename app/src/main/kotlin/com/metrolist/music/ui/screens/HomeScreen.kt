@@ -1505,6 +1505,9 @@ fun HomeScreen(
                                     val pages = (cells.size + itemsPerPage - 1) / itemsPerPage
                                     val pagerState = rememberPagerState(pageCount = { pages })
                                     val starting by viewModel.forYouStarting.collectAsState()
+                                    // The radio is usually prepared already and starts at once; the
+                                    // dice still rolls (dots gather and spread) so the tap is seen.
+                                    var diceRolling by remember { mutableStateOf(false) }
 
                                     fun startRadio(start: com.metrolist.spotify.models.SpotifyTrack?) {
                                         if (isListenTogetherGuest || starting) return
@@ -1559,8 +1562,18 @@ fun HomeScreen(
                                                                 val track = pageCells[index]
                                                                 if (track == null) {
                                                                     com.metrolist.music.ui.component.RandomizeGridItem(
-                                                                        isLoading = starting,
-                                                                        onClick = { startRadio(null) },
+                                                                        isLoading = starting || diceRolling,
+                                                                        onClick = {
+                                                                            if (!diceRolling) {
+                                                                                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                                                                diceRolling = true
+                                                                                scope.launch {
+                                                                                    kotlinx.coroutines.delay(800)
+                                                                                    diceRolling = false
+                                                                                }
+                                                                                startRadio(null)
+                                                                            }
+                                                                        },
                                                                     )
                                                                 } else {
                                                                     val cover = remember(track.id) {

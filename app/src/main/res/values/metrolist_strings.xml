@@ -1129,7 +1129,13 @@
     <string name="lib_sort_recents">Recents</string>
     <string name="lib_sort_recently_added">Recently added</string>
     <string name="lib_sort_alphabetical">Alphabetical</string>
-    <string name="lib_sort_creator">Creator</string>
+    <string name="lib_sort_creator">Artist</string>
+    <string name="lib_sort_date_added">Date added</string>
+    <string name="lib_sort_name">Name</string>
+    <string name="lib_sort_newest_first">newest first</string>
+    <string name="lib_sort_oldest_first">oldest first</string>
+    <string name="lib_sort_a_z">A → Z</string>
+    <string name="lib_sort_z_a">Z → A</string>
     <string name="lib_folder_count">%1$d playlists</string>
     <string name="welcome_title">Welcome to Drxwnify</string>
     <string name="welcome_subtitle">Your Spotify library — playable and downloadable, without Premium.</string>
@@ -1307,6 +1313,8 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="search_source_disabled">%1$s is switched off in Settings → Music sources</string>
     <string name="search_source_needs_account">%1$s needs an account — connect it in Settings → Music sources</string>
     <string name="search_all_sources">All sources</string>
+    <string name="vk_best_source">Best source: almost everything, top quality, albums</string>
+    <string name="vk_best_source_sign_in">Best source: sign in to VK in Settings</string>
     <string name="search_source_spotify">Spotify</string>
     <string name="search_this_artist">Find this performer</string>
     <string name="open_file_location">Show in folder</string>

@@ -8,13 +8,11 @@ package com.metrolist.music.ui.component
 import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -24,7 +22,6 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -51,7 +48,9 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -64,20 +63,24 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
-import kotlin.math.sin
+import kotlin.math.sign
 
 data class PhotoViewerItem(
     val id: String,
@@ -97,8 +100,7 @@ private data class ClosingTransition(
     val startRect: Rect,
     val endRect: Rect?,
     val endCornerRadiusPx: Float,
-    val startScrimAlphaMultiplier: Float,
-    val isSwipeDismiss: Boolean
+    val startScrimAlpha: Float,
 )
 
 private enum class PhotoViewerPhase {
@@ -106,6 +108,17 @@ private enum class PhotoViewerPhase {
     Interactive,
     Closing
 }
+
+/**
+ * One curve for every move of the viewer: quick start, long soft landing (Material's emphasized
+ * decelerate, close to what Telegram uses). Motion is straight, never along an arc.
+ */
+private val ViewerEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+private const val OPEN_DURATION_MS = 300
+private const val CLOSE_DURATION_MS = 260
+
+/** Dragged all the way, the backdrop only goes down to this: the page behind never flashes in. */
+private const val MIN_DRAG_SCRIM = 0.45f
 
 @Stable
 class PhotoViewerHostState {
@@ -196,6 +209,17 @@ fun Modifier.photoViewerSource(
         .onGloballyPositioned { state.registerSource(id, it.boundsInRoot(), cornerRadiusPx) }
 }
 
+/** The same request everywhere in the viewer, so the transition and the page share one cached bitmap. */
+@Composable
+private fun rememberViewerPainter(model: Any): AsyncImagePainter {
+    val context = LocalContext.current
+    return rememberAsyncImagePainter(
+        model = remember(model) {
+            ImageRequest.Builder(context).data(model).crossfade(false).build()
+        }
+    )
+}
+
 @Composable
 fun PhotoViewerHost(
     state: PhotoViewerHostState,
@@ -205,6 +229,7 @@ fun PhotoViewerHost(
     val session = state.session ?: return
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val density = LocalDensity.current
 
     var containerSize by remember(session.nonce) { mutableStateOf(IntSize.Zero) }
     var phase by remember(session.nonce) { mutableStateOf(PhotoViewerPhase.Opening) }
@@ -228,26 +253,14 @@ fun PhotoViewerHost(
         PhotoViewerPhase.Opening -> openingItem
         PhotoViewerPhase.Interactive, PhotoViewerPhase.Closing -> currentItem
     }
-    val transitionPainter = rememberAsyncImagePainter(
-        model = remember(transitionItem.model) {
-            ImageRequest.Builder(context).data(transitionItem.model).crossfade(false).build()
-        }
-    )
+    val transitionPainter = rememberViewerPainter(transitionItem.model)
     val transitionAspectRatio = transitionPainter.intrinsicSize.aspectRatioOrNull()
     val lockedAspectRatios = remember(session.nonce) { mutableStateMapOf<String, Float>() }
     val animationProgress = progress.value.coerceIn(0f, 1f)
-    val dragDistance = computeDragDistance(dragOffset)
-    val dragScale = 1f
     val openingSourceRect = state.sourceRect(openingItem.id) ?: fallbackSourceRect(containerSize)
     val openingSourceCornerRadiusPx = state.sourceCornerRadiusPx(openingItem.id)
-    val dismissSwipeThresholdPx = computeDismissSwipeThresholdPx(
-        density = LocalDensity.current,
-        viewportHeight = containerSize.height
-    )
-    val scrimAlphaMultiplier = computeScrimAlphaMultiplier(
-        distance = dragDistance,
-        dismissSwipeThresholdPx = dismissSwipeThresholdPx
-    )
+    val dismissSwipeThresholdPx = computeDismissSwipeThresholdPx(density, containerSize.height)
+    val dragScrimAlpha = computeDragScrimAlpha(abs(dragOffset.y), containerSize.height)
     val openingTargetRect = computeTargetRect(
         containerSize,
         lockedAspectRatios[openingItem.id] ?: transitionAspectRatio ?: openingSourceRect.aspectRatioOrNull()
@@ -259,51 +272,35 @@ fun PhotoViewerHost(
                 ?: transitionAspectRatio
                 ?: state.sourceRect(currentItem.id)?.aspectRatioOrNull()
         )
+    // The backdrop follows the photo's own movement at every step, so it never jumps.
     val scrimAlpha = when (phase) {
         PhotoViewerPhase.Opening -> animationProgress
-        PhotoViewerPhase.Interactive -> scrimAlphaMultiplier
-        PhotoViewerPhase.Closing -> {
-            val closing = closingTransition
-            if (closing?.isSwipeDismiss == true) {
-                0f
-            } else {
-                val start = closing?.startScrimAlphaMultiplier ?: 1f
-                lerpFloat(0f, start, animationProgress)
-            }
-        }
+        PhotoViewerPhase.Interactive -> dragScrimAlpha
+        PhotoViewerPhase.Closing -> lerpFloat(0f, closingTransition?.startScrimAlpha ?: 1f, animationProgress)
     }
-    val openingHandoffAlpha = if (animationProgress >= 0.995f) 1f else 0f
-    val chromeVisibility by animateFloatAsState(
-        targetValue = if (phase == PhotoViewerPhase.Interactive && currentPageZoomed) 0f else 1f,
-        animationSpec = tween(durationMillis = 180, easing = LinearOutSlowInEasing),
-        label = "PhotoViewerChromeVisibility"
-    )
 
-    fun dismissWithAnimation(fromSwipe: Boolean = false) {
+    fun dismissWithAnimation() {
         if (phase == PhotoViewerPhase.Closing) return
         val targetRect = if (!currentPageZoomed) state.sourceRect(currentItem.id) else null
         if (targetRect != null) {
             state.updateHiddenSource(currentItem.id)
         }
         state.updateBottomBarHidden(false)
+        val startRect = if (phase == PhotoViewerPhase.Opening) {
+            lerpRect(openingSourceRect, openingTargetRect, animationProgress)
+        } else {
+            computeCurrentDisplayRect(currentDisplayRect, dragOffset)
+        }
         closingTransition = ClosingTransition(
-            startRect = computeCurrentDisplayRect(currentDisplayRect, 1f, dragOffset),
+            startRect = startRect,
             endRect = targetRect,
             endCornerRadiusPx = if (targetRect != null) state.sourceCornerRadiusPx(currentItem.id) else 0f,
-            startScrimAlphaMultiplier = if (fromSwipe) 0f else scrimAlphaMultiplier,
-            isSwipeDismiss = fromSwipe
+            startScrimAlpha = scrimAlpha,
         )
         phase = PhotoViewerPhase.Closing
         scope.launch {
             progress.snapTo(1f)
-            progress.animateTo(
-                targetValue = 0f,
-                animationSpec = if (targetRect != null) {
-                    tween(durationMillis = 600, easing = LinearOutSlowInEasing)
-                } else {
-                    tween(durationMillis = 600, easing = LinearOutSlowInEasing)
-                }
-            )
+            progress.animateTo(0f, tween(durationMillis = CLOSE_DURATION_MS, easing = ViewerEasing))
             state.completeDismiss()
             onDismissed()
         }
@@ -318,9 +315,15 @@ fun PhotoViewerHost(
         state.updateBottomBarHidden(true)
         state.allowSourceHide = false
         progress.snapTo(0f)
+        // The cover stays in place until its copy is ready to fly: no empty frame, no blink.
+        withTimeoutOrNull(250) {
+            transitionPainter.state.first {
+                it is AsyncImagePainter.State.Success || it is AsyncImagePainter.State.Error
+            }
+        }
         withFrameNanos { }
         state.allowSourceHide = true
-        progress.animateTo(1f, tween(durationMillis = 500, easing = LinearOutSlowInEasing))
+        progress.animateTo(1f, tween(durationMillis = OPEN_DURATION_MS, easing = ViewerEasing))
         if (phase != PhotoViewerPhase.Closing) phase = PhotoViewerPhase.Interactive
     }
 
@@ -337,10 +340,6 @@ fun PhotoViewerHost(
         if (ratio != null && lockedAspectRatios[currentItem.id] == null) {
             lockedAspectRatios[currentItem.id] = ratio
         }
-    }
-
-    LaunchedEffect(currentPageZoomed, phase) {
-        state.updateImmersiveMode(phase == PhotoViewerPhase.Interactive && currentPageZoomed)
     }
 
     SideEffect {
@@ -383,7 +382,7 @@ fun PhotoViewerHost(
             .background(Color.Black.copy(alpha = scrimAlpha))
     ) {
         val galleryAlpha = when (phase) {
-            PhotoViewerPhase.Opening -> openingHandoffAlpha
+            PhotoViewerPhase.Opening -> 0f
             PhotoViewerPhase.Interactive -> 1f
             PhotoViewerPhase.Closing -> if (closingTransition?.endRect != null) 0f else animationProgress
         }
@@ -391,13 +390,7 @@ fun PhotoViewerHost(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    alpha = galleryAlpha
-                    translationX = dragOffset.x
-                    translationY = dragOffset.y
-                    scaleX = 1f
-                    scaleY = 1f
-                }
+                .graphicsLayer { alpha = galleryAlpha }
         ) {
             HorizontalPager(
                 state = pagerState,
@@ -410,20 +403,13 @@ fun PhotoViewerHost(
                     isActive = page == currentPage,
                     interactionsEnabled = phase == PhotoViewerPhase.Interactive,
                     dismissSwipeThresholdPx = dismissSwipeThresholdPx,
-                    onDismissFromSwipe = { dismissWithAnimation(fromSwipe = true) },
+                    onDismissFromSwipe = { dismissWithAnimation() },
                     onDragOffsetChanged = { offset ->
                         if (item.id == currentItem.id) {
                             dragOffset = offset
                         }
                     },
-                    onZoomStateChanged = { isZoomed ->
-                        zoomedPages[item.id] = isZoomed
-                        if (item.id == currentItem.id) {
-                            state.updateImmersiveMode(
-                                phase == PhotoViewerPhase.Interactive && isZoomed
-                            )
-                        }
-                    },
+                    onZoomStateChanged = { isZoomed -> zoomedPages[item.id] = isZoomed },
                     onBaseRectChanged = { rect -> imageBaseRects[item.id] = rect },
                     aspectRatioHint = lockedAspectRatios[item.id]
                         ?: imageBaseRects[item.id]?.aspectRatioOrNull()
@@ -435,104 +421,52 @@ fun PhotoViewerHost(
             }
         }
 
+        val closing = closingTransition
         val transitionRect = when (phase) {
-            PhotoViewerPhase.Opening -> lerpRectWithArc(
-                openingSourceRect,
-                openingTargetRect,
-                animationProgress
-            )
+            PhotoViewerPhase.Opening -> lerpRect(openingSourceRect, openingTargetRect, animationProgress)
             PhotoViewerPhase.Interactive -> Rect.Zero
-            PhotoViewerPhase.Closing -> {
-                val closing = closingTransition
-                if (closing == null) Rect.Zero else lerpRectWithArc(
-                    closing.startRect,
-                    closing.endRect ?: scaleRect(closing.startRect, 0.92f),
-                    1f - animationProgress
-                )
+            PhotoViewerPhase.Closing -> if (closing?.endRect == null) {
+                Rect.Zero
+            } else {
+                lerpRect(closing.startRect, closing.endRect, 1f - animationProgress)
             }
         }
-
         val transitionCornerRadius = when (phase) {
             PhotoViewerPhase.Opening -> lerpFloat(openingSourceCornerRadiusPx, 0f, animationProgress)
             PhotoViewerPhase.Interactive -> 0f
-            PhotoViewerPhase.Closing -> {
-                val closing = closingTransition
-                if (closing == null) 0f else lerpFloat(0f, closing.endCornerRadiusPx, 1f - animationProgress)
-            }
+            PhotoViewerPhase.Closing -> lerpFloat(0f, closing?.endCornerRadiusPx ?: 0f, 1f - animationProgress)
         }
 
-        val transitionAlpha = when (phase) {
-            PhotoViewerPhase.Opening -> 1f - openingHandoffAlpha
-            PhotoViewerPhase.Interactive -> 0f
-            PhotoViewerPhase.Closing -> if (closingTransition?.endRect != null) 1f else 0f
-        }
-        val closingCropBlend = if (
-            phase == PhotoViewerPhase.Closing &&
-            closingTransition?.endRect != null
-        ) {
-            ((0.22f - animationProgress) / 0.22f).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
-
-        if (transitionAlpha > 0f && transitionRect != Rect.Zero) {
-            if (phase == PhotoViewerPhase.Closing && closingTransition?.endRect != null) {
-                TransitionPhoto(
-                    model = transitionItem.model,
-                    contentDescription = transitionItem.contentDescription,
-                    rect = transitionRect,
-                    cornerRadiusPx = transitionCornerRadius,
-                    alpha = transitionAlpha * (1f - closingCropBlend),
-                    contentScale = ContentScale.Fit
-                )
-                TransitionPhoto(
-                    model = transitionItem.model,
-                    contentDescription = transitionItem.contentDescription,
-                    rect = transitionRect,
-                    cornerRadiusPx = transitionCornerRadius,
-                    alpha = transitionAlpha * closingCropBlend,
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                TransitionPhoto(
-                    model = transitionItem.model,
-                    contentDescription = transitionItem.contentDescription,
-                    rect = transitionRect,
-                    cornerRadiusPx = transitionCornerRadius,
-                    alpha = transitionAlpha,
-                    contentScale = if (phase == PhotoViewerPhase.Opening) {
-                        ContentScale.Fit
-                    } else {
-                        ContentScale.Crop
-                    }
-                )
-            }
+        if (transitionRect != Rect.Zero) {
+            TransitionPhoto(
+                painter = transitionPainter,
+                contentDescription = transitionItem.contentDescription,
+                rect = transitionRect,
+                cornerRadiusPx = transitionCornerRadius,
+            )
         }
     }
 }
 
 @Composable
 private fun TransitionPhoto(
-    model: Any,
+    painter: Painter,
     contentDescription: String?,
     rect: Rect,
     cornerRadiusPx: Float,
-    alpha: Float,
-    contentScale: ContentScale
 ) {
-    if (rect.width <= 1f || rect.height <= 1f || alpha <= 0f) return
+    if (rect.width <= 1f || rect.height <= 1f) return
     val density = LocalDensity.current
     Box(
         modifier = Modifier
             .offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
             .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
-            .graphicsLayer { this.alpha = alpha }
             .clip(RoundedCornerShape(with(density) { cornerRadiusPx.toDp() }))
     ) {
-        AsyncImage(
-            model = model,
+        Image(
+            painter = painter,
             contentDescription = contentDescription,
-            contentScale = contentScale,
+            contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
     }
@@ -555,11 +489,7 @@ private fun ZoomablePhotoPage(
     val context = LocalContext.current
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
-    val painter = rememberAsyncImagePainter(
-        model = remember(item.model) {
-            ImageRequest.Builder(context).data(item.model).crossfade(false).build()
-        }
-    )
+    val painter = rememberViewerPainter(item.model)
     val scale = remember(item.id) { Animatable(1f) }
     val offsetX = remember(item.id) { Animatable(0f) }
     val offsetY = remember(item.id) { Animatable(0f) }
@@ -576,12 +506,13 @@ private fun ZoomablePhotoPage(
         )
     }
     val isZoomed = scale.value > 1.001f
+    val viewportCenter = Offset(viewportSize.width / 2f, viewportSize.height / 2f)
+    val settleSpec = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+    val zoomSpec = tween<Float>(durationMillis = 260, easing = ViewerEasing)
 
-    LaunchedEffect(item.id, isZoomed) { onZoomStateChanged(isZoomed) }
     LaunchedEffect(item.id, isZoomed) {
-        if (isZoomed) {
-            onDragOffsetChanged(Offset.Zero)
-        }
+        onZoomStateChanged(isZoomed)
+        if (isZoomed) onDragOffsetChanged(Offset.Zero)
     }
     LaunchedEffect(item.id, baseRect) {
         if (baseRect.width > 0f && baseRect.height > 0f) {
@@ -589,11 +520,125 @@ private fun ZoomablePhotoPage(
         }
     }
 
+    // Gestures sit on the untransformed viewport (before any graphicsLayer), so every drag and
+    // pinch is measured in screen pixels: the photo moves exactly with the finger.
     Box(
-        modifier = modifier.fillMaxSize().onSizeChanged { viewportSize = it },
+        modifier = modifier
+            .fillMaxSize()
+            .onSizeChanged { viewportSize = it }
+            .pointerInput(item.id, interactionsEnabled) {
+                if (!interactionsEnabled) return@pointerInput
+                detectTapGestures(
+                    onLongPress = { onLongPress() },
+                    onDoubleTap = { tap ->
+                        scope.launch {
+                            val zoomOut = scale.value > 1.02f
+                            val targetScale = if (zoomOut) 1f else 2.5f
+                            val target = if (zoomOut) {
+                                Offset.Zero
+                            } else {
+                                clampOffset((viewportCenter - tap) * (targetScale - 1f), targetScale, imageSize, viewportSize)
+                            }
+                            coroutineScope {
+                                launch { scale.animateTo(targetScale, zoomSpec) }
+                                launch { offsetX.animateTo(target.x, zoomSpec) }
+                                launch { offsetY.animateTo(target.y, zoomSpec) }
+                            }
+                        }
+                    }
+                )
+            }
+            .pointerInput(item.id, viewportSize, imageSize, isActive, interactionsEnabled) {
+                if (!isActive || !interactionsEnabled) return@pointerInput
+                detectTransformGestures { centroid, pan, zoom, _ ->
+                    // Each step reads the values the previous one left (launches run in order).
+                    scope.launch {
+                        val oldScale = scale.value
+                        val newScale = (oldScale * zoom).coerceIn(1f, 5f)
+                        val next = if (newScale <= 1.01f && oldScale <= 1.01f) {
+                            // Not zoomed: a straight vertical drag towards closing.
+                            val free = Offset(0f, offsetY.value + pan.y)
+                            onDragOffsetChanged(free)
+                            free
+                        } else {
+                            onDragOffsetChanged(Offset.Zero)
+                            val current = Offset(offsetX.value, offsetY.value)
+                            // Keeps the point under the fingers in place while scaling.
+                            val pivot = (centroid - viewportCenter - current) * (1f - newScale / oldScale)
+                            clampOffset(current + pan + pivot, newScale, imageSize, viewportSize)
+                        }
+                        scale.snapTo(newScale)
+                        offsetX.snapTo(next.x)
+                        offsetY.snapTo(next.y)
+                    }
+                }
+            }
+            .pointerInput(item.id, viewportSize, imageSize, isActive, interactionsEnabled) {
+                if (!isActive || !interactionsEnabled) return@pointerInput
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val tracker = VelocityTracker()
+                    tracker.addPosition(down.uptimeMillis, down.position)
+                    do {
+                        val event = awaitPointerEvent()
+                        event.changes.firstOrNull { it.id == down.id }?.let {
+                            tracker.addPosition(it.uptimeMillis, it.position)
+                        }
+                    } while (event.changes.any { it.pressed })
+                    val velocityY = tracker.calculateVelocity().y
+                    scope.launch {
+                        if (scale.value <= 1.01f) {
+                            val dragged = offsetY.value
+                            // A flick closes too, not only a long drag.
+                            val flung = abs(velocityY) > with(density) { 900.dp.toPx() } &&
+                                sign(velocityY) == sign(dragged) &&
+                                abs(dragged) > with(density) { 12.dp.toPx() }
+                            if (abs(dragged) >= dismissSwipeThresholdPx || flung) {
+                                onDismissFromSwipe()
+                                return@launch
+                            }
+                            coroutineScope {
+                                launch { scale.animateTo(1f, settleSpec) }
+                                launch { offsetX.animateTo(0f, settleSpec) }
+                                launch {
+                                    offsetY.animateTo(0f, settleSpec) {
+                                        onDragOffsetChanged(Offset(0f, value))
+                                    }
+                                }
+                            }
+                            onDragOffsetChanged(Offset.Zero)
+                        } else {
+                            val bounded = clampOffset(
+                                Offset(offsetX.value, offsetY.value),
+                                scale.value,
+                                imageSize,
+                                viewportSize
+                            )
+                            coroutineScope {
+                                launch { offsetX.animateTo(bounded.x, settleSpec) }
+                                launch { offsetY.animateTo(bounded.y, settleSpec) }
+                            }
+                        }
+                    }
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
+        val imageModifier = Modifier
+            .size(with(density) { imageSize.width.toDp() }, with(density) { imageSize.height.toDp() })
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+                translationX = offsetX.value
+                translationY = offsetY.value
+            }
         var hiResLoaded by remember(item.id) { mutableStateOf(false) }
+        // The sharper version fades in over the small one instead of popping in.
+        val lowResAlpha by animateFloatAsState(
+            targetValue = if (hiResLoaded) 0f else 1f,
+            animationSpec = tween(durationMillis = 220),
+            label = "PhotoViewerHiRes",
+        )
         if (item.hiResModel != null) {
             AsyncImage(
                 model = remember(item.hiResModel) {
@@ -602,195 +647,18 @@ private fun ZoomablePhotoPage(
                 onSuccess = { hiResLoaded = true },
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .size(with(density) { imageSize.width.toDp() }, with(density) { imageSize.height.toDp() })
-                    .graphicsLayer {
-                        scaleX = scale.value
-                        scaleY = scale.value
-                        translationX = if (isZoomed) offsetX.value else 0f
-                        translationY = if (isZoomed) offsetY.value else 0f
-                    }
+                modifier = imageModifier
             )
         }
-        Image(
-            painter = painter,
-            contentDescription = item.contentDescription,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .size(with(density) { imageSize.width.toDp() }, with(density) { imageSize.height.toDp() })
-                .graphicsLayer {
-                    // Drawn over the hi-res layer until that one has loaded, then hidden (it keeps
-                    // the gestures: alpha doesn't affect touch).
-                    alpha = if (hiResLoaded) 0f else 1f
-                    scaleX = scale.value
-                    scaleY = scale.value
-                    translationX = if (isZoomed) offsetX.value else 0f
-                    translationY = if (isZoomed) offsetY.value else 0f
-                }
-                .pointerInput(item.id, interactionsEnabled) {
-                    if (!interactionsEnabled) return@pointerInput
-                    detectTapGestures(
-                        onLongPress = { onLongPress() },
-                        onDoubleTap = { tap ->
-                            scope.launch {
-                                if (scale.value > 1.02f) {
-                                    coroutineScope {
-                                        launch {
-                                            scale.animateTo(
-                                                1f,
-                                                tween(durationMillis = 220, easing = LinearOutSlowInEasing)
-                                            )
-                                        }
-                                        launch {
-                                            offsetX.animateTo(
-                                                0f,
-                                                tween(durationMillis = 220, easing = LinearOutSlowInEasing)
-                                            )
-                                        }
-                                        launch {
-                                            offsetY.animateTo(
-                                                0f,
-                                                tween(durationMillis = 220, easing = LinearOutSlowInEasing)
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    val targetScale = 2.35f
-                                    val center = Offset(imageSize.width / 2f, imageSize.height / 2f)
-                                    val bounded = clampOffset(
-                                        (center - tap) * (targetScale - 1f),
-                                        targetScale,
-                                        imageSize,
-                                        viewportSize
-                                    )
-                                    coroutineScope {
-                                        launch {
-                                            scale.animateTo(
-                                                targetScale,
-                                                tween(durationMillis = 220, easing = LinearOutSlowInEasing)
-                                            )
-                                        }
-                                        launch {
-                                            offsetX.animateTo(
-                                                bounded.x,
-                                                tween(durationMillis = 220, easing = LinearOutSlowInEasing)
-                                            )
-                                        }
-                                        launch {
-                                            offsetY.animateTo(
-                                                bounded.y,
-                                                tween(durationMillis = 220, easing = LinearOutSlowInEasing)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    )
-                }
-                .pointerInput(item.id, viewportSize, imageSize, isActive, interactionsEnabled) {
-                    if (!isActive || !interactionsEnabled) return@pointerInput
-                    detectTransformGestures { centroid, pan, zoom, _ ->
-                        scope.launch {
-                            val oldScale = scale.value
-                            val newScale = (oldScale * zoom).coerceIn(1f, 4f)
-                            val scaleFactor = if (oldScale > 0f) newScale / oldScale else 1f
-                            val nextOffset = if (newScale <= 1.01f) {
-                                val freeOffset = clampFreeDragOffset(
-                                    candidate = Offset(
-                                        x = 0f,
-                                        y = offsetY.value + (pan.y * 1.1f)
-                                    ),
-                                    viewportSize = viewportSize
-                                )
-                                onDragOffsetChanged(freeOffset)
-                                freeOffset
-                            } else {
-                                onDragOffsetChanged(Offset.Zero)
-                                val currentOffset = Offset(offsetX.value, offsetY.value)
-                                val center = Offset(imageSize.width / 2f, imageSize.height / 2f)
-                                val pivotAdjustment = (centroid - center) * (1f - scaleFactor)
-                                clampOffset(
-                                    currentOffset + (pan * 2.45f) + pivotAdjustment,
-                                    newScale,
-                                    imageSize,
-                                    viewportSize
-                                )
-                            }
-                            scale.snapTo(newScale)
-                            offsetX.snapTo(nextOffset.x)
-                            offsetY.snapTo(nextOffset.y)
-                        }
-                    }
-                }
-                .pointerInput(item.id, viewportSize, imageSize, isActive, interactionsEnabled) {
-                    if (!isActive || !interactionsEnabled) return@pointerInput
-                    awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false)
-                        do {
-                            val event = awaitPointerEvent()
-                        } while (event.changes.any { it.pressed })
-                        scope.launch {
-                            if (scale.value <= 1.01f) {
-                                if (kotlin.math.abs(offsetY.value) >= dismissSwipeThresholdPx) {
-                                    onDismissFromSwipe()
-                                    return@launch
-                                }
-                                coroutineScope {
-                                    launch {
-                                        scale.animateTo(
-                                            1f,
-                                            spring(
-                                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                stiffness = Spring.StiffnessLow
-                                            )
-                                        )
-                                    }
-                                    launch {
-                                        offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessLow)) {
-                                            onDragOffsetChanged(Offset(value, offsetY.value))
-                                        }
-                                    }
-                                    launch {
-                                        offsetY.animateTo(0f, spring(stiffness = Spring.StiffnessLow)) {
-                                            onDragOffsetChanged(Offset(offsetX.value, value))
-                                        }
-                                    }
-                                }
-                                onDragOffsetChanged(Offset.Zero)
-                            } else {
-                                onDragOffsetChanged(Offset.Zero)
-                                val bounded = clampOffset(
-                                    Offset(offsetX.value, offsetY.value),
-                                    scale.value,
-                                    imageSize,
-                                    viewportSize
-                                )
-                                coroutineScope {
-                                    launch {
-                                        offsetX.animateTo(
-                                            bounded.x,
-                                            spring(
-                                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                                stiffness = Spring.StiffnessMediumLow
-                                            )
-                                        )
-                                    }
-                                    launch {
-                                        offsetY.animateTo(
-                                            bounded.y,
-                                            spring(
-                                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                                stiffness = Spring.StiffnessMediumLow
-                                            )
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-        )
+        if (lowResAlpha > 0f) {
+            Image(
+                painter = painter,
+                contentDescription = item.contentDescription,
+                contentScale = ContentScale.Fit,
+                alpha = lowResAlpha,
+                modifier = imageModifier
+            )
+        }
     }
 }
 
@@ -827,12 +695,14 @@ private fun computeDismissSwipeThresholdPx(
     density: Density,
     viewportHeight: Int
 ): Float = with(density) {
-    max(viewportHeight * 0.18f, 104.dp.toPx())
+    max(viewportHeight * 0.14f, 96.dp.toPx())
 }
 
-private fun clampFreeDragOffset(candidate: Offset, viewportSize: IntSize): Offset {
-    if (viewportSize.height <= 0) return Offset(x = 0f, y = candidate.y)
-    return Offset(x = 0f, y = candidate.y)
+/** Fades gently with the drag and bottoms out at [MIN_DRAG_SCRIM]. */
+private fun computeDragScrimAlpha(distance: Float, viewportHeight: Int): Float {
+    if (viewportHeight <= 0) return 1f
+    val fraction = (distance / (viewportHeight * 0.45f)).coerceIn(0f, 1f)
+    return lerpFloat(1f, MIN_DRAG_SCRIM, fraction)
 }
 
 private fun clampOffset(candidate: Offset, scale: Float, imageSize: Size, viewportSize: IntSize): Offset {
@@ -853,26 +723,8 @@ private fun fallbackSourceRect(containerSize: IntSize): Rect {
     return Rect(centerX - side / 2f, centerY - side / 2f, centerX + side / 2f, centerY + side / 2f)
 }
 
-private fun computeCurrentDisplayRect(baseRect: Rect, scale: Float, translation: Offset): Rect {
-    val width = baseRect.width * scale
-    val height = baseRect.height * scale
-    val centerX = baseRect.left + baseRect.width / 2f
-    val centerY = baseRect.top + baseRect.height / 2f
-    return Rect(
-        centerX + translation.x - width / 2f,
-        centerY + translation.y - height / 2f,
-        centerX + translation.x + width / 2f,
-        centerY + translation.y + height / 2f
-    )
-}
-
-private fun scaleRect(rect: Rect, scale: Float): Rect {
-    val width = rect.width * scale
-    val height = rect.height * scale
-    val centerX = rect.left + rect.width / 2f
-    val centerY = rect.top + rect.height / 2f
-    return Rect(centerX - width / 2f, centerY - height / 2f, centerX + width / 2f, centerY + height / 2f)
-}
+private fun computeCurrentDisplayRect(baseRect: Rect, translation: Offset): Rect =
+    baseRect.translate(translation)
 
 private fun lerpRect(start: Rect, stop: Rect, fraction: Float): Rect {
     val t = fraction.coerceIn(0f, 1f)
@@ -884,32 +736,6 @@ private fun lerpRect(start: Rect, stop: Rect, fraction: Float): Rect {
     )
 }
 
-private fun lerpRectWithArc(start: Rect, stop: Rect, fraction: Float): Rect {
-    val t = LinearOutSlowInEasing.transform(fraction.coerceIn(0f, 1f))
-    val width = lerpFloat(start.width, stop.width, t)
-    val height = lerpFloat(start.height, stop.height, t)
-    val startCenterX = start.left + (start.width / 2f)
-    val startCenterY = start.top + (start.height / 2f)
-    val stopCenterX = stop.left + (stop.width / 2f)
-    val stopCenterY = stop.top + (stop.height / 2f)
-    val linearCenterX = lerpFloat(startCenterX, stopCenterX, t)
-    val linearCenterY = lerpFloat(startCenterY, stopCenterY, t)
-    val horizontalDistance = stopCenterX - startCenterX
-    val verticalDistance = stopCenterY - startCenterY
-    val distance = hypot(horizontalDistance.toDouble(), verticalDistance.toDouble()).toFloat()
-    val bow = sin(Math.PI * t.toDouble()).toFloat()
-    val rightArc = min(distance * 0.08f, 44f) * bow
-    val downArc = min(max(kotlin.math.abs(verticalDistance) * 0.12f, distance * 0.04f), 72f) * bow
-    val centerX = linearCenterX + rightArc
-    val centerY = linearCenterY + downArc
-    return Rect(
-        left = centerX - (width / 2f),
-        top = centerY - (height / 2f),
-        right = centerX + (width / 2f),
-        bottom = centerY + (height / 2f)
-    )
-}
-
 private fun android.content.Context.findPhotoViewerActivity(): Activity? = when (this) {
     is Activity -> this
     is android.content.ContextWrapper -> baseContext.findPhotoViewerActivity()
@@ -918,20 +744,6 @@ private fun android.content.Context.findPhotoViewerActivity(): Activity? = when 
 
 private fun lerpFloat(start: Float, stop: Float, fraction: Float): Float =
     start + ((stop - start) * fraction.coerceIn(0f, 1f))
-
-private fun computeDragDistance(offset: Offset): Float =
-    hypot(offset.x.toDouble(), offset.y.toDouble()).toFloat()
-
-private fun computeDragScale(distance: Float, containerSize: IntSize): Float {
-    val reference = min(containerSize.width, containerSize.height).toFloat()
-    if (reference <= 0f) return 1f
-    return (1f - (distance / reference) * 0.18f).coerceIn(0.84f, 1f)
-}
-
-private fun computeScrimAlphaMultiplier(distance: Float, dismissSwipeThresholdPx: Float): Float {
-    if (dismissSwipeThresholdPx <= 0f) return 1f
-    return (1f - (distance / dismissSwipeThresholdPx)).coerceIn(0f, 1f)
-}
 
 private fun Size.aspectRatioOrNull(): Float? = try {
     if (width.isFinite() && height.isFinite() && width > 0f && height > 0f) {

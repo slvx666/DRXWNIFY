@@ -830,7 +830,13 @@
     <string name="lib_sort_recents">Недавние</string>
     <string name="lib_sort_recently_added">Недавно добавленные</string>
     <string name="lib_sort_alphabetical">По алфавиту</string>
-    <string name="lib_sort_creator">Автор</string>
+    <string name="lib_sort_creator">Исполнитель</string>
+    <string name="lib_sort_date_added">Дата добавления</string>
+    <string name="lib_sort_name">Название</string>
+    <string name="lib_sort_newest_first">сначала новые</string>
+    <string name="lib_sort_oldest_first">сначала старые</string>
+    <string name="lib_sort_a_z">А → Я</string>
+    <string name="lib_sort_z_a">Я → А</string>
     <string name="lib_folder_count">Плейлистов: %1$d</string>
     <string name="welcome_title">Добро пожаловать в Drxwnify</string>
     <string name="welcome_subtitle">Вся твоя музыка из Spotify — слушай и скачивай без Premium.</string>
@@ -1011,6 +1017,8 @@
     <string name="search_source_disabled">%1$s выключен в «Настройки → Источники музыки»</string>
     <string name="search_source_needs_account">Для %1$s нужен аккаунт — подключи его в «Настройки → Источники музыки»</string>
     <string name="search_all_sources">Все источники</string>
+    <string name="vk_best_source">Лучший источник: есть почти всё, высокое качество, альбомы</string>
+    <string name="vk_best_source_sign_in">Лучший источник — войди в VK в настройках</string>
     <string name="search_source_spotify">Spotify</string>
     <string name="search_this_artist">Найти исполнителя</string>
     <string name="open_file_location">Перейти к расположению</string>

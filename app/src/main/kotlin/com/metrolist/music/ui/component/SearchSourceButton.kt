@@ -204,7 +204,13 @@ private fun SearchSourceSheet(
                         selected = current == SearchSource.SOURCES && experimentalSource.isBlank(),
                         onClick = { onSelectExperimental("") },
                     )
-                    SourceSearch.PROVIDERS.filter { it != AudioProviderId.SOULSEEK }.forEach { provider ->
+                    // VK stands out on its own line: it is the source worth signing in for.
+                    FeaturedVkChip(
+                        selected = current == SearchSource.SOURCES && experimentalSource == AudioProviderId.VK.name,
+                        status = SourceSearch.statusOf(AudioProviderId.VK),
+                        onClick = { onSelectExperimental(AudioProviderId.VK.name) },
+                    )
+                    SourceSearch.PROVIDERS.filter { it != AudioProviderId.SOULSEEK && it != AudioProviderId.VK }.forEach { provider ->
                         SourceChip(
                             label = providerLabel(provider),
                             note = when (SourceSearch.statusOf(provider)) {
@@ -225,6 +231,63 @@ private fun SearchSourceSheet(
                 }
 
             }
+        }
+    }
+}
+
+/** VK's own blue, a little brighter than the sheet's other chips. */
+private val VkColor = Color(0xFF3D8BFF)
+private val CrownColor = Color(0xFFFFC23D)
+
+/** VK, the best source: full width, brighter outline, a crown and a line saying why. */
+@Composable
+private fun FeaturedVkChip(
+    selected: Boolean,
+    status: SourceSearch.Status,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(VkColor.copy(alpha = if (selected) 0.26f else 0.12f))
+            .border(BorderStroke(1.5.dp, VkColor.copy(alpha = if (selected) 1f else 0.8f)), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.crown),
+            contentDescription = null,
+            tint = CrownColor,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "VK",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (selected) VkColor else MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = when (status) {
+                    SourceSearch.Status.READY -> stringResource(R.string.vk_best_source)
+                    SourceSearch.Status.DISABLED -> stringResource(R.string.source_status_off)
+                    SourceSearch.Status.NEEDS_ACCOUNT -> stringResource(R.string.vk_best_source_sign_in)
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (selected) {
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                painter = painterResource(R.drawable.check),
+                contentDescription = null,
+                tint = VkColor,
+                modifier = Modifier.size(16.dp),
+            )
         }
     }
 }

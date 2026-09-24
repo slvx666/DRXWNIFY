@@ -51,6 +51,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -101,6 +102,7 @@ fun SpotifyLibraryScreen(
     val entries by viewModel.entries.collectAsState()
     val filter by viewModel.filter.collectAsState()
     val sort by viewModel.sort.collectAsState()
+    val sortReversed by viewModel.reversed.collectAsState()
     val loading by viewModel.loading.collectAsState()
     var grid by rememberPreference(LibraryGridKey, false)
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -177,6 +179,7 @@ fun SpotifyLibraryScreen(
         item(key = "sort", span = { GridItemSpan(maxLineSpan) }) {
             SortRow(
                 sort = sort,
+                reversed = sortReversed,
                 grid = grid,
                 isSearchActive = isSearchActive,
                 searchQuery = searchQuery,
@@ -184,6 +187,7 @@ fun SpotifyLibraryScreen(
                 onSearchActiveChange = { isSearchActive = it },
                 keyboardController = keyboardController,
                 onSort = viewModel::setSort,
+                onToggleReversed = viewModel::toggleReversed,
                 onToggleGrid = { grid = !grid },
             )
         }
@@ -330,6 +334,7 @@ private fun CloseChip(onClick: () -> Unit) {
 @Composable
 private fun SortRow(
     sort: Sort,
+    reversed: Boolean,
     grid: Boolean,
     isSearchActive: Boolean,
     searchQuery: String,
@@ -337,16 +342,28 @@ private fun SortRow(
     onSearchActiveChange: (Boolean) -> Unit,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
     onSort: (Sort) -> Unit,
+    onToggleReversed: () -> Unit,
     onToggleGrid: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    val sortLabel = stringResource(
-        when (sort) {
-            Sort.RECENTS -> R.string.lib_sort_recents
-            Sort.RECENTLY_ADDED -> R.string.lib_sort_recently_added
-            Sort.ALPHABETICAL -> R.string.lib_sort_alphabetical
-            Sort.CREATOR -> R.string.lib_sort_creator
-        },
+    val options = listOf(
+        Sort.DATE_ADDED to R.string.lib_sort_date_added,
+        Sort.NAME to R.string.lib_sort_name,
+        Sort.CREATOR to R.string.lib_sort_creator,
+    )
+    val newestFirst = stringResource(R.string.lib_sort_newest_first)
+    val oldestFirst = stringResource(R.string.lib_sort_oldest_first)
+    val aToZ = stringResource(R.string.lib_sort_a_z)
+    val zToA = stringResource(R.string.lib_sort_z_a)
+    fun directionLabel(s: Sort, flipped: Boolean) = when (s) {
+        Sort.DATE_ADDED -> if (flipped) oldestFirst else newestFirst
+        Sort.NAME, Sort.CREATOR -> if (flipped) zToA else aToZ
+    }
+    // The arrow turns over smoothly when the order is flipped.
+    val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (reversed) 180f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(220),
+        label = "sortArrow",
     )
     LibrarySearchHeader(
         isSearchActive = isSearchActive,
@@ -357,31 +374,63 @@ private fun SortRow(
             onSearchQueryChange("")
         },
         keyboardController = keyboardController,
-        modifier = Modifier.padding(start = 16.dp),
+        modifier = Modifier.padding(start = 8.dp),
     ) {
+        IconButton(onClick = onToggleReversed, modifier = Modifier.size(36.dp)) {
+            Icon(
+                painter = painterResource(R.drawable.arrow_downward),
+                contentDescription = directionLabel(sort, !reversed),
+                modifier = Modifier
+                    .size(18.dp)
+                    .graphicsLayer { rotationZ = arrowRotation },
+            )
+        }
         Box {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { menu = true }.padding(vertical = 8.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { menu = true }
+                    .padding(vertical = 8.dp, horizontal = 4.dp),
             ) {
-                Icon(painterResource(R.drawable.arrow_downward), null, Modifier.size(14.dp))
-                Icon(painterResource(R.drawable.arrow_upward), null, Modifier.size(14.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(sortLabel, style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(options.first { it.first == sort }.second), style = MaterialTheme.typography.labelLarge)
+                Text(
+                    " · " + directionLabel(sort, reversed),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                listOf(
-                    Sort.RECENTS to R.string.lib_sort_recents,
-                    Sort.RECENTLY_ADDED to R.string.lib_sort_recently_added,
-                    Sort.ALPHABETICAL to R.string.lib_sort_alphabetical,
-                    Sort.CREATOR to R.string.lib_sort_creator,
-                ).forEach { (s, res) ->
+                options.forEach { (s, res) ->
+                    val selected = s == sort
                     DropdownMenuItem(
                         text = {
-                            Text(
-                                stringResource(res),
-                                color = if (s == sort) SpotifyGreen else MaterialTheme.colorScheme.onSurface,
-                            )
+                            Column {
+                                Text(
+                                    stringResource(res),
+                                    color = if (selected) SpotifyGreen else MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    directionLabel(s, selected && reversed),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
+                        trailingIcon = if (selected) {
+                            {
+                                // Tapping the current order again flips it.
+                                Icon(
+                                    painter = painterResource(R.drawable.arrow_downward),
+                                    contentDescription = null,
+                                    tint = SpotifyGreen,
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .graphicsLayer { rotationZ = arrowRotation },
+                                )
+                            }
+                        } else {
+                            null
                         },
                         onClick = { onSort(s); menu = false },
                     )

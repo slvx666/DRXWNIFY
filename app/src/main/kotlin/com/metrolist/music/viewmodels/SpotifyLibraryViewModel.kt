@@ -29,16 +29,25 @@ import javax.inject.Inject
 @HiltViewModel
 class SpotifyLibraryViewModel @Inject constructor(
     database: MusicDatabase,
+    @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context,
 ) : ViewModel() {
 
     enum class Filter(val gql: String?) { ALL(null), PLAYLISTS("Playlists"), ALBUMS("Albums"), ARTISTS("Artists") }
-    enum class Sort { RECENTS, RECENTLY_ADDED, ALPHABETICAL, CREATOR }
+    /** Each order can be flipped ([reversed]): newest/oldest first, A→Z/Z→A. */
+    enum class Sort { DATE_ADDED, NAME, CREATOR }
 
     private val _filter = MutableStateFlow(Filter.ALL)
     val filter: StateFlow<Filter> = _filter.asStateFlow()
 
-    private val _sort = MutableStateFlow(Sort.RECENTS)
+    private val prefs = context.getSharedPreferences("library_sort", android.content.Context.MODE_PRIVATE)
+
+    private val _sort = MutableStateFlow(
+        prefs.getString("sort", null)?.let { runCatching { Sort.valueOf(it) }.getOrNull() } ?: Sort.DATE_ADDED,
+    )
     val sort: StateFlow<Sort> = _sort.asStateFlow()
+
+    private val _reversed = MutableStateFlow(prefs.getBoolean("reversed", false))
+    val reversed: StateFlow<Boolean> = _reversed.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -80,9 +89,9 @@ class SpotifyLibraryViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val entries: StateFlow<List<SpotifyLibraryEntry>> =
-        combine(cache, _filter, _sort, localPlaylists) { c, f, s, local ->
+        combine(cache, _filter, _sort, _reversed, localPlaylists) { c, f, s, reversed, local ->
             val own = if (f == Filter.ALL || f == Filter.PLAYLISTS) local else emptyList()
-            own + applySort(c[f].orEmpty(), s)
+            applySort(own, c[f].orEmpty(), s, reversed)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
@@ -100,9 +109,18 @@ class SpotifyLibraryViewModel @Inject constructor(
         _filter.value = Filter.ALL
     }
 
+    /** Picking the current order again flips it; another order starts from its usual direction. */
     fun setSort(s: Sort) {
-        _sort.value = s
+        if (_sort.value == s) {
+            _reversed.value = !_reversed.value
+        } else {
+            _sort.value = s
+            _reversed.value = false
+        }
+        prefs.edit().putString("sort", _sort.value.name).putBoolean("reversed", _reversed.value).apply()
     }
+
+    fun toggleReversed() = setSort(_sort.value)
 
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
@@ -150,16 +168,31 @@ class SpotifyLibraryViewModel @Inject constructor(
         }
     }
 
-    private fun applySort(list: List<SpotifyLibraryEntry>, s: Sort): List<SpotifyLibraryEntry> {
-        // Pinned items always stay on top, in Spotify's order.
+    private fun applySort(
+        own: List<SpotifyLibraryEntry>,
+        list: List<SpotifyLibraryEntry>,
+        s: Sort,
+        reversed: Boolean,
+    ): List<SpotifyLibraryEntry> {
+        // Pinned items always stay on top, in the account's order.
         val (pinned, rest) = list.partition { it.pinned }
-        val sortedRest = when (s) {
-            Sort.RECENTS -> rest
-            Sort.RECENTLY_ADDED -> rest.sortedByDescending { it.addedAt.orEmpty() }
-            Sort.ALPHABETICAL -> rest.sortedBy { it.name.lowercase() }
-            Sort.CREATOR -> rest.sortedBy { (it.creator ?: it.name).lowercase() }
+        val collator = java.text.Collator.getInstance().apply { strength = java.text.Collator.PRIMARY }
+        val sorted = when (s) {
+            // Newest first. Entries without a date keep the account's own order (already newest
+            // first); the app's own playlists, newest first as well, lead.
+            Sort.DATE_ADDED -> own + rest.withIndex()
+                .sortedWith(
+                    compareByDescending<IndexedValue<SpotifyLibraryEntry>> { it.value.addedAt.orEmpty() }
+                        .thenBy { it.index },
+                )
+                .map { it.value }
+            Sort.NAME -> (own + rest).sortedWith(compareBy(collator) { it.name })
+            Sort.CREATOR -> (own + rest).sortedWith(
+                compareBy<SpotifyLibraryEntry, String>(collator) { it.creator ?: it.name }
+                    .thenBy(collator) { it.name },
+            )
         }
-        return pinned + sortedRest
+        return pinned + if (reversed) sorted.asReversed() else sorted
     }
 
     companion object {

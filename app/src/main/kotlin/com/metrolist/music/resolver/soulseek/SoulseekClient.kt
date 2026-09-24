@@ -69,6 +69,10 @@ class SoulseekClient(
 
     private val downloads = CopyOnWriteArrayList<Download>()
 
+    // For the diagnostics log: how many peers asked to reach us, and how many we reached.
+    private val connectRequests = AtomicInteger()
+    private val connectFailures = AtomicInteger()
+
     class LoginException(message: String) : Exception(message)
 
     // ── Server connection ────────────────────────────────────────────────────────────────────────
@@ -83,8 +87,14 @@ class SoulseekClient(
         loggedInAs?.takeIf { server?.isConnected == true && server?.isClosed == false }?.let { return it }
         val (user, pass) = credentials() ?: throw LoginException("Soulseek account not set")
         disconnect()
+        AudioDiagnostics.info("soulseek: connecting to $SERVER_HOST:$SERVER_PORT as $user")
         val socket = Socket()
-        socket.connect(InetSocketAddress(SERVER_HOST, SERVER_PORT), CONNECT_TIMEOUT_MS)
+        try {
+            socket.connect(InetSocketAddress(SERVER_HOST, SERVER_PORT), CONNECT_TIMEOUT_MS)
+        } catch (e: IOException) {
+            AudioDiagnostics.warn("soulseek: server unreachable: ${e.message}")
+            throw e
+        }
         socket.soTimeout = 0
         server = socket
         serverOut = socket.getOutputStream()
@@ -95,10 +105,12 @@ class SoulseekClient(
         when (val result = withTimeoutOrNull(LOGIN_TIMEOUT_MS) { login.await() }) {
             is SlskProtocol.LoginResult.Success -> Unit
             is SlskProtocol.LoginResult.Failure -> {
+                AudioDiagnostics.warn("soulseek: login refused: ${result.reason}")
                 disconnect()
                 throw LoginException(result.reason)
             }
             null -> {
+                AudioDiagnostics.warn("soulseek: login timed out")
                 disconnect()
                 throw LoginException("login timed out")
             }
@@ -232,9 +244,13 @@ class SoulseekClient(
 
     /** The server relays a peer that wants to reach us: we connect to it and "pierce" with its token. */
     private fun answerConnectRequest(request: SlskProtocol.ConnectToPeer) {
+        connectRequests.incrementAndGet()
         val socket = runCatching {
             Socket().apply { connect(InetSocketAddress(request.ip, request.port), CONNECT_TIMEOUT_MS) }
-        }.getOrNull() ?: return
+        }.getOrNull() ?: run {
+            connectFailures.incrementAndGet()
+            return
+        }
         try {
             socket.getOutputStream().apply { write(SlskProtocol.pierceFirewall(request.token)); flush() }
             when (request.type) {
@@ -309,9 +325,16 @@ class SoulseekClient(
         val token = tokens.incrementAndGet()
         val collector = CopyOnWriteArrayList<SlskProtocol.SearchResponse>()
         searches[token] = collector
+        val requestsBefore = connectRequests.get()
+        val failuresBefore = connectFailures.get()
         try {
             sendServer(SlskProtocol.fileSearch(token, query))
             delay(windowMs)
+            AudioDiagnostics.info(
+                "soulseek: '$query' → ${collector.size} peer answer(s), ${collector.sumOf { it.files.size }} file(s); " +
+                    "${connectRequests.get() - requestsBefore} peer(s) asked to connect, " +
+                    "${connectFailures.get() - failuresBefore} unreachable",
+            )
             return collector.toList()
         } finally {
             searches.remove(token)
