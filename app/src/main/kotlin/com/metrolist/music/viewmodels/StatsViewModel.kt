@@ -257,11 +257,13 @@ constructor(
                         lastSyncMillis = preferences[LastWeeklyMostPlaylistSyncKey],
                         now = now,
                     )
-                val shouldSyncMonthly =
-                    force || !monthlyPlaylistExists || isMonthlySyncDue(
-                        lastSyncMillis = preferences[LastMonthlyMostPlaylistSyncKey],
-                        now = now,
-                    )
+                // "Most played this month" is no longer made; one created earlier is removed.
+                if (monthlyPlaylistExists) {
+                    database.playlist(PlaylistEntity.MONTHLY_MOST_PLAYLIST_ID).first()?.let { existing ->
+                        database.query { delete(existing.playlist) }
+                    }
+                }
+                val shouldSyncMonthly = false
 
                 if (!shouldSyncWeekly && !shouldSyncMonthly) {
                     return@withLock

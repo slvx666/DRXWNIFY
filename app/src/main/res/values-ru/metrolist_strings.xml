@@ -1058,4 +1058,6 @@
     <string name="vk_saved">Сохранено в твою музыку VK</string>
     <string name="vk_unsaved">Убрано из твоей музыки VK</string>
     <string name="vk_save_failed">VK не принял запрос</string>
+    <string name="cover_viewer_hint">Щипок — приблизить · двойное касание · удерживай, чтобы сохранить</string>
+    <string name="add_to_playlist_failed">Не удалось добавить в плейлист</string>
 </resources>

@@ -59,7 +59,7 @@ object CoverSaver {
     }
 
     /** The biggest variant of [url] that its service serves under a predictable address. */
-    internal fun largest(url: String): String = when {
+    fun largest(url: String): String = when {
         // Spotify: 300 px (…1e02…) / 64 px (…4851…) → 640 px (…b273…).
         "i.scdn.co/image/" in url ->
             url.replace("ab67616d00001e02", "ab67616d0000b273").replace("ab67616d00004851", "ab67616d0000b273")

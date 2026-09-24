@@ -5,28 +5,44 @@
 
 package com.metrolist.music.ui.screens.library
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
-import com.metrolist.music.R
 import com.metrolist.music.constants.ChipSortTypeKey
 import com.metrolist.music.constants.LibraryFilter
-import com.metrolist.music.ui.screens.library.local.LocalFilesScreen
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.unit.dp
 import com.metrolist.music.ui.component.CreatePlaylistDialog
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.viewmodels.SpotifyLibraryViewModel
+
+/**
+ * Switching library sections (a filter, "Local", "VK"): the new section fades in rising slightly
+ * while the old one fades out, instead of the screen swapping in one frame.
+ */
+private fun <S> AnimatedContentTransitionScope<S>.librarySectionTransition(): ContentTransform =
+    (
+        fadeIn(tween(SECTION_IN_MS, delayMillis = SECTION_OUT_MS / 2, easing = FastOutSlowInEasing)) +
+            slideInVertically(tween(SECTION_IN_MS, easing = FastOutSlowInEasing)) { it / 28 } +
+            scaleIn(tween(SECTION_IN_MS, easing = FastOutSlowInEasing), initialScale = 0.985f)
+        ) togetherWith fadeOut(tween(SECTION_OUT_MS))
+
+private const val SECTION_IN_MS = 280
+private const val SECTION_OUT_MS = 140
 
 @Composable
 fun LibraryScreen(navController: NavController) {
@@ -41,59 +57,76 @@ fun LibraryScreen(navController: NavController) {
         ?.getStateFlow("scrollToTop", false)
         ?.collectAsState() ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
 
-    // "VK": the connected VK account's own playlists and added albums, next to the other chips.
+    // "VK": the connected VK account's own music, next to the other chips.
     val (vkToken) = com.metrolist.music.utils.rememberPreference(com.metrolist.music.constants.VkAccessTokenKey, "")
     var showVk by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(resetRequested) {
         if (resetRequested) showVk = false
     }
     val openVk: (() -> Unit)? = if (vkToken.isNotEmpty()) ({ showVk = true }) else null
-    if (showVk && vkToken.isNotEmpty()) {
-        androidx.compose.runtime.CompositionLocalProvider(
-            com.metrolist.music.ui.component.LocalListItemSizes provides
-                com.metrolist.music.ui.component.LibraryListItemSizes,
-        ) {
-            com.metrolist.music.ui.screens.vk.VkLibraryScreen(
-                navController = navController,
-                onClose = { showVk = false },
-            )
-        }
-        androidx.activity.compose.BackHandler { showVk = false }
-        return
-    }
+    val vkOpen = showVk && vkToken.isNotEmpty()
+    if (vkOpen) androidx.activity.compose.BackHandler { showVk = false }
 
-    if (catalogState.isActive) {
-        var showLocal by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-        androidx.compose.runtime.LaunchedEffect(resetRequested) {
-            if (resetRequested) showLocal = false
-        }
-        androidx.compose.runtime.CompositionLocalProvider(
-            com.metrolist.music.ui.component.LocalListItemSizes provides
-                com.metrolist.music.ui.component.LibraryListItemSizes,
-        ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (showLocal) {
-                LibraryLocalScreen(
-                    navController,
-                    filterContent = {
-                        LibraryChips(
-                            selected = com.metrolist.music.viewmodels.SpotifyLibraryViewModel.Filter.ALL,
-                            localSelected = true,
-                            onSelect = { showLocal = false },
-                            onClear = { showLocal = false },
-                            onLocal = { showLocal = false },
-                        )
-                    },
+    // Same row proportions everywhere in the library, so the sections don't look like different apps.
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.metrolist.music.ui.component.LocalListItemSizes provides
+            com.metrolist.music.ui.component.LibraryListItemSizes,
+    ) {
+        AnimatedContent(
+            targetState = vkOpen,
+            transitionSpec = { librarySectionTransition() },
+            label = "librarySection",
+            modifier = Modifier.fillMaxSize(),
+        ) { vk ->
+            when {
+                vk -> com.metrolist.music.ui.screens.vk.VkLibraryScreen(
+                    navController = navController,
+                    onClose = { showVk = false },
                 )
-                androidx.activity.compose.BackHandler { showLocal = false }
-            } else {
-                SpotifyLibraryScreen(navController, onLocalSelected = { showLocal = true }, onVkSelected = openVk)
+                catalogState.isActive -> AccountLibrary(navController, resetRequested, openVk)
+                else -> LocalLibrary(navController, resetRequested, openVk)
             }
         }
-        }
-        return
     }
+}
 
+/** The library of the connected Spotify / Yandex Music account, with "Local" one chip away. */
+@Composable
+private fun AccountLibrary(navController: NavController, resetRequested: Boolean, openVk: (() -> Unit)?) {
+    var showLocal by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(resetRequested) {
+        if (resetRequested) showLocal = false
+    }
+    if (showLocal) androidx.activity.compose.BackHandler { showLocal = false }
+
+    AnimatedContent(
+        targetState = showLocal,
+        transitionSpec = { librarySectionTransition() },
+        label = "accountLibrary",
+        modifier = Modifier.fillMaxSize(),
+    ) { local ->
+        if (local) {
+            LibraryLocalScreen(
+                navController,
+                filterContent = {
+                    LibraryChips(
+                        selected = SpotifyLibraryViewModel.Filter.ALL,
+                        localSelected = true,
+                        onSelect = { showLocal = false },
+                        onClear = { showLocal = false },
+                        onLocal = { showLocal = false },
+                    )
+                },
+            )
+        } else {
+            SpotifyLibraryScreen(navController, onLocalSelected = { showLocal = true }, onVkSelected = openVk)
+        }
+    }
+}
+
+/** The library without a music account: what is saved inside the app. */
+@Composable
+private fun LocalLibrary(navController: NavController, resetRequested: Boolean, openVk: (() -> Unit)?) {
     var filterType by rememberEnumPreference(ChipSortTypeKey, LibraryFilter.LIBRARY)
     androidx.compose.runtime.LaunchedEffect(resetRequested) {
         if (resetRequested && filterType != LibraryFilter.LIBRARY) filterType = LibraryFilter.LIBRARY
@@ -113,7 +146,7 @@ fun LibraryScreen(navController: NavController) {
         )
     }
 
-    // The same chip row as the account library: all four filters when none is picked; once one is,
+    // The same chip row as the account library: all filters when none is picked; once one is,
     // only [×] and that filter stay (plus "+" for Playlists), exactly like the Spotify client.
     val filterContent = @Composable {
         LibraryChips(
@@ -140,37 +173,37 @@ fun LibraryScreen(navController: NavController) {
         )
     }
 
-    // Same row proportions as the account library, so the two don't look like different apps.
-    androidx.compose.runtime.CompositionLocalProvider(
-        com.metrolist.music.ui.component.LocalListItemSizes provides
-            com.metrolist.music.ui.component.LibraryListItemSizes,
-    ) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        when (filterType) {
-            LibraryFilter.LIBRARY -> LibraryMixScreen(navController, filterContent)
-            LibraryFilter.PLAYLISTS -> LibraryPlaylistsScreen(navController, filterContent)
-            LibraryFilter.SONGS -> LibrarySongsScreen(
-                navController,
-                { filterType = LibraryFilter.LIBRARY },
-            )
-            LibraryFilter.ALBUMS -> LibraryAlbumsScreen(
-                navController,
-                { filterType = LibraryFilter.LIBRARY },
-            )
-            LibraryFilter.ARTISTS -> LibraryArtistsScreen(
-                navController,
-                { filterType = LibraryFilter.LIBRARY },
-            )
-            LibraryFilter.PODCASTS -> LibraryPodcastsScreen(
-                navController,
-                { filterType = LibraryFilter.LIBRARY },
-            )
+    AnimatedContent(
+        targetState = filterType,
+        transitionSpec = { librarySectionTransition() },
+        label = "localLibrary",
+        modifier = Modifier.fillMaxSize(),
+    ) { type ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            when (type) {
+                LibraryFilter.LIBRARY -> LibraryMixScreen(navController, filterContent)
+                LibraryFilter.PLAYLISTS -> LibraryPlaylistsScreen(navController, filterContent)
+                LibraryFilter.SONGS -> LibrarySongsScreen(
+                    navController,
+                    { filterType = LibraryFilter.LIBRARY },
+                )
+                LibraryFilter.ALBUMS -> LibraryAlbumsScreen(
+                    navController,
+                    { filterType = LibraryFilter.LIBRARY },
+                )
+                LibraryFilter.ARTISTS -> LibraryArtistsScreen(
+                    navController,
+                    { filterType = LibraryFilter.LIBRARY },
+                )
+                LibraryFilter.PODCASTS -> LibraryPodcastsScreen(
+                    navController,
+                    { filterType = LibraryFilter.LIBRARY },
+                )
 
-            // P5: "Local" now lists the on-device / linked auto-collections (Downloaded, Cached,
-            // Uploaded, Spotify Liked Songs) with counts — Spotify-style — instead of the raw
-            // device-file browser. filterContent keeps the top chips so the user can switch back.
-            LibraryFilter.LOCAL_FILES -> LibraryLocalScreen(navController, filterContent)
+                // "Local" lists the on-device / linked auto-collections (Downloaded, Cached, Uploaded,
+                // Spotify Liked Songs) with counts; filterContent keeps the top chips to switch back.
+                LibraryFilter.LOCAL_FILES -> LibraryLocalScreen(navController, filterContent)
+            }
         }
-    }
     }
 }

@@ -524,23 +524,21 @@ private fun ThumbnailItem(
     var skipMultiplier by remember { mutableIntStateOf(1) }
     var lastTapTime by remember { mutableLongStateOf(0L) }
 
-    // Long press on the artwork offers to save it to the gallery.
-    var showSaveCover by remember { androidx.compose.runtime.mutableStateOf(false) }
+    // Tap: the cover full screen (zoomable). Long press: saved to the gallery straight away.
+    val coverViewer = com.metrolist.music.ui.component.rememberCoverViewerState()
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val coverUrl = if (item.mediaId == currentMediaId && !currentMediaThumbnail.isNullOrBlank()) {
         currentMediaThumbnail
     } else {
         item.mediaMetadata.artworkUri?.toString()
     }
-    if (showSaveCover) {
-        com.metrolist.music.ui.component.SaveCoverDialog(
-            url = coverUrl,
-            name = listOfNotNull(
-                item.mediaMetadata.artist?.toString()?.takeIf { it.isNotBlank() },
-                item.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() },
-            ).joinToString(" - "),
-            onDismiss = { showSaveCover = false },
-        )
-    }
+    val coverName = listOfNotNull(
+        item.mediaMetadata.artist?.toString()?.takeIf { it.isNotBlank() },
+        item.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() },
+    ).joinToString(" - ")
+    val currentCoverUrl by androidx.compose.runtime.rememberUpdatedState(coverUrl)
+    val currentCoverName by androidx.compose.runtime.rememberUpdatedState(coverName)
+    coverViewer.Content()
 
     Box(
         modifier = modifier
@@ -560,8 +558,14 @@ private fun ThumbnailItem(
             }
             .pointerInput(Unit) {
                 detectTapGestures(
+                    onTap = {
+                        if (!hidePlayerThumbnail) coverViewer.open(currentCoverUrl, currentCoverName)
+                    },
                     onLongPress = {
-                        if (!hidePlayerThumbnail) showSaveCover = true
+                        if (!hidePlayerThumbnail && !currentCoverUrl.isNullOrBlank()) {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            coverViewer.save(currentCoverUrl, currentCoverName)
+                        }
                     },
                     onDoubleTap = { offset ->
                         if (isListenTogetherGuest) return@detectTapGestures

@@ -1353,4 +1353,6 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="vk_saved">Saved to your VK music</string>
     <string name="vk_unsaved">Removed from your VK music</string>
     <string name="vk_save_failed">VK did not accept it</string>
+    <string name="cover_viewer_hint">Pinch to zoom · double tap · hold to save</string>
+    <string name="add_to_playlist_failed">Could not add to the playlist</string>
 </resources>

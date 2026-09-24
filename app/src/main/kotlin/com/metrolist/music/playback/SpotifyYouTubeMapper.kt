@@ -137,7 +137,9 @@ class SpotifyYouTubeMapper(
      */
     suspend fun persistSpotifyMetadata(metadata: MediaMetadata, track: SpotifyTrack) = withContext(Dispatchers.IO) {
         SpotifyMetadataRegistry.register(metadata.id, track)
-        runCatching { database.transaction { upsertMetadata(metadata) } }
+        // Written before returning (not queued): callers such as "add to playlist" use the row
+        // right away.
+        runCatching { database.withTransaction { upsertMetadata(metadata) } }
             .onFailure { Timber.w(it, "persistSpotifyMetadata failed for ${metadata.id}") }
     }
 

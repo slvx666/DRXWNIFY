@@ -157,18 +157,11 @@ fun SpotifyAlbumScreen(
                         ?: album?.images?.firstOrNull()?.url
 
                     if (thumbnailUrl != null) {
-                        // Long press: save the cover (in its largest size) to the gallery.
-                        var showSaveCover by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-                        if (showSaveCover) {
-                            com.metrolist.music.ui.component.SaveCoverDialog(
-                                url = album?.images?.maxByOrNull { it.width ?: 0 }?.url ?: thumbnailUrl,
-                                name = listOfNotNull(
-                                    album?.artists?.firstOrNull()?.name,
-                                    album?.name,
-                                ).joinToString(" - "),
-                                onDismiss = { showSaveCover = false },
-                            )
-                        }
+                        // Tap: full screen (zoomable). Long press: saved to the gallery.
+                        val coverViewer = com.metrolist.music.ui.component.rememberCoverViewerState()
+                        val coverName = listOfNotNull(album?.artists?.firstOrNull()?.name, album?.name).joinToString(" - ")
+                        val largestUrl = album?.images?.maxByOrNull { it.width ?: 0 }?.url ?: thumbnailUrl
+                        coverViewer.Content()
                         AsyncImage(
                             model = thumbnailUrl,
                             contentDescription = album?.name,
@@ -178,7 +171,8 @@ fun SpotifyAlbumScreen(
                                 .clip(RoundedCornerShape(ThumbnailCornerRadius))
                                 .pointerInput(Unit) {
                                     detectTapGestures(
-                                        onLongPress = { showSaveCover = true },
+                                        onTap = { coverViewer.open(largestUrl, coverName) },
+                                        onLongPress = { coverViewer.save(largestUrl, coverName) },
                                     )
                                 },
                         )

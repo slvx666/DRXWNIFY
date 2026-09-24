@@ -127,12 +127,19 @@ fun AddToPlaylistDialog(
     }
 
     suspend fun addSongsAndSync(targetPlaylist: Playlist, ids: List<String>) {
+        // Only songs that have a row in the database can go into a playlist.
+        val added = ids.count { database.getSongByIdBlocking(it) != null }
         database.addSongToPlaylist(targetPlaylist, ids)
-        // Adding used to happen in silence, so there was no telling whether it had worked.
+        // Adding used to happen in silence — and a song missing from the database was skipped
+        // just as silently. The toast now says what really happened.
         withContext(Dispatchers.Main) {
             Toast.makeText(
                 context,
-                context.getString(R.string.spotify_track_added_to_playlist, targetPlaylist.playlist.name),
+                if (added > 0) {
+                    context.getString(R.string.spotify_track_added_to_playlist, targetPlaylist.playlist.name)
+                } else {
+                    context.getString(R.string.add_to_playlist_failed)
+                },
                 Toast.LENGTH_SHORT,
             ).show()
         }
@@ -312,9 +319,11 @@ fun AddToPlaylistDialog(
                     .clickable {
                         selectedPlaylist = playlist
                         coroutineScope.launch(Dispatchers.IO) {
-                            if (songIds == null) {
-                                songIds = onGetSong(playlist)
-                            }
+                            // Always through onGetSong: it is what writes the song rows. The ids
+                            // from onGetSongIds (used to mark playlists that already have the song)
+                            // may name a song that is not in the database yet, and such a song
+                            // would be skipped without a word.
+                            songIds = onGetSong(playlist)
                             duplicates = database.playlistDuplicates(playlist.id, songIds!!)
                             if (duplicates.isNotEmpty()) {
                                 showDuplicateDialog = true

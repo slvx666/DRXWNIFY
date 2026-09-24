@@ -339,14 +339,10 @@ fun VkPlaylistScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     ) {
-                        var showSaveCover by remember { androidx.compose.runtime.mutableStateOf(false) }
-                        if (showSaveCover) {
-                            com.metrolist.music.ui.component.SaveCoverDialog(
-                                url = playlist.coverUrl,
-                                name = listOf(playlist.artist, playlist.title).filter { it.isNotBlank() }.joinToString(" - "),
-                                onDismiss = { showSaveCover = false },
-                            )
-                        }
+                        // Tap: full screen (zoomable). Long press: saved to the gallery.
+                        val coverViewer = com.metrolist.music.ui.component.rememberCoverViewerState()
+                        val coverName = listOf(playlist.artist, playlist.title).filter { it.isNotBlank() }.joinToString(" - ")
+                        coverViewer.Content()
                         AsyncImage(
                             model = playlist.coverUrl,
                             contentDescription = null,
@@ -356,8 +352,8 @@ fun VkPlaylistScreen(
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                                 .combinedClickable(
-                                    onClick = {},
-                                    onLongClick = { if (playlist.coverUrl != null) showSaveCover = true },
+                                    onClick = { coverViewer.open(playlist.coverUrl, coverName) },
+                                    onLongClick = { coverViewer.save(playlist.coverUrl, coverName) },
                                 ),
                         )
                         Spacer(Modifier.height(12.dp))
@@ -374,43 +370,47 @@ fun VkPlaylistScreen(
                             textAlign = TextAlign.Center,
                         )
                         Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalButton(onClick = { play(tracks, 0) }, enabled = tracks.isNotEmpty()) {
-                                Icon(painterResource(R.drawable.play), null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(stringResource(R.string.play))
+                        // Three actions, as on any album page: download (left), listen (centre),
+                        // save to "Library → VK" (right).
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            androidx.compose.material3.FilledTonalIconButton(
+                                onClick = ::downloadAll,
+                                enabled = tracks.isNotEmpty(),
+                                modifier = Modifier.size(48.dp),
+                            ) {
+                                Icon(painterResource(R.drawable.download), stringResource(R.string.action_download), Modifier.size(22.dp))
                             }
-                            OutlinedButton(onClick = { play(tracks, 0, shuffle = true) }, enabled = tracks.isNotEmpty()) {
-                                Icon(painterResource(R.drawable.shuffle), null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(stringResource(R.string.shuffle))
+                            androidx.compose.material3.FilledIconButton(
+                                onClick = { play(tracks, 0) },
+                                enabled = tracks.isNotEmpty(),
+                                modifier = Modifier.size(64.dp),
+                            ) {
+                                Icon(painterResource(R.drawable.play), stringResource(R.string.play), Modifier.size(32.dp))
                             }
-                            OutlinedButton(onClick = ::downloadAll, enabled = tracks.isNotEmpty()) {
-                                Icon(painterResource(R.drawable.download), null, Modifier.size(18.dp))
-                            }
-                            // Saves the album into the user's VK music, like "Add" in VK itself;
-                            // it then shows up in Library -> VK.
-                            if (canSave) {
-                                OutlinedButton(
-                                    enabled = !saving,
-                                    onClick = {
-                                        viewModel.toggleSaved { result ->
-                                            val message = when {
-                                                result.isFailure -> R.string.vk_save_failed
-                                                result.getOrNull() == true -> R.string.vk_saved
-                                                else -> R.string.vk_unsaved
-                                            }
-                                            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                            androidx.compose.material3.FilledTonalIconButton(
+                                // The user's own playlists are already theirs; only others' can be saved.
+                                enabled = canSave && !saving,
+                                onClick = {
+                                    viewModel.toggleSaved { result ->
+                                        val message = when {
+                                            result.isFailure -> R.string.vk_save_failed
+                                            result.getOrNull() == true -> R.string.vk_saved
+                                            else -> R.string.vk_unsaved
                                         }
-                                    },
-                                ) {
-                                    Icon(
-                                        painterResource(if (isSaved) R.drawable.favorite else R.drawable.favorite_border),
-                                        contentDescription = stringResource(R.string.vk_save),
-                                        tint = if (isSaved) MaterialTheme.colorScheme.error else androidx.compose.material3.LocalContentColor.current,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
+                                        android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.size(48.dp),
+                            ) {
+                                Icon(
+                                    painterResource(if (isSaved) R.drawable.favorite else R.drawable.favorite_border),
+                                    contentDescription = stringResource(R.string.vk_save),
+                                    tint = if (isSaved) MaterialTheme.colorScheme.error else androidx.compose.material3.LocalContentColor.current,
+                                    modifier = Modifier.size(22.dp),
+                                )
                             }
                         }
                     }

@@ -204,7 +204,19 @@ fun SpotifyLibraryScreen(
         }
         items(filteredEntries, key = { it.uri.ifBlank { it.id } }) { entry ->
             val onClick = { openEntry(navController, entry) }
-            if (grid) LibraryGridCell(entry, onClick) else LibraryRow(entry, onClick)
+            // Switching filters fades rows in/out and slides the ones that stay into place,
+            // instead of the list snapping to its new contents.
+            Box(
+                Modifier.animateItem(
+                    fadeInSpec = androidx.compose.animation.core.tween(260),
+                    placementSpec = androidx.compose.animation.core.spring(
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                    ),
+                    fadeOutSpec = androidx.compose.animation.core.tween(160),
+                ),
+            ) {
+                if (grid) LibraryGridCell(entry, onClick) else LibraryRow(entry, onClick)
+            }
         }
     }
 }

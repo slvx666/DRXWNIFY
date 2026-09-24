@@ -1116,7 +1116,10 @@ interface DatabaseDao {
 
         PlaylistSortType.SONG_COUNT -> playlistsBySongCountAsc()
         PlaylistSortType.LAST_UPDATED -> playlistsByUpdatedDateAsc()
-    }.map { it.reversed(descending) }
+    }.map { list ->
+        // "Most played this month" is retired; one made by an older version stays hidden.
+        list.filter { it.id != PlaylistEntity.MONTHLY_MOST_PLAYLIST_ID }.reversed(descending)
+    }
 
     @Transaction
     @Query("SELECT *, (SELECT COUNT(*) FROM playlist_song_map WHERE playlistId = playlist.id) AS songCount FROM playlist WHERE id = :playlistId")
@@ -1167,6 +1170,7 @@ interface DatabaseDao {
         now: LocalDateTime = LocalDateTime.now(),
     )
     @Transaction
+    /** Adds the songs that exist in the database (others are skipped). */
     fun addSongToPlaylist(playlist: Playlist, songIds: List<String>) {
         var position = playlist.songCount
         songIds.forEach { id ->
