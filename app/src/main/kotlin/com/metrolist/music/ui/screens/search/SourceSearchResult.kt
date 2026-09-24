@@ -294,7 +294,7 @@ fun SourceSearchResult(
             modifier = Modifier.fillMaxSize(),
         ) {
             if (selectedArtist == null && filter == SourceSearchFilter.ALBUMS) {
-                items(items = vkPlaylists, key = { "vk_${it.key}" }) { playlist ->
+                itemsIndexed(items = vkPlaylists, key = { index, playlist -> "vk_${playlist.key}_$index" }) { _, playlist ->
                     com.metrolist.music.ui.screens.vk.VkPlaylistRow(
                         playlist = playlist,
                         onClick = {

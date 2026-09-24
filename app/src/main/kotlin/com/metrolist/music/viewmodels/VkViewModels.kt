@@ -15,6 +15,7 @@ import com.metrolist.music.resolver.providers.VkPlaylist
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -100,6 +101,10 @@ class VkLibraryViewModel @Inject constructor() : ViewModel() {
 
     init {
         refresh()
+        // An album saved or removed elsewhere (its page) shows up here without reopening the app.
+        viewModelScope.launch {
+            VkMusic.libraryVersion.drop(1).collect { refresh() }
+        }
     }
 
     fun selectTab(value: VkLibraryTab) {

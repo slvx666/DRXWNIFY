@@ -58,6 +58,45 @@ object CoverSaver {
         }
     }
 
+    fun shareInBackground(context: Context, url: String?, name: String) {
+        val appContext = context.applicationContext
+        scope.launch { share(appContext, url, name) }
+    }
+
+    /** Sends the cover (as an image file, not a link) to another app. */
+    suspend fun share(context: Context, url: String?, name: String) {
+        val uri = withContext(Dispatchers.IO) {
+            runCatching {
+                require(!url.isNullOrBlank()) { "no cover" }
+                val (bytes, mime) = download(largest(url))
+                val dir = java.io.File(context.cacheDir, "covers").apply { mkdirs() }
+                dir.listFiles()?.forEach { it.delete() }
+                val file = java.io.File(dir, safeName(name) + if (mime == "image/png") ".png" else ".jpg")
+                file.writeBytes(bytes)
+                androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", file) to mime
+            }.onFailure { Timber.w(it, "cover not shared: %s", url) }.getOrNull()
+        }
+        withContext(Dispatchers.Main) {
+            if (uri == null) {
+                Toast.makeText(context, context.getString(R.string.cover_not_saved), Toast.LENGTH_SHORT).show()
+                return@withContext
+            }
+            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = uri.second
+                putExtra(android.content.Intent.EXTRA_STREAM, uri.first)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            runCatching {
+                context.startActivity(
+                    android.content.Intent.createChooser(intent, null).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        }
+    }
+
+    private fun safeName(name: String): String =
+        name.replace(Regex("[\\/:*?\"<>|]"), "_").take(120).ifBlank { "cover" }
+
     /** The biggest variant of [url] that its service serves under a predictable address. */
     fun largest(url: String): String = when {
         // Spotify: 300 px (…1e02…) / 64 px (…4851…) → 640 px (…b273…).

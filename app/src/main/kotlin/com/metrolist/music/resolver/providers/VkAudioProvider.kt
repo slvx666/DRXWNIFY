@@ -316,15 +316,50 @@ class VkAudioProvider(
      * Adds [playlist] to the user's VK music (what "Add to my music" does in VK). Returns the
      * address of the copy in the user's list, which is what removing it again needs.
      */
-    suspend fun follow(playlist: VkPlaylist): Pair<Long, Long> = throttled {
+    suspend fun follow(playlist: VkPlaylist): Pair<Long, Long> {
+        val me = myId() ?: 0L
+        return throttled {
         val params = buildMap {
             put("owner_id", playlist.ownerId.toString())
             put("playlist_id", playlist.id.toString())
             playlist.accessKey?.let { put("access_key", it) }
         }
-        val response = call("audio.followPlaylist", params)?.optJSONObject("response")
-            ?: throw IllegalStateException("VK API HTTP error")
-        response.optLong("owner_id") to response.optLong("playlist_id")
+        val root = call("audio.followPlaylist", params) ?: throw IllegalStateException("VK API HTTP error")
+        // The answer names the copy in the user's list: {playlist_id, owner_id} or a playlist object.
+        val response = root.optJSONObject("response")
+        val copyOwner = response?.optLong("owner_id", 0L)?.takeIf { it != 0L } ?: me
+        val copyId = response?.optLong("playlist_id", 0L)?.takeIf { it != 0L }
+            ?: response?.optLong("id", 0L)?.takeIf { it != 0L }
+            ?: 0L
+        copyOwner to copyId
+        }
+    }
+
+    /**
+     * Adds a track to the user's VK music ("My music"), as the "+" in VK does. [fullId] is
+     * "owner_audio[_accessKey]"; returns the address (owner, id) of the added copy.
+     */
+    suspend fun addTrack(fullId: String): Pair<Long, Long> {
+        val parts = fullId.split('_')
+        require(parts.size >= 2) { "bad VK track id" }
+        val me = myId() ?: 0L
+        return throttled {
+            val params = buildMap {
+                put("owner_id", parts[0])
+                put("audio_id", parts[1])
+                parts.getOrNull(2)?.let { put("access_key", it) }
+            }
+            val root = call("audio.add", params) ?: throw IllegalStateException("VK API HTTP error")
+            me to root.optLong("response", 0L)
+        }
+    }
+
+    /** Removes a track from the user's VK music by the address of the user's copy. */
+    suspend fun deleteTrack(ownerId: Long, audioId: Long) {
+        throttled {
+            call("audio.delete", mapOf("owner_id" to ownerId.toString(), "audio_id" to audioId.toString()))
+                ?: throw IllegalStateException("VK API HTTP error")
+        }
     }
 
     /** Removes the user's copy of an added album/playlist. */
@@ -380,11 +415,16 @@ class VkAudioProvider(
                 count = o.optInt("count", 0),
                 coverUrl = cover,
                 year = o.optInt("year", 0).takeIf { it > 0 },
-                isAlbum = o.optInt("type", 0) == 1 || o.has("album_type"),
+                isAlbum = o.optInt("type", 0) == 1 || o.has("album_type") ||
+                    // An album added to "my music" comes back as a reference with its artists.
+                    (original != null && artists.isNotEmpty()),
                 libraryOwnerId = if (original != null) o.optLong("owner_id", 0L).takeIf { it != 0L } else null,
                 libraryId = if (original != null) o.optLong("id", 0L).takeIf { it != 0L } else null,
             )
         }
+            // VK repeats an album in its results now and then; one entry per album (a repeat also
+            // crashed the list, whose rows are keyed by album).
+            .distinctBy { it.key }
 
     private val recentUrls = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
 

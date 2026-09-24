@@ -36,6 +36,9 @@ object VkMusic {
     private val savedCopies = ConcurrentHashMap<String, Pair<Long, Long>>()
     val savedKeys = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
 
+    /** Bumped whenever the user's VK music changes here; open VK lists reload on it. */
+    val libraryVersion = kotlinx.coroutines.flow.MutableStateFlow(0)
+
     /** Whether the user's own list was read at least once this session (so [savedKeys] is real). */
     @Volatile
     var libraryLoaded = false
@@ -66,7 +69,12 @@ object VkMusic {
             savedCopies[playlist.key] = vk.follow(playlist)
         }
         savedKeys.value = savedCopies.keys.toSet()
-        savedCopies.containsKey(playlist.key)
+        val saved = savedCopies.containsKey(playlist.key)
+        // Re-read the user's list: it holds the real address of the copy (needed to remove it
+        // again), and every open Library → VK list refreshes from it.
+        myPlaylists()
+        libraryVersion.value++
+        saved
     }
 
     suspend fun searchPlaylists(query: String): Result<List<VkPlaylist>> =
@@ -77,4 +85,29 @@ object VkMusic {
 
     suspend fun tracks(playlist: VkPlaylist): Result<List<ProviderMatch>> =
         runCatching { provider?.playlistTracks(playlist).orEmpty() }
+
+    /**
+     * Mirrors a like of a VK track into the user's VK music: liked → added to "My music",
+     * unliked → the added copy removed again. The copy's address is remembered on the device,
+     * since removing needs it.
+     */
+    suspend fun setTrackSaved(context: android.content.Context, trackId: String, saved: Boolean): Result<Unit> =
+        runCatching {
+            val vk = provider ?: error("VK is not connected")
+            val prefs = context.getSharedPreferences(SAVED_TRACKS_PREFS, android.content.Context.MODE_PRIVATE)
+            if (saved) {
+                if (prefs.contains(trackId)) return@runCatching
+                val (owner, copy) = vk.addTrack(trackId)
+                if (copy != 0L) prefs.edit().putString(trackId, "${owner}_$copy").apply()
+            } else {
+                val copy = prefs.getString(trackId, null) ?: return@runCatching
+                val owner = copy.substringBeforeLast('_').toLongOrNull() ?: return@runCatching
+                val id = copy.substringAfterLast('_').toLongOrNull() ?: return@runCatching
+                vk.deleteTrack(owner, id)
+                prefs.edit().remove(trackId).apply()
+            }
+            libraryVersion.value++
+        }
+
+    private const val SAVED_TRACKS_PREFS = "vk_saved_tracks"
 }

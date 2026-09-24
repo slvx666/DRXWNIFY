@@ -47,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.metrolist.music.ui.component.coverSource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -564,7 +565,7 @@ private fun ThumbnailItem(
                     onLongPress = {
                         if (!hidePlayerThumbnail && !currentCoverUrl.isNullOrBlank()) {
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                            coverViewer.save(currentCoverUrl, currentCoverName)
+                            coverViewer.showActions(currentCoverUrl, currentCoverName)
                         }
                     },
                     onDoubleTap = { offset ->
@@ -601,6 +602,7 @@ private fun ThumbnailItem(
         Box(
             modifier = Modifier
                 .size(dimensions.thumbnailSize)
+                .coverSource(coverViewer)
                 .clip(RoundedCornerShape(dimensions.cornerRadius))
         ) {
             if (hidePlayerThumbnail) {

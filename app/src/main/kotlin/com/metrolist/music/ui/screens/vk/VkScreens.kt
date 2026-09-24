@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.metrolist.music.ui.component.coverSource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -351,9 +352,10 @@ fun VkPlaylistScreen(
                                 .size(220.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                .coverSource(coverViewer)
                                 .combinedClickable(
                                     onClick = { coverViewer.open(playlist.coverUrl, coverName) },
-                                    onLongClick = { coverViewer.save(playlist.coverUrl, coverName) },
+                                    onLongClick = { coverViewer.showActions(playlist.coverUrl, coverName) },
                                 ),
                         )
                         Spacer(Modifier.height(12.dp))

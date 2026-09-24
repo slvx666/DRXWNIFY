@@ -2105,6 +2105,8 @@ class MusicService :
     /** Catalog (Spotify / Yandex) track id behind a media id, when the track has one. */
     private fun catalogTrackIdOf(mediaId: String?): String? {
         if (mediaId == null) return null
+        // Source-search tracks have no catalog identity: nothing to like in Spotify/Yandex.
+        if (com.metrolist.music.resolver.SourceSearch.isSourceTrack(mediaId)) return null
         return SpotifyMetadataRegistry.get(mediaId)?.id?.takeIf { it.isNotBlank() }
             ?: FallbackIds.catalogIdOf(mediaId)
             ?: runCatching { database.getSpotifyMatchByYouTubeId(mediaId)?.spotifyId }.getOrNull()
@@ -2117,6 +2119,7 @@ class MusicService :
     /** In-memory lookup only, safe on the main thread. */
     private fun catalogTrackIdFast(mediaId: String?): String? {
         if (mediaId == null) return null
+        if (com.metrolist.music.resolver.SourceSearch.isSourceTrack(mediaId)) return null
         SpotifyMetadataRegistry.get(mediaId)?.id?.takeIf { it.isNotBlank() }?.let { return it }
         FallbackIds.catalogIdOf(mediaId)?.let { return it }
         return currentCatalogId?.takeIf { it.first == mediaId }?.second
@@ -2139,13 +2142,8 @@ class MusicService :
      * to toggle only the local flag, which did nothing for a track liked on Spotify).
      */
     fun toggleLike() {
-        // A source-search track has no catalog entry, so with an account connected there is nothing
-        // to like it in. Without one, likes are local anyway and it works like any other track.
-        if (com.metrolist.music.resolver.SourceSearch.isSourceTrack(player.currentMediaItem?.mediaId) &&
-            com.metrolist.music.catalog.Catalog.isActive
-        ) {
-            return
-        }
+        // A track from the experimental sources is liked locally (and, from VK, also in the user's
+        // VK music) — never in the catalog account, which doesn't know it.
         val song = currentSong.value?.song
         if (song?.isEpisode == true) {
             scope.launch { toggleEpisodeSaveForLater(song) }
@@ -2191,6 +2189,20 @@ class MusicService :
                         downloadRequest,
                         false,
                     )
+                }
+            }
+
+            // A VK track from the experimental search: the like also goes to the user's VK music.
+            if (com.metrolist.music.resolver.SourceSearch.providerOf(songEntity.id) ==
+                com.metrolist.music.resolver.AudioProviderId.VK
+            ) {
+                val vkTrackId = com.metrolist.music.resolver.FallbackIds.catalogIdOf(songEntity.id)
+                    ?.substringAfter("VK:")
+                if (vkTrackId != null) {
+                    scope.launch(Dispatchers.IO) {
+                        com.metrolist.music.resolver.VkMusic.setTrackSaved(this@MusicService, vkTrackId, liked)
+                            .onFailure { Timber.w(it, "VK like sync failed for $vkTrackId") }
+                    }
                 }
             }
 

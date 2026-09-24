@@ -322,11 +322,8 @@ fun BottomSheetPlayer(
 
     val playbackState by playerConnection.playbackState.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
-    // Experimental source-search tracks exist only as audio: no artist/album pages and no radio.
-    // Liking works when there is no account, because then likes never leave the device.
-    val isSourceTrack = com.metrolist.music.resolver.SourceSearch.isSourceTrack(mediaMetadata?.id)
-    val catalogActive by com.metrolist.music.catalog.Catalog.state.collectAsState()
-    val likeBlocked = isSourceTrack && catalogActive.isActive
+    // Experimental source-search tracks can be liked too: locally, and a VK one also in VK.
+    val likeBlocked = false
     val currentSong by playerConnection.currentSong.collectAsState(initial = null)
 
     // A track liked directly on Spotify (not via the app) has no local `liked` flag, so also light the

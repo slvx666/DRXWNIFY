@@ -453,75 +453,9 @@ class HomeViewModel @Inject constructor(
      * top tracks of artists close to it, so the row is "more of this", not a global chart. Runs off
      * the catalog, which answers even with no account connected (public access).
      */
+    /** See [com.metrolist.music.playback.ForYouRecommender] for how the row is chosen. */
     private suspend fun loadForYou(hideExplicit: Boolean) {
-        if (!Catalog.ensureAuthenticated()) {
-            forYou.value = null
-            return
-        }
-        val seeds = forYouSeedArtists()
-        if (seeds.isEmpty()) {
-            forYou.value = null
-            return
-        }
-        val picked = mutableListOf<SpotifyTrack>()
-        for (seed in seeds.shuffled().take(4)) {
-            val related = Catalog.relatedArtists(seed).getOrNull().orEmpty()
-                .filter { it.id.isNotEmpty() }
-                .shuffled()
-                .take(3)
-            // Nothing similar on file: the seed's own top tracks still beat an empty row.
-            val artists = related.ifEmpty { Catalog.artist(seed).getOrNull()?.let(::listOf).orEmpty() }
-            for (artist in artists) {
-                val top = Catalog.artistTopTracks(artist.id).getOrNull()?.tracks.orEmpty()
-                picked += top.filter { !hideExplicit || !it.explicit }.take(3)
-            }
-        }
-        forYou.value = picked
-            .filter { it.id.isNotEmpty() && !it.isLocal }
-            .distinctBy { it.id }
-            .shuffled()
-            .take(20)
-            .ifEmpty { null }
-    }
-
-    /** Catalog artist ids the recommendations are grown from, best source first. */
-    private suspend fun forYouSeedArtists(): List<String> {
-        if (Catalog.isActive) {
-            val liked = runCatching { Catalog.likedSongs(limit = 50, offset = 0).getOrNull() }
-                .getOrNull()
-                ?.items
-                ?.flatMap { saved -> saved.track.artists.mapNotNull { it.id } }
-                .orEmpty()
-            if (liked.isNotEmpty()) {
-                // The artist that comes up most often in the likes is the strongest seed.
-                return liked.groupingBy { it }.eachCount().entries
-                    .sortedByDescending { it.value }
-                    .map { it.key }
-                    .take(8)
-            }
-            val followed = runCatching { Catalog.myLibrary(filter = "Artists", limit = 50, offset = 0).getOrNull() }
-                .getOrNull()
-                ?.items
-                ?.map { it.id }
-                ?.filter { it.isNotEmpty() }
-                .orEmpty()
-            if (followed.isNotEmpty()) return followed.take(8)
-        }
-        // No account, or an account with an empty library: use what was liked/followed in the app.
-        val names = (
-            database.likedSongs(SongSortType.CREATE_DATE, descending = true).first()
-                .take(20)
-                .flatMap { song -> song.artists.map { it.name } } +
-                database.artistsBookmarked(ArtistSortType.CREATE_DATE, descending = true).first()
-                    .map { it.artist.name }
-            )
-            .filter { it.isNotBlank() }
-            .distinct()
-            .take(6)
-        return names.mapNotNull { name ->
-            Catalog.search(name, types = listOf("artist"), limit = 1).getOrNull()
-                ?.artists?.items?.firstOrNull()?.id?.takeIf { it.isNotEmpty() }
-        }
+        forYou.value = com.metrolist.music.playback.ForYouRecommender.build(database, hideExplicit).ifEmpty { null }
     }
 
     private suspend fun <T> section(name: String, fallback: T, block: suspend () -> T): T =

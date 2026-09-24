@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -1207,7 +1209,16 @@ fun HomeScreen(
 
             LazyColumn(
                 state = lazylistState,
-                contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
+                // A little extra at the bottom: the last row's artist names otherwise sit under
+                // the mini player.
+                contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues().let { base ->
+                    PaddingValues(
+                        start = base.calculateStartPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                        top = base.calculateTopPadding(),
+                        end = base.calculateEndPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                        bottom = base.calculateBottomPadding() + 24.dp,
+                    )
+                },
             ) {
                 item {
                     ChipsRow(

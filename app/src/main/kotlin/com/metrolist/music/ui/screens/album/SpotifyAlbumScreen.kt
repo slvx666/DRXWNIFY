@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import com.metrolist.music.ui.component.coverSource
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -168,11 +169,12 @@ fun SpotifyAlbumScreen(
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .size(240.dp)
+                                .coverSource(coverViewer)
                                 .clip(RoundedCornerShape(ThumbnailCornerRadius))
                                 .pointerInput(Unit) {
                                     detectTapGestures(
                                         onTap = { coverViewer.open(largestUrl, coverName) },
-                                        onLongPress = { coverViewer.save(largestUrl, coverName) },
+                                        onLongPress = { coverViewer.showActions(largestUrl, coverName) },
                                     )
                                 },
                         )
