@@ -524,6 +524,24 @@ private fun ThumbnailItem(
     var skipMultiplier by remember { mutableIntStateOf(1) }
     var lastTapTime by remember { mutableLongStateOf(0L) }
 
+    // Long press on the artwork offers to save it to the gallery.
+    var showSaveCover by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val coverUrl = if (item.mediaId == currentMediaId && !currentMediaThumbnail.isNullOrBlank()) {
+        currentMediaThumbnail
+    } else {
+        item.mediaMetadata.artworkUri?.toString()
+    }
+    if (showSaveCover) {
+        com.metrolist.music.ui.component.SaveCoverDialog(
+            url = coverUrl,
+            name = listOfNotNull(
+                item.mediaMetadata.artist?.toString()?.takeIf { it.isNotBlank() },
+                item.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() },
+            ).joinToString(" - "),
+            onDismiss = { showSaveCover = false },
+        )
+    }
+
     Box(
         modifier = modifier
             .then(
@@ -542,6 +560,9 @@ private fun ThumbnailItem(
             }
             .pointerInput(Unit) {
                 detectTapGestures(
+                    onLongPress = {
+                        if (!hidePlayerThumbnail) showSaveCover = true
+                    },
                     onDoubleTap = { offset ->
                         if (isListenTogetherGuest) return@detectTapGestures
 

@@ -39,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -270,6 +271,9 @@ fun VkPlaylistScreen(
     val tracks by viewModel.tracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val failed by viewModel.failed.collectAsState()
+    val isSaved by viewModel.isSaved.collectAsState()
+    val canSave by viewModel.canSave.collectAsState()
+    val saving by viewModel.saving.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
 
@@ -335,6 +339,14 @@ fun VkPlaylistScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     ) {
+                        var showSaveCover by remember { androidx.compose.runtime.mutableStateOf(false) }
+                        if (showSaveCover) {
+                            com.metrolist.music.ui.component.SaveCoverDialog(
+                                url = playlist.coverUrl,
+                                name = listOf(playlist.artist, playlist.title).filter { it.isNotBlank() }.joinToString(" - "),
+                                onDismiss = { showSaveCover = false },
+                            )
+                        }
                         AsyncImage(
                             model = playlist.coverUrl,
                             contentDescription = null,
@@ -342,7 +354,11 @@ fun VkPlaylistScreen(
                             modifier = Modifier
                                 .size(220.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                .combinedClickable(
+                                    onClick = {},
+                                    onLongClick = { if (playlist.coverUrl != null) showSaveCover = true },
+                                ),
                         )
                         Spacer(Modifier.height(12.dp))
                         Text(
@@ -371,6 +387,30 @@ fun VkPlaylistScreen(
                             }
                             OutlinedButton(onClick = ::downloadAll, enabled = tracks.isNotEmpty()) {
                                 Icon(painterResource(R.drawable.download), null, Modifier.size(18.dp))
+                            }
+                            // Saves the album into the user's VK music, like "Add" in VK itself;
+                            // it then shows up in Library -> VK.
+                            if (canSave) {
+                                OutlinedButton(
+                                    enabled = !saving,
+                                    onClick = {
+                                        viewModel.toggleSaved { result ->
+                                            val message = when {
+                                                result.isFailure -> R.string.vk_save_failed
+                                                result.getOrNull() == true -> R.string.vk_saved
+                                                else -> R.string.vk_unsaved
+                                            }
+                                            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                ) {
+                                    Icon(
+                                        painterResource(if (isSaved) R.drawable.favorite else R.drawable.favorite_border),
+                                        contentDescription = stringResource(R.string.vk_save),
+                                        tint = if (isSaved) MaterialTheme.colorScheme.error else androidx.compose.material3.LocalContentColor.current,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
                             }
                         }
                     }

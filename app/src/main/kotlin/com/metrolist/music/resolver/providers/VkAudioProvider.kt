@@ -312,6 +312,34 @@ class VkAudioProvider(
         }
     }
 
+    /**
+     * Adds [playlist] to the user's VK music (what "Add to my music" does in VK). Returns the
+     * address of the copy in the user's list, which is what removing it again needs.
+     */
+    suspend fun follow(playlist: VkPlaylist): Pair<Long, Long> = throttled {
+        val params = buildMap {
+            put("owner_id", playlist.ownerId.toString())
+            put("playlist_id", playlist.id.toString())
+            playlist.accessKey?.let { put("access_key", it) }
+        }
+        val response = call("audio.followPlaylist", params)?.optJSONObject("response")
+            ?: throw IllegalStateException("VK API HTTP error")
+        response.optLong("owner_id") to response.optLong("playlist_id")
+    }
+
+    /** Removes the user's copy of an added album/playlist. */
+    suspend fun unfollow(libraryOwnerId: Long, libraryId: Long) {
+        throttled {
+            call(
+                "audio.deletePlaylist",
+                mapOf("owner_id" to libraryOwnerId.toString(), "playlist_id" to libraryId.toString()),
+            ) ?: throw IllegalStateException("VK API HTTP error")
+        }
+    }
+
+    /** The signed-in user's VK id, or null when unknown. */
+    suspend fun myId(): Long? = ownerId()?.toLongOrNull()
+
     /** The signed-in user's id: saved at login, else asked from VK once. */
     private suspend fun ownerId(): String? {
         (userId()?.takeIf { it.isNotBlank() } ?: knownOwnerId)?.let { return it }
@@ -353,6 +381,8 @@ class VkAudioProvider(
                 coverUrl = cover,
                 year = o.optInt("year", 0).takeIf { it > 0 },
                 isAlbum = o.optInt("type", 0) == 1 || o.has("album_type"),
+                libraryOwnerId = if (original != null) o.optLong("owner_id", 0L).takeIf { it != 0L } else null,
+                libraryId = if (original != null) o.optLong("id", 0L).takeIf { it != 0L } else null,
             )
         }
 
@@ -480,6 +510,9 @@ data class VkPlaylist(
     val coverUrl: String?,
     val year: Int?,
     val isAlbum: Boolean,
+    /** Where this album sits in the user's own list when it was added there (its copy, not the original). */
+    val libraryOwnerId: Long? = null,
+    val libraryId: Long? = null,
 ) {
     /** Stable key used in navigation and caches. */
     val key: String get() = "${ownerId}_$id"

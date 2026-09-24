@@ -1049,4 +1049,13 @@
     <string name="vk_music">VK Музыка</string>
     <string name="integration_vk_description">Поиск и прослушивание музыки VK, твоих альбомов и плейлистов</string>
     <string name="vk_albums_empty">В VK нет альбомов и плейлистов по этому запросу</string>
+    <string name="save_cover">Сохранить обложку</string>
+    <string name="save_cover_action">Сохранить в галерею</string>
+    <string name="cover_saved">Обложка сохранена в Pictures/Meld</string>
+    <string name="cover_not_saved">Не удалось сохранить обложку</string>
+    <string name="experimental_source_tag">%1$s · эксп.</string>
+    <string name="vk_save">Сохранить в мою музыку VK</string>
+    <string name="vk_saved">Сохранено в твою музыку VK</string>
+    <string name="vk_unsaved">Убрано из твоей музыки VK</string>
+    <string name="vk_save_failed">VK не принял запрос</string>
 </resources>

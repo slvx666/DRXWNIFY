@@ -45,6 +45,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -155,13 +157,30 @@ fun SpotifyAlbumScreen(
                         ?: album?.images?.firstOrNull()?.url
 
                     if (thumbnailUrl != null) {
+                        // Long press: save the cover (in its largest size) to the gallery.
+                        var showSaveCover by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                        if (showSaveCover) {
+                            com.metrolist.music.ui.component.SaveCoverDialog(
+                                url = album?.images?.maxByOrNull { it.width ?: 0 }?.url ?: thumbnailUrl,
+                                name = listOfNotNull(
+                                    album?.artists?.firstOrNull()?.name,
+                                    album?.name,
+                                ).joinToString(" - "),
+                                onDismiss = { showSaveCover = false },
+                            )
+                        }
                         AsyncImage(
                             model = thumbnailUrl,
                             contentDescription = album?.name,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .size(240.dp)
-                                .clip(RoundedCornerShape(ThumbnailCornerRadius)),
+                                .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onLongPress = { showSaveCover = true },
+                                    )
+                                },
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                     }

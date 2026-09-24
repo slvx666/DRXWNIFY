@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +71,23 @@ fun SourceTrackMenu(
     val downloadState = downloads[mediaId]?.state
     val isDownloaded = downloadState == Download.STATE_COMPLETED
     val isDownloading = downloadState == Download.STATE_DOWNLOADING || downloadState == Download.STATE_QUEUED
+    val database = com.metrolist.music.LocalDatabase.current
+    var showAddToPlaylist by androidx.compose.runtime.saveable.rememberSaveable {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+
+    // A track from the sources goes into the app's playlists like any other: its row is written to
+    // the database and its source pinned, so it plays from the playlist after a restart too.
+    AddToPlaylistDialog(
+        isVisible = showAddToPlaylist,
+        onGetSong = {
+            SourceSearch.remember(listOf(match))
+            database.withTransaction { upsertMetadata(SourceSearch.metadataOf(match)) }
+            listOf(mediaId)
+        },
+        onGetSongIds = { listOf(mediaId) },
+        onDismiss = { showAddToPlaylist = false },
+    )
 
     ListItem(
         headlineContent = {
@@ -115,6 +133,14 @@ fun SourceTrackMenu(
 
     Material3MenuGroup(
         items = listOfNotNull(
+            Material3MenuItemData(
+                title = { Text(text = stringResource(R.string.add_to_playlist)) },
+                description = { Text(text = stringResource(R.string.add_to_playlist_local_desc)) },
+                icon = {
+                    Icon(painter = painterResource(R.drawable.playlist_add), contentDescription = null)
+                },
+                onClick = { showAddToPlaylist = true },
+            ),
             // There is no artist page for a source track, so this searches the sources for the
             // performer instead — the closest thing that actually works.
             if (navController != null && match.artist.isNotBlank()) {

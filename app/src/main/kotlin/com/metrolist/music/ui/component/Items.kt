@@ -415,12 +415,18 @@ fun SongListItem(
 ) {
     val swipeEnabled by rememberPreference(SwipeToSongKey, defaultValue = false)
 
+    // A track found in the experimental source search says where it came from, so it isn't
+    // mistaken for a catalog track in a playlist ("VK · exp.").
+    val sourceTag = com.metrolist.music.resolver.SourceSearch.providerOf(song.id)?.let {
+        stringResource(R.string.experimental_source_tag, providerLabel(it))
+    }
     val content: @Composable () -> Unit = {
         ListItem(
             title = song.song.title,
             subtitle = subtitleOverride ?: joinByBullet(
                 song.orderedArtists.joinToString { it.name },
-                makeTimeString(song.song.duration * 1000L)
+                makeTimeString(song.song.duration * 1000L),
+                sourceTag,
             ),
             badges = badges,
             thumbnailContent = {

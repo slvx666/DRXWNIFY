@@ -15,6 +15,10 @@ import com.metrolist.music.resolver.providers.VkPlaylist
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -29,8 +33,32 @@ class VkPlaylistViewModel @Inject constructor(
     val isLoading = MutableStateFlow(true)
     val failed = MutableStateFlow(false)
 
+    /** In the user's VK music ("saved"); only other owners' albums/playlists can be saved. */
+    val isSaved: StateFlow<Boolean> = VkMusic.savedKeys
+        .map { keys -> playlist?.key in keys }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val canSave = MutableStateFlow(false)
+    val saving = MutableStateFlow(false)
+
     init {
         load()
+        viewModelScope.launch(Dispatchers.IO) {
+            // Whether it's saved is only known once the user's own list was read.
+            if (!VkMusic.libraryLoaded) VkMusic.myPlaylists()
+            val me = VkMusic.myId()
+            canSave.value = playlist != null && me != null && playlist.ownerId != me
+        }
+    }
+
+    fun toggleSaved(onDone: (Result<Boolean>) -> Unit) {
+        val target = playlist ?: return
+        if (saving.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            saving.value = true
+            val result = VkMusic.toggleSaved(target)
+            saving.value = false
+            kotlinx.coroutines.withContext(Dispatchers.Main) { onDone(result) }
+        }
     }
 
     fun load() {
