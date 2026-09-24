@@ -75,6 +75,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import com.metrolist.music.ui.component.ItemThumbnail
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -1487,35 +1488,93 @@ fun HomeScreen(
                                     )
                                 }
 
-                                item(key = "for_you_list") {
-                                    val likedSpotifyIds by com.metrolist.music.playback.SpotifyLikeCache.liked.collectAsState()
-                                    LaunchedEffect(tracks) {
-                                        com.metrolist.music.playback.SpotifyLikeCache
-                                            .ensureLoaded(tracks.map { it.id })
+                                // Covers only, no titles (people like the surprise); the last cell of
+                                // the first page starts the endless "For you" radio.
+                                item(key = "for_you_grid") {
+                                    val targetItemSize = 120.dp
+                                    val availableWidth = maxWidth - 32.dp
+                                    val columns = (availableWidth / targetItemSize).toInt().coerceIn(3, 6)
+                                    val rows = if (columns >= 5) 2 else 3
+                                    val itemsPerPage = columns * rows
+                                    val itemWidth = availableWidth / columns
+                                    // null = the dice cell, last on the first page.
+                                    val cells: List<com.metrolist.spotify.models.SpotifyTrack?> =
+                                        tracks.take(itemsPerPage - 1) + listOf(null) + tracks.drop(itemsPerPage - 1)
+                                    val pages = (cells.size + itemsPerPage - 1) / itemsPerPage
+                                    val pagerState = rememberPagerState(pageCount = { pages })
+                                    val starting by viewModel.forYouStarting.collectAsState()
+
+                                    fun startRadio(start: com.metrolist.spotify.models.SpotifyTrack?) {
+                                        if (isListenTogetherGuest || starting) return
+                                        scope.launch {
+                                            val queue = viewModel.forYouRadio(start, spotifyMapper)
+                                            if (queue != null) playerConnection.playQueue(queue)
+                                        }
                                     }
-                                    SpotifyTrackSectionRow(
-                                        tracks = tracks,
-                                        horizontalItemWidth = horizontalLazyGridItemWidth,
-                                        isPlaying = isPlaying,
-                                        currentMediaId = mediaMetadata?.id,
-                                        likedSpotifyIds = likedSpotifyIds,
-                                        onTrackClick = { track ->
-                                            // The whole row is the queue, starting at what was tapped.
-                                            val startIndex = tracks
-                                                .indexOfFirst { it.id == track.id }
-                                                .coerceAtLeast(0)
-                                            playerConnection.playQueue(
-                                                SpotifyPlaylistQueue(
-                                                    playlistId = "meld_for_you",
-                                                    initialTracks = tracks,
-                                                    startIndex = startIndex,
-                                                    mapper = spotifyMapper,
-                                                ),
-                                            )
-                                        },
-                                        onTrackLongClick = { },
-                                        modifier = Modifier.animateItem(),
-                                    )
+
+                                    HorizontalPager(
+                                        state = pagerState,
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        pageSpacing = 16.dp,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(itemWidth * rows)
+                                            .animateItem(),
+                                    ) { page ->
+                                        val pageCells = cells.drop(page * itemsPerPage).take(itemsPerPage)
+                                        Column(Modifier.fillMaxSize()) {
+                                            for (row in 0 until rows) {
+                                                Row(Modifier.fillMaxWidth()) {
+                                                    for (col in 0 until columns) {
+                                                        val index = row * columns + col
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .width(itemWidth)
+                                                                .height(itemWidth)
+                                                                .padding(4.dp),
+                                                        ) {
+                                                            if (index < pageCells.size) {
+                                                                val track = pageCells[index]
+                                                                if (track == null) {
+                                                                    com.metrolist.music.ui.component.RandomizeGridItem(
+                                                                        isLoading = starting,
+                                                                        onClick = { startRadio(null) },
+                                                                    )
+                                                                } else {
+                                                                    val cover = remember(track.id) {
+                                                                        com.metrolist.spotify.SpotifyMapper.getTrackThumbnail(track)
+                                                                    }
+                                                                    ItemThumbnail(
+                                                                        thumbnailUrl = cover,
+                                                                        isActive = false,
+                                                                        isPlaying = false,
+                                                                        shape = RoundedCornerShape(ThumbnailCornerRadius),
+                                                                        modifier = Modifier
+                                                                            .fillMaxSize()
+                                                                            .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                                                            .combinedClickable(
+                                                                                onClick = { startRadio(track) },
+                                                                                onLongClick = {
+                                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                                    menuState.show {
+                                                                                        com.metrolist.music.ui.menu.SpotifyTrackMenu(
+                                                                                            track = track,
+                                                                                            mapper = spotifyMapper,
+                                                                                            onDismiss = menuState::dismiss,
+                                                                                            navController = navController,
+                                                                                        )
+                                                                                    }
+                                                                                },
+                                                                            ),
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -300,7 +300,8 @@ private fun CoverViewer(state: CoverViewerState, url: String) {
             val left = from.left + (target.left - from.left) * p
             val top = from.top + (target.top - from.top) * p
             val width = from.width + (target.width - from.width) * p
-            val corner = with(density) { (12.dp.toPx() * (1f - p)).toDp() }
+            // The opening spring overshoots past 1: the corner must never go negative (that crashed).
+            val corner = with(density) { (12.dp.toPx() * (1f - p).coerceIn(0f, 1f)).toDp() }
 
             AsyncImage(
                 model = largest,

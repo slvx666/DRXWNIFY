@@ -453,6 +453,29 @@ class HomeViewModel @Inject constructor(
      * top tracks of artists close to it, so the row is "more of this", not a global chart. Runs off
      * the catalog, which answers even with no account connected (public access).
      */
+    /** True while the "For you" radio's first tracks are being picked (the dice spins). */
+    val forYouStarting = MutableStateFlow(false)
+
+    /**
+     * An endless "For you" radio. [start] (a tapped cover) plays first; the dice starts with fresh
+     * picks. The covers on the page are left out, so the radio brings something new.
+     */
+    suspend fun forYouRadio(
+        start: SpotifyTrack?,
+        mapper: com.metrolist.music.playback.SpotifyYouTubeMapper,
+    ): com.metrolist.music.playback.queues.ForYouQueue? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        forYouStarting.value = true
+        try {
+            val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+            val shown = forYou.value.orEmpty().map { it.id }.filter { it != start?.id }
+            val session = com.metrolist.music.playback.ForYouRecommender.Session(database, hideExplicit, exclude = shown)
+            val first = listOfNotNull(start) + session.next(if (start != null) 4 else 6)
+            if (first.isEmpty()) null else com.metrolist.music.playback.queues.ForYouQueue(first, session, mapper)
+        } finally {
+            forYouStarting.value = false
+        }
+    }
+
     /** See [com.metrolist.music.playback.ForYouRecommender] for how the row is chosen. */
     private suspend fun loadForYou(hideExplicit: Boolean) {
         forYou.value = com.metrolist.music.playback.ForYouRecommender.build(database, hideExplicit).ifEmpty { null }

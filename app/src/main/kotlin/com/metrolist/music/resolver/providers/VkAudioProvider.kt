@@ -415,9 +415,7 @@ class VkAudioProvider(
                 count = o.optInt("count", 0),
                 coverUrl = cover,
                 year = o.optInt("year", 0).takeIf { it > 0 },
-                isAlbum = o.optInt("type", 0) == 1 || o.has("album_type") ||
-                    // An album added to "my music" comes back as a reference with its artists.
-                    (original != null && artists.isNotEmpty()),
+                isAlbum = isAlbum(o, ownerId, artists),
                 libraryOwnerId = if (original != null) o.optLong("owner_id", 0L).takeIf { it != 0L } else null,
                 libraryId = if (original != null) o.optLong("id", 0L).takeIf { it != 0L } else null,
             )
@@ -425,6 +423,21 @@ class VkAudioProvider(
             // VK repeats an album in its results now and then; one entry per album (a repeat also
             // crashed the list, whose rows are keyed by album).
             .distinctBy { it.key }
+
+    /**
+     * Album or playlist. VK marks albums with `album_type` (or `type` 1). A reference in the
+     * user's list may lack both, so the owner decides: releases belong to VK's music catalog (a
+     * negative, community owner) and carry artists and a year; playlists — the user's own or anyone
+     * else's — are owned by people. An editorial VK playlist has a community owner but no year.
+     */
+    private fun isAlbum(o: JSONObject, ownerId: Long, artists: List<String>): Boolean {
+        // Made by a person (the user or anyone else): a playlist, whatever else the answer says.
+        if (ownerId > 0) return false
+        val albumType = o.optString("album_type")
+        if (albumType.isNotBlank() && !albumType.equals("playlist", ignoreCase = true)) return true
+        if (o.optInt("type", 0) == 1) return true
+        return artists.isNotEmpty() && o.optInt("year", 0) > 0
+    }
 
     private val recentUrls = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
 

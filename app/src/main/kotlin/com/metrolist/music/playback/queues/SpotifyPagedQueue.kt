@@ -66,6 +66,9 @@ abstract class SpotifyPagedQueue(
     /** More tracks to append once everything so far was queued; empty when there is nothing left. */
     protected open suspend fun continueWith(alreadyQueued: List<SpotifyTrack>): List<SpotifyTrack> = emptyList()
 
+    /** How many times [continueWith] may extend the queue; an endless radio lifts the limit. */
+    protected open val maxContinuationRounds: Int = MAX_CONTINUATION_ROUNDS
+
     private var continuationRounds = 0
 
     // All Spotify tracks fetched so far (may span multiple API pages)
@@ -207,7 +210,7 @@ abstract class SpotifyPagedQueue(
     }
 
     override fun hasNextPage(): Boolean =
-        resolveOffset < allTracks.size || apiHasMore || (continues && continuationRounds < MAX_CONTINUATION_ROUNDS)
+        resolveOffset < allTracks.size || apiHasMore || (continues && continuationRounds < maxContinuationRounds)
 
     override suspend fun nextPage(): List<MediaItem> = withContext(Dispatchers.IO) {
         // If we've resolved all fetched tracks but the API has more, fetch another page
@@ -216,7 +219,7 @@ abstract class SpotifyPagedQueue(
         }
 
         if (resolveOffset >= allTracks.size && !apiHasMore && continues) {
-            while (continuationRounds < MAX_CONTINUATION_ROUNDS && resolveOffset >= allTracks.size) {
+            while (continuationRounds < maxContinuationRounds && resolveOffset >= allTracks.size) {
                 continuationRounds++
                 val more = runCatching { continueWith(allTracks.toList()) }
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }

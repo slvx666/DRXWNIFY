@@ -56,20 +56,56 @@ object ForYouRecommender {
         val cyrillicShare: Double,
     )
 
-    suspend fun build(database: MusicDatabase, hideExplicit: Boolean): List<SpotifyTrack> {
-        if (!Catalog.ensureAuthenticated()) return emptyList()
-        val taste = taste(database)
+    /** The tracks shown on the home page. */
+    suspend fun build(database: MusicDatabase, hideExplicit: Boolean): List<SpotifyTrack> =
+        Session(database, hideExplicit).next(TARGET)
 
-        val fromSpotify = runCatching {
-            if (Catalog.source == MetadataSource.SPOTIFY) madeForYou() else emptyList()
-        }.onFailure { Timber.w(it, "forYou: Spotify mixes unavailable") }.getOrDefault(emptyList())
+    /**
+     * An endless stream of recommendations, handed out in chunks as they are needed — the way a
+     * Spotify radio keeps going: nothing is repeated within a session ([exclude] and everything
+     * already handed out), Spotify's mixes are used up first, then every further chunk is grown
+     * from a different, weighted-random set of the listener's artists.
+     */
+    class Session(
+        private val database: MusicDatabase,
+        private val hideExplicit: Boolean,
+        exclude: Collection<String> = emptySet(),
+    ) {
+        private val used = HashSet(exclude)
+        private val pool = ArrayDeque<SpotifyTrack>()
+        private var taste: Taste? = null
+        private var seedIds: List<Pair<String, Double>>? = null
+        private var mixesTried = false
+        private var emptyRounds = 0
 
-        val candidates = filter(fromSpotify, taste, hideExplicit).toMutableList()
-        if (candidates.size < TARGET) {
-            candidates += filter(fromTaste(taste), taste, hideExplicit)
+        suspend fun next(count: Int): List<SpotifyTrack> {
+            if (!Catalog.ensureAuthenticated()) return emptyList()
+            val t = taste ?: taste(database).also { taste = it }
+            while (pool.count { it.id !in used } < count && emptyRounds < MAX_EMPTY_ROUNDS) {
+                val more = if (!mixesTried) {
+                    mixesTried = true
+                    runCatching {
+                        if (Catalog.source == MetadataSource.SPOTIFY) madeForYou() else emptyList()
+                    }.onFailure { Timber.w(it, "forYou: Spotify mixes unavailable") }.getOrDefault(emptyList())
+                } else {
+                    fromTaste(t, seeds(t))
+                }
+                val fresh = diversify(filter(more, t, hideExplicit).filter { it.id !in used && pool.none { p -> p.id == it.id } })
+                if (fresh.isEmpty()) emptyRounds++ else emptyRounds = 0
+                pool.addAll(fresh)
+            }
+            val out = ArrayList<SpotifyTrack>()
+            while (out.size < count) {
+                val track = pool.removeFirstOrNull() ?: break
+                if (used.add(track.id)) out += track
+            }
+            return out
         }
-        return diversify(candidates.distinctBy { it.id }).take(TARGET)
+
+        private suspend fun seeds(t: Taste): List<Pair<String, Double>> = seedIds ?: resolveSeeds(t).also { seedIds = it }
     }
+
+    private const val MAX_EMPTY_ROUNDS = 3
 
     // ── Taste ────────────────────────────────────────────────────────────────────────────────────
 
@@ -151,26 +187,31 @@ object ForYouRecommender {
         interleave(lists)
     }
 
-    /** Tracks of artists close to the strongest artists of the listener's taste. */
-    private suspend fun fromTaste(taste: Taste): List<SpotifyTrack> = coroutineScope {
-        val seeds = taste.artists.entries.sortedByDescending { it.value }.take(10)
-        if (seeds.isEmpty()) return@coroutineScope emptyList()
-        val seedIds = seeds.mapNotNull { (key, _) ->
-            if (key.startsWith(ID_KEY)) {
+    /** Catalog ids of the listener's strongest artists (top 20) with their weights. */
+    private suspend fun resolveSeeds(taste: Taste): List<Pair<String, Double>> =
+        taste.artists.entries.sortedByDescending { it.value }.take(20).mapNotNull { (key, weight) ->
+            val id = if (key.startsWith(ID_KEY)) {
                 key.removePrefix(ID_KEY)
             } else {
                 Catalog.search(taste.artistNames[key] ?: key.removePrefix(NAME_KEY), types = listOf("artist"), limit = 1)
                     .getOrNull()?.artists?.items?.firstOrNull()?.id?.takeIf { it.isNotEmpty() }
             }
-        }.distinct()
-        val seedSet = seedIds.toSet()
-        // The strongest seeds most of the time, a weaker one now and then for variety.
-        val picked = seedIds.take(4) + seedIds.drop(4).shuffled().take(2)
+            id?.let { it to weight }
+        }.distinctBy { it.first }
+
+    /**
+     * One round of tracks from artists close to the listener's: six seeds drawn at random,
+     * weighted by how much each is listened to, so consecutive rounds wander across the taste.
+     */
+    private suspend fun fromTaste(taste: Taste, seeds: List<Pair<String, Double>>): List<SpotifyTrack> = coroutineScope {
+        if (seeds.isEmpty()) return@coroutineScope emptyList()
+        val seedSet = seeds.mapTo(HashSet()) { it.first }
+        val picked = weightedSample(seeds, 6)
         val lists = picked.map { seed ->
             async {
                 val related = Catalog.relatedArtists(seed).getOrNull().orEmpty()
                     .filter { it.id.isNotEmpty() && it.id !in seedSet }
-                    .take(6)
+                    .take(10)
                     .shuffled()
                     .take(3)
                 related.flatMap { artist ->
@@ -179,6 +220,18 @@ object ForYouRecommender {
             }
         }.awaitAll()
         interleave(lists)
+    }
+
+    private fun weightedSample(items: List<Pair<String, Double>>, count: Int): List<String> {
+        val left = items.toMutableList()
+        val out = ArrayList<String>()
+        while (out.size < count && left.isNotEmpty()) {
+            val total = left.sumOf { it.second.coerceAtLeast(0.01) }
+            var r = kotlin.random.Random.nextDouble(total)
+            val index = left.indexOfFirst { r -= it.second.coerceAtLeast(0.01); r <= 0 }.let { if (it < 0) left.lastIndex else it }
+            out += left.removeAt(index).first
+        }
+        return out
     }
 
     // ── Filtering ────────────────────────────────────────────────────────────────────────────────
