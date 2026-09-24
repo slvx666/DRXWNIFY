@@ -244,6 +244,7 @@ class SoulseekClient(
                 val download = downloads.firstOrNull { it.username == peer.username && it.filename == request.filename } ?: return
                 download.transferToken = request.token
                 download.size = request.size
+                AudioDiagnostics.info("soulseek: ${peer.username} is ready to send (${request.size} bytes)")
                 runCatching { peer.send(SlskProtocol.transferResponseAllowed(request.token)) }
             }
             SlskProtocol.P_UPLOAD_FAILED, SlskProtocol.P_UPLOAD_DENIED -> {
@@ -274,7 +275,10 @@ class SoulseekClient(
                     peerConnections.putIfAbsent(request.username, peer)
                     peer.readLoop()
                 }
-                "F" -> receiveFile(request.username, socket)
+                "F" -> {
+                    AudioDiagnostics.info("soulseek: file connection from ${request.username}")
+                    receiveFile(request.username, socket)
+                }
                 else -> socket.close()
             }
         } catch (_: Exception) {
@@ -320,11 +324,20 @@ class SoulseekClient(
         val deferred = CompletableDeferred<SlskProtocol.PeerAddress>()
         peerAddress[username] = deferred
         sendServer(SlskProtocol.getPeerAddress(username))
-        val address = withTimeoutOrNull(PEER_ADDRESS_TIMEOUT_MS) { deferred.await() } ?: return null
-        if (address.port <= 0 || address.ip == "0.0.0.0") return null
+        val address = withTimeoutOrNull(PEER_ADDRESS_TIMEOUT_MS) { deferred.await() } ?: run {
+            AudioDiagnostics.warn("soulseek: no address for $username (offline?)")
+            return null
+        }
+        if (address.port <= 0 || address.ip == "0.0.0.0") {
+            AudioDiagnostics.warn("soulseek: $username accepts no connections (firewalled, like us)")
+            return null
+        }
         val socket = runCatching {
             Socket().apply { connect(InetSocketAddress(address.ip, address.port), CONNECT_TIMEOUT_MS) }
-        }.getOrNull() ?: return null
+        }.getOrElse {
+            AudioDiagnostics.warn("soulseek: can't connect to $username at ${address.ip}:${address.port}: ${it.message}")
+            return null
+        }
         val peer = PeerConnection(username, socket)
         runCatching { peer.send(SlskProtocol.peerInit(me, "P")) }.onFailure { peer.close(); return null }
         peerConnections[username] = peer
@@ -370,7 +383,10 @@ class SoulseekClient(
         downloads += download
         try {
             peer.send(SlskProtocol.queueUpload(filename))
-            return withTimeoutOrNull(timeoutMs) { download.result.await() }
+            AudioDiagnostics.info("soulseek: queued '${filename.substringAfterLast('\\')}' at $username")
+            return withTimeoutOrNull(timeoutMs) { download.result.await() }.also {
+                if (it == null) AudioDiagnostics.warn("soulseek: $username didn't send the file in ${timeoutMs / 1000}s")
+            }
         } catch (e: Exception) {
             AudioDiagnostics.warn("soulseek: download from $username failed: ${e.message}")
             return null

@@ -69,13 +69,20 @@ constructor(
      * null = every usable source at once; otherwise only that one, which then returns far more.
      * Chosen in the search box's source picker, so it survives leaving the screen.
      */
-    val source: StateFlow<AudioProviderId?> = context.dataStore.data
+    val source = MutableStateFlow<AudioProviderId?>(null)
+
+    /**
+     * False until the picked source has been read. Before that [source] is only a placeholder null
+     * ("all sources"), which must neither start a search of everything nor show VK's albums tab.
+     */
+    val sourceKnown = MutableStateFlow(false)
+
+    private val pickedSource = context.dataStore.data
         .map { prefs ->
             prefs[com.metrolist.music.constants.ExperimentalSearchSourceKey]
                 ?.let { name -> AudioProviderId.entries.firstOrNull { it.name == name } }
         }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** Non-null while one artist's tracks are shown instead of the result list. */
     val selectedArtist = MutableStateFlow<String?>(null)
@@ -107,7 +114,9 @@ constructor(
             // Re-runs whenever the user narrows the search down to one source. The first run must
             // leave an artist opened straight from a track's menu alone.
             var firstRun = true
-            source.collectLatest { only ->
+            pickedSource.collectLatest { only ->
+                source.value = only
+                sourceKnown.value = true
                 isLoading.value = true
                 if (!firstRun) closeArtist()
                 firstRun = false

@@ -361,26 +361,18 @@ fun PhotoViewerHost(
         activity?.window?.let { WindowCompat.getInsetsController(it, it.decorView) }
     }
 
-    // The status bar is hidden once the photo has landed (the page behind shifts under full black)
-    // and comes back as soon as a drag starts or the photo closes, while the backdrop still covers
-    // the page moving back into place.
-    val barShowDragPx = with(density) { 20.dp.toPx() }
-    val statusBarHidden by remember(session.nonce) {
-        derivedStateOf { phase == PhotoViewerPhase.Interactive && abs(dragOffset.y) < barShowDragPx }
-    }
+    // The status bar disappears on the black without hiding it: hiding it changes the window
+    // insets, and the whole app lays itself out again (a visible shift behind the photo and a heavy
+    // relayout in the middle of a drag). Dark icons on black are just as invisible and cost nothing.
+    val originalLightIcons = remember(session.nonce) { insetsController?.isAppearanceLightStatusBars }
+    val iconsOnBlack = phase == PhotoViewerPhase.Interactive
     SideEffect {
-        insetsController?.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (statusBarHidden) {
-            insetsController?.hide(WindowInsetsCompat.Type.statusBars())
-        } else {
-            insetsController?.show(WindowInsetsCompat.Type.statusBars())
-        }
+        val controller = insetsController ?: return@SideEffect
+        controller.isAppearanceLightStatusBars = if (iconsOnBlack) true else originalLightIcons ?: false
     }
-
-    DisposableEffect(insetsController) {
+    DisposableEffect(insetsController, session.nonce) {
         onDispose {
-            insetsController?.show(WindowInsetsCompat.Type.statusBars())
+            originalLightIcons?.let { insetsController?.isAppearanceLightStatusBars = it }
         }
     }
 

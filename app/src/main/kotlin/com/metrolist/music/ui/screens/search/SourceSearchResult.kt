@@ -119,8 +119,10 @@ fun SourceSearchResult(
     val artistLoading by viewModel.artistLoading.collectAsState()
     val vkPlaylists by viewModel.vkPlaylists.collectAsState()
     val vkPlaylistsLoading by viewModel.vkPlaylistsLoading.collectAsState()
-    val vkSearch = source == AudioProviderId.VK ||
-        (source == null && com.metrolist.music.resolver.VkMusic.isReady)
+    val sourceKnown by viewModel.sourceKnown.collectAsState()
+    val vkSearch = sourceKnown && (
+        source == AudioProviderId.VK || (source == null && com.metrolist.music.resolver.VkMusic.isReady)
+    )
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
     val pauseSearchHistory by rememberPreference(PauseSearchHistoryKey, defaultValue = false)

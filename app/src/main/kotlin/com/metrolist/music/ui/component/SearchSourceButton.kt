@@ -108,6 +108,15 @@ fun SearchSourceButton(
         androidx.compose.material3.ModalBottomSheet(
             onDismissRequest = { open = false },
             sheetState = sheetState,
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 10.dp, bottom = 8.dp)
+                        .size(width = 32.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
+                )
+            },
         ) {
             SearchSourceSheet(
                 current = current,
@@ -146,7 +155,10 @@ private fun SearchSourceSheet(
             text = stringResource(R.string.search_source_picker),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, bottom = 10.dp),
         )
 
         // YouTube Music is always offered, account or not: it holds artists the catalog does not,
@@ -171,14 +183,14 @@ private fun SearchSourceSheet(
 
         if (!experimentalAvailable) return@Column
 
-        Spacer(Modifier.height(12.dp))
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = SearchExperimentalColor.copy(alpha = 0.08f),
-            border = BorderStroke(1.dp, SearchExperimentalColor.copy(alpha = 0.35f)),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+        // A plain section under a thin divider: no coloured box, only the small mark by the title
+        // keeps the amber of the experimental mode.
+        androidx.compose.material3.HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+        )
+        run {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         painter = painterResource(R.drawable.search_experimental),
@@ -190,11 +202,11 @@ private fun SearchSourceSheet(
                     Text(
                         text = stringResource(R.string.search_sources_title),
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = SearchExperimentalColor,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
                 Text(
                     text = stringResource(R.string.search_sources_short),
                     style = MaterialTheme.typography.bodySmall,
@@ -342,11 +354,11 @@ private fun SourceChip(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .background(
-                if (selected) SearchExperimentalColor.copy(alpha = 0.22f) else Color.Transparent,
+                if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
             )
             .let {
                 if (selected) it else it.border(
-                    BorderStroke(1.dp, SearchExperimentalColor.copy(alpha = 0.35f)),
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     RoundedCornerShape(12.dp),
                 )
             }
@@ -367,7 +379,8 @@ private fun SourceChip(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                color = labelColor ?: if (selected) SearchExperimentalColor else MaterialTheme.colorScheme.onSurface,
+                color = labelColor
+                    ?: if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
             )
             if (note != null) {
                 Text(
@@ -382,7 +395,7 @@ private fun SourceChip(
             Icon(
                 painter = painterResource(R.drawable.check),
                 contentDescription = null,
-                tint = SearchExperimentalColor,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.size(16.dp),
             )
         }
