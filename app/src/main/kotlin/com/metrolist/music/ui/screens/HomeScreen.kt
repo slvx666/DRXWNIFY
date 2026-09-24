@@ -75,6 +75,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import com.metrolist.music.ui.component.ItemThumbnail
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -1507,8 +1509,28 @@ fun HomeScreen(
                                     fun startRadio(start: com.metrolist.spotify.models.SpotifyTrack?) {
                                         if (isListenTogetherGuest || starting) return
                                         scope.launch {
-                                            val queue = viewModel.forYouRadio(start, spotifyMapper)
-                                            if (queue != null) playerConnection.playQueue(queue)
+                                            val queue = if (start != null) {
+                                                viewModel.forYouRadioFrom(start, spotifyMapper)
+                                            } else {
+                                                viewModel.forYouRadio(spotifyMapper)
+                                            } ?: return@launch
+                                            // The old track fades out in a moment, the new one takes
+                                            // over at once (it shows in the mini player right away)
+                                            // and fades in.
+                                            val player = playerConnection.player
+                                            val volume = player.volume
+                                            if (player.isPlaying && volume > 0f) {
+                                                for (step in 1..6) {
+                                                    player.volume = volume * (1f - step / 6f)
+                                                    kotlinx.coroutines.delay(25)
+                                                }
+                                            }
+                                            playerConnection.playQueue(queue)
+                                            for (step in 1..10) {
+                                                player.volume = volume * step / 10f
+                                                kotlinx.coroutines.delay(35)
+                                            }
+                                            player.volume = volume
                                         }
                                     }
 
@@ -1544,6 +1566,17 @@ fun HomeScreen(
                                                                     val cover = remember(track.id) {
                                                                         com.metrolist.spotify.SpotifyMapper.getTrackThumbnail(track)
                                                                     }
+                                                                    // A clear press: the cover sinks in under the finger.
+                                                                    val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                                                                    val pressed by press.collectIsPressedAsState()
+                                                                    val pressScale by androidx.compose.animation.core.animateFloatAsState(
+                                                                        targetValue = if (pressed) 0.9f else 1f,
+                                                                        animationSpec = androidx.compose.animation.core.spring(
+                                                                            dampingRatio = 0.55f,
+                                                                            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+                                                                        ),
+                                                                        label = "forYouPress",
+                                                                    )
                                                                     ItemThumbnail(
                                                                         thumbnailUrl = cover,
                                                                         isActive = false,
@@ -1551,9 +1584,18 @@ fun HomeScreen(
                                                                         shape = RoundedCornerShape(ThumbnailCornerRadius),
                                                                         modifier = Modifier
                                                                             .fillMaxSize()
+                                                                            .graphicsLayer {
+                                                                                scaleX = pressScale
+                                                                                scaleY = pressScale
+                                                                            }
                                                                             .clip(RoundedCornerShape(ThumbnailCornerRadius))
                                                                             .combinedClickable(
-                                                                                onClick = { startRadio(track) },
+                                                                                interactionSource = press,
+                                                                                indication = androidx.compose.material3.ripple(),
+                                                                                onClick = {
+                                                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                                    startRadio(track)
+                                                                                },
                                                                                 onLongClick = {
                                                                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                                                     menuState.show {

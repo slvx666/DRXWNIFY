@@ -100,6 +100,42 @@ class SoulseekAudioProvider(
         )
     }
 
+    /**
+     * Files matching [text] for the experimental search. Peers with a free slot and a short queue
+     * come first (they start sooner), then lossless and high bitrate.
+     */
+    override suspend fun searchFree(text: String, limit: Int): List<ProviderMatch> {
+        val query = text.replace(Regex("[^\\p{L}\\p{N} ]+"), " ").replace(Regex("\\s+"), " ").trim()
+        if (!isReady() || query.isBlank()) return emptyList()
+        val responses = client.search(query, SEARCH_WINDOW_MS)
+        return responses
+            .flatMap { response ->
+                response.files.filter { it.extension in PLAYABLE }.map { Pick(response.username, it) to response }
+            }
+            .sortedByDescending { (pick, response) ->
+                (if (response.freeSlot) 1000 else 0) - response.queueLength.coerceAtMost(50) * 10 +
+                    when {
+                        pick.file.extension == "flac" -> 300
+                        else -> (pick.file.bitrate ?: 0).coerceAtMost(320)
+                    }
+            }
+            .distinctBy { (pick, _) -> pick.file.segments.lastOrNull()?.lowercase() }
+            .take(limit)
+            .map { (pick, _) ->
+                val segments = pick.file.segments
+                picks[key(pick)] = pick
+                ProviderMatch(
+                    provider = id,
+                    trackId = key(pick),
+                    title = segments.lastOrNull().orEmpty().substringBeforeLast('.'),
+                    // The folder usually names the artist/album; the peer is shown when it doesn't.
+                    artist = segments.dropLast(1).lastOrNull() ?: pick.username,
+                    durationMs = pick.file.durationSec?.times(1000L),
+                    confidence = 0.0,
+                )
+            }
+    }
+
     override suspend fun stream(query: AudioQuery, match: ProviderMatch): AudioStream? {
         val pick = picks[match.trackId] ?: decodeKey(match.trackId) ?: return null
         if (!allowedNow()) return null

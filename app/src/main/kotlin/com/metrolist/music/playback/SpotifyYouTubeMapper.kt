@@ -213,6 +213,23 @@ class SpotifyYouTubeMapper(
     }
 
     /**
+     * Something playable for [track] right now, without any lookup: its known YouTube video when
+     * one is cached in memory, else the fallback id whose audio is found as it starts playing. Used
+     * to switch the player to a tapped track instantly while the rest of the queue is prepared.
+     */
+    fun quickMetadata(track: SpotifyTrack): MediaMetadata {
+        val known = memoryCache[track.id]?.youtubeId
+        val id = known ?: FallbackIds.of(track.id)
+        SpotifyMetadataRegistry.register(id, track)
+        return buildMediaMetadata(
+            youtubeId = id,
+            spotifyTrack = track,
+            ytTitle = track.name,
+            ytArtist = track.artists.firstOrNull()?.name.orEmpty(),
+        )
+    }
+
+    /**
      * A song row for [track] WITHOUT looking for its audio first.
      *
      * Adding a track to a playlist must not depend on the network: a track whose audio has not been

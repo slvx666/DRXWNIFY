@@ -1060,4 +1060,6 @@
     <string name="vk_save_failed">VK не принял запрос</string>
     <string name="cover_viewer_hint">Щипок — приблизить · двойное касание · удерживай, чтобы сохранить</string>
     <string name="add_to_playlist_failed">Не удалось добавить в плейлист</string>
+    <string name="soulseek_last_resort">Крайний случай: медленно, файлы качаются с чужих компьютеров</string>
+    <string name="soulseek_last_resort_unavailable">Нужен вход — или Wi-Fi, если включено «Только Wi-Fi»</string>
 </resources>

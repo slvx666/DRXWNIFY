@@ -184,7 +184,7 @@ private fun SearchSourceSheet(
                         selected = current == SearchSource.SOURCES && experimentalSource.isBlank(),
                         onClick = { onSelectExperimental("") },
                     )
-                    SourceSearch.PROVIDERS.forEach { provider ->
+                    SourceSearch.PROVIDERS.filter { it != AudioProviderId.SOULSEEK }.forEach { provider ->
                         SourceChip(
                             label = providerLabel(provider),
                             note = when (SourceSearch.statusOf(provider)) {
@@ -197,7 +197,76 @@ private fun SearchSourceSheet(
                         )
                     }
                 }
+
+                Spacer(Modifier.height(10.dp))
+                LastResortSourceChip(
+                    selected = current == SearchSource.SOURCES && experimentalSource == AudioProviderId.SOULSEEK.name,
+                    status = SourceSearch.statusOf(AudioProviderId.SOULSEEK),
+                    onClick = { onSelectExperimental(AudioProviderId.SOULSEEK.name) },
+                )
             }
+        }
+    }
+}
+
+/**
+ * Soulseek, set apart in red → yellow: the last thing to reach for. It is slow (peers answer over
+ * seconds and every file is downloaded from someone's computer before it plays), and it is never
+ * part of "All sources".
+ */
+@Composable
+private fun LastResortSourceChip(
+    selected: Boolean,
+    status: SourceSearch.Status,
+    onClick: () -> Unit,
+) {
+    val warning = androidx.compose.ui.graphics.Brush.horizontalGradient(
+        listOf(Color(0xFFE5484D), Color(0xFFF5B400)),
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                    listOf(Color(0xFFE5484D).copy(alpha = if (selected) 0.30f else 0.12f), Color(0xFFF5B400).copy(alpha = if (selected) 0.30f else 0.12f)),
+                ),
+            )
+            .border(BorderStroke(if (selected) 2.dp else 1.dp, warning), RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.search_experimental),
+            contentDescription = null,
+            tint = Color(0xFFE5484D),
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = "Soulseek",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = when (status) {
+                    SourceSearch.Status.READY -> stringResource(R.string.soulseek_last_resort)
+                    SourceSearch.Status.DISABLED -> stringResource(R.string.source_status_off)
+                    SourceSearch.Status.NEEDS_ACCOUNT -> stringResource(R.string.soulseek_last_resort_unavailable)
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (selected) {
+            Icon(
+                painter = painterResource(R.drawable.check),
+                contentDescription = null,
+                tint = Color(0xFFE5484D),
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }

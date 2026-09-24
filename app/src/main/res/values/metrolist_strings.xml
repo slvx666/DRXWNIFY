@@ -1355,4 +1355,6 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="vk_save_failed">VK did not accept it</string>
     <string name="cover_viewer_hint">Pinch to zoom · double tap · hold to save</string>
     <string name="add_to_playlist_failed">Could not add to the playlist</string>
+    <string name="soulseek_last_resort">Last resort: slow, files come from other people’s computers</string>
+    <string name="soulseek_last_resort_unavailable">Needs an account — or Wi-Fi, if “Wi-Fi only” is on</string>
 </resources>

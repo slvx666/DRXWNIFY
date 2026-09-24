@@ -37,14 +37,19 @@ object SourceSearch {
 
     /**
      * Providers that can answer a free-text search. YouTube is missing on purpose (it has its own,
-     * much better search mode) and so is Soulseek, whose searches take tens of seconds.
+     * much better search mode). Soulseek is last and only answers when picked on its own: it is the
+     * slowest (peers answer over seconds, files come from people's computers) — a last resort.
      */
     val PROVIDERS = listOf(
         AudioProviderId.VK,
         AudioProviderId.SOUNDCLOUD,
         AudioProviderId.BANDCAMP,
         AudioProviderId.AUDIUS,
+        AudioProviderId.SOULSEEK,
     )
+
+    /** Sources left out of "all sources": they are only searched when chosen explicitly. */
+    private val ONLY_WHEN_PICKED = setOf(AudioProviderId.SOULSEEK)
 
     fun catalogIdOf(match: ProviderMatch): String = "$CATALOG_PREFIX${match.provider.name}:${match.trackId}"
 
@@ -88,7 +93,7 @@ object SourceSearch {
         if (query.isBlank()) return emptyList()
         val providers = AudioFallbackEngine.activeProviders()
             .filter { it.id in PROVIDERS }
-            .filter { only == null || it.id == only }
+            .filter { if (only == null) it.id !in ONLY_WHEN_PICKED else it.id == only }
         if (providers.isEmpty()) {
             AudioDiagnostics.warn(
                 "source search '$query': no usable source" +

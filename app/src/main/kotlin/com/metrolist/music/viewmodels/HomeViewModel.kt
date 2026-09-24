@@ -456,29 +456,72 @@ class HomeViewModel @Inject constructor(
     /** True while the "For you" radio's first tracks are being picked (the dice spins). */
     val forYouStarting = MutableStateFlow(false)
 
-    /**
-     * An endless "For you" radio. [start] (a tapped cover) plays first; the dice starts with fresh
-     * picks. The covers on the page are left out, so the radio brings something new.
-     */
-    suspend fun forYouRadio(
-        start: SpotifyTrack?,
-        mapper: com.metrolist.music.playback.SpotifyYouTubeMapper,
-    ): com.metrolist.music.playback.queues.ForYouQueue? = kotlinx.coroutines.withContext(Dispatchers.IO) {
-        forYouStarting.value = true
-        try {
-            val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-            val shown = forYou.value.orEmpty().map { it.id }.filter { it != start?.id }
-            val session = com.metrolist.music.playback.ForYouRecommender.Session(database, hideExplicit, exclude = shown)
-            val first = listOfNotNull(start) + session.next(if (start != null) 4 else 6)
-            if (first.isEmpty()) null else com.metrolist.music.playback.queues.ForYouQueue(first, session, mapper)
-        } finally {
-            forYouStarting.value = false
+    /** A radio session with its first tracks already picked, so the dice starts at once. */
+    @Volatile
+    private var preparedRadio: Pair<com.metrolist.music.playback.ForYouRecommender.Session, List<SpotifyTrack>>? = null
+    private var prepareJob: kotlinx.coroutines.Job? = null
+
+    private fun newRadioSession(excludeAlso: String? = null) =
+        com.metrolist.music.playback.ForYouRecommender.Session(
+            database,
+            context.dataStore.get(HideExplicitKey, false),
+            // The covers on the page are left out: the radio should bring something new.
+            exclude = forYou.value.orEmpty().map { it.id }.filter { it != excludeAlso },
+        )
+
+    private fun prepareRadio() {
+        if (prepareJob?.isActive == true) return
+        prepareJob = viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val session = newRadioSession()
+                val first = session.next(6)
+                if (first.isNotEmpty()) preparedRadio = session to first
+            }
         }
+    }
+
+    /** The radio from a tapped cover: that track plays immediately, the rest follows. */
+    fun forYouRadioFrom(
+        start: SpotifyTrack,
+        mapper: com.metrolist.music.playback.SpotifyYouTubeMapper,
+    ) = com.metrolist.music.playback.queues.ForYouQueue(
+        startTracks = listOf(start),
+        sessionFactory = { kotlinx.coroutines.withContext(Dispatchers.IO) { newRadioSession(excludeAlso = start.id) } },
+        mapper = mapper,
+        preload = mapper.quickMetadata(start),
+    )
+
+    /** The dice: fresh picks (prepared in the background, so usually instant). */
+    suspend fun forYouRadio(
+        mapper: com.metrolist.music.playback.SpotifyYouTubeMapper,
+    ): com.metrolist.music.playback.queues.ForYouQueue? {
+        val ready = preparedRadio?.also { preparedRadio = null } ?: run {
+            forYouStarting.value = true
+            try {
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    val session = newRadioSession()
+                    session to session.next(6)
+                }
+            } finally {
+                forYouStarting.value = false
+            }
+        }
+        prepareRadio()
+        val (session, first) = ready
+        if (first.isEmpty()) return null
+        return com.metrolist.music.playback.queues.ForYouQueue(
+            startTracks = first,
+            sessionFactory = { session },
+            mapper = mapper,
+            preload = mapper.quickMetadata(first.first()),
+        )
     }
 
     /** See [com.metrolist.music.playback.ForYouRecommender] for how the row is chosen. */
     private suspend fun loadForYou(hideExplicit: Boolean) {
         forYou.value = com.metrolist.music.playback.ForYouRecommender.build(database, hideExplicit).ifEmpty { null }
+        preparedRadio = null
+        prepareRadio()
     }
 
     private suspend fun <T> section(name: String, fallback: T, block: suspend () -> T): T =

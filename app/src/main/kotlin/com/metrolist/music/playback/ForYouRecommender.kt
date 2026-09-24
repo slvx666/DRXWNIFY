@@ -38,7 +38,8 @@ import kotlin.math.exp
  * music — no Cyrillic-titled tracks, which is what used to slip Russian songs into the row.
  */
 object ForYouRecommender {
-    private const val TARGET = 30
+    /** 35 covers + the dice = 36 cells: four full pages of 3×3. */
+    private const val TARGET = 35
     private const val MAX_PER_ARTIST = 2
 
     /** Below this share of Cyrillic in what was listened to, Cyrillic results are left out. */
