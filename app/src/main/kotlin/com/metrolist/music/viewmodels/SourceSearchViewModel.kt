@@ -112,29 +112,39 @@ constructor(
     init {
         viewModelScope.launch(Dispatchers.IO) {
             // Re-runs whenever the user narrows the search down to one source. The first run must
-            // leave an artist opened straight from a track's menu alone.
+            // leave an artist opened straight from a track's menu alone. A new pick takes over at
+            // once: the old search is cancelled without waiting for it to wind down (collectLatest
+            // waits, and a source stuck in the network held the switch up until it gave up).
             var firstRun = true
-            pickedSource.collectLatest { only ->
+            var searchJob: Job? = null
+            pickedSource.collect { only ->
+                searchJob?.cancel()
+                if (!firstRun) closeArtist()
+                firstRun = false
                 source.value = only
                 sourceKnown.value = true
                 isLoading.value = true
-                if (!firstRun) closeArtist()
-                firstRun = false
+                results.value = emptyList()
                 vkPlaylists.value = emptyList()
-                if ((only == null || only == AudioProviderId.VK) && com.metrolist.music.resolver.VkMusic.isReady) {
-                    vkPlaylistsLoading.value = true
-                    launch {
-                        vkPlaylists.value = com.metrolist.music.resolver.VkMusic.searchPlaylists(query).getOrDefault(emptyList())
-                        vkPlaylistsLoading.value = false
-                    }
-                }
-                val found = SourceSearch.search(query, only)
-                results.value = found
-                isLoading.value = false
-                // Remember where each result came from, so it still plays (and downloads) after a restart.
-                SourceSearch.remember(found)
+                vkPlaylistsLoading.value = false
+                searchJob = launch { runSearch(only) }
             }
         }
+    }
+
+    private suspend fun runSearch(only: AudioProviderId?) = kotlinx.coroutines.coroutineScope {
+        if ((only == null || only == AudioProviderId.VK) && com.metrolist.music.resolver.VkMusic.isReady) {
+            vkPlaylistsLoading.value = true
+            launch {
+                vkPlaylists.value = com.metrolist.music.resolver.VkMusic.searchPlaylists(query).getOrDefault(emptyList())
+                vkPlaylistsLoading.value = false
+            }
+        }
+        val found = SourceSearch.search(query, only)
+        results.value = found
+        isLoading.value = false
+        // Remember where each result came from, so it still plays (and downloads) after a restart.
+        SourceSearch.remember(found)
     }
 
     init {

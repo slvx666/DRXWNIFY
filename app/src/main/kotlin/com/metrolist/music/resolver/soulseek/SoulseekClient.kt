@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -40,6 +41,21 @@ class SoulseekClient(
     private val credentials: () -> Pair<String, String>?,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Blocking socket work (the server reader, every peer connection) runs on its own threads. On
+     * Dispatchers.IO a popular search - hundreds of peers connecting back, each read loop holding a
+     * thread - used up the whole pool, and everything else in the app that needed IO (the search's
+     * own timer included) stalled for minutes.
+     */
+    private val peerScope = CoroutineScope(
+        SupervisorJob() + java.util.concurrent.Executors.newCachedThreadPool { runnable ->
+            Thread(runnable, "slsk-peer").apply { isDaemon = true }
+        }.asCoroutineDispatcher(),
+    )
+
+    /** Peers answering a search at the same time; the rest are skipped (there are plenty). */
+    private val searchPeerSlots = java.util.concurrent.Semaphore(MAX_SEARCH_PEERS)
     private val connectMutex = Mutex()
 
     @Volatile private var server: Socket? = null
@@ -112,7 +128,7 @@ class SoulseekClient(
         serverOut = socket.getOutputStream()
         val login = CompletableDeferred<SlskProtocol.LoginResult>()
         pendingLogin = login
-        readerJob = scope.launch { readServer(socket) }
+        readerJob = peerScope.launch { readServer(socket) }
         sendServer(SlskProtocol.login(user, pass))
         when (val result = withTimeoutOrNull(LOGIN_TIMEOUT_MS) { login.await() }) {
             is SlskProtocol.LoginResult.Success -> Unit
@@ -179,7 +195,7 @@ class SoulseekClient(
                     SlskProtocol.S_GET_PEER_ADDRESS -> runCatching { SlskProtocol.parsePeerAddress(payload) }
                         .getOrNull()?.let { peerAddress.remove(it.username)?.complete(it) }
                     SlskProtocol.S_CONNECT_TO_PEER -> runCatching { SlskProtocol.parseConnectToPeer(payload) }
-                        .getOrNull()?.let { request -> scope.launch { answerConnectRequest(request) } }
+                        .getOrNull()?.let { request -> peerScope.launch { answerConnectRequest(request) } }
                     else -> Unit // room lists, privileges, wishlist intervals… not needed
                 }
             }
@@ -261,6 +277,18 @@ class SoulseekClient(
     /** The server relays a peer that wants to reach us: we connect to it and "pierce" with its token. */
     private fun answerConnectRequest(request: SlskProtocol.ConnectToPeer) {
         connectRequests.incrementAndGet()
+        // A peer we are downloading from always gets through; search answers only while there is room.
+        val downloading = downloads.any { it.username == request.username }
+        val slot = request.type != "P" || downloading || searchPeerSlots.tryAcquire()
+        if (!slot) return
+        try {
+            answerConnectRequest(request, downloading)
+        } finally {
+            if (request.type == "P" && !downloading) searchPeerSlots.release()
+        }
+    }
+
+    private fun answerConnectRequest(request: SlskProtocol.ConnectToPeer, downloading: Boolean) {
         val socket = runCatching {
             Socket().apply { connect(InetSocketAddress(request.ip, request.port), CONNECT_TIMEOUT_MS) }
         }.getOrNull() ?: run {
@@ -271,6 +299,8 @@ class SoulseekClient(
             socket.getOutputStream().apply { write(SlskProtocol.pierceFirewall(request.token)); flush() }
             when (request.type) {
                 "P" -> {
+                    // A search answer arrives within seconds; an idle connection is then let go.
+                    if (!downloading) socket.soTimeout = PEER_IDLE_TIMEOUT_MS
                     val peer = PeerConnection(request.username, socket)
                     peerConnections.putIfAbsent(request.username, peer)
                     peer.readLoop()
@@ -319,7 +349,11 @@ class SoulseekClient(
     }
 
     private suspend fun peerConnection(username: String): PeerConnection? {
-        peerConnections[username]?.takeIf { !it.socket.isClosed }?.let { return it }
+        peerConnections[username]?.takeIf { !it.socket.isClosed }?.let {
+            // Kept open for as long as the download waits in their queue.
+            runCatching { it.socket.soTimeout = 0 }
+            return it
+        }
         val me = ensureConnected()
         val deferred = CompletableDeferred<SlskProtocol.PeerAddress>()
         peerAddress[username] = deferred
@@ -341,7 +375,7 @@ class SoulseekClient(
         val peer = PeerConnection(username, socket)
         runCatching { peer.send(SlskProtocol.peerInit(me, "P")) }.onFailure { peer.close(); return null }
         peerConnections[username] = peer
-        scope.launch { peer.readLoop() }
+        peerScope.launch { peer.readLoop() }
         return peer
     }
 
@@ -407,6 +441,8 @@ class SoulseekClient(
         private const val IDLE_DISCONNECT_MS = 5 * 60 * 1000L
         private const val PING_INTERVAL_MS = 4 * 60 * 1000L
         private const val FAILURE_BACKOFF_MS = 30_000L
+        private const val MAX_SEARCH_PEERS = 48
+        private const val PEER_IDLE_TIMEOUT_MS = 20_000
         private const val CLOSED_BEFORE_ANSWER = "connection closed"
     }
 }

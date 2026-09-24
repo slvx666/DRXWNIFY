@@ -168,7 +168,13 @@ object AudioFallbackEngine {
                 AudioDiagnostics.warn("no enabled/ready audio source for ${query.label()} (excluded=$exclude)")
                 return@withContext null
             }
-            val outcome = racer.resolve(query, active, ResolverPreferences.order)
+            // Soulseek is the last resort: it only runs when every other source has come back empty.
+            // Racing it for each track (a queue resolves many at once) flooded the network with
+            // searches, each answered by hundreds of peers.
+            val (lastResort, regular) = active.partition { it.id == AudioProviderId.SOULSEEK }
+            val outcome = racer.resolve(query, regular, ResolverPreferences.order)
+                .takeIf { it.winner != null || lastResort.isEmpty() }
+                ?: racer.resolve(query, lastResort, ResolverPreferences.order)
             val winner = outcome.winner
             AudioDiagnostics.info(
                 "search ${query.label()} ${query.durationMs / 1000}s → ${winner?.provider ?: "NOT FOUND"} in ${outcome.elapsedMs}ms\n  " +

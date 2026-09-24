@@ -357,23 +357,14 @@ fun PhotoViewerHost(
     }
 
     val activity = remember(context) { context.findPhotoViewerActivity() }
-    val insetsController = remember(activity) {
-        activity?.window?.let { WindowCompat.getInsetsController(it, it.decorView) }
-    }
-
-    // The status bar disappears on the black without hiding it: hiding it changes the window
-    // insets, and the whole app lays itself out again (a visible shift behind the photo and a heavy
-    // relayout in the middle of a drag). Dark icons on black are just as invisible and cost nothing.
-    val originalLightIcons = remember(session.nonce) { insetsController?.isAppearanceLightStatusBars }
-    val iconsOnBlack = phase == PhotoViewerPhase.Interactive
+    // Status bar, battery, clock and navigation bar are hidden while the photo is open and come
+    // back as soon as it starts closing. The app itself doesn't notice (see SystemBarsFreezer).
+    val barsHidden = phase != PhotoViewerPhase.Closing
     SideEffect {
-        val controller = insetsController ?: return@SideEffect
-        controller.isAppearanceLightStatusBars = if (iconsOnBlack) true else originalLightIcons ?: false
+        activity?.let { SystemBarsFreezer.of(it).setHidden(barsHidden) }
     }
-    DisposableEffect(insetsController, session.nonce) {
-        onDispose {
-            originalLightIcons?.let { insetsController?.isAppearanceLightStatusBars = it }
-        }
+    DisposableEffect(activity, session.nonce) {
+        onDispose { activity?.let { SystemBarsFreezer.of(it).setHidden(false) } }
     }
 
     LaunchedEffect(state.dismissRequestCount) {
@@ -763,6 +754,79 @@ private fun Size.aspectRatioOrNull(): Float? = try {
     }
 } catch (_: IllegalStateException) {
     null
+}
+
+/**
+ * Hides the system bars over the viewer while the app keeps laying itself out as if they were still
+ * there: the insets the app sees are frozen at their values from before, so hiding or showing the
+ * bars never shifts the page behind the photo, nor relays the whole app out in the middle of a
+ * gesture. The freeze is lifted once the bars are back in place.
+ */
+private class SystemBarsFreezer private constructor(activity: Activity) {
+    private val content: android.view.View = activity.findViewById(android.R.id.content)
+    private val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+    private var frozen: Map<Int, androidx.core.graphics.Insets>? = null
+    private var hidden = false
+    private val release = Runnable { if (!hidden) unfreeze() }
+
+    private fun fix(insets: WindowInsetsCompat): WindowInsetsCompat {
+        val values = frozen ?: return insets
+        val builder = WindowInsetsCompat.Builder(insets)
+        values.forEach { (type, value) ->
+            builder.setInsets(type, value)
+            builder.setVisible(type, true)
+        }
+        return builder.build()
+    }
+
+    fun setHidden(value: Boolean) {
+        if (value == hidden) return
+        hidden = value
+        content.removeCallbacks(release)
+        if (value) {
+            freeze()
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+            content.postDelayed(release, RELEASE_DELAY_MS)
+        }
+    }
+
+    private fun freeze() {
+        if (frozen != null) return
+        val current = androidx.core.view.ViewCompat.getRootWindowInsets(content) ?: return
+        frozen = FROZEN_TYPES.associateWith { current.getInsets(it) }
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(content) { _, insets -> fix(insets) }
+        androidx.core.view.ViewCompat.setWindowInsetsAnimationCallback(
+            content,
+            object : androidx.core.view.WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+                override fun onProgress(
+                    insets: WindowInsetsCompat,
+                    runningAnimations: MutableList<androidx.core.view.WindowInsetsAnimationCompat>,
+                ): WindowInsetsCompat = fix(insets)
+            },
+        )
+    }
+
+    private fun unfreeze() {
+        frozen = null
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(content, null)
+        androidx.core.view.ViewCompat.setWindowInsetsAnimationCallback(content, null)
+        androidx.core.view.ViewCompat.requestApplyInsets(content)
+    }
+
+    companion object {
+        private const val RELEASE_DELAY_MS = 700L
+        private val FROZEN_TYPES = listOf(
+            WindowInsetsCompat.Type.statusBars(),
+            WindowInsetsCompat.Type.navigationBars(),
+            WindowInsetsCompat.Type.captionBar(),
+        )
+        private val instances = java.util.WeakHashMap<Activity, SystemBarsFreezer>()
+
+        fun of(activity: Activity): SystemBarsFreezer = instances.getOrPut(activity) { SystemBarsFreezer(activity) }
+    }
 }
 
 /** The app-wide photo viewer (drawn over everything, the player included). */

@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -183,14 +184,22 @@ private fun SearchSourceSheet(
 
         if (!experimentalAvailable) return@Column
 
-        // A plain section under a thin divider: no coloured box, only the small mark by the title
-        // keeps the amber of the experimental mode.
-        androidx.compose.material3.HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-        )
+        // A plain section with a thin amber line down its left edge: it shows where the
+        // experimental block starts and ends without a coloured box around it.
+        Spacer(Modifier.height(12.dp))
         run {
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+            Column(
+                modifier = Modifier
+                    .padding(start = 16.dp, end = 20.dp)
+                    .drawBehind {
+                        drawRoundRect(
+                            color = SearchExperimentalColor,
+                            size = androidx.compose.ui.geometry.Size(3.dp.toPx(), size.height),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5.dp.toPx()),
+                        )
+                    }
+                    .padding(start = 14.dp, top = 2.dp, bottom = 2.dp),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         painter = painterResource(R.drawable.search_experimental),
