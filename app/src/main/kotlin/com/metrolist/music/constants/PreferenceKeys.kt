@@ -635,7 +635,10 @@ val ExperimentalSearchAckKey = booleanPreferencesKey("experimentalSearchAcknowle
  */
 enum class SearchSource {
     LOCAL,
+    /** Spotify (its public catalog when no Spotify account is linked). */
     ONLINE,
+    /** Yandex Music; offered only while a Yandex account is linked. */
+    YANDEX,
     YOUTUBE,
     SOURCES,
     ;

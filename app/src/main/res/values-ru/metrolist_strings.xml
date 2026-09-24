@@ -1020,6 +1020,8 @@
     <string name="vk_best_source">Лучший источник: есть почти всё, высокое качество, альбомы</string>
     <string name="vk_best_source_sign_in">Лучший источник — войди в VK в настройках</string>
     <string name="search_source_spotify">Spotify</string>
+    <string name="search_source_yandex">Яндекс Музыка</string>
+    <string name="search_yandex">Поиск в Яндекс Музыке</string>
     <string name="search_this_artist">Найти исполнителя</string>
     <string name="open_file_location">Перейти к расположению</string>
     <string name="file_not_found">Файла больше нет на месте</string>

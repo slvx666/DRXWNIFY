@@ -150,6 +150,7 @@ fun OnlineSearchResult(
     var lastHandledCount by rememberSaveable { mutableIntStateOf(0) }
     var isSearchFocused by remember { mutableStateOf(false) }
     val isSpotifySearch by viewModel.isSpotifySearch.collectAsState()
+    val searchTarget by viewModel.searchTarget.collectAsState()
     val keyboardController = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(scrollToTopCount) {
@@ -452,7 +453,7 @@ fun OnlineSearchResult(
             },
             placeholder = {
                 Text(
-                    text = if (isSpotifySearch) stringResource(R.string.search_catalog) else stringResource(R.string.search_yt_music),
+                    text = if (!isSpotifySearch) stringResource(R.string.search_yt_music) else if (searchTarget == com.metrolist.music.constants.MetadataSource.YANDEX) stringResource(R.string.search_yandex) else stringResource(R.string.search_catalog),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -538,7 +539,7 @@ fun OnlineSearchResult(
 
         // Which service answered this search — the same question the placeholder answers while the
         // box is still empty.
-        SearchSourceLine(isSpotifySearch = isSpotifySearch)
+        SearchSourceLine(isSpotifySearch = isSpotifySearch, target = searchTarget)
 
         // Filter chips always on top of any overlay so they remain clickable while
         // the suggestion overlay is visible (see #69).
@@ -706,10 +707,9 @@ fun OnlineSearchResult(
 
 /** The "Searching in X" line under the search box. */
 @Composable
-private fun SearchSourceLine(isSpotifySearch: Boolean) {
-    val catalogState by com.metrolist.music.catalog.Catalog.state.collectAsState()
+private fun SearchSourceLine(isSpotifySearch: Boolean, target: com.metrolist.music.constants.MetadataSource) {
     val name = if (isSpotifySearch) {
-        when (catalogState.source) {
+        when (target) {
             com.metrolist.music.constants.MetadataSource.YANDEX -> "Yandex Music"
             else -> "Spotify"
         }

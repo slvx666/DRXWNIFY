@@ -134,9 +134,13 @@ fun SearchScreen(
     // Without a linked account "Online" already means YouTube Music, so the extra entry would lie.
     val hasCatalog = catalogState.isActive
 
-    // Fall back to the account search when the experimental mode is switched off in Settings.
-    LaunchedEffect(experimentalAvailable) {
+    // Fall back to Spotify when the experimental mode is switched off in Settings, or when the
+    // Yandex Music account that was being searched is unlinked.
+    LaunchedEffect(experimentalAvailable, catalogState.yandexConnected) {
         if (!experimentalAvailable && searchSource == SearchSource.SOURCES) {
+            searchSource = SearchSource.ONLINE
+        }
+        if (!catalogState.yandexConnected && searchSource == SearchSource.YANDEX) {
             searchSource = SearchSource.ONLINE
         }
     }
@@ -369,7 +373,8 @@ fun SearchScreen(
 /** Placeholder in the search box: it always says where the query is going. */
 fun searchPlaceholderOf(source: SearchSource, hasCatalog: Boolean): Int = when (source) {
     SearchSource.LOCAL -> R.string.search_library
-    SearchSource.ONLINE -> if (hasCatalog) R.string.search_catalog else R.string.search_yt_music
+    SearchSource.ONLINE -> R.string.search_catalog
+    SearchSource.YANDEX -> R.string.search_yandex
     SearchSource.YOUTUBE -> R.string.search_yt_music
     SearchSource.SOURCES -> R.string.search_sources_hint
 }

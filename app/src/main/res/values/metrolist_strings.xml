@@ -1316,6 +1316,8 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="vk_best_source">Best source: almost everything, top quality, albums</string>
     <string name="vk_best_source_sign_in">Best source: sign in to VK in Settings</string>
     <string name="search_source_spotify">Spotify</string>
+    <string name="search_source_yandex">Yandex Music</string>
+    <string name="search_yandex">Search Yandex Music</string>
     <string name="search_this_artist">Find this performer</string>
     <string name="open_file_location">Show in folder</string>
     <string name="file_not_found">The file is no longer there</string>

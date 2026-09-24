@@ -355,6 +355,32 @@ object Catalog {
         else -> true
     }
 
+    /**
+     * Search in one given catalog, whatever the library source is: the search box offers Spotify
+     * and (when linked) Yandex Music side by side. Results carry their own ids, so opening them is
+     * routed to the right service.
+     */
+    suspend fun searchIn(
+        target: MetadataSource,
+        query: String,
+        types: List<String>,
+        limit: Int,
+        offset: Int = 0,
+    ): Result<SpotifySearchResult> = when (target) {
+        MetadataSource.SPOTIFY -> Spotify.search(query, types, limit, offset)
+        MetadataSource.YANDEX -> YandexMusic.search(query, types, limit, offset)
+    }
+
+    /** Spotify works without an account too (public catalog); Yandex Music needs its account. */
+    suspend fun ensureSearchable(target: MetadataSource): Boolean = when (target) {
+        MetadataSource.YANDEX -> YandexMusic.isAuthenticated()
+        MetadataSource.SPOTIFY -> if (_state.value.spotifyConnected) {
+            SpotifyTokenManager.ensureAuthenticated()
+        } else {
+            SpotifyTokenManager.ensurePublicAccess()
+        }
+    }
+
     /** Search in the selected source. [types] are Spotify type names. */
     suspend fun search(query: String, types: List<String>, limit: Int, offset: Int = 0): Result<SpotifySearchResult> =
         when (source) {

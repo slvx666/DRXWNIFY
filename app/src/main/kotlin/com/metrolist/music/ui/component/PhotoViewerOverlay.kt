@@ -9,6 +9,7 @@ import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -27,6 +28,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -43,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -98,6 +101,8 @@ internal data class PhotoViewerSession(
 
 private data class ClosingTransition(
     val startRect: Rect,
+    /** The cover it flies back to, followed live (the page behind can still move a little). */
+    val endId: String?,
     val endRect: Rect?,
     val endCornerRadiusPx: Float,
     val startScrimAlpha: Float,
@@ -116,9 +121,6 @@ private enum class PhotoViewerPhase {
 private val ViewerEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 private const val OPEN_DURATION_MS = 300
 private const val CLOSE_DURATION_MS = 260
-
-/** Dragged all the way, the backdrop only goes down to this: the page behind never flashes in. */
-private const val MIN_DRAG_SCRIM = 0.45f
 
 @Stable
 class PhotoViewerHostState {
@@ -238,6 +240,9 @@ fun PhotoViewerHost(
     var handledDismissRequestCount by remember(session.nonce) { mutableIntStateOf(state.dismissRequestCount) }
 
     val progress = remember(session.nonce) { Animatable(0f) }
+    // The backdrop's own fade on closing: linear in time from wherever the drag left it, so it
+    // never drops in a burst at the start of the flight.
+    val scrimFade = remember(session.nonce) { Animatable(1f) }
     val zoomedPages = remember(session.nonce) { mutableStateMapOf<String, Boolean>() }
     val imageBaseRects = remember(session.nonce) { mutableStateMapOf<String, Rect>() }
     val pagerState = rememberPagerState(
@@ -260,7 +265,6 @@ fun PhotoViewerHost(
     val openingSourceRect = state.sourceRect(openingItem.id) ?: fallbackSourceRect(containerSize)
     val openingSourceCornerRadiusPx = state.sourceCornerRadiusPx(openingItem.id)
     val dismissSwipeThresholdPx = computeDismissSwipeThresholdPx(density, containerSize.height)
-    val dragScrimAlpha = computeDragScrimAlpha(abs(dragOffset.y), containerSize.height)
     val openingTargetRect = computeTargetRect(
         containerSize,
         lockedAspectRatios[openingItem.id] ?: transitionAspectRatio ?: openingSourceRect.aspectRatioOrNull()
@@ -272,11 +276,12 @@ fun PhotoViewerHost(
                 ?: transitionAspectRatio
                 ?: state.sourceRect(currentItem.id)?.aspectRatioOrNull()
         )
-    // The backdrop follows the photo's own movement at every step, so it never jumps.
-    val scrimAlpha = when (phase) {
-        PhotoViewerPhase.Opening -> animationProgress
-        PhotoViewerPhase.Interactive -> dragScrimAlpha
-        PhotoViewerPhase.Closing -> lerpFloat(0f, closingTransition?.startScrimAlpha ?: 1f, animationProgress)
+    // The backdrop follows the photo at every step, so it never jumps. Read while drawing only:
+    // dragging repaints the backdrop without recomposing anything.
+    fun scrimNow(): Float = when (phase) {
+        PhotoViewerPhase.Opening -> progress.value.coerceIn(0f, 1f)
+        PhotoViewerPhase.Interactive -> computeDragScrimAlpha(abs(dragOffset.y), containerSize.height)
+        PhotoViewerPhase.Closing -> (closingTransition?.startScrimAlpha ?: 1f) * scrimFade.value
     }
 
     fun dismissWithAnimation() {
@@ -293,14 +298,19 @@ fun PhotoViewerHost(
         }
         closingTransition = ClosingTransition(
             startRect = startRect,
+            endId = currentItem.id.takeIf { targetRect != null },
             endRect = targetRect,
             endCornerRadiusPx = if (targetRect != null) state.sourceCornerRadiusPx(currentItem.id) else 0f,
-            startScrimAlpha = scrimAlpha,
+            startScrimAlpha = scrimNow(),
         )
         phase = PhotoViewerPhase.Closing
         scope.launch {
             progress.snapTo(1f)
-            progress.animateTo(0f, tween(durationMillis = CLOSE_DURATION_MS, easing = ViewerEasing))
+            scrimFade.snapTo(1f)
+            coroutineScope {
+                launch { scrimFade.animateTo(0f, tween(durationMillis = CLOSE_DURATION_MS, easing = LinearEasing)) }
+                launch { progress.animateTo(0f, tween(durationMillis = CLOSE_DURATION_MS, easing = ViewerEasing)) }
+            }
             state.completeDismiss()
             onDismissed()
         }
@@ -351,10 +361,17 @@ fun PhotoViewerHost(
         activity?.window?.let { WindowCompat.getInsetsController(it, it.decorView) }
     }
 
+    // The status bar is hidden once the photo has landed (the page behind shifts under full black)
+    // and comes back as soon as a drag starts or the photo closes, while the backdrop still covers
+    // the page moving back into place.
+    val barShowDragPx = with(density) { 20.dp.toPx() }
+    val statusBarHidden by remember(session.nonce) {
+        derivedStateOf { phase == PhotoViewerPhase.Interactive && abs(dragOffset.y) < barShowDragPx }
+    }
     SideEffect {
         insetsController?.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (state.isImmersive) {
+        if (statusBarHidden) {
             insetsController?.hide(WindowInsetsCompat.Type.statusBars())
         } else {
             insetsController?.show(WindowInsetsCompat.Type.statusBars())
@@ -379,7 +396,7 @@ fun PhotoViewerHost(
             .fillMaxSize()
             .zIndex(20f)
             .onSizeChanged { containerSize = it }
-            .background(Color.Black.copy(alpha = scrimAlpha))
+            .drawBehind { drawRect(Color.Black, alpha = scrimNow()) }
     ) {
         val galleryAlpha = when (phase) {
             PhotoViewerPhase.Opening -> 0f
@@ -428,7 +445,8 @@ fun PhotoViewerHost(
             PhotoViewerPhase.Closing -> if (closing?.endRect == null) {
                 Rect.Zero
             } else {
-                lerpRect(closing.startRect, closing.endRect, 1f - animationProgress)
+                val end = closing.endId?.let { state.sourceRect(it) } ?: closing.endRect
+                lerpRect(closing.startRect, end, 1f - animationProgress)
             }
         }
         val transitionCornerRadius = when (phase) {
@@ -505,7 +523,8 @@ private fun ZoomablePhotoPage(
             bottom = (viewportSize.height + imageSize.height) / 2f
         )
     }
-    val isZoomed = scale.value > 1.001f
+    // Only crossing the threshold recomposes; zooming itself happens in the draw phase.
+    val isZoomed by remember(item.id) { derivedStateOf { scale.value > 1.001f } }
     val viewportCenter = Offset(viewportSize.width / 2f, viewportSize.height / 2f)
     val settleSpec = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
     val zoomSpec = tween<Float>(durationMillis = 260, easing = ViewerEasing)
@@ -698,11 +717,10 @@ private fun computeDismissSwipeThresholdPx(
     max(viewportHeight * 0.14f, 96.dp.toPx())
 }
 
-/** Fades gently with the drag and bottoms out at [MIN_DRAG_SCRIM]. */
+/** Fades evenly with the drag, from full down to nothing at half the screen height. */
 private fun computeDragScrimAlpha(distance: Float, viewportHeight: Int): Float {
     if (viewportHeight <= 0) return 1f
-    val fraction = (distance / (viewportHeight * 0.45f)).coerceIn(0f, 1f)
-    return lerpFloat(1f, MIN_DRAG_SCRIM, fraction)
+    return 1f - (distance / (viewportHeight * 0.5f)).coerceIn(0f, 1f)
 }
 
 private fun clampOffset(candidate: Offset, scale: Float, imageSize: Size, viewportSize: IntSize): Offset {

@@ -88,8 +88,7 @@ fun SearchSourceButton(
                     // Soulseek, the last resort, keeps its own colour here too.
                     current == SearchSource.SOURCES && experimentalSource == AudioProviderId.SOULSEEK.name -> LastResortColor
                     current == SearchSource.SOURCES -> SearchExperimentalColor
-                    tint != null -> tint
-                    else -> MaterialTheme.colorScheme.onSurface
+                    else -> searchSourceColor(current) ?: tint ?: MaterialTheme.colorScheme.onSurface
                 },
             )
         }
@@ -113,6 +112,7 @@ fun SearchSourceButton(
             SearchSourceSheet(
                 current = current,
                 hasCatalog = hasCatalog,
+                yandexConnected = catalogState.yandexConnected,
                 experimentalAvailable = experimentalAvailable,
                 experimentalSource = experimentalSource,
                 onSelect = { source -> closeThen { onSelect(source) } },
@@ -135,6 +135,7 @@ val LastResortColor = Color(0xFFF0712C)
 private fun SearchSourceSheet(
     current: SearchSource,
     hasCatalog: Boolean,
+    yandexConnected: Boolean,
     experimentalAvailable: Boolean,
     experimentalSource: String,
     onSelect: (SearchSource) -> Unit,
@@ -150,11 +151,19 @@ private fun SearchSourceSheet(
 
         // YouTube Music is always offered, account or not: it holds artists the catalog does not,
         // and hiding it was the one way to end up unable to search them at all.
-        val standardSources = listOf(SearchSource.LOCAL, SearchSource.ONLINE, SearchSource.YOUTUBE)
+        // Spotify is always there (its public catalog needs no account); Yandex Music only once
+        // it is linked — it has what Spotify lacks, mostly Russian releases since 2022.
+        val standardSources = listOfNotNull(
+            SearchSource.LOCAL,
+            SearchSource.ONLINE,
+            SearchSource.YANDEX.takeIf { yandexConnected },
+            SearchSource.YOUTUBE,
+        )
         standardSources.forEach { source ->
             SourceRow(
                 label = stringResource(searchSourceLabel(source, hasCatalog)),
                 icon = searchSourceIcon(source),
+                accent = searchSourceColor(source),
                 selected = source == current,
                 onClick = { onSelect(source) },
             )
@@ -235,119 +244,56 @@ private fun SearchSourceSheet(
     }
 }
 
-/** VK's own blue, a little brighter than the sheet's other chips. */
-private val VkColor = Color(0xFF3D8BFF)
-private val CrownColor = Color(0xFFFFC23D)
-
-/** VK, the best source: full width, brighter outline, a crown and a line saying why. */
+/** VK, the best source: the same chip as the others, on its own line with a crown and why. */
 @Composable
 private fun FeaturedVkChip(
     selected: Boolean,
     status: SourceSearch.Status,
     onClick: () -> Unit,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(VkColor.copy(alpha = if (selected) 0.26f else 0.12f))
-            .border(BorderStroke(1.5.dp, VkColor.copy(alpha = if (selected) 1f else 0.8f)), RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-    ) {
-        Icon(
-            painter = painterResource(R.drawable.crown),
-            contentDescription = null,
-            tint = CrownColor,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "VK",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (selected) VkColor else MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = when (status) {
-                    SourceSearch.Status.READY -> stringResource(R.string.vk_best_source)
-                    SourceSearch.Status.DISABLED -> stringResource(R.string.source_status_off)
-                    SourceSearch.Status.NEEDS_ACCOUNT -> stringResource(R.string.vk_best_source_sign_in)
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (selected) {
-            Spacer(Modifier.width(6.dp))
-            Icon(
-                painter = painterResource(R.drawable.check),
-                contentDescription = null,
-                tint = VkColor,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-    }
+    SourceChip(
+        label = "VK",
+        note = when (status) {
+            SourceSearch.Status.READY -> stringResource(R.string.vk_best_source)
+            SourceSearch.Status.DISABLED -> stringResource(R.string.source_status_off)
+            SourceSearch.Status.NEEDS_ACCOUNT -> stringResource(R.string.vk_best_source_sign_in)
+        },
+        selected = selected,
+        onClick = onClick,
+        leadingIcon = R.drawable.crown,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
-/**
- * Soulseek, set apart in red → yellow: the last thing to reach for. It is slow (peers answer over
- * seconds and every file is downloaded from someone's computer before it plays), and it is never
- * part of "All sources".
- */
+/** Soulseek, the last resort (slow, never part of "All sources"): a plain chip, its name in orange. */
 @Composable
 private fun LastResortSourceChip(
     selected: Boolean,
     status: SourceSearch.Status,
     onClick: () -> Unit,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(LastResortColor.copy(alpha = if (selected) 0.24f else 0.10f))
-            .border(BorderStroke(1.dp, LastResortColor.copy(alpha = if (selected) 1f else 0.6f)), RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-    ) {
-        Column {
-            Text(
-                text = "Soulseek",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (selected) LastResortColor else MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = when (status) {
-                    SourceSearch.Status.READY -> stringResource(R.string.soulseek_last_resort_short)
-                    SourceSearch.Status.DISABLED -> stringResource(R.string.source_status_off)
-                    SourceSearch.Status.NEEDS_ACCOUNT -> stringResource(R.string.soulseek_last_resort_unavailable)
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (selected) {
-            Spacer(Modifier.width(6.dp))
-            Icon(
-                painter = painterResource(R.drawable.check),
-                contentDescription = null,
-                tint = LastResortColor,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-    }
+    SourceChip(
+        label = "Soulseek",
+        note = when (status) {
+            SourceSearch.Status.READY -> stringResource(R.string.soulseek_last_resort_short)
+            SourceSearch.Status.DISABLED -> stringResource(R.string.source_status_off)
+            SourceSearch.Status.NEEDS_ACCOUNT -> stringResource(R.string.soulseek_last_resort_unavailable)
+        },
+        selected = selected,
+        onClick = onClick,
+        labelColor = LastResortColor,
+    )
 }
 
 @Composable
 private fun SourceRow(
     label: String,
     icon: Int,
+    accent: Color?,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val selectedColor = accent ?: MaterialTheme.colorScheme.primary
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -358,7 +304,7 @@ private fun SourceRow(
         Icon(
             painter = painterResource(icon),
             contentDescription = null,
-            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = accent ?: if (selected) selectedColor else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(22.dp),
         )
         Spacer(Modifier.width(16.dp))
@@ -366,14 +312,14 @@ private fun SourceRow(
             text = label,
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            color = if (selected) selectedColor else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
         if (selected) {
             Icon(
                 painter = painterResource(R.drawable.check),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = selectedColor,
                 modifier = Modifier.size(20.dp),
             )
         }
@@ -387,10 +333,13 @@ private fun SourceChip(
     note: String?,
     selected: Boolean,
     onClick: () -> Unit,
+    labelColor: Color? = null,
+    leadingIcon: Int? = null,
+    modifier: Modifier = Modifier,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .background(
                 if (selected) SearchExperimentalColor.copy(alpha = 0.22f) else Color.Transparent,
@@ -404,12 +353,21 @@ private fun SourceChip(
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        Column {
+        if (leadingIcon != null) {
+            Icon(
+                painter = painterResource(leadingIcon),
+                contentDescription = null,
+                tint = SearchExperimentalColor,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+        Column(modifier = if (leadingIcon != null) Modifier.weight(1f) else Modifier) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (selected) SearchExperimentalColor else MaterialTheme.colorScheme.onSurface,
+                color = labelColor ?: if (selected) SearchExperimentalColor else MaterialTheme.colorScheme.onSurface,
             )
             if (note != null) {
                 Text(
@@ -442,16 +400,26 @@ fun providerLabel(id: AudioProviderId): String = when (id) {
     AudioProviderId.QOBUZ -> "Qobuz"
 }
 
+/** Each service in its own colour; the library keeps the theme's. */
+fun searchSourceColor(source: SearchSource): Color? = when (source) {
+    SearchSource.ONLINE -> Color(0xFF1ED760)
+    SearchSource.YANDEX -> Color(0xFFFFCC00)
+    SearchSource.YOUTUBE -> Color(0xFFFF2D2D)
+    SearchSource.LOCAL, SearchSource.SOURCES -> null
+}
+
 fun searchSourceIcon(source: SearchSource): Int = when (source) {
     SearchSource.LOCAL -> R.drawable.library_music
-    SearchSource.ONLINE -> R.drawable.language
-    SearchSource.YOUTUBE -> R.drawable.music_note
+    SearchSource.ONLINE -> R.drawable.spotify
+    SearchSource.YANDEX -> R.drawable.yandex_music
+    SearchSource.YOUTUBE -> R.drawable.youtube_music
     SearchSource.SOURCES -> R.drawable.search_experimental
 }
 
 fun searchSourceLabel(source: SearchSource, hasCatalog: Boolean): Int = when (source) {
     SearchSource.LOCAL -> R.string.search_source_library
-    SearchSource.ONLINE -> if (hasCatalog) R.string.search_source_catalog else R.string.search_source_spotify
+    SearchSource.ONLINE -> R.string.search_source_spotify
+    SearchSource.YANDEX -> R.string.search_source_yandex
     SearchSource.YOUTUBE -> R.string.search_source_youtube
     SearchSource.SOURCES -> R.string.search_source_experimental
 }
@@ -459,7 +427,8 @@ fun searchSourceLabel(source: SearchSource, hasCatalog: Boolean): Int = when (so
 /** The name of the service that answers a search, for the line under the search box. */
 fun searchSourceName(source: SearchSource, hasCatalog: Boolean, catalogName: String): String = when (source) {
     SearchSource.LOCAL -> ""
-    SearchSource.ONLINE -> if (hasCatalog) catalogName else "Spotify"
+    SearchSource.ONLINE -> "Spotify"
+    SearchSource.YANDEX -> "Yandex Music"
     SearchSource.YOUTUBE -> "YouTube Music"
     SearchSource.SOURCES -> "VK • SoundCloud • Bandcamp • Audius"
 }

@@ -73,6 +73,9 @@ constructor(
      */
     val isSpotifySearch = MutableStateFlow(false)
 
+    /** Which catalog answers this search: Spotify, or Yandex Music when that was picked. */
+    val searchTarget = MutableStateFlow(com.metrolist.music.constants.MetadataSource.SPOTIFY)
+
     /**
      * Spotify-specific filter: maps to the API "type" parameter.
      * null = show all types (summary mode)
@@ -122,6 +125,13 @@ constructor(
         val source = prefs[com.metrolist.music.constants.SearchSourceKey]
             ?.let { name -> com.metrolist.music.constants.SearchSource.entries.firstOrNull { it.name == name } }
         if (source == com.metrolist.music.constants.SearchSource.YOUTUBE) return false
+        searchTarget.value = if (
+            source == com.metrolist.music.constants.SearchSource.YANDEX && Catalog.state.value.yandexConnected
+        ) {
+            com.metrolist.music.constants.MetadataSource.YANDEX
+        } else {
+            com.metrolist.music.constants.MetadataSource.SPOTIFY
+        }
         // With no account at all, Spotify's public catalog is still searched (anonymously) — it is
         // the better search, and YouTube is one tap away in the picker. initSpotifySearch() falls
         // back to YouTube by itself if that doesn't work out.
@@ -178,7 +188,7 @@ constructor(
 
     private fun initSpotifySearch() {
         viewModelScope.launch(Dispatchers.IO) {
-            if (!Catalog.ensureAuthenticated()) {
+            if (!Catalog.ensureSearchable(searchTarget.value)) {
                 Timber.w("SearchVM: Spotify auth failed, falling back to YouTube")
                 isSpotifySearch.value = false
                 initYouTubeSearch()
@@ -221,13 +231,15 @@ constructor(
 
         // Try full search first; if deserialization fails (e.g. null playlist items),
         // retry without playlists as a fallback
-        val result = Catalog.search(
+        val result = Catalog.searchIn(
+            target = searchTarget.value,
             query = query,
             types = listOf("track", "album", "artist", "playlist"),
             limit = 10,
         ).getOrElse { firstError ->
             Timber.w(firstError, "SearchVM: Full Spotify search failed, retrying without playlists")
-            Catalog.search(
+            Catalog.searchIn(
+            target = searchTarget.value,
                 query = query,
                 types = listOf("track", "album", "artist"),
                 limit = 10,
@@ -295,7 +307,8 @@ constructor(
         val offset = 0
         val limit = 20
 
-        Catalog.search(
+        Catalog.searchIn(
+            target = searchTarget.value,
             query = query,
             types = listOf(filterType),
             limit = limit,
@@ -374,9 +387,10 @@ constructor(
             val limit = 20
             val hideExplicit = context.dataStore.get(HideExplicitKey, false)
 
-            if (!Catalog.ensureAuthenticated()) return@launch
+            if (!Catalog.ensureSearchable(searchTarget.value)) return@launch
 
-            Catalog.search(
+            Catalog.searchIn(
+            target = searchTarget.value,
                 query = query,
                 types = listOf(filterType),
                 limit = limit,

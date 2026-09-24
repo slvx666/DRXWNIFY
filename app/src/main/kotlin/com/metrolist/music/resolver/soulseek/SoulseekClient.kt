@@ -71,6 +71,18 @@ class SoulseekClient(
 
     // For the diagnostics log: how many peers asked to reach us, and how many we reached.
     private val connectRequests = AtomicInteger()
+
+    // After a failed connect/login, every caller gets the same answer for a while instead of each
+    // track of a queue opening its own doomed connection (and the server seeing a login storm).
+    @Volatile private var failedUntil = 0L
+    @Volatile private var lastFailure: String? = null
+
+    private fun fail(reason: String): Nothing {
+        lastFailure = reason
+        failedUntil = System.currentTimeMillis() + FAILURE_BACKOFF_MS
+        AudioDiagnostics.warn("soulseek: $reason")
+        throw LoginException(reason)
+    }
     private val connectFailures = AtomicInteger()
 
     class LoginException(message: String) : Exception(message)
@@ -86,14 +98,14 @@ class SoulseekClient(
         lastUsedAt = System.currentTimeMillis()
         loggedInAs?.takeIf { server?.isConnected == true && server?.isClosed == false }?.let { return it }
         val (user, pass) = credentials() ?: throw LoginException("Soulseek account not set")
+        if (System.currentTimeMillis() < failedUntil) throw LoginException(lastFailure ?: "unavailable")
         disconnect()
         AudioDiagnostics.info("soulseek: connecting to $SERVER_HOST:$SERVER_PORT as $user")
         val socket = Socket()
         try {
             socket.connect(InetSocketAddress(SERVER_HOST, SERVER_PORT), CONNECT_TIMEOUT_MS)
         } catch (e: IOException) {
-            AudioDiagnostics.warn("soulseek: server unreachable: ${e.message}")
-            throw e
+            fail("server unreachable: ${e.message}")
         }
         socket.soTimeout = 0
         server = socket
@@ -105,14 +117,17 @@ class SoulseekClient(
         when (val result = withTimeoutOrNull(LOGIN_TIMEOUT_MS) { login.await() }) {
             is SlskProtocol.LoginResult.Success -> Unit
             is SlskProtocol.LoginResult.Failure -> {
-                AudioDiagnostics.warn("soulseek: login refused: ${result.reason}")
                 disconnect()
-                throw LoginException(result.reason)
+                if (result.reason == CLOSED_BEFORE_ANSWER) {
+                    // What a blocked route looks like: the TCP connection opens (often through a VPN
+                    // or proxy) and is dropped before the server says anything.
+                    fail("the connection was closed before the server answered - Soulseek is probably blocked on this network or VPN")
+                }
+                fail("login refused: ${result.reason}")
             }
             null -> {
-                AudioDiagnostics.warn("soulseek: login timed out")
                 disconnect()
-                throw LoginException("login timed out")
+                fail("login timed out")
             }
         }
         sendServer(SlskProtocol.setStatusOnline())
@@ -172,7 +187,7 @@ class SoulseekClient(
         } finally {
             if (server === socket) {
                 loggedInAs = null
-                pendingLogin?.complete(SlskProtocol.LoginResult.Failure("connection closed"))
+                pendingLogin?.complete(SlskProtocol.LoginResult.Failure(CLOSED_BEFORE_ANSWER))
             }
         }
     }
@@ -375,5 +390,7 @@ class SoulseekClient(
         private const val MAX_MESSAGE_BYTES = 64L * 1024 * 1024
         private const val IDLE_DISCONNECT_MS = 5 * 60 * 1000L
         private const val PING_INTERVAL_MS = 4 * 60 * 1000L
+        private const val FAILURE_BACKOFF_MS = 30_000L
+        private const val CLOSED_BEFORE_ANSWER = "connection closed"
     }
 }
