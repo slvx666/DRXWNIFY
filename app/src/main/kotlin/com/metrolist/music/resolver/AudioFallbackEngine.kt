@@ -233,6 +233,91 @@ object AudioFallbackEngine {
         ParallelAudioResolver.preferred(found, ::rank)
     }
 
+    /** One recording offered by "change track version", with its audio bitrate when it could be read. */
+    data class VersionCandidate(val match: ProviderMatch, val bitrateKbps: Int?)
+
+    /**
+     * Recordings of [mediaId] to choose from: several YouTube uploads plus every other source's best
+     * match, each with its bitrate. Closest match first, then the highest bitrate. Soulseek is left
+     * out: its "bitrate" would mean downloading the whole file first.
+     */
+    suspend fun versionCandidates(mediaId: String, dbSong: Song?): List<VersionCandidate> = withContext(Dispatchers.IO) {
+        val query = queryFor(mediaId, dbSong) ?: return@withContext emptyList()
+        val found = kotlinx.coroutines.coroutineScope {
+            val youtube = async { runCatching { youtubeVersions(query) }.getOrDefault(emptyList()) }
+            val others = activeProviders()
+                .filter { it.id != AudioProviderId.YOUTUBE && it.id != AudioProviderId.SOULSEEK }
+                .map { provider ->
+                    async {
+                        val match = runCatching {
+                            kotlinx.coroutines.withTimeoutOrNull(provider.searchTimeoutMs) { provider.search(query) }
+                        }.getOrNull() ?: return@async null
+                        val bitrate = runCatching {
+                            kotlinx.coroutines.withTimeoutOrNull(VERSION_BITRATE_TIMEOUT_MS) { provider.stream(query, match)?.bitrate }
+                        }.getOrNull()
+                        VersionCandidate(match, bitrate?.let { it / 1000 })
+                    }
+                }
+            youtube.await() + others.awaitAll().filterNotNull()
+        }
+        found.sortedWith(
+            // Matches within 5% of each other count as equally close; the better sound wins there.
+            compareByDescending<VersionCandidate> { (it.match.confidence.coerceAtMost(1.0) * 20).toInt() }
+                .thenByDescending { it.bitrateKbps ?: -1 },
+        )
+    }
+
+    private suspend fun youtubeVersions(query: AudioQuery): List<VersionCandidate> {
+        if (!ResolverPreferences.isEnabled(AudioProviderId.YOUTUBE)) return emptyList()
+        val items = com.metrolist.innertube.YouTube.search(
+            com.metrolist.music.resolver.providers.ProviderGate.searchText(query),
+            com.metrolist.innertube.YouTube.SearchFilter.FILTER_SONG,
+            incognito = true,
+        ).getOrNull()?.items?.filterIsInstance<com.metrolist.innertube.models.SongItem>().orEmpty()
+        val byId = items.associateBy { it.id }
+        val ranked = com.metrolist.music.resolver.providers.ProviderGate.ranked(
+            query,
+            items.map {
+                com.metrolist.spotify.SpotifyMapper.Candidate(
+                    id = it.id,
+                    title = it.title,
+                    artist = it.artists.firstOrNull()?.name.orEmpty(),
+                    durationSec = it.duration,
+                    thumbnailUrl = it.thumbnail,
+                )
+            },
+            maxDurationGapS = 20,
+            limit = 5,
+        )
+        return kotlinx.coroutines.coroutineScope {
+            ranked.map { m ->
+                async {
+                    val bitrate = runCatching {
+                        kotlinx.coroutines.withTimeoutOrNull(VERSION_BITRATE_TIMEOUT_MS) {
+                            com.metrolist.music.utils.YTPlayerUtils.playerResponseForMetadata(m.id).getOrNull()
+                                ?.streamingData?.adaptiveFormats?.filter { it.isAudio }?.maxOfOrNull { it.bitrate }
+                        }
+                    }.getOrNull()
+                    val item = byId[m.id]
+                    VersionCandidate(
+                        ProviderMatch(
+                            provider = AudioProviderId.YOUTUBE,
+                            trackId = m.id,
+                            title = m.title,
+                            artist = m.artist,
+                            durationMs = item?.duration?.times(1000L),
+                            confidence = m.score,
+                            thumbnailUrl = item?.thumbnail,
+                        ),
+                        bitrate?.let { it / 1000 },
+                    )
+                }
+            }.awaitAll()
+        }
+    }
+
+    private const val VERSION_BITRATE_TIMEOUT_MS = 8_000L
+
     /** The source currently remembered for [mediaId] (the one a manual pick or the last race chose). */
     fun currentChoice(mediaId: String, dbSong: Song?): ProviderMatch? {
         val query = queryFor(mediaId, dbSong) ?: return null

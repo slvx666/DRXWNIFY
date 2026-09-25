@@ -67,6 +67,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -317,6 +318,15 @@ constructor(
         context.dataStore.data
             .map { it[TopSize] ?: "50" }
             .distinctUntilChanged()
+
+    /** Songs liked only inside the app (see LikeTarget), for the "Local" section. */
+    val localLikedPreview = database.likedSongs(SongSortType.CREATE_DATE, true)
+        .map { songs ->
+            val local = songs.filter { !com.metrolist.music.playback.LikeTarget.syncsToAccount(database, it.id) }
+            AutoPlaylistPreview(local.size, local.take(4).mapNotNull { it.song.thumbnailUrl })
+        }
+        .flowOn(kotlinx.coroutines.Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.Lazily, AutoPlaylistPreview())
 
     // Previews (count + up to 4 cover thumbnails) for the auto-playlists so the library list shows a
     // real count and cover collage instead of a bare grey icon before you open them.

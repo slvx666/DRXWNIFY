@@ -83,8 +83,8 @@ fun LibraryScreen(navController: NavController) {
                     navController = navController,
                     onClose = { showVk = false },
                 )
-                catalogState.isActive -> AccountLibrary(navController, resetRequested, openVk)
-                else -> LocalLibrary(navController, resetRequested, openVk)
+                // One library, account or not: without one it lists what is saved in the app.
+                else -> AccountLibrary(navController, resetRequested, openVk)
             }
         }
     }

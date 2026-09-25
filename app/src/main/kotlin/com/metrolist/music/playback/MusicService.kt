@@ -2153,19 +2153,28 @@ class MusicService :
     }
 
     private fun setCurrentLiked(liked: Boolean) {
+        val metadata = currentMediaMetadata.value ?: player.currentMetadata ?: return
+        setTrackLiked(metadata, liked)
+    }
+
+    /**
+     * Likes or unlikes any track (the current one or one from a menu), the same way everywhere: in the
+     * app, plus the account that can take it (Spotify / Yandex Music Liked Songs, VK music).
+     */
+    fun setTrackLiked(metadata: com.metrolist.music.models.MediaMetadata, liked: Boolean) {
         scope.launch {
-            var librarySong = currentSong.first()
-            // The current track may not be cached in the local DB yet (common for
-            // Spotify/YouTube tracks played from quick picks, radio or imports). Insert
-            // it first so the like can be applied and synced instead of silently no-oping.
+            var librarySong = database.song(metadata.id).first()
+            // The track may not be cached in the local DB yet (common for Spotify/YouTube tracks
+            // played from quick picks, radio or imports). Insert it first so the like can be
+            // applied and synced instead of silently no-oping.
             if (librarySong == null) {
-                val metadata = currentMediaMetadata.value ?: player.currentMetadata ?: return@launch
                 database.query { insert(metadata) }
                 librarySong = database.song(metadata.id).first()
             }
             val songEntity = librarySong?.song ?: return@launch
             val catalogId = withContext(Dispatchers.IO) { catalogTrackIdOf(songEntity.id) }
-            currentCatalogId = songEntity.id to catalogId
+            val isCurrent = songEntity.id == (currentMediaMetadata.value?.id ?: player.currentMetadata?.id)
+            if (isCurrent) currentCatalogId = songEntity.id to catalogId
 
             // Update the shared like cache first so every heart flips instantly.
             if (catalogId != null) SpotifyLikeCache.setLiked(catalogId, liked)
@@ -2224,10 +2233,12 @@ class MusicService :
                 }
             }
 
-            currentMediaMetadata.value = player.currentMetadata
-            // Refresh the widget and notification right away instead of after the DB debounce.
-            updateNotification()
-            updateWidgetUI(player.isPlaying)
+            if (isCurrent) {
+                currentMediaMetadata.value = player.currentMetadata
+                // Refresh the widget and notification right away instead of after the DB debounce.
+                updateNotification()
+                updateWidgetUI(player.isPlaying)
+            }
         }
     }
 

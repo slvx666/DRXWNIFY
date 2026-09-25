@@ -24,6 +24,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.flow.first
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -590,6 +593,8 @@ fun BottomSheetPlayer(
         .getDownload(mediaMetadata?.id ?: "")
         .collectAsState(initial = null)
     val database = LocalDatabase.current
+    // Tracks that can only be kept in the app get the heart with a plus (see LikeTarget).
+    val likeSyncs = com.metrolist.music.playback.rememberLikeSyncs(database, mediaMetadata?.id)
     val exportingIds by DownloadExportState.exporting.collectAsState()
 
     val sleepTimerEnabled =
@@ -808,7 +813,9 @@ fun BottomSheetPlayer(
             }
         }
 
-    val backgroundAlpha = state.progress.coerceIn(0f, 1f)
+    // Read while drawing only: reading the sheet's progress here recomposed the whole player on
+    // every frame of opening and closing it.
+    val backgroundAlphaModifier = Modifier.graphicsLayer { alpha = state.progress.coerceIn(0f, 1f) }
 
     BottomSheet(
         state = state,
@@ -830,7 +837,7 @@ fun BottomSheetPlayer(
                             label = "blurBackground",
                         ) { thumbnailUrl ->
                             if (thumbnailUrl != null) {
-                                Box(modifier = Modifier.alpha(backgroundAlpha)) {
+                                Box(modifier = backgroundAlphaModifier) {
                                     AsyncImage(
                                         model =
                                             ImageRequest
@@ -883,7 +890,7 @@ fun BottomSheetPlayer(
                                 Box(
                                     Modifier
                                         .fillMaxSize()
-                                        .alpha(backgroundAlpha)
+                                        .then(backgroundAlphaModifier)
                                         .background(Brush.verticalGradient(colorStops = gradientColorStops))
                                         .background(Color.Black.copy(alpha = 0.2f)),
                                 )
@@ -1358,11 +1365,7 @@ fun BottomSheetPlayer(
                                     Icon(
                                         painter =
                                             painterResource(
-                                                if (isFavorite) {
-                                                    R.drawable.favorite
-                                                } else {
-                                                    R.drawable.favorite_border
-                                                },
+                                                com.metrolist.music.playback.LikeTarget.icon(isFavorite, likeSyncs || isEpisode),
                                             ),
                                         contentDescription = null,
                                         modifier = Modifier.size(24.dp),
@@ -1930,7 +1933,7 @@ fun BottomSheetPlayer(
                                 val isEpisode = currentSong?.song?.isEpisode == true
                                 val isFavorite = (if (isEpisode) currentSong?.song?.inLibrary != null else currentSong?.song?.liked == true) || spotifyLiked
                                 ResizableIconButton(
-                                    icon = if (isFavorite) R.drawable.favorite else R.drawable.favorite_border,
+                                    icon = com.metrolist.music.playback.LikeTarget.icon(isFavorite, likeSyncs || isEpisode),
                                     enabled = !likeBlocked,
                                     color = if (isFavorite) MaterialTheme.colorScheme.error else TextBackgroundColor,
                                     modifier =
@@ -2051,11 +2054,13 @@ fun BottomSheetPlayer(
                             transitionSpec = { fadeIn() togetherWith fadeOut() },
                         ) { showLyrics ->
                             if (showLyrics) {
-                                InlineLyricsView(
-                                    mediaMetadata = mediaMetadata,
-                                    showLyrics = showLyrics,
-                                    positionProvider = { effectivePosition },
-                                )
+                                DeferredUntilExpanded(state) {
+                                    InlineLyricsView(
+                                        mediaMetadata = mediaMetadata,
+                                        showLyrics = showLyrics,
+                                        positionProvider = { effectivePosition },
+                                    )
+                                }
                             } else {
                                 Thumbnail(
                                     sliderPositionProvider = sliderPositionProvider,
@@ -2118,11 +2123,13 @@ fun BottomSheetPlayer(
                             transitionSpec = { fadeIn() togetherWith fadeOut() },
                         ) { showLyrics ->
                             if (showLyrics) {
-                                InlineLyricsView(
-                                    mediaMetadata = mediaMetadata,
-                                    showLyrics = showLyrics,
-                                    positionProvider = { effectivePosition },
-                                )
+                                DeferredUntilExpanded(state) {
+                                    InlineLyricsView(
+                                        mediaMetadata = mediaMetadata,
+                                        showLyrics = showLyrics,
+                                        positionProvider = { effectivePosition },
+                                    )
+                                }
                             } else {
                                 Thumbnail(
                                     sliderPositionProvider = sliderPositionProvider,
@@ -2174,6 +2181,30 @@ fun BottomSheetPlayer(
                 },
             )
         }
+    }
+}
+
+/**
+ * Composes [content] only once the player sheet has finished opening, then fades it in. The lyrics
+ * (karaoke lines, their timing loop) are heavy to build: building them in the first frame of the
+ * opening animation made it stutter.
+ */
+@Composable
+private fun DeferredUntilExpanded(
+    state: BottomSheetState,
+    content: @Composable () -> Unit,
+) {
+    var ready by remember { mutableStateOf(state.isExpanded) }
+    LaunchedEffect(state) {
+        snapshotFlow { state.isExpanded }.first { it }
+        ready = true
+    }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = ready,
+        enter = fadeIn(tween(220)),
+        exit = fadeOut(tween(0)),
+    ) {
+        content()
     }
 }
 

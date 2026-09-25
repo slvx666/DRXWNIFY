@@ -123,6 +123,8 @@ fun PlayerMenu(
     spotifyTrack: com.metrolist.spotify.models.SpotifyTrack? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     onShowDetailsDialog: (() -> Unit)? = null,
+    /** Actions only the calling screen knows (remove from history / cache…), after the main ones. */
+    extraItems: List<Material3MenuItemData> = emptyList(),
     onDismiss: () -> Unit,
 ) {
     mediaMetadata ?: return
@@ -356,42 +358,11 @@ fun PlayerMenu(
         onDismiss = { showAddToSpotifyPlaylist = false },
     )
 
-    if (showQobuzMatchDialog) {
-        com.metrolist.music.ui.dialog.AudioSourceDialog(
-            mediaId = mediaMetadata.id,
-            onDismiss = { showQobuzMatchDialog = false },
-        )
-    }
-
-    if (showYouTubeMatchDialog) {
-        val mapper = remember { SpotifyYouTubeMapper(database) }
-        YouTubeMatchDialog(
-            currentYouTubeId = resolvedSpotifyMatch?.youtubeId,
-            onConfirm = { result ->
-                val sid = resolvedSpotifyMatch?.spotifyId ?: return@YouTubeMatchDialog
-                coroutineScope.launch(Dispatchers.IO) {
-                    mapper.overrideMatch(
-                        spotifyId = sid,
-                        youtubeId = result.videoId,
-                        title = result.title,
-                        artist = result.artist,
-                    )
-                    // Swap playback to the new version if currently playing the overridden track
-                    if (mediaMetadata.id == resolvedSpotifyMatch?.youtubeId &&
-                        result.videoId != mediaMetadata.id
-                    ) {
-                        val songItems = YouTube.queue(listOf(result.videoId)).getOrNull()
-                        val songItem = songItems?.firstOrNull()
-                        if (songItem != null) {
-                            kotlinx.coroutines.withContext(Dispatchers.Main) {
-                                playerConnection.playNext(songItem.toMediaItem())
-                                playerConnection.seekToNext()
-                            }
-                        }
-                    }
-                }
-            },
-            onDismiss = { showYouTubeMatchDialog = false },
+    var showVersionDialog by rememberSaveable { mutableStateOf(false) }
+    if (showVersionDialog) {
+        com.metrolist.music.ui.dialog.TrackVersionDialog(
+            mediaMetadata = mediaMetadata,
+            onDismiss = { showVersionDialog = false },
         )
     }
 
@@ -507,6 +478,44 @@ fun PlayerMenu(
 
     Spacer(modifier = Modifier.height(12.dp))
 
+    // "Add to queue" / "Play next" as one group, first outside the full-screen player.
+    val QueueActions: @Composable () -> Unit = {
+        Material3MenuGroup(
+            items = listOf(
+                Material3MenuItemData(
+                    title = { Text(text = stringResource(R.string.add_to_queue)) },
+                    icon = {
+                        Icon(
+                            painter = painterResource(R.drawable.queue_music),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    },
+                    onClick = addToQueueTrack,
+                ),
+                Material3MenuItemData(
+                    title = { Text(text = stringResource(R.string.queue_play_next)) },
+                    icon = {
+                        Icon(
+                            painter = painterResource(R.drawable.queue_play_next),
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    },
+                    onClick = playNextTrack,
+                ),
+            ),
+        )
+    }
+
+    // The heart in the header: liked in the app or on the account, with the plus when the track
+    // can only be kept in the app (see LikeTarget).
+    val likedCatalogIds by com.metrolist.music.playback.SpotifyLikeCache.liked.collectAsState()
+    val headerCatalogId = spotifyTrack?.id ?: recoveredSpotifyTrack?.id
+        ?: com.metrolist.music.resolver.FallbackIds.catalogIdOf(mediaMetadata.id)
+    val headerLiked = librarySong?.song?.liked == true || (headerCatalogId != null && headerCatalogId in likedCatalogIds)
+    val headerLikeSyncs = com.metrolist.music.playback.rememberLikeSyncs(database, mediaMetadata.id)
+
     val configuration = LocalConfiguration.current
     val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
@@ -519,12 +528,14 @@ fun PlayerMenu(
                 bottom = 8.dp + WindowInsets.systemBars.asPaddingValues().calculateBottomPadding(),
             ),
     ) {
+        // Every track menu in the app is this one. Outside the full-screen player it opens with the
+        // track itself (cover, title, artist and its heart) and the queue actions come first.
         if (!isCurrentTrack) {
             item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 8.dp),
+                        .padding(start = 24.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     AsyncImage(
@@ -552,69 +563,29 @@ fun PlayerMenu(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    IconButton(
+                        onClick = { playerConnection.service.setTrackLiked(mediaMetadata, !headerLiked) },
+                    ) {
+                        Icon(
+                            painter = painterResource(
+                                com.metrolist.music.playback.LikeTarget.icon(headerLiked, headerLikeSyncs),
+                            ),
+                            contentDescription = null,
+                            tint = if (headerLiked) MaterialTheme.colorScheme.error else androidx.compose.material3.LocalContentColor.current,
+                        )
+                    }
                 }
             }
 
             item { Spacer(modifier = Modifier.height(8.dp)) }
+            item { QueueActions() }
+            item { Spacer(modifier = Modifier.height(12.dp)) }
         }
 
         item {
             Material3MenuGroup(
                 items =
                     buildList {
-                        if (effectiveDownloadState == Download.STATE_COMPLETED) {
-                            add(
-                                Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.open_file_location)) },
-                                    description = { Text(text = stringResource(R.string.open_file_location_desc)) },
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(R.drawable.folder),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                        )
-                                    },
-                                    onClick = {
-                                        onDismiss()
-                                        val appContext = context.applicationContext
-                                        coroutineScope.launch {
-                                            com.metrolist.music.utils.openDownloadLocation(
-                                                appContext,
-                                                downloadUtil.downloadExporter,
-                                                effectiveDownloadId,
-                                            )
-                                        }
-                                    },
-                                )
-                            )
-                        }
-                        if (effectiveDownloadState == Download.STATE_COMPLETED) {
-                            add(
-                                Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.share_file)) },
-                                    description = { Text(text = stringResource(R.string.share_file_desc)) },
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(R.drawable.share),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                        )
-                                    },
-                                    onClick = {
-                                        onDismiss()
-                                        val appContext = context.applicationContext
-                                        coroutineScope.launch {
-                                            com.metrolist.music.utils.shareDownloadedFile(
-                                                appContext,
-                                                downloadUtil.downloadExporter,
-                                                effectiveDownloadId,
-                                            )
-                                        }
-                                    },
-                                )
-                            )
-                        }
-
                         when (effectiveDownloadState) {
                             Download.STATE_COMPLETED -> {
                                 add(
@@ -726,33 +697,21 @@ fun PlayerMenu(
                             }
                         }
 
-                        if (!isCurrentTrack) {
+
+                        if (com.metrolist.spotify.Spotify.isAuthenticated()) {
                             add(
                                 Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.play_next)) },
-                                    description = { Text(text = stringResource(R.string.play_next_desc)) },
+                                    title = { Text(text = stringResource(R.string.spotify_add_to_playlist)) },
                                     icon = {
                                         Icon(
-                                            painter = painterResource(R.drawable.queue_play_next),
+                                            painter = painterResource(R.drawable.spotify),
                                             contentDescription = null,
                                             modifier = Modifier.size(24.dp),
                                         )
                                     },
-                                    onClick = playNextTrack,
-                                )
-                            )
-                            add(
-                                Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.add_to_queue)) },
-                                    description = { Text(text = stringResource(R.string.add_to_queue_desc)) },
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(R.drawable.queue_music),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                        )
+                                    onClick = {
+                                        showAddToSpotifyPlaylist = true
                                     },
-                                    onClick = addToQueueTrack,
                                 )
                             )
                         }
@@ -773,23 +732,99 @@ fun PlayerMenu(
                             )
                         )
 
-                        if (com.metrolist.spotify.Spotify.isAuthenticated()) {
+                        if (effectiveDownloadState == Download.STATE_COMPLETED) {
                             add(
                                 Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.spotify_add_to_playlist)) },
+                                    title = { Text(text = stringResource(R.string.open_file_location)) },
+                                    description = { Text(text = stringResource(R.string.open_file_location_desc)) },
                                     icon = {
                                         Icon(
-                                            painter = painterResource(R.drawable.spotify),
+                                            painter = painterResource(R.drawable.folder),
                                             contentDescription = null,
                                             modifier = Modifier.size(24.dp),
                                         )
                                     },
                                     onClick = {
-                                        showAddToSpotifyPlaylist = true
+                                        onDismiss()
+                                        val appContext = context.applicationContext
+                                        coroutineScope.launch {
+                                            com.metrolist.music.utils.openDownloadLocation(
+                                                appContext,
+                                                downloadUtil.downloadExporter,
+                                                effectiveDownloadId,
+                                            )
+                                        }
                                     },
                                 )
                             )
                         }
+
+                        add(
+                            Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.share)) },
+                                description = if (effectiveDownloadState == Download.STATE_COMPLETED) {
+                                    { Text(text = stringResource(R.string.share_file_desc)) }
+                                } else {
+                                    null
+                                },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.share),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                onClick = {
+                                    onDismiss()
+                                    if (effectiveDownloadState == Download.STATE_COMPLETED) {
+                                        // A downloaded track is shared as the file itself.
+                                        val appContext = context.applicationContext
+                                        coroutineScope.launch {
+                                            com.metrolist.music.utils.shareDownloadedFile(
+                                                appContext,
+                                                downloadUtil.downloadExporter,
+                                                effectiveDownloadId,
+                                            )
+                                        }
+                                    } else {
+                                        val link = shareLinkOf(mediaMetadata, spotifyTrack?.id ?: recoveredSpotifyTrack?.id)
+                                        val intent = android.content.Intent().apply {
+                                            action = android.content.Intent.ACTION_SEND
+                                            type = "text/plain"
+                                            putExtra(android.content.Intent.EXTRA_TEXT, link)
+                                        }
+                                        context.startActivity(android.content.Intent.createChooser(intent, null))
+                                    }
+                                },
+                            )
+                        )
+
+                        add(
+                            Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.track_info)) },
+                                description = { Text(text = stringResource(R.string.details_desc)) },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.info),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                onClick = {
+                                    if (onShowDetailsDialog != null) {
+                                        onShowDetailsDialog()
+                                    } else {
+                                        val detailsId = resolvedSpotifyMatch?.youtubeId ?: mediaMetadata.id
+                                        bottomSheetPageState.show {
+                                            ShowMediaInfo(detailsId)
+                                        }
+                                    }
+                                    onDismiss()
+                                },
+                            ),
+                        )
+
+                        addAll(extraItems)
 
                         if (onRemoveFromPlaylist != null) {
                             add(
@@ -811,6 +846,11 @@ fun PlayerMenu(
                         }
                     },
             )
+        }
+
+        if (isCurrentTrack) {
+            item { Spacer(modifier = Modifier.height(12.dp)) }
+            item { QueueActions() }
         }
 
         item { Spacer(modifier = Modifier.height(12.dp)) }
@@ -988,11 +1028,14 @@ fun PlayerMenu(
             Material3MenuGroup(
                 items =
                     buildList {
-                        if (resolvedSpotifyMatch != null) {
+                        // Other recordings of the track to pick from, closest first, with bitrates.
+                        val canChangeVersion = !mediaMetadata.isEpisode &&
+                            !com.metrolist.music.resolver.SourceSearch.isSourceTrack(mediaMetadata.id)
+                        if (canChangeVersion) {
                             add(
                                 Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.change_youtube_version)) },
-                                    description = { Text(text = stringResource(R.string.change_youtube_version_desc)) },
+                                    title = { Text(text = stringResource(R.string.track_version)) },
+                                    description = { Text(text = stringResource(R.string.track_version_desc)) },
                                     icon = {
                                         Icon(
                                             painter = painterResource(R.drawable.link),
@@ -1001,60 +1044,11 @@ fun PlayerMenu(
                                         )
                                     },
                                     onClick = {
-                                        showYouTubeMatchDialog = true
+                                        showVersionDialog = true
                                     },
                                 ),
                             )
                         }
-
-                        // Tracks served by one of the audio sources (not a YouTube video): pick the
-                        // recording by hand when the automatic choice is wrong.
-                        if (com.metrolist.music.resolver.FallbackIds.isFallbackId(mediaMetadata.id)) {
-                            add(
-                                Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.audio_source_choose)) },
-                                    description = {
-                                        Text(text = stringResource(R.string.audio_source_choose_desc))
-                                    },
-                                    icon = {
-                                        Icon(
-                                            painter = painterResource(R.drawable.link),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(24.dp),
-                                        )
-                                    },
-                                    onClick = {
-                                        showQobuzMatchDialog = true
-                                    },
-                                ),
-                            )
-                        }
-
-
-                        add(
-                            Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.details)) },
-                                description = { Text(text = stringResource(R.string.details_desc)) },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.info),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                },
-                                onClick = {
-                                    if (onShowDetailsDialog != null) {
-                                        onShowDetailsDialog()
-                                    } else {
-                                        val detailsId = resolvedSpotifyMatch?.youtubeId ?: mediaMetadata.id
-                                        bottomSheetPageState.show {
-                                            ShowMediaInfo(detailsId)
-                                        }
-                                    }
-                                    onDismiss()
-                                },
-                            ),
-                        )
 
                         if (isQueueTrigger != true) {
                             add(
@@ -1095,6 +1089,22 @@ fun PlayerMenu(
                     },
             )
         }
+    }
+}
+
+/** A link to [mediaMetadata] that opens anywhere: Spotify when it is a Spotify track, else YouTube Music. */
+private fun shareLinkOf(mediaMetadata: MediaMetadata, spotifyId: String?): String {
+    val id = mediaMetadata.id
+    val catalogId = spotifyId
+        ?: com.metrolist.music.resolver.FallbackIds.catalogIdOf(id)
+        ?: id.takeIf { it.isSpotifyId() }?.stripSpotifyPrefix()
+    val plain = "${mediaMetadata.artists.joinToString { it.name }} – ${mediaMetadata.title}"
+    return when {
+        com.metrolist.music.resolver.SourceSearch.isSourceTrack(id) -> plain
+        catalogId != null && !com.metrolist.music.catalog.Catalog.isYandexId(catalogId) ->
+            "https://open.spotify.com/track/$catalogId"
+        catalogId != null || com.metrolist.music.resolver.FallbackIds.isFallbackId(id) -> plain
+        else -> "https://music.youtube.com/watch?v=$id"
     }
 }
 

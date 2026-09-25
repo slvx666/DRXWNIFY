@@ -55,6 +55,7 @@ fun LibraryLocalScreen(
     viewModel: LibraryPlaylistsViewModel = hiltViewModel(),
 ) {
     val downloadedPreview by viewModel.downloadedPreview.collectAsState()
+    val localLikedPreview by viewModel.localLikedPreview.collectAsState()
     val uploadedPreview by viewModel.uploadedPreview.collectAsState()
     val spotifyLiked by SpotifyLikeCache.liked.collectAsState()
 
@@ -65,6 +66,15 @@ fun LibraryLocalScreen(
             // Keep the library tab chips at the top so Local isn't a dead end (P5 regression fix).
             filterContent?.let { chips ->
                 item(key = "filter") { chips() }
+            }
+            // Hearts with a plus: tracks kept in the app because no account can take them.
+            item(key = "local_liked") {
+                LocalRow(
+                    icon = R.drawable.favorite_local,
+                    title = stringResource(R.string.local_liked),
+                    count = localLikedPreview.count.takeIf { it > 0 },
+                    onClick = { navController.navigate("auto_playlist/local_liked") },
+                )
             }
             item(key = "downloaded") {
                 LocalRow(

@@ -24,6 +24,7 @@ import com.metrolist.music.playback.DownloadUtil
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -67,6 +68,14 @@ constructor(
                 when (playlist) {
                     "liked" -> database.likedSongs(sortType, descending)
                         .map { it.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs) }
+
+                    // Liked only inside the app: tracks the account (or VK) can't take.
+                    "local_liked" -> database.likedSongs(sortType, descending)
+                        .map { songs ->
+                            songs.filter { !com.metrolist.music.playback.LikeTarget.syncsToAccount(database, it.id) }
+                                .filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs)
+                        }
+                        .flowOn(Dispatchers.IO)
 
                     "downloaded" -> database.downloadedSongs(sortType, descending)
                         .map { it.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs) }

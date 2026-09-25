@@ -828,9 +828,9 @@
     <string name="lib_type_compilation">Сборник</string>
     <string name="lib_type_folder">Папка</string>
     <string name="lib_sort_recents">Недавние</string>
-    <string name="lib_sort_recently_added">Недавно добавленные</string>
+    <string name="lib_sort_recently_added">По дате добавления</string>
     <string name="lib_sort_alphabetical">По алфавиту</string>
-    <string name="lib_sort_creator">Исполнитель</string>
+    <string name="lib_sort_creator">Автор</string>
     <string name="lib_sort_date_added">Дата добавления</string>
     <string name="lib_sort_name">Название</string>
     <string name="lib_sort_newest_first">сначала новые</string>
@@ -985,6 +985,20 @@
     <string name="about_source_code">Исходный код</string>
     <string name="about_license">Лицензия GPL-3.0</string>
     <string name="credits_developer">Разработчик</string>
+    <string name="changelog_1_3_0">- VK Музыка — полноценный источник: вход по номеру и паролю прямо в приложении, поиск треков, альбомов и плейлистов VK, твоя музыка из VK в библиотеке, сохранение альбомов и лайки треков прямо в VK
+- Всегда берётся самый высокий битрейт, какой есть; треки в низком качестве помечаются
+- «Для тебя» на главной: сетка из 35 рекомендаций по твоему вкусу и бесконечное радио после любого трека, кубик включает случайную подборку
+- Выбор, где искать: Spotify, Яндекс Музыка (если привязана), YouTube Music, библиотека или напрямую в источниках — VK, SoundCloud, Bandcamp, Audius и Soulseek как крайний вариант
+- Поиск Spotify работает и без аккаунта
+- Одно меню трека во всём приложении: загрузка, плейлисты, расположение файла, поделиться, информация о треке, очередь
+- «Изменить версию трека»: приложение само находит другие записи трека и показывает точность совпадения и битрейт
+- Новый лайк — сердце с плюсом: сохраняет в приложении треки, которые нельзя отправить в VK или музыкальный аккаунт; они собраны в «Локальных»
+- Обложки на весь экран: закрываются свайпом, приближаются двойным тапом и щипком; по зажатию обложку можно сохранить или отправить
+- Обложка в плеере: касание у краёв перематывает трек, в центре — открывает обложку
+- Библиотека выглядит одинаково с аккаунтом и без, сортировка как в Spotify с обратным порядком, созданные плейлисты сразу видны
+- Добавление в плейлисты снова работает, в том числе для треков из источников
+- Скачанный трек можно открыть в папке или отправить файлом, например в Telegram
+- Исправлены вылеты и подтормаживания: в просмотре обложек, при открытии плеера с текстом песни, в библиотеке и не только</string>
     <string name="changelog_1_1_0">- Популярные треки исполнителя больше не обрываются после десятого: дальше играют другие его песни, а затем похожие исполнители
 - В «Любимых треках» появился фильтр «Скачанные / Не скачанные», а у треков, которые не удалось скачать, видна причина
 - Доработан интерфейс</string>
@@ -1017,6 +1031,7 @@
     <string name="search_source_disabled">%1$s выключен в «Настройки → Источники музыки»</string>
     <string name="search_source_needs_account">Для %1$s нужен аккаунт — подключи его в «Настройки → Источники музыки»</string>
     <string name="search_all_sources">Все источники</string>
+    <string name="local_liked">Сохранённые в приложении</string>
     <string name="vk_best_source">Лучший источник: есть почти всё, высокое качество, альбомы</string>
     <string name="vk_best_source_sign_in">Лучший источник — войди в VK в настройках</string>
     <string name="search_source_spotify">Spotify</string>
@@ -1073,4 +1088,13 @@
     <string name="soulseek_last_resort">Крайний случай: медленно, файлы качаются с чужих компьютеров</string>
     <string name="soulseek_last_resort_unavailable">Нужен вход — или Wi-Fi, если включено «Только Wi-Fi»</string>
     <string name="soulseek_last_resort_short">крайний случай · медленно</string>
+    <string name="track_version">Изменить версию трека</string>
+    <string name="track_version_desc">Другие записи этого трека: сначала самые точные, с битрейтом</string>
+    <string name="track_version_info">%1$s · совпадение %2$d%%</string>
+    <string name="track_version_current">играет сейчас</string>
+    <string name="track_version_changed">Версия трека изменена</string>
+    <string name="queue_play_next">В начало очереди</string>
+    <string name="track_info">Информация о треке</string>
+    <string name="spotify_add_to_playlist">Добавить в плейлист Spotify</string>
+    <string name="spotify_add_to_playlist_desc">Добавить трек в один из твоих плейлистов Spotify</string>
 </resources>

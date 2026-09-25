@@ -564,8 +564,8 @@ private fun ThumbnailItem(
                 compositingStrategy = CompositingStrategy.Offscreen
             }
             .pointerInput(Unit) {
-                // The cover is split in four vertical strips: the outer two seek (every tap,
-                // no waiting for a second one), the middle two open the cover at once.
+                // Narrow strips at the edges (a sixth of the width each) seek on every tap
+                // (no waiting for a second one); the rest of the cover opens it at once.
                 detectTapGestures(
                     onLongPress = {
                         if (!hidePlayerThumbnail && !currentCoverUrl.isNullOrBlank()) {
@@ -574,7 +574,7 @@ private fun ThumbnailItem(
                         }
                     },
                     onTap = { offset ->
-                        val strip = size.width / 4f
+                        val strip = size.width / 6f
                         val inMiddle = offset.x >= strip && offset.x <= size.width - strip
                         if (inMiddle || isListenTogetherGuest) {
                             if (!hidePlayerThumbnail) coverViewer.open(currentCoverUrl, currentCoverName)

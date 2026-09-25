@@ -346,19 +346,13 @@ private fun SortRow(
     onToggleGrid: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
+    // Spotify's four orders.
     val options = listOf(
-        Sort.DATE_ADDED to R.string.lib_sort_date_added,
-        Sort.NAME to R.string.lib_sort_name,
+        Sort.RECENTS to R.string.lib_sort_recents,
+        Sort.DATE_ADDED to R.string.lib_sort_recently_added,
+        Sort.NAME to R.string.lib_sort_alphabetical,
         Sort.CREATOR to R.string.lib_sort_creator,
     )
-    val newestFirst = stringResource(R.string.lib_sort_newest_first)
-    val oldestFirst = stringResource(R.string.lib_sort_oldest_first)
-    val aToZ = stringResource(R.string.lib_sort_a_z)
-    val zToA = stringResource(R.string.lib_sort_z_a)
-    fun directionLabel(s: Sort, flipped: Boolean) = when (s) {
-        Sort.DATE_ADDED -> if (flipped) oldestFirst else newestFirst
-        Sort.NAME, Sort.CREATOR -> if (flipped) zToA else aToZ
-    }
     // The arrow turns over smoothly when the order is flipped.
     val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (reversed) 180f else 0f,
@@ -374,68 +368,45 @@ private fun SortRow(
             onSearchQueryChange("")
         },
         keyboardController = keyboardController,
-        modifier = Modifier.padding(start = 8.dp),
+        modifier = Modifier.padding(start = 12.dp),
     ) {
-        IconButton(onClick = onToggleReversed, modifier = Modifier.size(36.dp)) {
-            Icon(
-                painter = painterResource(R.drawable.arrow_downward),
-                contentDescription = directionLabel(sort, !reversed),
-                modifier = Modifier
-                    .size(18.dp)
-                    .graphicsLayer { rotationZ = arrowRotation },
-            )
-        }
+        // "Recents · ↓": the name opens the list of orders, the arrow after the dot flips the order.
         Box {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            Text(
+                text = stringResource(options.first { it.first == sort }.second),
+                style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
                     .clickable { menu = true }
                     .padding(vertical = 8.dp, horizontal = 4.dp),
-            ) {
-                Text(stringResource(options.first { it.first == sort }.second), style = MaterialTheme.typography.labelLarge)
-                Text(
-                    " · " + directionLabel(sort, reversed),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            )
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 options.forEach { (s, res) ->
-                    val selected = s == sort
                     DropdownMenuItem(
                         text = {
-                            Column {
-                                Text(
-                                    stringResource(res),
-                                    color = if (selected) SpotifyGreen else MaterialTheme.colorScheme.onSurface,
-                                )
-                                Text(
-                                    directionLabel(s, selected && reversed),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        },
-                        trailingIcon = if (selected) {
-                            {
-                                // Tapping the current order again flips it.
-                                Icon(
-                                    painter = painterResource(R.drawable.arrow_downward),
-                                    contentDescription = null,
-                                    tint = SpotifyGreen,
-                                    modifier = Modifier
-                                        .size(18.dp)
-                                        .graphicsLayer { rotationZ = arrowRotation },
-                                )
-                            }
-                        } else {
-                            null
+                            Text(
+                                stringResource(res),
+                                color = if (s == sort) SpotifyGreen else MaterialTheme.colorScheme.onSurface,
+                            )
                         },
                         onClick = { onSort(s); menu = false },
                     )
                 }
             }
+        }
+        Text(
+            text = "·",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        IconButton(onClick = onToggleReversed, modifier = Modifier.size(32.dp)) {
+            Icon(
+                painter = painterResource(R.drawable.arrow_downward),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(16.dp)
+                    .graphicsLayer { rotationZ = arrowRotation },
+            )
         }
         Spacer(Modifier.weight(1f))
         IconButton(
@@ -594,6 +565,21 @@ private fun openEntry(navController: NavController, entry: SpotifyLibraryEntry) 
     if (entry.uri.startsWith(SpotifyLibraryViewModel.LOCAL_PLAYLIST_URI_PREFIX)) {
         navController.navigate("local_playlist/${entry.id}")
         return
+    }
+    // What is saved in the app itself (the library without a music account).
+    when {
+        entry.uri == SpotifyLibraryViewModel.APP_LIKED_URI -> {
+            navController.navigate("auto_playlist/liked")
+            return
+        }
+        entry.uri.startsWith(SpotifyLibraryViewModel.APP_ALBUM_URI_PREFIX) -> {
+            navController.navigate("album/${entry.id}")
+            return
+        }
+        entry.uri.startsWith(SpotifyLibraryViewModel.APP_ARTIST_URI_PREFIX) -> {
+            navController.navigate("artist/${entry.id}")
+            return
+        }
     }
     when (entry.kind) {
         SpotifyLibraryEntry.Kind.LIKED_SONGS -> navController.navigate("spotify_liked_songs")

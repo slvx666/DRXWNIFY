@@ -1127,9 +1127,9 @@
     <string name="lib_type_compilation">Compilation</string>
     <string name="lib_type_folder">Folder</string>
     <string name="lib_sort_recents">Recents</string>
-    <string name="lib_sort_recently_added">Recently added</string>
+    <string name="lib_sort_recently_added">Date added</string>
     <string name="lib_sort_alphabetical">Alphabetical</string>
-    <string name="lib_sort_creator">Artist</string>
+    <string name="lib_sort_creator">Creator</string>
     <string name="lib_sort_date_added">Date added</string>
     <string name="lib_sort_name">Name</string>
     <string name="lib_sort_newest_first">newest first</string>
@@ -1281,6 +1281,20 @@
     <string name="download_issues_hint">For tracks that weren’t found, connect VK or turn on more sources in Settings → Integrations → Music sources, then tap “Download the rest”.</string>
     <string name="about_source_code">Source code</string>
     <string name="about_license">Licensed under GPL-3.0</string>
+    <string name="changelog_1_3_0">- VK Music is a full source now: sign in with phone and password right in the app, search VK tracks, albums and playlists, your VK music in the library, save albums and like tracks straight to VK
+- Always the highest bitrate available; low-quality tracks are marked
+- “For you” on Home: a grid of 35 picks from your taste and an endless radio after any track; the dice starts a random mix
+- Choose where to search: Spotify, Yandex Music (when linked), YouTube Music, your library, or the audio sources directly — VK, SoundCloud, Bandcamp, Audius, with Soulseek as a last resort
+- Spotify search works without an account
+- One track menu everywhere in the app: download, playlists, file location, share, track info, queue
+- “Change track version”: the app finds other recordings of the track and shows how well each matches and its bitrate
+- A new like — the heart with a plus: keeps tracks in the app when they can’t go to VK or your music account; they are collected under “Local”
+- Full-screen covers: swipe to close, double-tap or pinch to zoom; long-press a cover to save or share it
+- The cover in the player: tap near the edges to seek, in the middle to open it
+- The library looks the same with or without an account, Spotify-style sorting with a reverse order, new playlists show up right away
+- Adding to playlists works again, including tracks from the sources
+- A downloaded track can be shown in its folder or shared as a file, e.g. to Telegram
+- Crashes and stutters fixed: in the cover viewer, when opening the player with lyrics, in the library and elsewhere</string>
     <string name="changelog_1_1_0">- An artist’s popular tracks no longer stop after the tenth: more of their songs follow, then similar artists
 - Liked Songs can be filtered by downloaded / not downloaded, and tracks that failed to download show why
 - Interface improvements</string>
@@ -1313,6 +1327,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="search_source_disabled">%1$s is switched off in Settings → Music sources</string>
     <string name="search_source_needs_account">%1$s needs an account — connect it in Settings → Music sources</string>
     <string name="search_all_sources">All sources</string>
+    <string name="local_liked">Saved in the app</string>
     <string name="vk_best_source">Best source: almost everything, top quality, albums</string>
     <string name="vk_best_source_sign_in">Best source: sign in to VK in Settings</string>
     <string name="search_source_spotify">Spotify</string>
@@ -1368,4 +1383,11 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="soulseek_last_resort">Last resort: slow, files come from other people’s computers</string>
     <string name="soulseek_last_resort_unavailable">Needs an account — or Wi-Fi, if “Wi-Fi only” is on</string>
     <string name="soulseek_last_resort_short">last resort · slow</string>
+    <string name="track_version">Change track version</string>
+    <string name="track_version_desc">Other recordings of this track, closest match first, with bitrate</string>
+    <string name="track_version_info">%1$s · %2$d%% match</string>
+    <string name="track_version_current">playing now</string>
+    <string name="track_version_changed">Track version changed</string>
+    <string name="queue_play_next">Play next</string>
+    <string name="track_info">Track info</string>
 </resources>

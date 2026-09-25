@@ -146,6 +146,7 @@ fun AutoPlaylistScreen(
     val playlist =
         when (viewModel.playlist) {
             "liked" -> stringResource(R.string.liked)
+            "local_liked" -> stringResource(R.string.local_liked)
             "uploaded" -> stringResource(R.string.uploaded_playlist)
             else -> stringResource(R.string.offline)
         }

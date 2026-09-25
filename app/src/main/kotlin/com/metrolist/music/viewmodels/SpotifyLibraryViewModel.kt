@@ -31,10 +31,11 @@ class SpotifyLibraryViewModel @Inject constructor(
     database: MusicDatabase,
     @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context,
 ) : ViewModel() {
+    private val likedSongsTitle = context.getString(com.metrolist.music.R.string.liked)
 
     enum class Filter(val gql: String?) { ALL(null), PLAYLISTS("Playlists"), ALBUMS("Albums"), ARTISTS("Artists") }
-    /** Each order can be flipped ([reversed]): newest/oldest first, A→Z/Z→A. */
-    enum class Sort { DATE_ADDED, NAME, CREATOR }
+    /** Spotify's four orders; each can be flipped ([reversed]). */
+    enum class Sort { RECENTS, DATE_ADDED, NAME, CREATOR }
 
     private val _filter = MutableStateFlow(Filter.ALL)
     val filter: StateFlow<Filter> = _filter.asStateFlow()
@@ -42,7 +43,7 @@ class SpotifyLibraryViewModel @Inject constructor(
     private val prefs = context.getSharedPreferences("library_sort", android.content.Context.MODE_PRIVATE)
 
     private val _sort = MutableStateFlow(
-        prefs.getString("sort", null)?.let { runCatching { Sort.valueOf(it) }.getOrNull() } ?: Sort.DATE_ADDED,
+        prefs.getString("sort", null)?.let { runCatching { Sort.valueOf(it) }.getOrNull() } ?: Sort.RECENTS,
     )
     val sort: StateFlow<Sort> = _sort.asStateFlow()
 
@@ -88,10 +89,69 @@ class SpotifyLibraryViewModel @Inject constructor(
                 }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * Without a music account the same library shows what is saved in the app itself: liked songs,
+     * saved albums and followed artists (with an account those come from the account).
+     */
+    private val appCollection: StateFlow<List<SpotifyLibraryEntry>> =
+        combine(
+            Catalog.state,
+            database.likedSongsCount(),
+            database.albumsLiked(com.metrolist.music.constants.AlbumSortType.CREATE_DATE, true),
+            database.artistsBookmarked(com.metrolist.music.constants.ArtistSortType.CREATE_DATE, true),
+        ) { catalog, likedCount, albums, artists ->
+            if (catalog.isActive) return@combine emptyList()
+            buildList {
+                add(
+                    SpotifyLibraryEntry(
+                        kind = SpotifyLibraryEntry.Kind.LIKED_SONGS,
+                        id = "liked",
+                        uri = APP_LIKED_URI,
+                        name = likedSongsTitle,
+                        totalCount = likedCount,
+                        pinned = true,
+                    ),
+                )
+                albums.forEach { album ->
+                    add(
+                        SpotifyLibraryEntry(
+                            kind = SpotifyLibraryEntry.Kind.ALBUM,
+                            id = album.album.id,
+                            uri = APP_ALBUM_URI_PREFIX + album.album.id,
+                            name = album.album.title,
+                            creator = album.artists.joinToString { it.name }.ifBlank { null },
+                            imageUrl = album.album.thumbnailUrl,
+                            addedAt = (album.album.bookmarkedAt ?: album.album.likedDate)?.toString(),
+                        ),
+                    )
+                }
+                artists.forEach { artist ->
+                    add(
+                        SpotifyLibraryEntry(
+                            kind = SpotifyLibraryEntry.Kind.ARTIST,
+                            id = artist.artist.id,
+                            uri = APP_ARTIST_URI_PREFIX + artist.artist.id,
+                            name = artist.artist.name,
+                            imageUrl = artist.artist.thumbnailUrl,
+                            addedAt = artist.artist.bookmarkedAt?.toString(),
+                        ),
+                    )
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     val entries: StateFlow<List<SpotifyLibraryEntry>> =
-        combine(cache, _filter, _sort, _reversed, localPlaylists) { c, f, s, reversed, local ->
+        combine(cache, _filter, _sort, _reversed, combine(localPlaylists, appCollection, ::Pair)) { c, f, s, reversed, (local, app) ->
             val own = if (f == Filter.ALL || f == Filter.PLAYLISTS) local else emptyList()
-            applySort(own, c[f].orEmpty(), s, reversed)
+            val saved = app.filter { entry ->
+                when (f) {
+                    Filter.ALL -> true
+                    Filter.PLAYLISTS -> entry.kind == SpotifyLibraryEntry.Kind.LIKED_SONGS
+                    Filter.ALBUMS -> entry.kind == SpotifyLibraryEntry.Kind.ALBUM
+                    Filter.ARTISTS -> entry.kind == SpotifyLibraryEntry.Kind.ARTIST
+                }
+            }
+            applySort(own, saved + c[f].orEmpty(), s, reversed)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
@@ -109,18 +169,23 @@ class SpotifyLibraryViewModel @Inject constructor(
         _filter.value = Filter.ALL
     }
 
-    /** Picking the current order again flips it; another order starts from its usual direction. */
+    /** Another order starts from its usual direction; the arrow next to it flips it. */
     fun setSort(s: Sort) {
-        if (_sort.value == s) {
-            _reversed.value = !_reversed.value
-        } else {
+        if (_sort.value != s) {
             _sort.value = s
             _reversed.value = false
+            save()
         }
-        prefs.edit().putString("sort", _sort.value.name).putBoolean("reversed", _reversed.value).apply()
     }
 
-    fun toggleReversed() = setSort(_sort.value)
+    fun toggleReversed() {
+        _reversed.value = !_reversed.value
+        save()
+    }
+
+    private fun save() {
+        prefs.edit().putString("sort", _sort.value.name).putBoolean("reversed", _reversed.value).apply()
+    }
 
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
@@ -138,7 +203,8 @@ class SpotifyLibraryViewModel @Inject constructor(
             _loading.value = true
             try {
                 // The library of the connected account(s): Spotify, Yandex Music or both merged.
-                if (!Catalog.ensureAuthenticated()) return@launch
+                // Without one there is nothing to fetch (the app's own collection is local).
+                if (!Catalog.isActive || !Catalog.ensureAuthenticated()) return@launch
                 val all = mutableListOf<SpotifyLibraryEntry>()
                 var offset = 0
                 while (offset < MAX_ITEMS) {
@@ -178,6 +244,8 @@ class SpotifyLibraryViewModel @Inject constructor(
         val (pinned, rest) = list.partition { it.pinned }
         val collator = java.text.Collator.getInstance().apply { strength = java.text.Collator.PRIMARY }
         val sorted = when (s) {
+            // The account's own order (recently played / added first), the app's playlists first.
+            Sort.RECENTS -> own + rest
             // Newest first. Entries without a date keep the account's own order (already newest
             // first); the app's own playlists, newest first as well, lead.
             Sort.DATE_ADDED -> own + rest.withIndex()
@@ -198,6 +266,9 @@ class SpotifyLibraryViewModel @Inject constructor(
     companion object {
         /** Marks an entry that lives in this app's database, not in the connected account. */
         const val LOCAL_PLAYLIST_URI_PREFIX = "meld:playlist:"
+        const val APP_LIKED_URI = "meld:liked"
+        const val APP_ALBUM_URI_PREFIX = "meld:album:"
+        const val APP_ARTIST_URI_PREFIX = "meld:artist:"
 
         private const val PAGE = 50
         private const val MAX_ITEMS = 1000
