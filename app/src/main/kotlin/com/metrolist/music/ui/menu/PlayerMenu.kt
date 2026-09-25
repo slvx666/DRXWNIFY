@@ -510,11 +510,18 @@ fun PlayerMenu(
 
     // The heart in the header: liked in the app or on the account, with the plus when the track
     // can only be kept in the app (see LikeTarget).
-    val likedCatalogIds by com.metrolist.music.playback.SpotifyLikeCache.liked.collectAsState()
     val headerCatalogId = spotifyTrack?.id ?: recoveredSpotifyTrack?.id
-        ?: com.metrolist.music.resolver.FallbackIds.catalogIdOf(mediaMetadata.id)
-    val headerLiked = librarySong?.song?.liked == true || (headerCatalogId != null && headerCatalogId in likedCatalogIds)
-    val headerLikeSyncs = com.metrolist.music.playback.rememberLikeSyncs(database, mediaMetadata.id)
+    val headerLiked = com.metrolist.music.playback.rememberTrackLiked(database, mediaMetadata.id, headerCatalogId)
+    val headerLikeSyncs = com.metrolist.music.playback.rememberLikeSyncs(database, mediaMetadata.id, headerCatalogId)
+    // Where the like goes besides the app: the account that owns the track, or VK for a VK track.
+    val likeAccount: Triple<Int, Int, Int>? = when {
+        !headerLikeSyncs -> null
+        com.metrolist.music.resolver.SourceSearch.providerOf(mediaMetadata.id) ==
+            com.metrolist.music.resolver.AudioProviderId.VK -> Triple(R.string.like_add_vk, R.string.like_remove_vk, R.drawable.vk_music)
+        headerCatalogId != null && com.metrolist.music.catalog.Catalog.isYandexId(headerCatalogId) ->
+            Triple(R.string.like_add_yandex, R.string.like_remove_yandex, R.drawable.yandex_music)
+        else -> Triple(R.string.like_add_spotify, R.string.like_remove_spotify, R.drawable.spotify)
+    }
 
     val configuration = LocalConfiguration.current
     val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
@@ -698,19 +705,25 @@ fun PlayerMenu(
                         }
 
 
-                        if (com.metrolist.spotify.Spotify.isAuthenticated()) {
+                        // The like of the account: into Spotify's (Yandex Music's, VK's) liked tracks.
+                        likeAccount?.let { (addLabel, removeLabel, icon) ->
                             add(
                                 Material3MenuItemData(
-                                    title = { Text(text = stringResource(R.string.spotify_add_to_playlist)) },
+                                    title = {
+                                        Text(
+                                            text = stringResource(if (headerLiked) removeLabel else addLabel),
+                                        )
+                                    },
                                     icon = {
                                         Icon(
-                                            painter = painterResource(R.drawable.spotify),
+                                            painter = painterResource(icon),
                                             contentDescription = null,
                                             modifier = Modifier.size(24.dp),
                                         )
                                     },
                                     onClick = {
-                                        showAddToSpotifyPlaylist = true
+                                        playerConnection.service.setTrackLiked(mediaMetadata, !headerLiked)
+                                        onDismiss()
                                     },
                                 )
                             )

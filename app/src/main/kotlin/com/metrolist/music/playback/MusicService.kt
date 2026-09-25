@@ -2152,6 +2152,19 @@ class MusicService :
         setCurrentLiked(!isCurrentFavorite())
     }
 
+    /**
+     * Sets the heart of the current track to what the UI showed the user flipping, instead of
+     * re-deciding it here (the service may not know yet that the track is liked on the account).
+     */
+    fun setCurrentFavorite(liked: Boolean) {
+        val song = currentSong.value?.song
+        if (song?.isEpisode == true) {
+            if ((song.inLibrary != null) != liked) scope.launch { toggleEpisodeSaveForLater(song) }
+            return
+        }
+        setCurrentLiked(liked)
+    }
+
     private fun setCurrentLiked(liked: Boolean) {
         val metadata = currentMediaMetadata.value ?: player.currentMetadata ?: return
         setTrackLiked(metadata, liked)

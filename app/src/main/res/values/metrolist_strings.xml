@@ -1281,20 +1281,23 @@
     <string name="download_issues_hint">For tracks that weren’t found, connect VK or turn on more sources in Settings → Integrations → Music sources, then tap “Download the rest”.</string>
     <string name="about_source_code">Source code</string>
     <string name="about_license">Licensed under GPL-3.0</string>
-    <string name="changelog_1_3_0">- VK Music is a full source now: sign in with phone and password right in the app, search VK tracks, albums and playlists, your VK music in the library, save albums and like tracks straight to VK
-- Always the highest bitrate available; low-quality tracks are marked
-- “For you” on Home: a grid of 35 picks from your taste and an endless radio after any track; the dice starts a random mix
-- Choose where to search: Spotify, Yandex Music (when linked), YouTube Music, your library, or the audio sources directly — VK, SoundCloud, Bandcamp, Audius, with Soulseek as a last resort
-- Spotify search works without an account
-- One track menu everywhere in the app: download, playlists, file location, share, track info, queue
-- “Change track version”: the app finds other recordings of the track and shows how well each matches and its bitrate
-- A new like — the heart with a plus: keeps tracks in the app when they can’t go to VK or your music account; they are collected under “Local”
-- Full-screen covers: swipe to close, double-tap or pinch to zoom; long-press a cover to save or share it
-- The cover in the player: tap near the edges to seek, in the middle to open it
-- The library looks the same with or without an account, Spotify-style sorting with a reverse order, new playlists show up right away
-- Adding to playlists works again, including tracks from the sources
-- A downloaded track can be shown in its folder or shared as a file, e.g. to Telegram
-- Crashes and stutters fixed: in the cover viewer, when opening the player with lyrics, in the library and elsewhere</string>
+    <string name="changelog_1_3_0">### Added
++ VK Music: search, albums, playlists, likes
++ New “For you” picks and an endless radio
++ View, save and share covers
++ Search Yandex Music and the audio sources directly
++ Change a track’s version, picking by bitrate
++ An in-app like for tracks outside your account
++ “Add to queue” and “Play next” in the track menu
+### Changed
+• Always the highest bitrate
+• One track menu across the app
+• A Spotify-style library, with or without an account
+• Spotify search works without an account
+### Fixed
+✓ Adding to playlists
+✓ Likes in the player and mini player
+✓ Crashes and stutters</string>
     <string name="changelog_1_1_0">- An artist’s popular tracks no longer stop after the tenth: more of their songs follow, then similar artists
 - Liked Songs can be filtered by downloaded / not downloaded, and tracks that failed to download show why
 - Interface improvements</string>
@@ -1390,4 +1393,10 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="track_version_changed">Track version changed</string>
     <string name="queue_play_next">Play next</string>
     <string name="track_info">Track info</string>
+    <string name="like_add_spotify">Add to Spotify</string>
+    <string name="like_remove_spotify">Remove from Spotify</string>
+    <string name="like_add_yandex">Add to Yandex Music</string>
+    <string name="like_remove_yandex">Remove from Yandex Music</string>
+    <string name="like_add_vk">Add to VK Music</string>
+    <string name="like_remove_vk">Remove from VK Music</string>
 </resources>

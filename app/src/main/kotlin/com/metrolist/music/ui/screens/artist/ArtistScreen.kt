@@ -751,6 +751,17 @@ fun ArtistScreen(
                                                 )
                                             }
                                         },
+                                        onLongClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            menuState.show {
+                                                com.metrolist.music.ui.menu.SpotifyTrackMenu(
+                                                    track = track,
+                                                    mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database),
+                                                    onDismiss = menuState::dismiss,
+                                                    navController = navController,
+                                                )
+                                            }
+                                        },
                                     )
                                     .animateItem(),
                             )

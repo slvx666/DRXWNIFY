@@ -60,11 +60,16 @@ private suspend fun existingExportUri(
     exporter: DownloadExporter,
     songId: String,
 ): Uri? {
-    val uri = exporter.exportedUri(songId)
-    val exists = uri != null && withContext(Dispatchers.IO) {
-        runCatching { context.contentResolver.openFileDescriptor(uri, "r")?.close() }.isSuccess
+    fun readable(candidate: Uri?): Boolean = candidate != null &&
+        runCatching { context.contentResolver.openFileDescriptor(candidate, "r")?.close() }.isSuccess
+
+    val uri = withContext(Dispatchers.IO) {
+        exporter.exportedUri(songId)?.takeIf(::readable)
+            // The track is downloaded (it plays offline from the app's own storage) but its copy in
+            // the music folder is gone — deleted or moved by hand, or never written. Write it again.
+            ?: exporter.export(songId).getOrNull()?.takeIf(::readable)
     }
-    if (!exists) {
+    if (uri == null) {
         withContext(Dispatchers.Main) {
             Toast.makeText(context, context.getString(R.string.file_not_found), Toast.LENGTH_SHORT).show()
         }

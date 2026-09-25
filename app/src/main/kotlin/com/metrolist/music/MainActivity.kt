@@ -621,7 +621,8 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) {
                     val lastSeenVersion = dataStore.data.first()[LastSeenVersionKey] ?: ""
-                    val currentVersion = BuildConfig.VERSION_NAME
+                    // Name + build number: a rebuilt release of the same version shows its notes too.
+                    val currentVersion = "${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}"
                     if (lastSeenVersion != currentVersion) {
                         showChangelog.value = true
                     }
@@ -1412,6 +1413,25 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // Welcome: what the app is, where the data goes, the author's GitHub and (when nothing
+                    // is connected yet) the account picker. Shown after a fresh install and again after
+                    // every update of the app, so changes and the privacy note don't go unseen.
+                    val welcomePrefs = remember { getSharedPreferences("welcome", MODE_PRIVATE) }
+                    val installStamp = remember {
+                        runCatching { packageManager.getPackageInfo(packageName, 0).lastUpdateTime }.getOrDefault(0L)
+                    }
+                    var welcomeSeenFor by remember { mutableStateOf(welcomePrefs.getLong("seen_install_stamp", -1L)) }
+                    val catalogState by com.metrolist.music.catalog.Catalog.state.collectAsState()
+                    val (yandexTokenForWelcome) = rememberPreference(com.metrolist.music.constants.YandexAccessTokenKey, "")
+                    val (spotifyTokenForWelcome) = rememberPreference(com.metrolist.music.constants.SpotifyAccessTokenKey, "")
+                    val anyAccountLinked = catalogState.isActive ||
+                        yandexTokenForWelcome.isNotEmpty() || spotifyTokenForWelcome.isNotEmpty()
+                    fun markWelcomeSeen() {
+                        welcomeSeenFor = installStamp
+                        welcomePrefs.edit().putLong("seen_install_stamp", installStamp).apply()
+                    }
+                    var introHoldingForWelcome by remember { mutableStateOf(false) }
+
                     if (introVisible) {
                         com.metrolist.music.ui.component.AppIntro(
                             exitProgress = introExit,
@@ -1441,27 +1461,17 @@ class MainActivity : ComponentActivity() {
                                 com.metrolist.music.ui.component.AppIntroState.played = true
                                 introVisible = false
                             },
+                            holdBeforeExit = {
+                                if (welcomeSeenFor != installStamp) {
+                                    introHoldingForWelcome = true
+                                    androidx.compose.runtime.snapshotFlow { welcomeSeenFor == installStamp }.first { it }
+                                }
+                            },
                         )
                     }
 
-                    // Welcome: what the app is, where the data goes, the author's GitHub and (when nothing
-                    // is connected yet) the account picker. Shown after a fresh install and again after
-                    // every update of the app, so changes and the privacy note don't go unseen.
-                    val welcomePrefs = remember { getSharedPreferences("welcome", MODE_PRIVATE) }
-                    val installStamp = remember {
-                        runCatching { packageManager.getPackageInfo(packageName, 0).lastUpdateTime }.getOrDefault(0L)
-                    }
-                    var welcomeSeenFor by remember { mutableStateOf(welcomePrefs.getLong("seen_install_stamp", -1L)) }
-                    val catalogState by com.metrolist.music.catalog.Catalog.state.collectAsState()
-                    val (yandexTokenForWelcome) = rememberPreference(com.metrolist.music.constants.YandexAccessTokenKey, "")
-                    val (spotifyTokenForWelcome) = rememberPreference(com.metrolist.music.constants.SpotifyAccessTokenKey, "")
-                    val anyAccountLinked = catalogState.isActive ||
-                        yandexTokenForWelcome.isNotEmpty() || spotifyTokenForWelcome.isNotEmpty()
-                    fun markWelcomeSeen() {
-                        welcomeSeenFor = installStamp
-                        welcomePrefs.edit().putLong("seen_install_stamp", installStamp).apply()
-                    }
-                    if (welcomeSeenFor != installStamp && !introVisible) {
+                    // The welcome comes first: over the intro, which waits for it before revealing home.
+                    if (welcomeSeenFor != installStamp && (!introVisible || introHoldingForWelcome)) {
                         com.metrolist.music.ui.component.WelcomeDialog(
                             onConnectSpotify = {
                                 markWelcomeSeen()

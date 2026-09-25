@@ -1195,7 +1195,8 @@ private fun FavoriteButton(
     val librarySong by database.song(songId).collectAsState(initial = null)
     // For episodes, show saved state (inLibrary); for songs, show liked state
     val isEpisode = librarySong?.song?.isEpisode == true
-    val isLiked = if (isEpisode) librarySong?.song?.inLibrary != null else librarySong?.song?.liked == true
+    // The same answer as the full player and the menus (see rememberTrackLiked).
+    val isLiked = com.metrolist.music.playback.rememberTrackLiked(database, songId)
     val likeSyncs = com.metrolist.music.playback.rememberLikeSyncs(database, songId)
 
     Box(
@@ -1211,7 +1212,7 @@ private fun FavoriteButton(
                 ).background(
                     color = if (isLiked) errorColor.copy(alpha = 0.1f) else Color.Transparent,
                     shape = CircleShape,
-                ).clickable { playerConnection.service.toggleLike() },
+                ).clickable { playerConnection.service.setCurrentFavorite(!isLiked) },
     ) {
         Icon(
             painter = painterResource(com.metrolist.music.playback.LikeTarget.icon(isLiked, likeSyncs || isEpisode)),

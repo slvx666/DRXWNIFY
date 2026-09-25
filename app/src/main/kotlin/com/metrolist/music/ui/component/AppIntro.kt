@@ -98,6 +98,8 @@ fun AppIntro(
     awaitReady: suspend () -> Unit,
     onComposeApp: () -> Unit,
     onFinished: () -> Unit,
+    /** Waited for right before the intro leaves (e.g. the welcome shown over it is closed). */
+    holdBeforeExit: suspend () -> Unit = {},
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -157,6 +159,8 @@ fun AppIntro(
             val stillLeft = LETTERS_OUT_DELAY_MS - (System.currentTimeMillis() - shimmerEnd)
             if (stillLeft > 0) delay(stillLeft)
         }
+
+        holdBeforeExit()
 
         // Reverse of the entrance: letters left→right, then icon, while the app fades in.
         exiting.value = true

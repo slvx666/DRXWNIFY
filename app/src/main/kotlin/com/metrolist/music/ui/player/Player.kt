@@ -595,6 +595,8 @@ fun BottomSheetPlayer(
     val database = LocalDatabase.current
     // Tracks that can only be kept in the app get the heart with a plus (see LikeTarget).
     val likeSyncs = com.metrolist.music.playback.rememberLikeSyncs(database, mediaMetadata?.id)
+    // The same answer as the mini player and the menus (see rememberTrackLiked).
+    val trackLiked = com.metrolist.music.playback.rememberTrackLiked(database, mediaMetadata?.id)
     val exportingIds by DownloadExportState.exporting.collectAsState()
 
     val sleepTimerEnabled =
@@ -1345,14 +1347,11 @@ fun BottomSheetPlayer(
                             } else {
                                 // For episodes, show saved state (inLibrary); for songs, show liked state
                                 val isEpisode = currentSong?.song?.isEpisode == true
-                                val isFavorite = (if (isEpisode) currentSong?.song?.inLibrary != null else currentSong?.song?.liked == true) || spotifyLiked
+                                val isFavorite = trackLiked
                                 FilledIconButton(
                                     enabled = !likeBlocked,
                                     onClick = {
-                                        playerConnection.toggleLike()
-                                        currentSpotifyLikeId?.let {
-                                            com.metrolist.music.playback.SpotifyLikeCache.setLiked(it, !isFavorite)
-                                        }
+                                        playerConnection.service.setCurrentFavorite(!isFavorite)
                                     },
                                     shape = favShape,
                                     colors =
@@ -1931,7 +1930,7 @@ fun BottomSheetPlayer(
                                 // For episodes, show saved state (inLibrary); for songs, show liked state
                                 // (local like OR Spotify like).
                                 val isEpisode = currentSong?.song?.isEpisode == true
-                                val isFavorite = (if (isEpisode) currentSong?.song?.inLibrary != null else currentSong?.song?.liked == true) || spotifyLiked
+                                val isFavorite = trackLiked
                                 ResizableIconButton(
                                     icon = com.metrolist.music.playback.LikeTarget.icon(isFavorite, likeSyncs || isEpisode),
                                     enabled = !likeBlocked,
@@ -1942,10 +1941,7 @@ fun BottomSheetPlayer(
                                             .padding(4.dp)
                                             .align(Alignment.Center),
                                     onClick = {
-                                        playerConnection.toggleLike()
-                                        currentSpotifyLikeId?.let {
-                                            com.metrolist.music.playback.SpotifyLikeCache.setLiked(it, !isFavorite)
-                                        }
+                                        playerConnection.service.setCurrentFavorite(!isFavorite)
                                     },
                                 )
                             }

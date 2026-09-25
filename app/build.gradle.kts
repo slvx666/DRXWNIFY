@@ -33,7 +33,7 @@ android {
         applicationId = applicationIdOverride ?: "com.meld.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 29
+        versionCode = 30
         versionName = "1.3.0"
         resValue("string", "app_name", appNameOverride ?: "Drxwnify")
 
