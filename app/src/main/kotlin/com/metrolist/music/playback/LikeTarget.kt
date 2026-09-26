@@ -11,8 +11,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
 import com.metrolist.music.R
-import com.metrolist.music.catalog.Catalog
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.resolver.AudioProviderId
 import com.metrolist.music.resolver.FallbackIds
@@ -23,10 +25,10 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 
 /**
- * Where a heart puts a track. Most tracks go to an account as well: Liked Songs on Spotify or Yandex
- * Music, or the user's VK music for a VK track. The rest (another source's upload, no account for
- * it) can only be kept in the app's own "Local" collection — those get their own heart, with a
- * plus, so the two are never confused.
+ * Where a heart puts a track. Catalog tracks (Spotify / Yandex Music, and what plays for them) are
+ * liked as usual — in the app and on the account. Tracks found in the audio sources themselves are
+ * kept in the app's "Local" and get the heart with a plus, except VK tracks while VK likes go to the
+ * user's VK music (Settings → Music sources).
  */
 object LikeTarget {
     /** The catalog (Spotify / Yandex Music) id behind [mediaId], from memory only. */
@@ -42,24 +44,20 @@ object LikeTarget {
         return runCatching { database.getSpotifyMatchByYouTubeId(mediaId)?.spotifyId }.getOrNull()
     }
 
-    /** True when the account owning [catalogId] is linked (not whether its token is fresh right now). */
-    fun accountLinkedFor(catalogId: String): Boolean {
-        val state = Catalog.state.value
-        return if (Catalog.isYandexId(catalogId)) state.yandexConnected else state.spotifyConnected
+    /** The VK track id ("owner_audio[_key]") of a VK source track, else null. */
+    fun vkTrackIdOf(mediaId: String?): String? {
+        if (SourceSearch.providerOf(mediaId) != AudioProviderId.VK) return null
+        return FallbackIds.catalogIdOf(mediaId ?: return null)?.substringAfter("VK:")
     }
 
-    /** Answer from memory only; null when it needs the database. */
-    fun syncsToAccountFast(mediaId: String?): Boolean? {
-        if (mediaId.isNullOrBlank()) return null
-        if (SourceSearch.providerOf(mediaId) == AudioProviderId.VK) return VkMusic.isReady
-        if (SourceSearch.isSourceTrack(mediaId)) return false
-        return catalogIdFast(mediaId)?.let(::accountLinkedFor)
+    /** False only for the tracks whose heart keeps them in the app alone (the heart with a plus). */
+    fun syncsToAccount(mediaId: String?): Boolean {
+        if (mediaId.isNullOrBlank() || !SourceSearch.isSourceTrack(mediaId)) return true
+        return vkTrackIdOf(mediaId) != null && VkMusic.isReady && VkMusic.likesToAccount
     }
 
-    fun syncsToAccount(database: MusicDatabase, mediaId: String?): Boolean {
-        syncsToAccountFast(mediaId)?.let { return it }
-        return catalogId(database, mediaId)?.let(::accountLinkedFor) ?: false
-    }
+    @Suppress("UNUSED_PARAMETER")
+    fun syncsToAccount(database: MusicDatabase, mediaId: String?): Boolean = syncsToAccount(mediaId)
 
     fun icon(liked: Boolean, syncs: Boolean): Int = when {
         syncs && liked -> R.drawable.favorite
@@ -69,23 +67,16 @@ object LikeTarget {
     }
 }
 
-/**
- * Whether the heart for [mediaId] also saves to an account (see [LikeTarget]). [catalogId], when the
- * caller knows it (a catalog track in a list), decides it directly.
- */
+/** Whether the heart for [mediaId] is the usual one (see [LikeTarget]); false = the heart with a plus. */
 @Composable
-fun rememberLikeSyncs(database: MusicDatabase, mediaId: String?, catalogId: String? = null): Boolean {
-    if (catalogId != null) return LikeTarget.accountLinkedFor(catalogId)
-    val syncs by produceState(LikeTarget.syncsToAccountFast(mediaId) ?: true, mediaId) {
-        value = withContext(Dispatchers.IO) { LikeTarget.syncsToAccount(database, mediaId) }
-    }
-    return syncs
-}
+@Suppress("UNUSED_PARAMETER")
+fun rememberLikeSyncs(database: MusicDatabase, mediaId: String?, catalogId: String? = null): Boolean =
+    LikeTarget.syncsToAccount(mediaId)
 
 /**
  * The one answer to "is this track liked", shared by every heart (full player, mini player, menus):
- * liked in the app, or liked on the account that owns it (a like made in Spotify itself has no flag
- * in the app). Episodes show whether they are saved.
+ * liked in the app, on the account that owns it (a like made in Spotify itself has no flag in the
+ * app), or — for a VK track — in the user's VK music. Episodes show whether they are saved.
  */
 @Composable
 fun rememberTrackLiked(database: MusicDatabase, mediaId: String?, catalogId: String? = null): Boolean {
@@ -98,7 +89,25 @@ fun rememberTrackLiked(database: MusicDatabase, mediaId: String?, catalogId: Str
         resolvedCatalogId?.let { SpotifyLikeCache.ensureLoaded(listOf(it)) }
     }
     val likedOnAccount by SpotifyLikeCache.liked.collectAsState()
+    val vkSaved by VkMusic.savedTracks.collectAsState()
     val entity = song?.song
     if (entity?.isEpisode == true) return entity.inLibrary != null
-    return entity?.liked == true || resolvedCatalogId?.let { it in likedOnAccount } == true
+    val vkTrackId = LikeTarget.vkTrackIdOf(mediaId)
+    val savedInVk = vkTrackId != null && VkMusic.likesToAccount && VkMusic.isTrackSaved(vkTrackId, vkSaved)
+    return entity?.liked == true || savedInVk || resolvedCatalogId?.let { it in likedOnAccount } == true
+}
+
+/** The small heart next to a liked track in a list (with the plus when it is kept in the app only). */
+@Composable
+fun LikedBadge(mediaId: String) {
+    val database = com.metrolist.music.LocalDatabase.current
+    if (!rememberTrackLiked(database, mediaId)) return
+    androidx.compose.material3.Icon(
+        painter = androidx.compose.ui.res.painterResource(LikeTarget.icon(true, LikeTarget.syncsToAccount(mediaId))),
+        contentDescription = null,
+        tint = androidx.compose.material3.MaterialTheme.colorScheme.error,
+        modifier = androidx.compose.ui.Modifier
+            .padding(end = 2.dp)
+            .size(18.dp),
+    )
 }

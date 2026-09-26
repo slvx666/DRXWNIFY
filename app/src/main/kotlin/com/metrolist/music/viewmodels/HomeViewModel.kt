@@ -466,7 +466,8 @@ class HomeViewModel @Inject constructor(
             database,
             context.dataStore.get(HideExplicitKey, false),
             // The covers on the page are left out: the radio should bring something new.
-            exclude = forYou.value.orEmpty().map { it.id }.filter { it != excludeAlso },
+            // The tapped track is playing already: it must not come back later in the radio either.
+            exclude = forYou.value.orEmpty().map { it.id } + listOfNotNull(excludeAlso),
         )
 
     private fun prepareRadio() {

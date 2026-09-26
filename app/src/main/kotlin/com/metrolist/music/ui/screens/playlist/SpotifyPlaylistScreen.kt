@@ -398,13 +398,18 @@ fun SpotifyPlaylistScreen(
                                     Text(stringResource(R.string.cancel))
                                 }
                             } else {
-                                androidx.compose.material3.OutlinedButton(
-                                    onClick = { startPlaylistDownload() },
-                                    enabled = downloadedCount < tracks.size,
+                                com.metrolist.music.ui.component.DownloadOrShare(
+                                    allDownloaded = downloadedCount >= tracks.size,
+                                    downloadedIds = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
                                 ) {
-                                    Icon(painterResource(R.drawable.download), null, Modifier.size(20.dp))
-                                    Spacer(modifier = Modifier.size(8.dp))
-                                    Text(com.metrolist.music.ui.component.batchDownloadLabel(downloadedCount, tracks.size))
+                                    androidx.compose.material3.OutlinedButton(
+                                        onClick = { startPlaylistDownload() },
+                                        enabled = downloadedCount < tracks.size,
+                                    ) {
+                                        Icon(painterResource(R.drawable.download), null, Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.size(8.dp))
+                                        Text(com.metrolist.music.ui.component.batchDownloadLabel(downloadedCount, tracks.size))
+                                    }
                                 }
                             }
                         }

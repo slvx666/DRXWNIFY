@@ -1186,6 +1186,8 @@ class MusicService :
         equalizerService.addAudioProcessor(eqProcessor)
 
         val silenceProcessor = SilenceDetectorAudioProcessor { handleLongSilenceDetected() }
+        com.metrolist.music.playback.audio.StereoBalance.value =
+            dataStore.get(com.metrolist.music.constants.StereoBalanceKey, 0f)
 
         // Set initial state. `dataStore.get(key, default)` is already synchronous (it
         // reads the in-memory snapshot); wrapping it in runBlocking only spun up a
@@ -2181,7 +2183,9 @@ class MusicService :
             // played from quick picks, radio or imports). Insert it first so the like can be
             // applied and synced instead of silently no-oping.
             if (librarySong == null) {
-                database.query { insert(metadata) }
+                // Written before reading it back (database.query is fire-and-forget: the first tap
+                // used to read nothing and do nothing, so a like needed a second tap).
+                withContext(Dispatchers.IO) { database.withTransaction { insert(metadata) } }
                 librarySong = database.song(metadata.id).first()
             }
             val songEntity = librarySong?.song ?: return@launch
@@ -2216,7 +2220,8 @@ class MusicService :
 
             // A VK track from the experimental search: the like also goes to the user's VK music.
             if (com.metrolist.music.resolver.SourceSearch.providerOf(songEntity.id) ==
-                com.metrolist.music.resolver.AudioProviderId.VK
+                com.metrolist.music.resolver.AudioProviderId.VK &&
+                com.metrolist.music.resolver.VkMusic.likesToAccount
             ) {
                 val vkTrackId = com.metrolist.music.resolver.FallbackIds.catalogIdOf(songEntity.id)
                     ?.substringAfter("VK:")
@@ -4538,6 +4543,7 @@ class MusicService :
                     arrayOf(
                         eqProcessor,
                         silenceProcessor,
+                        com.metrolist.music.playback.audio.BalanceAudioProcessor(),
                     ),
                     SilenceSkippingAudioProcessor(2_000_000, 20_000, 256),
                     SonicAudioProcessor(),

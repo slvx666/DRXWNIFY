@@ -63,19 +63,76 @@ private suspend fun existingExportUri(
     fun readable(candidate: Uri?): Boolean = candidate != null &&
         runCatching { context.contentResolver.openFileDescriptor(candidate, "r")?.close() }.isSuccess
 
-    val uri = withContext(Dispatchers.IO) {
+    var failure: Throwable? = null
+    val existing = withContext(Dispatchers.IO) { exporter.exportedUri(songId)?.takeIf(::readable) }
+    if (existing == null) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, context.getString(R.string.file_restoring), Toast.LENGTH_SHORT).show()
+        }
+    }
+    val uri = existing ?: withContext(Dispatchers.IO) {
         exporter.exportedUri(songId)?.takeIf(::readable)
             // The track is downloaded (it plays offline from the app's own storage) but its copy in
-            // the music folder is gone — deleted or moved by hand, or never written. Write it again.
-            ?: exporter.export(songId).getOrNull()?.takeIf(::readable)
+            // the music folder is gone — deleted or moved by hand, or never written. Write it again
+            // (forced: the exporter otherwise skips a track it has exported once).
+            ?: exporter.export(songId, force = true)
+                .onFailure { failure = it }
+                .getOrNull()?.takeIf(::readable)
     }
     if (uri == null) {
+        android.util.Log.w("MeldExport", "no file for $songId: ${failure?.message}")
         withContext(Dispatchers.Main) {
             Toast.makeText(context, context.getString(R.string.file_not_found), Toast.LENGTH_SHORT).show()
         }
         return null
     }
     return uri
+}
+
+/**
+ * Sends the files of several downloaded tracks at once (a whole album or playlist). A track whose
+ * copy in the music folder has gone is written again first.
+ */
+suspend fun shareDownloadedFiles(
+    context: Context,
+    exporter: DownloadExporter,
+    songIds: List<String>,
+) {
+    fun readable(candidate: Uri?): Boolean = candidate != null &&
+        runCatching { context.contentResolver.openFileDescriptor(candidate, "r")?.close() }.isSuccess
+
+    withContext(Dispatchers.Main) {
+        Toast.makeText(context, context.getString(R.string.preparing_files, songIds.size), Toast.LENGTH_SHORT).show()
+    }
+    val uris = withContext(Dispatchers.IO) {
+        songIds.mapNotNull { id ->
+            exporter.exportedUri(id)?.takeIf(::readable)
+                ?: exporter.export(id, force = true).getOrNull()?.takeIf(::readable)
+        }
+    }
+    withContext(Dispatchers.Main) {
+        if (uris.isEmpty()) {
+            Toast.makeText(context, context.getString(R.string.file_not_found), Toast.LENGTH_SHORT).show()
+            return@withContext
+        }
+        val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "audio/*"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+            // The grant covers every file only when they are all in the clip data too.
+            clipData = android.content.ClipData.newRawUri(null, uris.first()).also { clip ->
+                uris.drop(1).forEach { clip.addItem(android.content.ClipData.Item(it)) }
+            }
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            context.startActivity(
+                Intent.createChooser(intent, context.getString(R.string.send_files))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION),
+            )
+        } catch (e: Throwable) {
+            Timber.w(e, "Nothing can share %d files", uris.size)
+        }
+    }
 }
 
 private fun shareFile(context: Context, uri: Uri) {

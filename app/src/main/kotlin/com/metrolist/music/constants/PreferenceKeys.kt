@@ -624,6 +624,12 @@ val ExperimentalSearchEnabledKey = booleanPreferencesKey("experimentalSearchEnab
 /** Which single source the experimental search uses; empty = all of them at once. */
 val ExperimentalSearchSourceKey = stringPreferencesKey("experimentalSearchSource")
 
+/** Left/right balance, -1 (left only) .. 1 (right only). */
+val StereoBalanceKey = androidx.datastore.preferences.core.floatPreferencesKey("stereoBalance")
+
+/** Hearts on VK tracks: into the user's VK music (true) or only into the app's "Local" (false). */
+val VkLikesToAccountKey = booleanPreferencesKey("vkLikesToAccount")
+
 /** Set once the user has seen what the experimental search mode can't do. */
 val ExperimentalSearchAckKey = booleanPreferencesKey("experimentalSearchAcknowledged")
 

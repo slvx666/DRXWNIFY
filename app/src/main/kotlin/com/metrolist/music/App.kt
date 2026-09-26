@@ -136,6 +136,8 @@ class App :
                     bandcampEnabled = prefs[com.metrolist.music.constants.AudioSourceBandcampKey] ?: true
                     audiusEnabled = prefs[com.metrolist.music.constants.AudioSourceAudiusKey] ?: true
                     soulseekEnabled = prefs[com.metrolist.music.constants.AudioSourceSoulseekKey] ?: true
+                    com.metrolist.music.resolver.VkMusic.likesToAccount =
+                        prefs[com.metrolist.music.constants.VkLikesToAccountKey] ?: true
                     order = com.metrolist.music.resolver.AudioProviderId.parseOrder(
                         prefs[com.metrolist.music.constants.AudioSourceOrderKey],
                     )
@@ -143,6 +145,9 @@ class App :
             }
         }
         com.metrolist.music.resolver.AudioFallbackEngine.init(this, database)
+        applicationScope.launch(Dispatchers.IO) {
+            runCatching { com.metrolist.music.resolver.VkMusic.loadSavedTracks(this@App) }
+        }
         com.metrolist.music.resolver.AudioFallbackEngine.onYouTubeVideoUnplayable = { videoId ->
             applicationScope.launch(Dispatchers.IO) {
                 com.metrolist.music.playback.SpotifyYouTubeMapper.forgetYouTubeVideo(database, videoId)

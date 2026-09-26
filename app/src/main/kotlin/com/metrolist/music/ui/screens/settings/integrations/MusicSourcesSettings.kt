@@ -190,6 +190,8 @@ fun MusicSourcesSettings(
         val slskReady = slskUser.isNotBlank() && slskPass.isNotBlank()
         var orderPref by rememberPreference(AudioSourceOrderKey, "")
         var vkToken by rememberPreference(VkAccessTokenKey, "")
+        val (vkLikesToAccount, setVkLikesToAccount) =
+            rememberPreference(com.metrolist.music.constants.VkLikesToAccountKey, true)
         // Sources that need an account stay switched off (and locked) until the account is set.
         fun needsAccount(id: AudioProviderId) = when (id) {
             AudioProviderId.VK -> vkToken.isEmpty()
@@ -278,6 +280,17 @@ fun MusicSourcesSettings(
                     }
                 },
             )
+            if (id == AudioProviderId.VK && vkToken.isNotEmpty()) {
+                // Where hearts on VK tracks go: the user's VK music, or the app's "Local" only.
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.vk_likes_to_account)) },
+                    description = stringResource(
+                        if (vkLikesToAccount) R.string.vk_likes_to_account_on else R.string.vk_likes_to_account_off,
+                    ),
+                    icon = { Spacer(Modifier.size(24.dp)) },
+                    trailingContent = { Switch(checked = vkLikesToAccount, onCheckedChange = setVkLikesToAccount) },
+                )
+            }
             if (id == AudioProviderId.SOULSEEK) {
                 PreferenceEntry(
                     title = { Text(if (slskReady) slskUser else stringResource(R.string.soulseek_login)) },

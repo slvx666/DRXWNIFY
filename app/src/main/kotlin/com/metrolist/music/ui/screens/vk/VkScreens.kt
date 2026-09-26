@@ -138,6 +138,11 @@ fun VkTrackRow(
             match.artist.takeIf { it.isNotBlank() },
             match.durationMs?.takeIf { it > 0 }?.let { makeTimeString(it) },
         ),
+        badges = {
+            com.metrolist.music.playback.LikedBadge(
+                androidx.compose.runtime.remember(match) { com.metrolist.music.resolver.SourceSearch.mediaIdOf(match) },
+            )
+        },
         isActive = isActive,
         thumbnailContent = {
             ItemThumbnail(
@@ -378,12 +383,20 @@ fun VkPlaylistScreen(
                             horizontalArrangement = Arrangement.spacedBy(20.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            androidx.compose.material3.FilledTonalIconButton(
-                                onClick = ::downloadAll,
-                                enabled = tracks.isNotEmpty(),
-                                modifier = Modifier.size(48.dp),
+                            val exported by com.metrolist.music.utils.DownloadExportState.exported.collectAsState()
+                            val downloadedIds = tracks.map { SourceSearch.mediaIdOf(it) }.filter { it in exported }
+                            com.metrolist.music.ui.component.DownloadOrShare(
+                                allDownloaded = tracks.isNotEmpty() && downloadedIds.size == tracks.size,
+                                downloadedIds = { downloadedIds },
+                                compact = true,
                             ) {
-                                Icon(painterResource(R.drawable.download), stringResource(R.string.action_download), Modifier.size(22.dp))
+                                androidx.compose.material3.FilledTonalIconButton(
+                                    onClick = ::downloadAll,
+                                    enabled = tracks.isNotEmpty(),
+                                    modifier = Modifier.size(48.dp),
+                                ) {
+                                    Icon(painterResource(R.drawable.download), stringResource(R.string.action_download), Modifier.size(22.dp))
+                                }
                             }
                             androidx.compose.material3.FilledIconButton(
                                 onClick = { play(tracks, 0) },

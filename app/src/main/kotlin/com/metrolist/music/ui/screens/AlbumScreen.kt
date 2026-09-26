@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui.screens
 
+import kotlinx.coroutines.launch
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -343,7 +344,7 @@ fun AlbumScreen(
                                     update(albumWithSongs.album.toggleLike())
                                 }
                             },
-                            shape = CircleShape,
+                            shape = androidx.compose.foundation.shape.CircleShape,
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier.size(48.dp),
                         ) {
@@ -385,7 +386,7 @@ fun AlbumScreen(
                                 }
                             },
                             color = MaterialTheme.colorScheme.primary,
-                            shape = CircleShape,
+                            shape = androidx.compose.foundation.shape.CircleShape,
                             modifier = Modifier.size(72.dp),
                         ) {
                             Box(
@@ -398,6 +399,34 @@ fun AlbumScreen(
                                     tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(32.dp),
                                 )
+                            }
+                        }
+
+                        // Everything downloaded: send all the files at once.
+                        if (downloadState == Download.STATE_COMPLETED) {
+                            val shareDownloadUtil = com.metrolist.music.LocalDownloadUtil.current
+                            val shareScope = scope
+                            Surface(
+                                onClick = {
+                                    val appContext = context.applicationContext
+                                    val ids = albumWithSongs?.songs?.map { it.id }.orEmpty()
+                                    if (ids.isNotEmpty()) {
+                                        shareScope.launch {
+                                            com.metrolist.music.utils.shareDownloadedFiles(appContext, shareDownloadUtil.downloadExporter, ids)
+                                        }
+                                    }
+                                },
+                                shape = androidx.compose.foundation.shape.CircleShape,
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.size(48.dp),
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.share),
+                                        contentDescription = stringResource(R.string.send_files),
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                }
                             }
                         }
 
@@ -416,7 +445,7 @@ fun AlbumScreen(
                                     )
                                 }
                             },
-                            shape = CircleShape,
+                            shape = androidx.compose.foundation.shape.CircleShape,
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier.size(48.dp),
                         ) {

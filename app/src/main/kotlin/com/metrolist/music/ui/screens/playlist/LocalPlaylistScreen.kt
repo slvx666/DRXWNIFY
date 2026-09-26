@@ -1341,6 +1341,34 @@ fun LocalPlaylistHeader(
                 }
             }
 
+            // Everything downloaded: send all the files at once.
+            if (downloadState == Download.STATE_COMPLETED && songs.isNotEmpty()) {
+                val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
+                Surface(
+                    onClick = {
+                        val appContext = context.applicationContext
+                        scope.launch {
+                            com.metrolist.music.utils.shareDownloadedFiles(
+                                appContext,
+                                downloadUtil.downloadExporter,
+                                songs.map { it.song.id },
+                            )
+                        }
+                    },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            painter = painterResource(R.drawable.share),
+                            contentDescription = stringResource(R.string.send_files),
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                }
+            }
+
             // Menu Button - Smaller secondary button
             Surface(
                 onClick = {

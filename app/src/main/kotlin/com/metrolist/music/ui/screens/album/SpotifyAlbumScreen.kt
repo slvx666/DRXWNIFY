@@ -248,7 +248,10 @@ fun SpotifyAlbumScreen(
                                     Spacer(modifier = Modifier.size(8.dp))
                                     Text(stringResource(R.string.cancel))
                                 }
-                            } else OutlinedButton(
+                            } else com.metrolist.music.ui.component.DownloadOrShare(
+                                allDownloaded = downloadedCount >= tracks.size,
+                                downloadedIds = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
+                            ) { OutlinedButton(
                                 onClick = {
                                     val toDownload = tracks
                                     if (toDownload.isEmpty()) return@OutlinedButton
@@ -289,7 +292,7 @@ fun SpotifyAlbumScreen(
                                 )
                                 Spacer(modifier = Modifier.size(8.dp))
                                 Text(stringResource(R.string.action_download))
-                            }
+                            } }
 
                             // Like = album saved in the account's library (Spotify "Your Library" /
                             // Yandex likes). State is read from the account, so saving elsewhere shows here.

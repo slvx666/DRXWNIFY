@@ -265,6 +265,20 @@ object SpotifyBatchDownload {
             done
         }
 
+    /** The download ids (the audio's media ids) of the tracks of [tracks] that are downloaded, in order. */
+    suspend fun downloadedMediaIds(database: MusicDatabase, tracks: List<SpotifyTrack>): List<String> =
+        withContext(Dispatchers.IO) {
+            val exported = DownloadExportState.exported.value
+            if (exported.isEmpty() || tracks.isEmpty()) return@withContext emptyList()
+            val youtubeOf = tracks.chunked(400).flatMap { chunk ->
+                runCatching { database.getSpotifyMatchesBySpotifyIds(chunk.map { it.id }) }.getOrElse { emptyList() }
+            }.associate { it.spotifyId to it.youtubeId }
+            tracks.mapNotNull { track ->
+                FallbackIds.of(track.id).takeIf { it in exported }
+                    ?: youtubeOf[track.id]?.takeIf { it in exported }
+            }
+        }
+
     /** How many of [tracks] are already downloaded (for the "N of M" label on a screen). */
     suspend fun downloadedCount(database: MusicDatabase, tracks: List<SpotifyTrack>): Int =
         downloadedTrackIds(database, tracks).size

@@ -5,6 +5,7 @@
 
 package com.metrolist.music.playback
 
+import kotlinx.coroutines.sync.withLock
 import com.metrolist.music.catalog.Catalog
 import com.metrolist.music.constants.ArtistSortType
 import com.metrolist.music.constants.MetadataSource
@@ -79,7 +80,12 @@ object ForYouRecommender {
         private var mixesTried = false
         private var emptyRounds = 0
 
-        suspend fun next(count: Int): List<SpotifyTrack> {
+        private val lock = kotlinx.coroutines.sync.Mutex()
+
+        /** Thread-safe: the pool and the "used" set are only touched by one caller at a time. */
+        suspend fun next(count: Int): List<SpotifyTrack> = lock.withLock { nextLocked(count) }
+
+        private suspend fun nextLocked(count: Int): List<SpotifyTrack> {
             if (!Catalog.ensureAuthenticated()) return emptyList()
             val t = taste ?: taste(database).also { taste = it }
             while (pool.count { it.id !in used } < count && emptyRounds < MAX_EMPTY_ROUNDS) {

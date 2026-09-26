@@ -43,6 +43,23 @@ object SpotifyLikeCache {
     private val known = HashSet<String>()
     private val mutex = Mutex()
 
+    /**
+     * Likes / unlikes made in the app, with when. The account's own list lags behind a change by a
+     * few seconds, so a library load that finishes right after an unlike still lists the track: those
+     * fresh choices win over what the load brought, instead of the heart lighting up again.
+     */
+    private val recentChoices = java.util.concurrent.ConcurrentHashMap<String, Pair<Boolean, Long>>()
+    private const val CHOICE_WINS_MS = 2 * 60 * 1000L
+
+    private fun withRecentChoices(loaded: Set<String>): Set<String> {
+        val now = System.currentTimeMillis()
+        recentChoices.entries.removeIf { now - it.value.second > CHOICE_WINS_MS }
+        if (recentChoices.isEmpty()) return loaded
+        val result = loaded.toMutableSet()
+        recentChoices.forEach { (id, choice) -> if (choice.first) result += id else result -= id }
+        return result
+    }
+
     fun isLiked(spotifyId: String?): Boolean = spotifyId != null && _liked.value.contains(spotifyId)
 
     /**
@@ -82,8 +99,8 @@ object SpotifyLikeCache {
                 if (page.items.size < PAGE || (page.total in 1..offset)) break
             }
             mutex.withLock { known.clear(); known.addAll(all) }
-            // Keep optimistic likes made while loading.
-            _liked.value = all
+            // Likes and unlikes just made in the app win over the (lagging) account list.
+            _liked.value = withRecentChoices(all)
             _likedTracks.value = tracks
             libraryLoadedAt = System.currentTimeMillis()
             Timber.d("SpotifyLikeCache: loaded ${all.size} liked tracks")
@@ -94,6 +111,7 @@ object SpotifyLikeCache {
     fun setLiked(spotifyId: String?, liked: Boolean) {
         if (spotifyId.isNullOrBlank()) return
         synchronized(known) { known.add(spotifyId) }
+        recentChoices[spotifyId] = liked to System.currentTimeMillis()
         _liked.value = if (liked) _liked.value + spotifyId else _liked.value - spotifyId
     }
 

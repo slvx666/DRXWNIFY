@@ -96,6 +96,14 @@ fun TrackVersionDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.track_version)) },
         text = {
+            Column {
+            // What a change does, said once, right where it is made.
+            Text(
+                text = stringResource(R.string.track_version_explain),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
             when {
                 loading -> Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -128,6 +136,7 @@ fun TrackVersionDialog(
                         )
                     }
                 }
+            }
             }
         },
         confirmButton = {

@@ -352,6 +352,7 @@ fun SourceSearchResult(
                             match.durationMs?.takeIf { it > 0 }?.let { makeTimeString(it) },
                             sourceName(match),
                         ),
+                        badges = { com.metrolist.music.playback.LikedBadge(mediaId) },
                         isActive = isActive,
                         thumbnailContent = {
                             ItemThumbnail(

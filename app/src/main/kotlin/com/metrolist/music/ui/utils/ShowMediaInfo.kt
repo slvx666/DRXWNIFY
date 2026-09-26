@@ -100,6 +100,15 @@ fun ShowMediaInfo(videoId: String) {
         }
     }
 
+    // Which service the audio comes from (YouTube, VK, Qobuz…).
+    val audioSource by androidx.compose.runtime.produceState<String?>(null, videoId) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.metrolist.music.resolver.AudioFallbackEngine
+                .sourceOf(videoId, database.getSongByIdBlocking(videoId))
+                ?.let { com.metrolist.music.ui.component.providerLabel(it) }
+        }
+    }
+
     LazyColumn(
         state = rememberLazyListState(),
         modifier = Modifier
@@ -113,163 +122,139 @@ fun ShowMediaInfo(videoId: String) {
         if (infoDone && (song != null || playerMetadata != null)) {
             item(contentType = "MediaDetails") {
                 Column {
-                    val baseList = listOf(
-                        stringResource(R.string.song_title) to (song?.title ?: playerMetadata?.title),
-                        stringResource(R.string.song_artists) to (
-                            song?.artists?.joinToString { it.name }
-                                ?: playerMetadata?.artists?.joinToString { it.name }
-                            ),
-                        stringResource(R.string.media_id) to videoId,
-                    )
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    @Composable
+                    fun copyItem(
+                        label: String,
+                        text: String?,
+                        icon: Int,
+                        color: androidx.compose.ui.graphics.Color? = null,
+                    ): Material3SettingsItem? {
+                        if (text.isNullOrBlank()) return null
+                        return Material3SettingsItem(
+                            title = { Text(label) },
+                            description = {
+                                if (color != null) {
+                                    Text(text, color = color, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                                } else {
+                                    Text(text)
+                                }
+                            },
+                            icon = painterResource(icon),
+                            onClick = {
+                                cm.setPrimaryClip(ClipData.newPlainText("text", text))
+                                Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
+                            },
+                        )
+                    }
 
-                    val baseIconsList = listOf(
-                        R.drawable.music_note,
-                        R.drawable.person,
-                        R.drawable.media3_icon_bookmark_filled,
-                    )
-
-                    val iconsList = listOf(
-                        R.drawable.media3_icon_feed,
-                        R.drawable.media3_icon_thumb_up_unfilled,
-                        R.drawable.media3_icon_thumb_down_unfilled,
-                        R.drawable.key,
-                        R.drawable.info,
-                        R.drawable.radio,
-                        R.drawable.gradient,
-                        R.drawable.contrast,
-                        R.drawable.volume_up,
-                        R.drawable.volume_mute,
-                        R.drawable.content_copy
-                    )
+                    // Quality first: what a listener opens this sheet for.
+                    val format = currentFormat
+                    val kbps = format?.bitrate?.takeIf { it > 0 }
+                        ?.let { com.metrolist.music.ui.component.AudioQualityLevel.kbps(it) }
+                    val codec = com.metrolist.music.ui.component.AudioQualityLevel.codecName(format?.mimeType, format?.codecs)
+                    QualityHero(kbps = kbps, codec = codec, sampleRate = format?.sampleRate, source = audioSource)
 
                     val lowQualityNote = stringResource(R.string.low_quality)
-                    val extendedList = if (currentFormat != null) {
-                        listOf(
-                            stringResource(R.string.views) to info?.viewCount?.let(::numberFormatter).orEmpty(),
-                            stringResource(R.string.likes) to info?.like?.let(::numberFormatter).orEmpty(),
-                            stringResource(R.string.dislikes) to info?.dislike?.let(::numberFormatter).orEmpty(),
-                            "Itag" to currentFormat?.itag?.toString(),
-                            stringResource(R.string.mime_type) to currentFormat?.mimeType,
-                            stringResource(R.string.codecs) to currentFormat?.codecs,
-                            stringResource(R.string.bitrate) to currentFormat?.let { f ->
-                                val kbps = "${com.metrolist.music.ui.component.AudioQualityLevel.kbps(f.bitrate)} Kbps"
-                                if (com.metrolist.music.ui.component.AudioQualityLevel.isLow(f.bitrate, f.mimeType)) {
-                                    "$kbps — $lowQualityNote"
-                                } else {
-                                    kbps
-                                }
-                            },
-                            stringResource(R.string.sample_rate) to currentFormat?.sampleRate?.let { "$it Hz" },
-                            stringResource(R.string.loudness) to currentFormat?.loudnessDb?.let { "$it dB" },
-                            stringResource(R.string.volume) to if (playerConnection != null) "${(playerConnection.player.volume * 100).toInt()}%" else null,
-                            stringResource(R.string.file_size) to
-                                    currentFormat?.contentLength?.let {
-                                        Formatter.formatShortFileSize(
-                                            context,
-                                            it
-                                        )
+                    val isLow = format != null &&
+                        com.metrolist.music.ui.component.AudioQualityLevel.isLow(format.bitrate, format.mimeType)
+                    val qualityItems = listOfNotNull(
+                        copyItem(
+                            stringResource(R.string.bitrate),
+                            kbps?.let { k -> if (isLow) "$k kbps — $lowQualityNote" else "$k kbps" },
+                            R.drawable.graphic_eq,
+                            kbps?.let { com.metrolist.music.ui.dialog.bitrateColor(it) },
+                        ),
+                        copyItem(
+                            stringResource(R.string.codecs),
+                            listOfNotNull(codec, format?.codecs?.takeIf { it.isNotBlank() && !it.equals(codec, true) })
+                                .joinToString(" · "),
+                            R.drawable.info,
+                        ),
+                        copyItem(stringResource(R.string.sample_rate), format?.sampleRate?.let(::khz), R.drawable.gradient),
+                        copyItem(stringResource(R.string.audio_source_label), audioSource, R.drawable.radio),
+                        copyItem(stringResource(R.string.loudness), format?.loudnessDb?.let { "$it dB" }, R.drawable.contrast),
+                        copyItem(
+                            stringResource(R.string.file_size),
+                            format?.contentLength?.let { Formatter.formatShortFileSize(context, it) },
+                            R.drawable.content_copy,
+                        ),
+                        copyItem(stringResource(R.string.mime_type), format?.mimeType, R.drawable.key),
+                    )
+                    if (qualityItems.isNotEmpty()) {
+                        Material3SettingsGroup(title = stringResource(R.string.audio_quality_title), items = qualityItems)
+                        Spacer(Modifier.height(8.dp))
+                    }
+
+                    if (download?.state == Download.STATE_COMPLETED) {
+                        Material3SettingsGroup(
+                            title = stringResource(R.string.file_title),
+                            items = listOf(
+                                Material3SettingsItem(
+                                    title = { Text(stringResource(R.string.open_file_location)) },
+                                    description = { Text(stringResource(R.string.open_file_location_desc)) },
+                                    icon = painterResource(R.drawable.folder),
+                                    onClick = {
+                                        val appContext = context.applicationContext
+                                        coroutineScope.launch {
+                                            com.metrolist.music.utils.openDownloadLocation(
+                                                appContext,
+                                                downloadUtil.downloadExporter,
+                                                videoId,
+                                            )
+                                        }
                                     },
+                                ),
+                                Material3SettingsItem(
+                                    title = { Text(stringResource(R.string.share_file)) },
+                                    description = { Text(stringResource(R.string.share_file_desc)) },
+                                    icon = painterResource(R.drawable.share),
+                                    onClick = {
+                                        val appContext = context.applicationContext
+                                        coroutineScope.launch {
+                                            com.metrolist.music.utils.shareDownloadedFile(
+                                                appContext,
+                                                downloadUtil.downloadExporter,
+                                                videoId,
+                                            )
+                                        }
+                                    },
+                                ),
+                            ),
                         )
-                    } else {
-                        emptyList()
+                        Spacer(Modifier.height(8.dp))
                     }
 
-                    val cardsBaseList = mutableListOf<Material3SettingsItem>()
-                    val cardsExtendedList = mutableListOf<Material3SettingsItem>()
-                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-
-                    baseList.forEachIndexed { index, (label, text) ->
-                        val displayText = text ?: stringResource(R.string.unknown)
-                        cardsBaseList += Material3SettingsItem(
-                            title = { Text(label) },
-                            description = { Text(displayText) },
-                            icon = painterResource(baseIconsList[index]),
-                            onClick = {
-                                cm.setPrimaryClip(ClipData.newPlainText("text", displayText))
-                                Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
-                            },
-                        )
-                    }
-
-                    if (download?.state == Download.STATE_COMPLETED) {
-                        cardsBaseList += Material3SettingsItem(
-                            title = { Text(stringResource(R.string.open_file_location)) },
-                            description = { Text(stringResource(R.string.open_file_location_desc)) },
-                            icon = painterResource(R.drawable.folder),
-                            onClick = {
-                                val appContext = context.applicationContext
-                                coroutineScope.launch {
-                                    com.metrolist.music.utils.openDownloadLocation(
-                                        appContext,
-                                        downloadUtil.downloadExporter,
-                                        videoId,
-                                    )
-                                }
-                            },
-                        )
-                    }
-                    if (download?.state == Download.STATE_COMPLETED) {
-                        cardsBaseList += Material3SettingsItem(
-                            title = { Text(stringResource(R.string.share_file)) },
-                            description = { Text(stringResource(R.string.share_file_desc)) },
-                            icon = painterResource(R.drawable.share),
-                            onClick = {
-                                val appContext = context.applicationContext
-                                coroutineScope.launch {
-                                    com.metrolist.music.utils.shareDownloadedFile(
-                                        appContext,
-                                        downloadUtil.downloadExporter,
-                                        videoId,
-                                    )
-                                }
-                            },
-                        )
-                    }
-
-                    extendedList.forEachIndexed { index, (label, text) ->
-                        // YouTube-only rows (views, likes) are simply absent for other sources.
-                        if (text != null && text.isBlank()) return@forEachIndexed
-                        val displayText = text ?: stringResource(R.string.unknown)
-                        cardsExtendedList += Material3SettingsItem(
-                            title = { Text(label) },
-                            description = { Text(displayText) },
-                            icon = painterResource(iconsList[index]),
-                            onClick = {
-                                cm.setPrimaryClip(ClipData.newPlainText("text", displayText))
-                                Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
-                            },
-                        )
-                    }
-
-                    Material3SettingsGroup(
-                        title = stringResource(R.string.general),
-                        items = cardsBaseList
+                    val aboutItems = listOfNotNull(
+                        copyItem(stringResource(R.string.song_title), song?.title ?: playerMetadata?.title, R.drawable.music_note),
+                        copyItem(
+                            stringResource(R.string.song_artists),
+                            song?.artists?.joinToString { it.name } ?: playerMetadata?.artists?.joinToString { it.name },
+                            R.drawable.person,
+                        ),
+                        copyItem(stringResource(R.string.views), info?.viewCount?.let(::numberFormatter), R.drawable.media3_icon_feed),
+                        copyItem(stringResource(R.string.likes), info?.like?.let(::numberFormatter), R.drawable.media3_icon_thumb_up_unfilled),
+                        copyItem(stringResource(R.string.media_id), videoId, R.drawable.media3_icon_bookmark_filled),
+                        copyItem("Itag", format?.itag?.takeIf { it > 0 }?.toString(), R.drawable.key),
                     )
+                    Material3SettingsGroup(title = stringResource(R.string.information), items = aboutItems)
 
-                    Spacer(Modifier.height(8.dp))
-
-                    Material3SettingsGroup(
-                        title = stringResource(R.string.information),
-                        items = cardsExtendedList
-                    )
-
-                    Spacer(Modifier.height(8.dp))
-
-                    val descriptionText = info?.description ?: stringResource(R.string.unknown)
-
-                    Material3SettingsGroup(
-                        title = stringResource(R.string.description),
-                        items = listOf(
-                            Material3SettingsItem(
-                                title = { Text(stringResource(R.string.description)) },
-                                description = { Text(descriptionText) },
-                                onClick = {
-                                    cm.setPrimaryClip(ClipData.newPlainText("text", descriptionText))
-                                    Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
-                                }
-                            )
+                    info?.description?.takeIf { it.isNotBlank() }?.let { descriptionText ->
+                        Spacer(Modifier.height(8.dp))
+                        Material3SettingsGroup(
+                            title = stringResource(R.string.description),
+                            items = listOf(
+                                Material3SettingsItem(
+                                    title = { Text(stringResource(R.string.description)) },
+                                    description = { Text(descriptionText) },
+                                    onClick = {
+                                        cm.setPrimaryClip(ClipData.newPlainText("text", descriptionText))
+                                        Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
+                                    },
+                                ),
+                            ),
                         )
-                    )
+                    }
                 }
             }
         } else {
@@ -292,3 +277,39 @@ fun ShowMediaInfo(videoId: String) {
 /** An 11-character YouTube video id, as opposed to a `mfb:` / source id of another provider. */
 private fun isYouTubeVideoId(id: String): Boolean =
     id.length == 11 && id.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+
+/** 44100 → "44.1 kHz", 48000 → "48 kHz". */
+private fun khz(hz: Int): String {
+    val value = hz / 1000.0
+    return if (value % 1.0 == 0.0) "${value.toInt()} kHz" else "$value kHz"
+}
+
+/** The quality at a glance: the bitrate big and in its colour, then codec, sample rate and source. */
+@Composable
+private fun QualityHero(kbps: Int?, codec: String?, sampleRate: Int?, source: String?) {
+    val color = kbps?.let { com.metrolist.music.ui.dialog.bitrateColor(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .background(color.copy(alpha = 0.12f), androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
+            .padding(vertical = 18.dp, horizontal = 16.dp),
+    ) {
+        Text(
+            text = kbps?.let { "$it kbps" } ?: stringResource(R.string.quality_unknown_yet),
+            style = if (kbps != null) MaterialTheme.typography.displaySmall else MaterialTheme.typography.bodyMedium,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+            color = color,
+        )
+        val details = listOfNotNull(codec, sampleRate?.let(::khz), source)
+        if (details.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = details.joinToString(" · "),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}

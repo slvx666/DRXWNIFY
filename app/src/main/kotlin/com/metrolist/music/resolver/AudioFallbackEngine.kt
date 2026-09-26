@@ -318,6 +318,12 @@ object AudioFallbackEngine {
 
     private const val VERSION_BITRATE_TIMEOUT_MS = 8_000L
 
+    /** Which service the audio of [mediaId] comes from (null when not known yet). */
+    fun sourceOf(mediaId: String, dbSong: Song?): AudioProviderId? = when {
+        !FallbackIds.isFallbackId(mediaId) -> AudioProviderId.YOUTUBE
+        else -> SourceSearch.providerOf(mediaId) ?: currentChoice(mediaId, dbSong)?.provider
+    }
+
     /** The source currently remembered for [mediaId] (the one a manual pick or the last race chose). */
     fun currentChoice(mediaId: String, dbSong: Song?): ProviderMatch? {
         val query = queryFor(mediaId, dbSong) ?: return null

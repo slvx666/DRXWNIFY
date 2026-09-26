@@ -307,7 +307,10 @@ fun SpotifyLikedSongsScreen(
                                     Spacer(modifier = Modifier.size(8.dp))
                                     Text(stringResource(R.string.cancel))
                                 }
-                            } else {
+                            } else com.metrolist.music.ui.component.DownloadOrShare(
+                                allDownloaded = allLoaded && downloadedCount >= tracks.size,
+                                downloadedIds = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
+                            ) {
                                 androidx.compose.material3.OutlinedButton(
                                     enabled = allLoaded && downloadedCount < tracks.size,
                                     onClick = {

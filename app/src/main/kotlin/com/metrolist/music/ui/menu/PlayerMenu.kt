@@ -5,6 +5,8 @@
 
 package com.metrolist.music.ui.menu
 
+import androidx.datastore.preferences.core.edit
+import com.metrolist.music.utils.dataStore
 import android.content.Context
 import android.content.res.Configuration
 import android.widget.Toast
@@ -510,6 +512,22 @@ fun PlayerMenu(
 
     // The heart in the header: liked in the app or on the account, with the plus when the track
     // can only be kept in the app (see LikeTarget).
+    // What a download of this track would be, when known (the stream it plays from).
+    val trackFormat by remember(mediaMetadata.id) { database.format(mediaMetadata.id) }.collectAsState(initial = null)
+    val audioSourceName by produceState<String?>(null, mediaMetadata.id) {
+        value = withContext(Dispatchers.IO) {
+            com.metrolist.music.resolver.AudioFallbackEngine
+                .sourceOf(mediaMetadata.id, database.getSongByIdBlocking(mediaMetadata.id))
+                ?.let { com.metrolist.music.ui.component.providerLabel(it) }
+        }
+    }
+    val downloadQuality = com.metrolist.music.ui.component.AudioQualityLevel.summary(
+        source = audioSourceName,
+        mimeType = trackFormat?.mimeType,
+        codecs = trackFormat?.codecs,
+        bitrate = trackFormat?.bitrate,
+    )
+
     val headerCatalogId = spotifyTrack?.id ?: recoveredSpotifyTrack?.id
     val headerLiked = com.metrolist.music.playback.rememberTrackLiked(database, mediaMetadata.id, headerCatalogId)
     val headerLikeSyncs = com.metrolist.music.playback.rememberLikeSyncs(database, mediaMetadata.id, headerCatalogId)
@@ -646,7 +664,13 @@ fun PlayerMenu(
                             else -> {
                                 add(
                                     Material3MenuItemData(
-                                        title = { Text(text = stringResource(R.string.action_download)) },
+                                        title = {
+                                            // "Download (VK · MP3 · 320 kbps)": what the file will be.
+                                            Text(
+                                                text = stringResource(R.string.action_download) +
+                                                    (downloadQuality?.let { " ($it)" } ?: ""),
+                                            )
+                                        },
                                         icon = {
                                             Icon(
                                                 painter = painterResource(R.drawable.download),
@@ -1186,9 +1210,57 @@ fun TempoPitchDialog(onDismiss: () -> Unit) {
                     },
                     valueText = { "${if (it > 0) "+" else ""}$it" },
                 )
+                BalanceAdjuster(modifier = Modifier.padding(top = 16.dp))
             }
         },
     )
+}
+
+
+/** Left/right balance slider, shared by the "Advanced" dialogs. */
+@Composable
+private fun BalanceAdjuster(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var balance by remember { mutableFloatStateOf(com.metrolist.music.playback.audio.StereoBalance.value) }
+    fun apply(value: Float) {
+        balance = value
+        com.metrolist.music.playback.audio.StereoBalance.value = value
+        scope.launch {
+            context.dataStore.edit { it[com.metrolist.music.constants.StereoBalanceKey] = value }
+        }
+    }
+    val leftPercent = (100 * (if (balance > 0f) 1f - balance else 1f)).toInt()
+    val rightPercent = (100 * (if (balance < 0f) 1f + balance else 1f)).toInt()
+    Column(modifier = modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.stereo_balance),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = stringResource(R.string.stereo_balance_value, leftPercent, rightPercent),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.stereo_left_short), style = MaterialTheme.typography.labelLarge)
+            androidx.compose.material3.Slider(
+                value = balance,
+                onValueChange = { apply((it * 20).let(::round) / 20f) },
+                valueRange = -1f..1f,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp),
+            )
+            Text(stringResource(R.string.stereo_right_short), style = MaterialTheme.typography.labelLarge)
+        }
+        if (balance != 0f) {
+            TextButton(onClick = { apply(0f) }) { Text(stringResource(R.string.stereo_balance_center)) }
+        }
+    }
 }
 
 @Composable
@@ -1239,6 +1311,7 @@ fun SpeedDialog(onDismiss: () -> Unit) {
                     valueText = { "x$it" },
                     modifier = Modifier.padding(bottom = 12.dp),
                 )
+                BalanceAdjuster(modifier = Modifier.padding(top = 4.dp))
             }
         },
     )

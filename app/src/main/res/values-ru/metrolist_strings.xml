@@ -993,9 +993,13 @@
 + Смена версии трека с выбором по битрейту
 + Лайк «в приложение» для треков вне аккаунта
 + «В очередь» и «В начало очереди» в меню трека
++ Отправка всего скачанного альбома или плейлиста разом
++ Баланс звука между левым и правым ухом
++ Настройка, куда уходят лайки VK-треков
 ### Изменено
 • Всегда максимальный битрейт
 • Одно меню трека во всём приложении
+• «Информация о треке» начинается с качества звука
 • Библиотека как в Spotify — с аккаунтом и без
 • Поиск Spotify работает без аккаунта
 ### Исправлено
@@ -1106,4 +1110,29 @@
     <string name="like_remove_yandex">Убрать из Яндекс Музыки</string>
     <string name="like_add_vk">Добавить в VK Музыку</string>
     <string name="like_remove_vk">Убрать из VK Музыки</string>
+    <string name="vk_likes_to_account">Лайки VK-треков — в мою музыку VK</string>
+    <string name="vk_likes_to_account_on">Сердечко добавляет трек в твою музыку VK</string>
+    <string name="vk_likes_to_account_off">Сердечко сохраняет трек в приложении, в «Локальных», как у других источников</string>
+    <string name="file_restoring">Файла в папке нет — сохраняю заново…</string>
+    <string name="audio_quality_title">Качество звука</string>
+    <string name="file_title">Файл</string>
+    <string name="audio_source_label">Источник</string>
+    <string name="quality_unknown_yet">Качество станет известно после первого воспроизведения</string>
+    <string name="stereo_balance">Баланс</string>
+    <string name="stereo_balance_value">Л %1$d%% · П %2$d%%</string>
+    <string name="stereo_left_short">Л</string>
+    <string name="stereo_right_short">П</string>
+    <string name="stereo_balance_center">По центру</string>
+    <string name="remove_downloads">Удалить</string>
+    <string name="send_files">Отправить</string>
+    <string name="remove_downloads_note">Файлы удалятся с телефона, треки останутся в списке.</string>
+    <string name="downloads_removed">Загрузки удалены</string>
+    <string name="preparing_files">Готовлю файлы (%1$d)…</string>
+    <plurals name="remove_downloads_confirm">
+        <item quantity="one">Удалить %d скачанный трек?</item>
+        <item quantity="few">Удалить %d скачанных трека?</item>
+        <item quantity="many">Удалить %d скачанных треков?</item>
+        <item quantity="other">Удалить %d скачанных трека?</item>
+    </plurals>
+    <string name="track_version_explain">Меняется только звук: название, обложка и лайк остаются прежними (в твоём Spotify / Яндекс Музыке). Выбор запоминается для этого трека.</string>
 </resources>

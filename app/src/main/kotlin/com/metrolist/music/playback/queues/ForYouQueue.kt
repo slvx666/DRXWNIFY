@@ -9,6 +9,7 @@ import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.playback.ForYouRecommender
 import com.metrolist.music.playback.SpotifyYouTubeMapper
 import com.metrolist.spotify.models.SpotifyTrack
+import kotlinx.coroutines.sync.withLock
 
 /**
  * The "For you" radio: it starts with [startTracks] (the first one plays at once, as [preload])
@@ -32,10 +33,19 @@ class ForYouQueue(
 
     private var session: ForYouRecommender.Session? = null
 
-    override suspend fun continueWith(alreadyQueued: List<SpotifyTrack>): List<SpotifyTrack> {
-        val s = session ?: sessionFactory().also { session = it }
-        return s.next(CHUNK)
-    }
+    /**
+     * One continuation at a time: two overlapping requests (the player asking again before the
+     * first answer arrived) used to share the session's pool — or even create two sessions — and
+     * queue the same handful of tracks twice.
+     */
+    private val continuation = kotlinx.coroutines.sync.Mutex()
+
+    override suspend fun continueWith(alreadyQueued: List<SpotifyTrack>): List<SpotifyTrack> =
+        continuation.withLock {
+            val s = session ?: sessionFactory().also { session = it }
+            val queued = alreadyQueued.mapTo(HashSet()) { it.id }
+            s.next(CHUNK).filter { it.id !in queued }
+        }
 
     override suspend fun fetchPage(offset: Int, limit: Int): PageResult =
         PageResult(tracks = emptyList(), total = 0, rawCount = 0)

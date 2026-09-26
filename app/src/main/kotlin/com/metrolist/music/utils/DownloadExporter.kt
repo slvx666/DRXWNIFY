@@ -128,9 +128,10 @@ class DownloadExporter @Inject constructor(
      * @return [Result.success] with the output [Uri] on success, [Result.failure] otherwise.
      *   Never throws — all failures are wrapped.
      */
-    suspend fun export(songId: String): Result<Uri> = withContext(Dispatchers.IO) {
+    suspend fun export(songId: String, force: Boolean = false): Result<Uri> = withContext(Dispatchers.IO) {
         exportPermits.withPermit {
-            if (isExported(songId)) {
+            // [force]: written again even though it was exported once (its file has gone since).
+            if (!force && isExported(songId)) {
                 DownloadExportState.markExported(songId)
                 Timber.d("DownloadExporter: %s already exported, skipping", songId)
                 return@withPermit Result.failure(AlreadyExportedException(songId))
@@ -147,6 +148,7 @@ class DownloadExporter @Inject constructor(
                         // Left in the pending set so the next app start tries again.
                         DownloadExportState.markFailed(songId)
                         Timber.e(it, "DownloadExporter: export failed for %s", songId)
+                        android.util.Log.w("MeldExport", "export failed for $songId: ${it.message}")
                     }
             } finally {
                 DownloadExportState.end(songId)

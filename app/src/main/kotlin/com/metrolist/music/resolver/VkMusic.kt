@@ -95,19 +95,63 @@ object VkMusic {
         runCatching {
             val vk = provider ?: error("VK is not connected")
             val prefs = context.getSharedPreferences(SAVED_TRACKS_PREFS, android.content.Context.MODE_PRIVATE)
+            val me = myOwnerId ?: myId()?.also { myOwnerId = it }
+            val owner = trackId.substringBefore('_').toLongOrNull()
             if (saved) {
-                if (prefs.contains(trackId)) return@runCatching
-                val (owner, copy) = vk.addTrack(trackId)
-                if (copy != 0L) prefs.edit().putString(trackId, "${owner}_$copy").apply()
+                // Already the user's own track (from their VK music): nothing to add.
+                if (prefs.contains(trackId) || (me != null && owner == me)) return@runCatching
+                val (copyOwner, copy) = vk.addTrack(trackId)
+                if (copy != 0L) prefs.edit().putString(trackId, "${copyOwner}_$copy").apply()
             } else {
-                val copy = prefs.getString(trackId, null) ?: return@runCatching
-                val owner = copy.substringBeforeLast('_').toLongOrNull() ?: return@runCatching
-                val id = copy.substringAfterLast('_').toLongOrNull() ?: return@runCatching
-                vk.deleteTrack(owner, id)
-                prefs.edit().remove(trackId).apply()
+                val copy = prefs.getString(trackId, null)
+                if (copy != null) {
+                    val copyOwner = copy.substringBeforeLast('_').toLongOrNull() ?: return@runCatching
+                    val id = copy.substringAfterLast('_').toLongOrNull() ?: return@runCatching
+                    vk.deleteTrack(copyOwner, id)
+                    prefs.edit().remove(trackId).apply()
+                } else if (me != null && owner == me) {
+                    // A track of the user's own VK music: removed from it directly.
+                    trackId.split('_').getOrNull(1)?.toLongOrNull()?.let { vk.deleteTrack(me, it) }
+                }
             }
+            removedOwn = if (saved) removedOwn - trackId else removedOwn + trackId
+            _savedTracks.value = if (saved) _savedTracks.value + trackId else _savedTracks.value - trackId
             libraryVersion.value++
         }
+
+    /**
+     * Where a heart on a VK track goes: into the user's VK music (true) or, like the other sources,
+     * only into the app's "Local" (false). Settings → Music sources.
+     */
+    @Volatile
+    var likesToAccount: Boolean = true
+
+    @Volatile
+    private var myOwnerId: Long? = null
+
+    /** The user's own tracks removed from their VK music in this session. */
+    @Volatile
+    private var removedOwn: Set<String> = emptySet()
+
+    private val _savedTracks = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+
+    /** VK tracks the app put into the user's VK music (the user's own tracks count as saved too). */
+    val savedTracks: kotlinx.coroutines.flow.StateFlow<Set<String>> = _savedTracks
+
+    /** Loads what is known on the device about saved tracks, and who the user is. */
+    suspend fun loadSavedTracks(context: android.content.Context) {
+        val prefs = context.getSharedPreferences(SAVED_TRACKS_PREFS, android.content.Context.MODE_PRIVATE)
+        _savedTracks.value = prefs.all.keys.toSet()
+        if (isReady && myOwnerId == null) myOwnerId = myId()
+    }
+
+    /** True when [trackId] ("owner_audio[_key]") is in the user's VK music. */
+    fun isTrackSaved(trackId: String, saved: Set<String> = _savedTracks.value): Boolean {
+        if (trackId in saved) return true
+        if (trackId in removedOwn) return false
+        val me = myOwnerId ?: return false
+        return trackId.substringBefore('_').toLongOrNull() == me
+    }
 
     private const val SAVED_TRACKS_PREFS = "vk_saved_tracks"
 

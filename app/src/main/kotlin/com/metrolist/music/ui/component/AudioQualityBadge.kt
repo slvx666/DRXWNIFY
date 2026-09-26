@@ -36,6 +36,30 @@ object AudioQualityLevel {
     }
 
     fun kbps(bitrate: Int): Int = (bitrate + 500) / 1000
+
+    /** "Opus", "AAC", "MP3", "FLAC"… as people know them, from a mime type and codec string. */
+    fun codecName(mimeType: String?, codecs: String?): String? {
+        val all = "${mimeType.orEmpty()} ${codecs.orEmpty()}".lowercase()
+        return when {
+            "opus" in all -> "Opus"
+            "flac" in all -> "FLAC"
+            "vorbis" in all -> "Vorbis"
+            "mp4a" in all || "aac" in all || "audio/mp4" in all -> "AAC"
+            "mpeg" in all || "mp3" in all -> "MP3"
+            "alac" in all -> "ALAC"
+            else -> codecs?.takeIf { it.isNotBlank() } ?: mimeType?.substringAfter('/')?.uppercase()
+        }
+    }
+
+    /** The short quality line: "VK · MP3 · 320 kbps" (source only when it isn't YouTube). */
+    fun summary(source: String?, mimeType: String?, codecs: String?, bitrate: Int?): String? {
+        val parts = listOfNotNull(
+            source?.takeIf { it.isNotBlank() && it != "YouTube" },
+            codecName(mimeType, codecs),
+            bitrate?.takeIf { it > 0 }?.let { "${kbps(it)} kbps" },
+        )
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    }
 }
 
 /**
