@@ -350,6 +350,16 @@ class DownloadExporter @Inject constructor(
                 error("Size mismatch for $songId: read $bytesRead, expected $contentLength")
             }
 
+            // A source that doesn't state its bitrate (VK, Audius…): measured from the file itself,
+            // so the app shows the real quality of what was downloaded.
+            if (format.itag == -1 && (mimeType.startsWith("audio/mpeg") || mimeType.startsWith("audio/aac"))) {
+                runCatching {
+                    com.metrolist.music.playback.datasource.MeasuredAudio.analyze(tempInput.readBytes())
+                }.getOrNull()?.let { measured ->
+                    database.upsert(format.copy(bitrate = measured.bitrate, sampleRate = measured.sampleRate ?: format.sampleRate))
+                }
+            }
+
             // 2) Fetch + downscale the cover art (best effort).
             tempCover = fetchCoverJpeg(song.song.thumbnailUrl, tempDir)
             if (tempCover == null) {

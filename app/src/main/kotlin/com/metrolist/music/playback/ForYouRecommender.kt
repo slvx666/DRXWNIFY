@@ -117,7 +117,9 @@ object ForYouRecommender {
                 used.add(track.id)
                 out += track
             }
-            // Nothing new enough: better an older recommendation than an empty radio.
+            // Nothing new enough: better an older recommendation than an empty radio — the ones
+            // heard longest ago first.
+            skippedAsSeen.sortBy { ForYouSeen.seenAt(it.id) }
             for (track in skippedAsSeen) {
                 if (out.size >= count) break
                 if (used.add(track.id)) out += track
@@ -129,7 +131,7 @@ object ForYouRecommender {
         private suspend fun seeds(t: Taste): List<Pair<String, Double>> = seedIds ?: resolveSeeds(t).also { seedIds = it }
     }
 
-    private const val MAX_EMPTY_ROUNDS = 3
+    private const val MAX_EMPTY_ROUNDS = 6
 
     // ── Taste ────────────────────────────────────────────────────────────────────────────────────
 
@@ -230,16 +232,18 @@ object ForYouRecommender {
     private suspend fun fromTaste(taste: Taste, seeds: List<Pair<String, Double>>): List<SpotifyTrack> = coroutineScope {
         if (seeds.isEmpty()) return@coroutineScope emptyList()
         val seedSet = seeds.mapTo(HashSet()) { it.first }
-        val picked = weightedSample(seeds, 6)
+        // Wider each round (more seeds, more of their related artists, deeper into their tracks):
+        // a narrow pick kept landing on the same few popular songs day after day.
+        val picked = weightedSample(seeds, 8)
         val lists = picked.map { seed ->
             async {
                 val related = Catalog.relatedArtists(seed).getOrNull().orEmpty()
                     .filter { it.id.isNotEmpty() && it.id !in seedSet }
-                    .take(10)
+                    .take(20)
                     .shuffled()
-                    .take(3)
+                    .take(4)
                 related.flatMap { artist ->
-                    Catalog.artistTopTracks(artist.id).getOrNull()?.tracks.orEmpty().shuffled().take(2)
+                    Catalog.artistTopTracks(artist.id).getOrNull()?.tracks.orEmpty().shuffled().take(3)
                 }
             }
         }.awaitAll()

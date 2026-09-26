@@ -63,7 +63,61 @@ fun ShowMediaInfo(
     /** The track as the caller knows it: the sheet then works before the track was ever played. */
     fallbackMetadata: com.metrolist.music.models.MediaMetadata? = null,
 ) {
-    if (videoId.isBlank() || videoId.isEmpty()) return
+    if (videoId.isBlank()) return
+    val database = LocalDatabase.current
+    // A catalog track that hasn't played yet has no audio of its own: find the recording it will
+    // play from (as playback would), so the sheet shows that recording's real quality.
+    val playableId by androidx.compose.runtime.produceState<String?>(
+        initialValue = videoId.takeUnless { needsResolving(it) },
+        videoId,
+    ) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { resolvePlayableId(videoId, database) }.getOrNull() ?: videoId
+        }
+    }
+    val id = playableId
+    if (id == null) {
+        ShimmerHost {
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(all = 16.dp),
+            ) {
+                TextPlaceholder()
+            }
+        }
+        return
+    }
+    MediaInfoContent(id, fallbackMetadata)
+}
+
+private fun needsResolving(id: String): Boolean =
+    id.startsWith(com.metrolist.music.utils.SPOTIFY_ID_PREFIX) ||
+        (com.metrolist.music.resolver.FallbackIds.isFallbackId(id) &&
+            !com.metrolist.music.resolver.SourceSearch.isSourceTrack(id))
+
+/** The id whose audio [id] plays: a YouTube video id, or the source id when another source serves it. */
+private suspend fun resolvePlayableId(id: String, database: com.metrolist.music.db.MusicDatabase): String {
+    if (id.startsWith(com.metrolist.music.utils.SPOTIFY_ID_PREFIX)) {
+        val spotifyId = id.removePrefix(com.metrolist.music.utils.SPOTIFY_ID_PREFIX)
+        database.getSpotifyMatch(spotifyId)?.youtubeId?.let { return it }
+        val track = com.metrolist.music.playback.SpotifyMetadataRegistry.get(id)
+            ?: com.metrolist.music.catalog.Catalog.getTrack(spotifyId).getOrNull()
+            ?: return id
+        return com.metrolist.music.playback.SpotifyYouTubeMapper(database).mapToYouTube(track)?.id ?: id
+    }
+    if (com.metrolist.music.resolver.FallbackIds.isFallbackId(id)) {
+        val choice = com.metrolist.music.resolver.AudioFallbackEngine.currentChoice(id, database.getSongByIdBlocking(id))
+        if (choice?.provider == com.metrolist.music.resolver.AudioProviderId.YOUTUBE) return choice.trackId
+    }
+    return id
+}
+
+@Composable
+private fun MediaInfoContent(
+    videoId: String,
+    fallbackMetadata: com.metrolist.music.models.MediaMetadata?,
+) {
 
     val windowInsets = WindowInsets.systemBars
 
@@ -303,29 +357,24 @@ private fun khz(hz: Int): String {
     return if (value % 1.0 == 0.0) "${value.toInt()} kHz" else "$value kHz"
 }
 
-/** The quality at a glance: the bitrate in its colour, then codec, sample rate and source, on one line. */
+/** The quality at a glance: the bitrate in its colour, then codec, sample rate and source. */
 @Composable
 private fun QualityHero(kbps: Int?, codec: String?, sampleRate: Int?, source: String?, isPreview: Boolean) {
     val color = kbps?.let { com.metrolist.music.ui.dialog.bitrateColor(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant
+    val details = listOfNotNull(codec, sampleRate?.let(::khz), source).joinToString(" · ")
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
-        Row(verticalAlignment = Alignment.Bottom) {
+        Text(
+            text = buildAnnotatedStringOf(kbps, details, color),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (kbps == null) {
             Text(
-                text = kbps?.let { "$it kbps" } ?: stringResource(R.string.quality_unknown_yet),
-                style = if (kbps != null) MaterialTheme.typography.titleLarge else MaterialTheme.typography.bodyMedium,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                color = color,
+                text = stringResource(R.string.quality_unknown_yet),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            val details = listOfNotNull(codec, sampleRate?.let(::khz), source)
-            if (details.isNotEmpty()) {
-                Text(
-                    text = "  ·  " + details.joinToString(" · "),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 2.dp),
-                )
-            }
-        }
-        if (isPreview) {
+        } else if (isPreview) {
             Text(
                 text = stringResource(R.string.quality_preview_note),
                 style = MaterialTheme.typography.labelSmall,
@@ -335,9 +384,26 @@ private fun QualityHero(kbps: Int?, codec: String?, sampleRate: Int?, source: St
     }
 }
 
+private fun buildAnnotatedStringOf(kbps: Int?, details: String, color: androidx.compose.ui.graphics.Color) =
+    androidx.compose.ui.text.buildAnnotatedString {
+        if (kbps != null) {
+            pushStyle(
+                androidx.compose.ui.text.SpanStyle(
+                    color = color,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    fontSize = androidx.compose.ui.unit.TextUnit(20f, androidx.compose.ui.unit.TextUnitType.Sp),
+                ),
+            )
+            append("$kbps kbps")
+            pop()
+            if (details.isNotEmpty()) append("   ")
+        }
+        append(details)
+    }
+
 /**
  * The stream a track will play from, before it has played: for a YouTube video its best audio
- * format (asked from YouTube), for a VK track VK's MP3 at 320 kbps. Null when it can't be known.
+ * format (asked from YouTube). Null when it can't be known without fetching the audio.
  */
 private suspend fun previewFormatOf(mediaId: String, database: com.metrolist.music.db.MusicDatabase): FormatEntity? {
     if (isYouTubeVideoId(mediaId)) {
@@ -358,12 +424,6 @@ private suspend fun previewFormatOf(mediaId: String, database: com.metrolist.mus
             playbackUrl = null,
         )
     }
-    val provider = com.metrolist.music.resolver.AudioFallbackEngine.sourceOf(mediaId, database.getSongByIdBlocking(mediaId))
-    return when (provider) {
-        com.metrolist.music.resolver.AudioProviderId.VK -> FormatEntity(
-            id = mediaId, itag = 0, mimeType = "audio/mpeg", codecs = "mp3", bitrate = 320_000,
-            sampleRate = 44_100, contentLength = 0L, loudnessDb = null, playbackUrl = null,
-        )
-        else -> null
-    }
+    // Other sources don't state it before the audio is fetched: unknown, never assumed.
+    return null
 }

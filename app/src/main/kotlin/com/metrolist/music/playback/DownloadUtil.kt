@@ -531,6 +531,14 @@ constructor(
                 }
             }
             AudioDiagnostics.info("download: $mediaId via ${plan.provider}")
+            // A stream whose service doesn't state its bitrate: the real one, once measured.
+            com.metrolist.music.playback.datasource.HlsConcatDataSource.playlistUrlOf(streamUri)?.let { key ->
+                com.metrolist.music.playback.datasource.MeasuredAudio.whenMeasured(key) { measured ->
+                    database.query {
+                        upsert(format.copy(bitrate = measured.bitrate, sampleRate = measured.sampleRate ?: format.sampleRate))
+                    }
+                }
+            }
 
             val track = SpotifyMetadataRegistry.get(mediaId)
             database.query {

@@ -399,8 +399,10 @@ fun SpotifyPlaylistScreen(
                                 }
                             } else {
                                 com.metrolist.music.ui.component.DownloadOrShare(
-                                    allDownloaded = downloadedCount >= tracks.size,
+                                    downloaded = downloadedCount,
+                                    total = tracks.size,
                                     downloadedIds = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
+                                    onDownloadRest = { startPlaylistDownload() },
                                 ) {
                                     androidx.compose.material3.OutlinedButton(
                                         onClick = { startPlaylistDownload() },

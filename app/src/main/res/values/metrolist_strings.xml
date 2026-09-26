@@ -1427,4 +1427,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     </plurals>
     <string name="track_version_explain">Only the sound changes: the title, cover and like stay where they are (your Spotify / Yandex account). The choice is remembered for this track.</string>
     <string name="quality_preview_note">Before playback: what the source offers</string>
+    <string name="track_version_auto">Automatic</string>
+    <string name="download_the_rest_short">Download the rest</string>
+    <string name="sending_part">Sending %1$d of %2$d tracks — the rest isn\'t downloaded</string>
 </resources>

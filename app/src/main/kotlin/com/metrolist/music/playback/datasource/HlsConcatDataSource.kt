@@ -198,6 +198,8 @@ class HlsConcatDataSource(
         } else {
             joined
         }
+        // The real bitrate, from the audio itself (VK doesn't say it).
+        MeasuredAudio.analyze(audio)?.let { MeasuredAudio.record(playlistUrl, it) }
         timber.log.Timber.tag("MeldHls").i(
             "whole: %d segments (%d encrypted), %d bytes joined → %d bytes audio, starts %02x %02x",
             playlist.segments.size, playlist.keys.count { it != null }, joined.size, audio.size,
@@ -441,6 +443,13 @@ class HlsConcatDataSource(
          * [whole]: fetch, decrypt and demux the complete track before playing it — for playlists
          * whose segments are AES-128 encrypted MPEG-TS (VK).
          */
+        /** The playlist url inside a [wrap]ped uri, or null for any other uri. */
+        fun playlistUrlOf(uri: String): String? {
+            if (!uri.startsWith("$SCHEME://")) return null
+            val encoded = uri.substringAfter("u=", "").substringBefore('&').ifBlank { return null }
+            return runCatching { java.net.URLDecoder.decode(encoded, "UTF-8") }.getOrNull()
+        }
+
         fun wrap(playlistUrl: String, whole: Boolean = false): String =
             "$SCHEME://hls?u=" + URLEncoder.encode(playlistUrl, "UTF-8") + if (whole) "&$WHOLE_PARAM=1" else ""
 

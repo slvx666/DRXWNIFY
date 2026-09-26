@@ -31,6 +31,9 @@ object ForYouSeen {
         return store.all.entries.filter { (it.value as? Long ?: 0L) >= cutoff }.mapTo(HashSet()) { it.key }
     }
 
+    /** When [id] was last handed out (0 = never). */
+    fun seenAt(id: String): Long = (prefs?.all?.get(id) as? Long) ?: 0L
+
     fun record(ids: Collection<String>) {
         val store = prefs ?: return
         if (ids.isEmpty()) return

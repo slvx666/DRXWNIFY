@@ -492,8 +492,10 @@ class VkAudioProvider(
             uri = if (url.contains(".m3u8")) HlsConcatDataSource.wrap(url, whole = true) else url,
             mimeType = "audio/mpeg",
             codecs = "mp3",
-            bitrate = 320_000,
-            sampleRate = 44_100,
+            // Not assumed: VK doesn't say it. Measured from the audio once it is assembled
+            // (MeasuredAudio); until then it is unknown.
+            bitrate = 0,
+            sampleRate = null,
             expiresAtMs = now + URL_TTL_MS,
         )
     }

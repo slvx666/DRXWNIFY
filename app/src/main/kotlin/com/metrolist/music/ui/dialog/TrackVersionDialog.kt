@@ -74,20 +74,18 @@ fun TrackVersionDialog(
     var loading by remember { mutableStateOf(true) }
     var candidates by remember { mutableStateOf<List<AudioFallbackEngine.VersionCandidate>>(emptyList()) }
     var currentKey by remember { mutableStateOf<String?>(null) }
+    var target by remember { mutableStateOf<VersionTarget?>(null) }
 
     LaunchedEffect(mediaId) {
         withContext(Dispatchers.IO) {
-            val song = database.getSongByIdBlocking(mediaId)
-            val isFallback = FallbackIds.isFallbackId(mediaId)
-            val hasCatalog = isFallback || database.getSpotifyMatchByYouTubeId(mediaId) != null
-            candidates = AudioFallbackEngine.versionCandidates(mediaId, song)
+            val t = versionTarget(mediaMetadata, database)
+            target = t
+            val lookupId = t.catalogId?.let { FallbackIds.of(it) } ?: mediaId
+            candidates = AudioFallbackEngine.versionCandidates(lookupId, database.getSongByIdBlocking(lookupId))
+                .ifEmpty { AudioFallbackEngine.versionCandidates(mediaId, database.getSongByIdBlocking(mediaId)) }
                 // A plain YouTube track has no catalog entry to pin another source to.
-                .filter { hasCatalog || it.match.provider == AudioProviderId.YOUTUBE }
-            currentKey = if (isFallback) {
-                AudioFallbackEngine.currentChoice(mediaId, song)?.let { "${it.provider}:${it.trackId}" }
-            } else {
-                "${AudioProviderId.YOUTUBE}:$mediaId"
-            }
+                .filter { t.catalogId != null || FallbackIds.isFallbackId(mediaId) || it.match.provider == AudioProviderId.YOUTUBE }
+            currentKey = t.currentKey
         }
         loading = false
     }
@@ -128,8 +126,9 @@ fun TrackVersionDialog(
                             onClick = {
                                 onDismiss()
                                 if (key == currentKey) return@VersionRow
+                                val t = target ?: return@VersionRow
                                 scope.launch {
-                                    applyVersion(context, database, playerConnection, mediaMetadata, candidate)
+                                    applyVersion(database, playerConnection, mediaMetadata, t, candidate.match)
                                     Toast.makeText(context, R.string.track_version_changed, Toast.LENGTH_SHORT).show()
                                 }
                             },
@@ -141,6 +140,19 @@ fun TrackVersionDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) }
+        },
+        dismissButton = {
+            // Back to what the app picks by itself: always possible after a hand-picked version.
+            if (target?.manual == true) {
+                TextButton(onClick = {
+                    onDismiss()
+                    val t = target ?: return@TextButton
+                    scope.launch {
+                        applyVersion(database, playerConnection, mediaMetadata, t, null)
+                        Toast.makeText(context, R.string.track_version_changed, Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text(stringResource(R.string.track_version_auto)) }
+            }
         },
     )
 }
@@ -214,44 +226,114 @@ private fun providerLabel(id: AudioProviderId): String = when (id) {
 }
 
 /**
- * Makes [candidate] the recording of the track from now on (and swaps it in if it is playing):
- *  - a track already served by a source: the choice is pinned for it;
- *  - a Spotify track on YouTube: another YouTube upload becomes its match, while any other source
- *    replaces YouTube for it altogether (pinned to the track, YouTube match forgotten).
+ * What a version change is about: the catalog track behind the item (if any), whether a version was
+ * picked by hand, and which recording plays now.
+ */
+private data class VersionTarget(
+    val catalogId: String?,
+    val manual: Boolean,
+    val currentKey: String?,
+)
+
+private suspend fun versionTarget(metadata: MediaMetadata, database: com.metrolist.music.db.MusicDatabase): VersionTarget {
+    val id = metadata.id
+    val catalogId = when {
+        id.startsWith(com.metrolist.music.utils.SPOTIFY_ID_PREFIX) -> id.removePrefix(com.metrolist.music.utils.SPOTIFY_ID_PREFIX)
+        com.metrolist.music.resolver.SourceSearch.isSourceTrack(id) -> null
+        FallbackIds.isFallbackId(id) -> FallbackIds.catalogIdOf(id)
+        else -> database.getSpotifyMatchByYouTubeId(id)?.spotifyId
+    }
+    if (catalogId == null) {
+        val choice = if (FallbackIds.isFallbackId(id)) AudioFallbackEngine.currentChoice(id, database.getSongByIdBlocking(id)) else null
+        return VersionTarget(
+            catalogId = null,
+            manual = choice != null && choice.confidence >= com.metrolist.music.resolver.ParallelAudioResolver.MANUAL_CONFIDENCE,
+            currentKey = choice?.let { "${it.provider}:${it.trackId}" } ?: "${AudioProviderId.YOUTUBE}:$id",
+        )
+    }
+    // The engine describes the track by its source id: make sure it knows the catalog track.
+    val fallbackId = FallbackIds.of(catalogId)
+    if (SpotifyMetadataRegistry.get(fallbackId) == null) {
+        (SpotifyMetadataRegistry.get(id) ?: com.metrolist.music.catalog.Catalog.getTrack(catalogId).getOrNull())
+            ?.let { SpotifyMetadataRegistry.register(fallbackId, it) }
+    }
+    val pinned = runCatching { database.getAudioFallbackMatches(catalogId) }.getOrNull().orEmpty()
+        .firstOrNull { it.selected && it.confidence >= com.metrolist.music.resolver.ParallelAudioResolver.MANUAL_CONFIDENCE }
+    val youtubeMatch = database.getSpotifyMatch(catalogId)
+    return VersionTarget(
+        catalogId = catalogId,
+        manual = pinned != null || youtubeMatch?.isManualOverride == true,
+        currentKey = when {
+            pinned != null -> "${pinned.provider}:${pinned.providerTrackId}"
+            youtubeMatch != null -> "${AudioProviderId.YOUTUBE}:${youtubeMatch.youtubeId}"
+            else -> AudioFallbackEngine.currentChoice(fallbackId, database.getSongByIdBlocking(fallbackId))
+                ?.let { "${it.provider}:${it.trackId}" }
+        },
+    )
+}
+
+/**
+ * Makes [match] the recording of the track from now on — or, with null, goes back to what the app
+ * picks by itself — and swaps it in wherever the track sits in the queue:
+ *  - a catalog track: a YouTube upload becomes its YouTube match (and no other source is pinned
+ *    over it); any other source is pinned to it and its YouTube match forgotten, so playback and
+ *    downloads both use that source;
+ *  - a track found in a source itself: the choice is pinned for it.
  */
 private suspend fun applyVersion(
-    context: android.content.Context,
     database: com.metrolist.music.db.MusicDatabase,
     playerConnection: com.metrolist.music.playback.PlayerConnection,
     mediaMetadata: MediaMetadata,
-    candidate: AudioFallbackEngine.VersionCandidate,
+    target: VersionTarget,
+    match: com.metrolist.music.resolver.ProviderMatch?,
 ) {
     val mediaId = mediaMetadata.id
-    val match = candidate.match
-    if (FallbackIds.isFallbackId(mediaId)) {
-        playerConnection.service.setAudioSource(mediaId, match)
+    val catalogId = target.catalogId
+    if (catalogId == null) {
+        if (FallbackIds.isFallbackId(mediaId)) playerConnection.service.setAudioSource(mediaId, match)
+        else if (match != null && match.trackId != mediaId) replaceInQueue(playerConnection, mediaId, mediaMetadata.copy(id = match.trackId))
         return
     }
-    val replacement: MediaMetadata = withContext(Dispatchers.IO) {
-        val spotifyId = database.getSpotifyMatchByYouTubeId(mediaId)?.spotifyId
-        if (match.provider == AudioProviderId.YOUTUBE) {
-            if (spotifyId != null) {
-                SpotifyYouTubeMapper(database).overrideMatch(spotifyId, match.trackId, match.title, match.artist)
+    val fallbackId = FallbackIds.of(catalogId)
+    val newId: String = withContext(Dispatchers.IO) {
+        val mapper = SpotifyYouTubeMapper(database)
+        val oldYouTube = database.getSpotifyMatch(catalogId)?.youtubeId
+        when {
+            match == null -> {
+                // Automatic again: no pinned source, no hand-picked YouTube upload.
+                AudioFallbackEngine.setManualChoice(fallbackId, database.getSongByIdBlocking(fallbackId), null)
+                oldYouTube?.let { SpotifyYouTubeMapper.forgetYouTubeVideo(database, it) }
+                val track = SpotifyMetadataRegistry.get(fallbackId)
+                track?.let { mapper.mapToYouTube(it)?.id } ?: fallbackId
             }
-            SpotifyMetadataRegistry.get(mediaId)?.let { SpotifyMetadataRegistry.register(match.trackId, it) }
-            mediaMetadata.copy(id = match.trackId)
-        } else {
-            val song = database.getSongByIdBlocking(mediaId)
-            AudioFallbackEngine.setManualChoice(mediaId, song, match)
-            SpotifyYouTubeMapper.forgetYouTubeVideo(database, mediaId)
-            val fallbackId = FallbackIds.of(spotifyId ?: return@withContext mediaMetadata)
-            SpotifyMetadataRegistry.get(mediaId)?.let { SpotifyMetadataRegistry.register(fallbackId, it) }
-            mediaMetadata.copy(id = fallbackId)
+            match.provider == AudioProviderId.YOUTUBE -> {
+                AudioFallbackEngine.setManualChoice(fallbackId, database.getSongByIdBlocking(fallbackId), null)
+                mapper.overrideMatch(catalogId, match.trackId, match.title, match.artist)
+                SpotifyMetadataRegistry.get(fallbackId)?.let { SpotifyMetadataRegistry.register(match.trackId, it) }
+                match.trackId
+            }
+            else -> {
+                AudioFallbackEngine.setManualChoice(fallbackId, database.getSongByIdBlocking(fallbackId), match)
+                oldYouTube?.let { SpotifyYouTubeMapper.forgetYouTubeVideo(database, it) }
+                fallbackId
+            }
         }
     }
-    if (replacement.id == mediaId) return
+    if (newId == mediaId) {
+        // Same item (a source id before and after): drop what was cached for it and restart it.
+        playerConnection.service.setAudioSource(mediaId, match)
+    } else {
+        replaceInQueue(playerConnection, mediaId, mediaMetadata.copy(id = newId))
+    }
+}
+
+private fun replaceInQueue(
+    playerConnection: com.metrolist.music.playback.PlayerConnection,
+    oldId: String,
+    replacement: MediaMetadata,
+) {
     val player = playerConnection.player
-    val index = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == mediaId } ?: return
+    val index = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == oldId } ?: return
     val isCurrent = index == player.currentMediaItemIndex
     val position = player.currentPosition
     val wasPlaying = player.playWhenReady

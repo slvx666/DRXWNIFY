@@ -386,8 +386,10 @@ fun VkPlaylistScreen(
                             val exported by com.metrolist.music.utils.DownloadExportState.exported.collectAsState()
                             val downloadedIds = tracks.map { SourceSearch.mediaIdOf(it) }.filter { it in exported }
                             com.metrolist.music.ui.component.DownloadOrShare(
-                                allDownloaded = tracks.isNotEmpty() && downloadedIds.size == tracks.size,
+                                downloaded = downloadedIds.size,
+                                total = tracks.size,
                                 downloadedIds = { downloadedIds },
+                                onDownloadRest = ::downloadAll,
                                 compact = true,
                             ) {
                                 androidx.compose.material3.FilledTonalIconButton(

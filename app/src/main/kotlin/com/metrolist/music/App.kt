@@ -145,6 +145,19 @@ class App :
             }
         }
         com.metrolist.music.playback.ForYouSeen.init(this)
+        // Bitrates that used to be assumed (320 kbps for VK / Audius streams) are forgotten once:
+        // they are measured from the audio instead now.
+        applicationScope.launch(Dispatchers.IO) {
+            val flags = getSharedPreferences("migrations", MODE_PRIVATE)
+            if (!flags.getBoolean("assumed_bitrates_cleared", false)) {
+                runCatching {
+                    database.openHelper.writableDatabase.execSQL(
+                        "UPDATE format SET bitrate = 0 WHERE itag = -1 AND bitrate = 320000",
+                    )
+                    flags.edit().putBoolean("assumed_bitrates_cleared", true).apply()
+                }
+            }
+        }
         com.metrolist.music.resolver.AudioFallbackEngine.init(this, database)
         applicationScope.launch(Dispatchers.IO) {
             runCatching { com.metrolist.music.resolver.VkMusic.loadSavedTracks(this@App) }

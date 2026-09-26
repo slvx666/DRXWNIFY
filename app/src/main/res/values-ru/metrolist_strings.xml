@@ -1136,4 +1136,7 @@
     </plurals>
     <string name="track_version_explain">Меняется только звук: название, обложка и лайк остаются прежними (в твоём Spotify / Яндекс Музыке). Выбор запоминается для этого трека.</string>
     <string name="quality_preview_note">До воспроизведения — по данным источника</string>
+    <string name="track_version_auto">Как было (автоматически)</string>
+    <string name="download_the_rest_short">Скачать остальные</string>
+    <string name="sending_part">Отправляю %1$d из %2$d треков — остальные не скачаны</string>
 </resources>

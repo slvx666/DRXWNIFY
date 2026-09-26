@@ -154,7 +154,10 @@ class SoulseekAudioProvider(
             uri = file.toURI().toString(),
             mimeType = mime,
             codecs = codecs,
-            bitrate = (pick.file.bitrate ?: if (mime == "audio/flac") 900 else 320) * 1000,
+            // What the peer reported, else worked out from the downloaded file itself.
+            bitrate = pick.file.bitrate?.times(1000)
+                ?: pick.file.durationSec?.takeIf { it > 0 }?.let { (file.length() * 8 / it).toInt() }
+                ?: 0,
             sampleRate = pick.file.sampleRate,
             expiresAtMs = Long.MAX_VALUE / 2,
             contentLength = file.length(),

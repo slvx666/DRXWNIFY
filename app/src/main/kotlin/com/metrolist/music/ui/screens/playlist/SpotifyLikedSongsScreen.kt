@@ -295,27 +295,9 @@ fun SpotifyLikedSongsScreen(
                             // While a batch is running the button turns into a Cancel action (P14).
                             Spacer(modifier = Modifier.size(8.dp))
                             val isDownloading = downloadProgress != null
-                            if (isDownloading) {
-                                androidx.compose.material3.OutlinedButton(
-                                    onClick = { SpotifyBatchDownload.cancel(downloadSourceId) },
-                                ) {
-                                    Icon(
-                                        painterResource(R.drawable.close),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                    Spacer(modifier = Modifier.size(8.dp))
-                                    Text(stringResource(R.string.cancel))
-                                }
-                            } else com.metrolist.music.ui.component.DownloadOrShare(
-                                allDownloaded = allLoaded && downloadedCount >= tracks.size,
-                                downloadedIds = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
-                            ) {
-                                androidx.compose.material3.OutlinedButton(
-                                    enabled = allLoaded && downloadedCount < tracks.size,
-                                    onClick = {
+                            val startLikedDownload: () -> Unit = startLikedDownload@{
                                         val toDownload = sortedTracks
-                                        if (toDownload.isEmpty()) return@OutlinedButton
+                                        if (toDownload.isEmpty()) return@startLikedDownload
                                         Toast.makeText(
                                             context,
                                             context.getString(R.string.spotify_download_started, toDownload.size),
@@ -345,7 +327,28 @@ fun SpotifyLikedSongsScreen(
                                                 ).show()
                                             },
                                         )
-                                    },
+                                    }
+                            if (isDownloading) {
+                                androidx.compose.material3.OutlinedButton(
+                                    onClick = { SpotifyBatchDownload.cancel(downloadSourceId) },
+                                ) {
+                                    Icon(
+                                        painterResource(R.drawable.close),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                    Text(stringResource(R.string.cancel))
+                                }
+                            } else com.metrolist.music.ui.component.DownloadOrShare(
+                                downloaded = if (allLoaded) downloadedCount else 0,
+                                total = tracks.size,
+                                downloadedIds = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
+                                onDownloadRest = startLikedDownload,
+                            ) {
+                                androidx.compose.material3.OutlinedButton(
+                                    enabled = allLoaded && downloadedCount < tracks.size,
+                                    onClick = startLikedDownload,
                                 ) {
                                     Icon(
                                         painterResource(R.drawable.download),

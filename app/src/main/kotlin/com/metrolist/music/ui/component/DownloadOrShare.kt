@@ -14,17 +14,23 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,6 +41,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -47,15 +54,18 @@ import com.metrolist.music.playback.ExoDownloadService
 import kotlinx.coroutines.launch
 
 /**
- * The download button of an album or playlist. Once everything in it is downloaded the button splits
- * — smoothly — into two: remove the downloads, and send all the files at once (to Telegram, a cloud,
- * another phone…). [downloadedIds] gives the downloaded tracks' ids when one of them is used.
- * [compact] = the round icon buttons of the VK pages instead of text buttons.
+ * The download button of an album or playlist, and what to do with what is downloaded:
+ *  - nothing downloaded: the usual [downloadButton];
+ *  - part of it: one pill, "download the rest | send 13/16";
+ *  - all of it: one pill, "remove | send 16".
+ * The count on the send half says exactly what will go out. [compact] = the round VK style.
  */
 @Composable
 fun DownloadOrShare(
-    allDownloaded: Boolean,
+    downloaded: Int,
+    total: Int,
     downloadedIds: suspend () -> List<String>,
+    onDownloadRest: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     downloadButton: @Composable () -> Unit,
@@ -70,6 +80,13 @@ fun DownloadOrShare(
         scope.launch {
             val ids = downloadedIds()
             if (ids.isEmpty()) return@launch
+            if (ids.size < total) {
+                Toast.makeText(
+                    appContext,
+                    appContext.getString(R.string.sending_part, ids.size, total),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
             com.metrolist.music.utils.shareDownloadedFiles(appContext, downloadUtil.downloadExporter, ids)
         }
     }
@@ -78,8 +95,14 @@ fun DownloadOrShare(
         scope.launch { confirmIds = downloadedIds().takeIf { it.isNotEmpty() } }
     }
 
+    val state = when {
+        total <= 0 || downloaded <= 0 -> 0
+        downloaded < total -> 1
+        else -> 2
+    }
+
     AnimatedContent(
-        targetState = allDownloaded,
+        targetState = state,
         transitionSpec = {
             (fadeIn(tween(220, delayMillis = 60, easing = FastOutSlowInEasing)) +
                 scaleIn(tween(260, easing = FastOutSlowInEasing), initialScale = 0.9f)) togetherWith
@@ -88,40 +111,29 @@ fun DownloadOrShare(
         contentAlignment = Alignment.CenterStart,
         label = "downloadOrShare",
         modifier = modifier,
-    ) { done ->
-        when {
-            !done -> downloadButton()
-            compact -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalIconButton(onClick = ::askDelete, modifier = Modifier.size(48.dp)) {
-                    Icon(painterResource(R.drawable.delete), stringResource(R.string.remove_downloads), Modifier.size(22.dp))
-                }
-                FilledTonalIconButton(onClick = ::share, modifier = Modifier.size(48.dp)) {
-                    Icon(painterResource(R.drawable.share), stringResource(R.string.send_files), Modifier.size(22.dp))
-                }
-            }
-            // One pill the size of the download button, split down the middle: remove | send.
-            else -> androidx.compose.material3.Surface(
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
-                color = androidx.compose.ui.graphics.Color.Transparent,
-                border = androidx.compose.foundation.BorderStroke(1.dp, androidx.compose.material3.MaterialTheme.colorScheme.outline),
-                modifier = Modifier.height(40.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    androidx.compose.material3.IconButton(onClick = ::askDelete, modifier = Modifier.width(52.dp)) {
-                        Icon(painterResource(R.drawable.delete), stringResource(R.string.remove_downloads), Modifier.size(20.dp))
-                    }
-                    androidx.compose.foundation.layout.Box(
-                        Modifier
-                            .width(1.dp)
-                            .height(22.dp)
-                            .background(androidx.compose.material3.MaterialTheme.colorScheme.outline),
-                    )
-                    androidx.compose.material3.IconButton(onClick = ::share, modifier = Modifier.width(52.dp)) {
-                        Icon(painterResource(R.drawable.share), stringResource(R.string.send_files), Modifier.size(20.dp))
-                    }
-                }
-            }
+    ) { s ->
+        if (s == 0) {
+            downloadButton()
+            return@AnimatedContent
         }
+        val shareLabel = if (s == 1) "$downloaded/$total" else "$downloaded"
+        SplitPill(
+            height = if (compact) 48.dp else 40.dp,
+            left = {
+                if (s == 1) {
+                    Icon(painterResource(R.drawable.download), stringResource(R.string.download_the_rest_short), Modifier.size(20.dp))
+                } else {
+                    Icon(painterResource(R.drawable.delete), stringResource(R.string.remove_downloads), Modifier.size(20.dp))
+                }
+            },
+            onLeft = if (s == 1) onDownloadRest else ::askDelete,
+            right = {
+                Icon(painterResource(R.drawable.share), stringResource(R.string.send_files), Modifier.size(20.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(shareLabel, style = MaterialTheme.typography.labelLarge)
+            },
+            onRight = ::share,
+        )
     }
 
     confirmIds?.let { ids ->
@@ -142,5 +154,45 @@ fun DownloadOrShare(
                 TextButton(onClick = { confirmIds = null }) { Text(stringResource(android.R.string.cancel)) }
             },
         )
+    }
+}
+
+/** One outlined pill with two tappable halves and a thin line between them. */
+@Composable
+private fun SplitPill(
+    height: androidx.compose.ui.unit.Dp,
+    left: @Composable () -> Unit,
+    onLeft: () -> Unit,
+    right: @Composable () -> Unit,
+    onRight: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier.height(height),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .clickable(onClick = onLeft)
+                    .padding(start = 18.dp, end = 14.dp),
+            ) { left() }
+            Box(
+                Modifier
+                    .width(1.dp)
+                    .height(height / 2)
+                    .background(MaterialTheme.colorScheme.outline),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .clickable(onClick = onRight)
+                    .padding(start = 14.dp, end = 18.dp),
+            ) { right() }
+        }
     }
 }

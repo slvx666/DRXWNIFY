@@ -241,20 +241,9 @@ fun SpotifyAlbumScreen(
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             val isDownloading = downloadProgress != null
-                            if (isDownloading) {
-                                // Cancel this album's batch download.
-                                OutlinedButton(onClick = { SpotifyBatchDownload.cancel(downloadSourceId) }) {
-                                    Icon(painterResource(R.drawable.close), null, Modifier.size(20.dp))
-                                    Spacer(modifier = Modifier.size(8.dp))
-                                    Text(stringResource(R.string.cancel))
-                                }
-                            } else com.metrolist.music.ui.component.DownloadOrShare(
-                                allDownloaded = downloadedCount >= tracks.size,
-                                downloadedIds = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
-                            ) { OutlinedButton(
-                                onClick = {
+                            val startAlbumDownload: () -> Unit = startAlbumDownload@{
                                     val toDownload = tracks
-                                    if (toDownload.isEmpty()) return@OutlinedButton
+                                    if (toDownload.isEmpty()) return@startAlbumDownload
                                     val albumLabel = album?.name ?: ""
                                     android.widget.Toast.makeText(
                                         context,
@@ -283,7 +272,21 @@ fun SpotifyAlbumScreen(
                                             ).show()
                                         },
                                     )
-                                },
+                                }
+                            if (isDownloading) {
+                                // Cancel this album's batch download.
+                                OutlinedButton(onClick = { SpotifyBatchDownload.cancel(downloadSourceId) }) {
+                                    Icon(painterResource(R.drawable.close), null, Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                    Text(stringResource(R.string.cancel))
+                                }
+                            } else com.metrolist.music.ui.component.DownloadOrShare(
+                                downloaded = downloadedCount,
+                                total = tracks.size,
+                                downloadedIds = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
+                                onDownloadRest = startAlbumDownload,
+                            ) { OutlinedButton(
+                                onClick = startAlbumDownload,
                             ) {
                                 Icon(
                                     painterResource(R.drawable.download),

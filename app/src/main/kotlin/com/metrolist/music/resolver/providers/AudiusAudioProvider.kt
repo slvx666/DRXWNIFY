@@ -125,7 +125,8 @@ class AudiusAudioProvider : AudioProvider {
             uri = url,
             mimeType = "audio/mpeg",
             codecs = "mp3",
-            bitrate = 320_000,
+            // Audius doesn't say it either; unknown rather than guessed.
+            bitrate = 0,
             sampleRate = 44_100,
             expiresAtMs = System.currentTimeMillis() + HOST_TTL_MS,
         )

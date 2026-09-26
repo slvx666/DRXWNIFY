@@ -5,6 +5,7 @@
 
 package com.metrolist.music.playback.queues
 
+import com.metrolist.music.extensions.toMediaItem
 import androidx.media3.common.MediaItem
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.playback.SpotifyYouTubeMapper
@@ -66,6 +67,16 @@ abstract class SpotifyPagedQueue(
     /** More tracks to append once everything so far was queued; empty when there is nothing left. */
     protected open suspend fun continueWith(alreadyQueued: List<SpotifyTrack>): List<SpotifyTrack> = emptyList()
 
+    /**
+     * Queue tracks at once with what is known about them ([SpotifyYouTubeMapper.quickMetadata])
+     * instead of finding each one's audio first; the audio is found when a track is reached. For
+     * endless radios, where skipping fast must never outrun the queue.
+     */
+    protected open val quickItems: Boolean = false
+
+    private suspend fun toItem(track: SpotifyTrack): MediaItem? =
+        if (quickItems) mapper.quickMetadata(track).toMediaItem() else mapper.resolveToMediaItem(track)
+
     /** How many times [continueWith] may extend the queue; an endless radio lifts the limit. */
     protected open val maxContinuationRounds: Int = MAX_CONTINUATION_ROUNDS
 
@@ -111,7 +122,7 @@ abstract class SpotifyPagedQueue(
             val windowTracks = allTracks.subList(windowStart, windowEnd)
 
             val resolvedItems = coroutineScope {
-                windowTracks.map { track -> async { mapper.resolveToMediaItem(track) } }
+                windowTracks.map { track -> async { toItem(track) } }
                     .awaitAll()
                     .filterNotNull()
             }
@@ -243,7 +254,7 @@ abstract class SpotifyPagedQueue(
             "(offset=$resolveOffset/${allTracks.size}, apiTotal=$apiTotal)")
 
         coroutineScope {
-            batch.map { track -> async { mapper.resolveToMediaItem(track) } }
+            batch.map { track -> async { toItem(track) } }
                 .awaitAll()
                 .filterNotNull()
         }

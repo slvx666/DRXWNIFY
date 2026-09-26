@@ -31,6 +31,9 @@ class ForYouQueue(
 
     override val maxContinuationRounds: Int = Int.MAX_VALUE
 
+    // Skipping fast through the radio must never reach an end that is still loading.
+    override val quickItems: Boolean = true
+
     private var session: ForYouRecommender.Session? = null
 
     /**
@@ -51,6 +54,6 @@ class ForYouQueue(
         PageResult(tracks = emptyList(), total = 0, rawCount = 0)
 
     private companion object {
-        const val CHUNK = 10
+        const val CHUNK = 20
     }
 }

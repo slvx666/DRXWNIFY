@@ -3973,21 +3973,31 @@ class MusicService :
             is AudioFallbackEngine.StreamPlan.Direct -> {
                 fallbackServing[mediaId] = FallbackServing(plan.provider, plan.trackId)
                 val stream = plan.stream
-                database.query {
-                    upsert(
-                        FormatEntity(
-                            id = mediaId,
-                            itag = -1,
-                            mimeType = stream.mimeType,
-                            codecs = stream.codecs,
-                            bitrate = stream.bitrate,
-                            sampleRate = stream.sampleRate,
-                            contentLength = stream.contentLength ?: 0L,
-                            loudnessDb = null,
-                            perceptualLoudnessDb = null,
-                            playbackUrl = null,
-                        ),
-                    )
+                val streamFormat = FormatEntity(
+                    id = mediaId,
+                    itag = -1,
+                    mimeType = stream.mimeType,
+                    codecs = stream.codecs,
+                    bitrate = stream.bitrate,
+                    sampleRate = stream.sampleRate,
+                    contentLength = stream.contentLength ?: 0L,
+                    loudnessDb = null,
+                    perceptualLoudnessDb = null,
+                    playbackUrl = null,
+                )
+                database.query { upsert(streamFormat) }
+                // A stream whose service doesn't state its bitrate: the real one, once measured.
+                com.metrolist.music.playback.datasource.HlsConcatDataSource.playlistUrlOf(stream.uri)?.let { key ->
+                    com.metrolist.music.playback.datasource.MeasuredAudio.whenMeasured(key) { measured ->
+                        database.query {
+                            upsert(
+                                streamFormat.copy(
+                                    bitrate = measured.bitrate,
+                                    sampleRate = measured.sampleRate ?: streamFormat.sampleRate,
+                                ),
+                            )
+                        }
+                    }
                 }
                 songUrlCache[cacheKey] = stream.uri to (stream.expiresAtMs - 60_000L)
                 AudioDiagnostics.info("playing $mediaId via ${plan.provider} (${plan.trackId})")
