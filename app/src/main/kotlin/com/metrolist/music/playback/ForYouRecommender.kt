@@ -73,7 +73,10 @@ object ForYouRecommender {
         private val hideExplicit: Boolean,
         exclude: Collection<String> = emptySet(),
     ) {
+        // What was handed out in the last days is left out too (see ForYouSeen); only when there is
+        // nothing new left does it come back.
         private val used = HashSet(exclude)
+        private val seenBefore = ForYouSeen.recent()
         private val pool = ArrayDeque<SpotifyTrack>()
         private var taste: Taste? = null
         private var seedIds: List<Pair<String, Double>>? = null
@@ -88,7 +91,7 @@ object ForYouRecommender {
         private suspend fun nextLocked(count: Int): List<SpotifyTrack> {
             if (!Catalog.ensureAuthenticated()) return emptyList()
             val t = taste ?: taste(database).also { taste = it }
-            while (pool.count { it.id !in used } < count && emptyRounds < MAX_EMPTY_ROUNDS) {
+            while (pool.count { it.id !in used && it.id !in seenBefore } < count && emptyRounds < MAX_EMPTY_ROUNDS) {
                 val more = if (!mixesTried) {
                     mixesTried = true
                     runCatching {
@@ -98,14 +101,28 @@ object ForYouRecommender {
                     fromTaste(t, seeds(t))
                 }
                 val fresh = diversify(filter(more, t, hideExplicit).filter { it.id !in used && pool.none { p -> p.id == it.id } })
-                if (fresh.isEmpty()) emptyRounds++ else emptyRounds = 0
+                // A round that brought nothing not heard lately counts as empty (else it never ends).
+                if (fresh.none { it.id !in seenBefore }) emptyRounds++ else emptyRounds = 0
                 pool.addAll(fresh)
             }
             val out = ArrayList<SpotifyTrack>()
+            val skippedAsSeen = ArrayList<SpotifyTrack>()
             while (out.size < count) {
                 val track = pool.removeFirstOrNull() ?: break
+                if (track.id in used) continue
+                if (track.id in seenBefore) {
+                    skippedAsSeen += track
+                    continue
+                }
+                used.add(track.id)
+                out += track
+            }
+            // Nothing new enough: better an older recommendation than an empty radio.
+            for (track in skippedAsSeen) {
+                if (out.size >= count) break
                 if (used.add(track.id)) out += track
             }
+            ForYouSeen.record(out.map { it.id })
             return out
         }
 

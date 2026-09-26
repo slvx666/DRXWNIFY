@@ -499,10 +499,16 @@ object Spotify {
         }
 
     /** Adds a track to the linked account's "Liked Songs" (PUT /me/tracks). Requires a user token. */
-    suspend fun saveTrack(trackId: String): Result<Unit> = writeSavedTracks(trackId, save = true)
+    // The web-player token is refused by the public REST /me/tracks for writes on many accounts, so
+    // the like goes through the web player's own library mutation first, REST only as a fallback.
+    suspend fun saveTrack(trackId: String): Result<Unit> =
+        addToLibrary(listOf("spotify:track:$trackId"))
+            .recoverCatching { writeSavedTracks(trackId, save = true).getOrThrow() }
 
     /** Removes a track from the linked account's "Liked Songs" (DELETE /me/tracks). */
-    suspend fun removeTrack(trackId: String): Result<Unit> = writeSavedTracks(trackId, save = false)
+    suspend fun removeTrack(trackId: String): Result<Unit> =
+        removeFromLibrary(listOf("spotify:track:$trackId"))
+            .recoverCatching { writeSavedTracks(trackId, save = false).getOrThrow() }
 
     /** True if the linked account already follows this artist (GET /me/following/contains). */
     suspend fun isFollowingArtist(artistId: String): Result<Boolean> =

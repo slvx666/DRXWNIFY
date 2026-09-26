@@ -1135,4 +1135,5 @@
         <item quantity="other">Удалить %d скачанных трека?</item>
     </plurals>
     <string name="track_version_explain">Меняется только звук: название, обложка и лайк остаются прежними (в твоём Spotify / Яндекс Музыке). Выбор запоминается для этого трека.</string>
+    <string name="quality_preview_note">До воспроизведения — по данным источника</string>
 </resources>

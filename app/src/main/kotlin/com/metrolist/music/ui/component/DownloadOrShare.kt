@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -96,17 +99,26 @@ fun DownloadOrShare(
                     Icon(painterResource(R.drawable.share), stringResource(R.string.send_files), Modifier.size(22.dp))
                 }
             }
-            else -> Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = ::askDelete) {
-                    Icon(painterResource(R.drawable.delete), null, Modifier.size(20.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text(stringResource(R.string.remove_downloads))
-                }
-                Spacer(Modifier.size(8.dp))
-                OutlinedButton(onClick = ::share) {
-                    Icon(painterResource(R.drawable.share), null, Modifier.size(20.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text(stringResource(R.string.send_files))
+            // One pill the size of the download button, split down the middle: remove | send.
+            else -> androidx.compose.material3.Surface(
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
+                color = androidx.compose.ui.graphics.Color.Transparent,
+                border = androidx.compose.foundation.BorderStroke(1.dp, androidx.compose.material3.MaterialTheme.colorScheme.outline),
+                modifier = Modifier.height(40.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.IconButton(onClick = ::askDelete, modifier = Modifier.width(52.dp)) {
+                        Icon(painterResource(R.drawable.delete), stringResource(R.string.remove_downloads), Modifier.size(20.dp))
+                    }
+                    androidx.compose.foundation.layout.Box(
+                        Modifier
+                            .width(1.dp)
+                            .height(22.dp)
+                            .background(androidx.compose.material3.MaterialTheme.colorScheme.outline),
+                    )
+                    androidx.compose.material3.IconButton(onClick = ::share, modifier = Modifier.width(52.dp)) {
+                        Icon(painterResource(R.drawable.share), stringResource(R.string.send_files), Modifier.size(20.dp))
+                    }
                 }
             }
         }

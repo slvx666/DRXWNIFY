@@ -853,7 +853,7 @@ fun PlayerMenu(
                                     } else {
                                         val detailsId = resolvedSpotifyMatch?.youtubeId ?: mediaMetadata.id
                                         bottomSheetPageState.show {
-                                            ShowMediaInfo(detailsId)
+                                            ShowMediaInfo(detailsId, mediaMetadata)
                                         }
                                     }
                                     onDismiss()

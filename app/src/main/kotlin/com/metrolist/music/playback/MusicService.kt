@@ -2196,6 +2196,20 @@ class MusicService :
             // Update the shared like cache first so every heart flips instantly.
             if (catalogId != null) SpotifyLikeCache.setLiked(catalogId, liked)
 
+            // The same catalog track can have two rows (its YouTube id and its source id): an unlike
+            // clears both, else the other row kept lighting the heart up again.
+            if (!liked && catalogId != null) {
+                withContext(Dispatchers.IO) {
+                    listOfNotNull(
+                        FallbackIds.of(catalogId),
+                        runCatching { database.getSpotifyMatch(catalogId)?.youtubeId }.getOrNull(),
+                    ).filter { it != songEntity.id }.forEach { otherId ->
+                        database.getSongByIdBlocking(otherId)?.song?.takeIf { it.liked }?.let {
+                            database.update(it.toggleLike())
+                        }
+                    }
+                }
+            }
             val song = if (songEntity.liked == liked) songEntity else songEntity.toggleLike()
             database.query {
                 update(song)

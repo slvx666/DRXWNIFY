@@ -149,6 +149,14 @@ object AudioFallbackEngine {
             memory.get(key)?.takeIf { it.usableFor(query, exclude) }?.let { return@withContext it }
 
             val stored = storedMatches(query)
+            // A version the user picked by hand is kept for good (playback, downloads, after
+            // restarts) — it never expires like an automatic choice does.
+            storedCandidates(query).firstOrNull {
+                it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE && it.usableFor(query, exclude)
+            }?.let { manual ->
+                memory.put(key, manual)
+                return@withContext manual
+            }
             val fresh = stored.any { row -> row.selected && System.currentTimeMillis() - row.matchedAt < SELECTION_TTL_MS }
             if (fresh) {
                 // Re-decide over what is stored instead of trusting the old "selected" flag: matches

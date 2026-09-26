@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
@@ -57,7 +58,11 @@ import com.metrolist.music.LocalDownloadUtil
 import kotlinx.coroutines.launch
 
 @Composable
-fun ShowMediaInfo(videoId: String) {
+fun ShowMediaInfo(
+    videoId: String,
+    /** The track as the caller knows it: the sheet then works before the track was ever played. */
+    fallbackMetadata: com.metrolist.music.models.MediaMetadata? = null,
+) {
     if (videoId.isBlank() || videoId.isEmpty()) return
 
     val windowInsets = WindowInsets.systemBars
@@ -100,6 +105,13 @@ fun ShowMediaInfo(videoId: String) {
         }
     }
 
+    // Not played yet (no stored format): what the source says the stream will be.
+    val previewFormat by androidx.compose.runtime.produceState<FormatEntity?>(null, videoId) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { previewFormatOf(videoId, database) }.getOrNull()
+        }
+    }
+
     // Which service the audio comes from (YouTube, VK, Qobuz…).
     val audioSource by androidx.compose.runtime.produceState<String?>(null, videoId) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -114,12 +126,13 @@ fun ShowMediaInfo(videoId: String) {
         modifier = Modifier
             .padding(
                 windowInsets
+                    .only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom)
                     .asPaddingValues()
             )
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        if (infoDone && (song != null || playerMetadata != null)) {
+        if (infoDone && (song != null || playerMetadata != null || fallbackMetadata != null)) {
             item(contentType = "MediaDetails") {
                 Column {
                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -149,11 +162,12 @@ fun ShowMediaInfo(videoId: String) {
                     }
 
                     // Quality first: what a listener opens this sheet for.
-                    val format = currentFormat
+                    val isPreview = currentFormat == null && previewFormat != null
+                    val format = currentFormat ?: previewFormat
                     val kbps = format?.bitrate?.takeIf { it > 0 }
                         ?.let { com.metrolist.music.ui.component.AudioQualityLevel.kbps(it) }
                     val codec = com.metrolist.music.ui.component.AudioQualityLevel.codecName(format?.mimeType, format?.codecs)
-                    QualityHero(kbps = kbps, codec = codec, sampleRate = format?.sampleRate, source = audioSource)
+                    QualityHero(kbps = kbps, codec = codec, sampleRate = format?.sampleRate, source = audioSource, isPreview = isPreview)
 
                     val lowQualityNote = stringResource(R.string.low_quality)
                     val isLow = format != null &&
@@ -226,10 +240,15 @@ fun ShowMediaInfo(videoId: String) {
                     }
 
                     val aboutItems = listOfNotNull(
-                        copyItem(stringResource(R.string.song_title), song?.title ?: playerMetadata?.title, R.drawable.music_note),
+                        copyItem(
+                            stringResource(R.string.song_title),
+                            song?.title ?: playerMetadata?.title ?: fallbackMetadata?.title,
+                            R.drawable.music_note,
+                        ),
                         copyItem(
                             stringResource(R.string.song_artists),
-                            song?.artists?.joinToString { it.name } ?: playerMetadata?.artists?.joinToString { it.name },
+                            song?.artists?.joinToString { it.name } ?: playerMetadata?.artists?.joinToString { it.name }
+                                ?: fallbackMetadata?.artists?.joinToString { it.name },
                             R.drawable.person,
                         ),
                         copyItem(stringResource(R.string.views), info?.viewCount?.let(::numberFormatter), R.drawable.media3_icon_feed),
@@ -284,32 +303,67 @@ private fun khz(hz: Int): String {
     return if (value % 1.0 == 0.0) "${value.toInt()} kHz" else "$value kHz"
 }
 
-/** The quality at a glance: the bitrate big and in its colour, then codec, sample rate and source. */
+/** The quality at a glance: the bitrate in its colour, then codec, sample rate and source, on one line. */
 @Composable
-private fun QualityHero(kbps: Int?, codec: String?, sampleRate: Int?, source: String?) {
+private fun QualityHero(kbps: Int?, codec: String?, sampleRate: Int?, source: String?, isPreview: Boolean) {
     val color = kbps?.let { com.metrolist.music.ui.dialog.bitrateColor(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .background(color.copy(alpha = 0.12f), androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
-            .padding(vertical = 18.dp, horizontal = 16.dp),
-    ) {
-        Text(
-            text = kbps?.let { "$it kbps" } ?: stringResource(R.string.quality_unknown_yet),
-            style = if (kbps != null) MaterialTheme.typography.displaySmall else MaterialTheme.typography.bodyMedium,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-            color = color,
-        )
-        val details = listOfNotNull(codec, sampleRate?.let(::khz), source)
-        if (details.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.Bottom) {
             Text(
-                text = details.joinToString(" · "),
-                style = MaterialTheme.typography.titleSmall,
+                text = kbps?.let { "$it kbps" } ?: stringResource(R.string.quality_unknown_yet),
+                style = if (kbps != null) MaterialTheme.typography.titleLarge else MaterialTheme.typography.bodyMedium,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                color = color,
+            )
+            val details = listOfNotNull(codec, sampleRate?.let(::khz), source)
+            if (details.isNotEmpty()) {
+                Text(
+                    text = "  ·  " + details.joinToString(" · "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 2.dp),
+                )
+            }
+        }
+        if (isPreview) {
+            Text(
+                text = stringResource(R.string.quality_preview_note),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+/**
+ * The stream a track will play from, before it has played: for a YouTube video its best audio
+ * format (asked from YouTube), for a VK track VK's MP3 at 320 kbps. Null when it can't be known.
+ */
+private suspend fun previewFormatOf(mediaId: String, database: com.metrolist.music.db.MusicDatabase): FormatEntity? {
+    if (isYouTubeVideoId(mediaId)) {
+        val best = com.metrolist.music.utils.YTPlayerUtils.playerResponseForMetadata(mediaId).getOrNull()
+            ?.streamingData?.adaptiveFormats
+            ?.filter { it.isAudio }
+            ?.maxByOrNull { it.bitrate }
+            ?: return null
+        return FormatEntity(
+            id = mediaId,
+            itag = best.itag,
+            mimeType = best.mimeType.substringBefore(';'),
+            codecs = best.mimeType.substringAfter("codecs=", "").trim('"', ' '),
+            bitrate = best.bitrate,
+            sampleRate = best.audioSampleRate,
+            contentLength = best.contentLength ?: 0L,
+            loudnessDb = best.loudnessDb,
+            playbackUrl = null,
+        )
+    }
+    val provider = com.metrolist.music.resolver.AudioFallbackEngine.sourceOf(mediaId, database.getSongByIdBlocking(mediaId))
+    return when (provider) {
+        com.metrolist.music.resolver.AudioProviderId.VK -> FormatEntity(
+            id = mediaId, itag = 0, mimeType = "audio/mpeg", codecs = "mp3", bitrate = 320_000,
+            sampleRate = 44_100, contentLength = 0L, loudnessDb = null, playbackUrl = null,
+        )
+        else -> null
     }
 }

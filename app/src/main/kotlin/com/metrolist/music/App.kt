@@ -144,6 +144,7 @@ class App :
                 }
             }
         }
+        com.metrolist.music.playback.ForYouSeen.init(this)
         com.metrolist.music.resolver.AudioFallbackEngine.init(this, database)
         applicationScope.launch(Dispatchers.IO) {
             runCatching { com.metrolist.music.resolver.VkMusic.loadSavedTracks(this@App) }
