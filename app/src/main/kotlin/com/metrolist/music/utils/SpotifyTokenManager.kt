@@ -31,7 +31,32 @@ object SpotifyTokenManager {
 
     fun init(dataStore: DataStore<Preferences>) {
         this.dataStore = dataStore
+        Spotify.tokenSupplier = ::supplyToken
     }
+
+    /** When the account's token was last refreshed, so a burst of 401s refreshes it only once. */
+    @Volatile
+    private var lastRefreshAtMs = 0L
+
+    /**
+     * The token every Spotify request uses (see [Spotify.tokenSupplier]): the account's when one is
+     * linked, else an anonymous one — never whichever of the two a screen happened to set last.
+     * [forceRefresh]: the server rejected the token before its stated expiry.
+     */
+    private suspend fun supplyToken(forceRefresh: Boolean): String? {
+        val settings = dataStore.data.first()
+        val linked = !settings[SpotifySpDcKey].isNullOrEmpty()
+        if (!linked) {
+            if (forceRefresh) anonymousToken = null
+            return if (ensurePublicAccess()) anonymousToken?.first else null
+        }
+        if (forceRefresh && System.currentTimeMillis() - lastRefreshAtMs > FORCED_REFRESH_GAP_MS) {
+            dataStore.edit { it[SpotifyTokenExpiryKey] = 0L }
+        }
+        return if (ensureAuthenticated()) dataStore.data.first()[SpotifyAccessTokenKey] else null
+    }
+
+    private const val FORCED_REFRESH_GAP_MS = 10_000L
 
     /**
      * Ensures a valid Spotify access token is available. If the current token
@@ -119,6 +144,7 @@ object SpotifyTokenManager {
                         prefs[SpotifyTokenExpiryKey] = token.accessTokenExpirationTimestampMs
                     }
                     _needsReLogin.value = false
+                    lastRefreshAtMs = System.currentTimeMillis()
                     Timber.d("SpotifyTokenManager: token refreshed successfully")
                     true
                 },

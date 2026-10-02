@@ -25,6 +25,9 @@ object SimilarArtistsRadio {
     /** One song of the seed artist after every this many songs of similar artists. */
     private const val SEED_EVERY = 4
 
+    /** Below this many new songs, recently heard ones are let back in rather than running dry. */
+    private const val MIN_FRESH = 8
+
     suspend fun build(seed: SpotifyTrack, limit: Int = 50): List<SpotifyTrack> = coroutineScope {
         val artistId = seed.artists.firstNotNullOfOrNull { it.id?.takeIf { id -> id.isNotBlank() } }
             ?: return@coroutineScope emptyList()
@@ -39,11 +42,20 @@ object SimilarArtistsRadio {
         val seedTop = seedTopDeferred.await()
 
         val seen = HashSet<String>()
-        fun keyOf(track: SpotifyTrack) =
-            (track.artists.firstOrNull()?.name.orEmpty() + "|" + track.name).lowercase().replace(Regex("\\s*[(\\[].*"), "")
-        fun accept(track: SpotifyTrack): Boolean =
-            track.id.isNotBlank() && !track.isLocal && track.id != seed.id &&
-                keyOf(track) != keyOf(seed) && seen.add(track.id) && seen.add(keyOf(track))
+        val recent = RecentlyPlayed.snapshot()
+        val heardRecently = mutableListOf<SpotifyTrack>()
+        fun keyOf(track: SpotifyTrack) = RecentlyPlayed.keyOf(track)
+        fun accept(track: SpotifyTrack): Boolean {
+            if (track.id.isBlank() || track.isLocal || track.id == seed.id || keyOf(track) == keyOf(seed)) return false
+            if (track.id in seen || keyOf(track) in seen) return false
+            seen.add(track.id); seen.add(keyOf(track))
+            // What played in the last days waits at the back, used only if nothing else is left.
+            if (RecentlyPlayed.contains(track, recent)) {
+                heardRecently += track
+                return false
+            }
+            return true
+        }
 
         // Each similar artist contributes a few of its popular songs, taken round-robin so the queue
         // walks across artists instead of playing one of them for ten songs in a row.
@@ -73,6 +85,12 @@ object SimilarArtistsRadio {
         for (track in seedPicks) {
             if (result.size >= limit) break
             if (accept(track)) result += track
+        }
+        if (result.size < MIN_FRESH) {
+            for (track in heardRecently) {
+                if (result.size >= MIN_FRESH) break
+                result += track
+            }
         }
         Timber.d("SimilarArtistsRadio: '${seed.name}' -> ${result.size} tracks from ${related.size} similar artists")
         result

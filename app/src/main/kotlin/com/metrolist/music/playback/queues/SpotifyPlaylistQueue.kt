@@ -30,12 +30,25 @@ class SpotifyPlaylistQueue(
     override val continues: Boolean
         get() = playlistId.startsWith("album_")
 
+    /** After an album the similar-artist radio goes on for as long as the user listens. */
+    override val maxContinuationRounds: Int = Int.MAX_VALUE
+
+    private var continuationSeeds = 0
+
     override suspend fun continueWith(alreadyQueued: List<SpotifyTrack>): List<SpotifyTrack> {
-        val seed = alreadyQueued.lastOrNull() ?: initialTracks.firstOrNull() ?: return emptyList()
+        // Seeds alternate between the album and where the radio has got to: close to the album,
+        // without circling the same few artists.
+        val albumTracks = initialTracks.ifEmpty { alreadyQueued }
+        val seed = (if (continuationSeeds++ % 2 == 0) albumTracks else alreadyQueued.takeLast(RADIO_SEED_WINDOW))
+            .randomOrNull() ?: return emptyList()
         val seenIds = alreadyQueued.mapTo(HashSet()) { it.id }
         return runCatching {
             com.metrolist.music.playback.SimilarArtistsRadio.build(seed).filter { it.id !in seenIds }
         }.getOrDefault(emptyList())
+    }
+
+    private companion object {
+        const val RADIO_SEED_WINDOW = 10
     }
 
     override suspend fun fetchPage(offset: Int, limit: Int): PageResult {

@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/radio_panel_bg"
+    android:orientation="vertical"
+    android:padding="12dp">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+        <FrameLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:background="@drawable/radio_cassette_bg"
+            android:padding="5dp">
+            <ImageView
+                android:id="@+id/radio_cover"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:adjustViewBounds="true"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop" />
+        </FrameLayout>
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1">
+
+        <LinearLayout
+            android:id="@+id/radio_lcd"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/radio_lcd_bg"
+            android:orientation="vertical"
+            android:paddingStart="10dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="6dp">
+            <TextView
+                android:id="@+id/radio_source"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textSize="9sp"
+                android:letterSpacing="0.08"
+                android:textColor="#FF1B2E14" android:fontFamily="monospace" />
+            <TextView
+                android:id="@+id/radio_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#FF1B2E14" android:fontFamily="monospace" />
+            <TextView
+                android:id="@+id/radio_artist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textSize="11sp"
+                android:textColor="#FF1B2E14" android:fontFamily="monospace" />
+            <ProgressBar
+                android:id="@+id/radio_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="4dp"
+                android:max="1000"
+                android:progressDrawable="@drawable/radio_progress" />
+        </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/radio_like"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/radio_button_bg"
+                android:contentDescription="@null"
+                android:padding="9dp"
+                android:src="@drawable/ic_widget_heart_outline_nav" />
+
+            <ImageView
+                android:id="@+id/radio_prev"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/radio_button_bg"
+                android:contentDescription="@null"
+                android:padding="10dp"
+                android:src="@drawable/ic_widget_skip_previous" />
+
+            <ImageView
+                android:id="@+id/radio_play"
+                android:layout_width="52dp"
+                android:layout_height="52dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/radio_play_bg"
+                android:contentDescription="@null"
+                android:padding="14dp"
+                android:src="@drawable/ic_widget_play" />
+
+            <ImageView
+                android:id="@+id/radio_next"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/radio_button_bg"
+                android:contentDescription="@null"
+                android:padding="10dp"
+                android:src="@drawable/ic_widget_skip_next" />
+
+            <ImageView
+                android:id="@+id/radio_open"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/radio_button_bg"
+                android:contentDescription="@null"
+                android:padding="9dp"
+                android:src="@drawable/queue_music" android:tint="#FFDDDDDD" />
+    </LinearLayout>
+</LinearLayout>

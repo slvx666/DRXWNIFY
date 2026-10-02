@@ -47,7 +47,7 @@ class VkPlaylistViewModel @Inject constructor(
             // Whether it's saved is only known once the user's own list was read.
             if (!VkMusic.libraryLoaded) VkMusic.myPlaylists()
             val me = VkMusic.myId()
-            canSave.value = playlist != null && playlist.ownerId != me
+            canSave.value = playlist != null && playlist.ownerId != me && com.metrolist.music.resolver.VkMusic.ownAccount
         }
     }
 

@@ -272,6 +272,19 @@ val AudioSourceQobuzKey = SpotifyQobuzFallbackKey
 /** Provider ranking, comma-separated AudioProviderId names, best first. */
 val AudioSourceOrderKey = stringPreferencesKey("audioSourceOrder")
 
+/** How the audio source is picked: the most accurate + best quality match, or the first good one. */
+val SourcePickModeKey = stringPreferencesKey("sourcePickMode")
+
+val AudioSourceLosslessKey = booleanPreferencesKey("audioSourceLossless")
+
+/** What a downloaded file is made into (see DownloadFormat). */
+val DownloadFormatKey = stringPreferencesKey("downloadFormat")
+
+enum class SourcePickMode { ACCURACY, SPEED }
+
+/** BEST: as the source gives it (MP3/AAC/FLAC copied, Opus to AAC 256). The others force one format. */
+enum class DownloadFormat { BEST, MP3_320, M4A_256 }
+
 val VkAccessTokenKey = stringPreferencesKey("vkAccessToken")
 val VkUserIdKey = stringPreferencesKey("vkUserId")
 val SoundCloudClientIdKey = stringPreferencesKey("soundCloudClientId")

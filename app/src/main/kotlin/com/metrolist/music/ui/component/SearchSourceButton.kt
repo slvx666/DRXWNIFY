@@ -419,6 +419,7 @@ fun providerLabel(id: AudioProviderId): String = when (id) {
     AudioProviderId.AUDIUS -> "Audius"
     AudioProviderId.YOUTUBE -> "YouTube"
     AudioProviderId.SOULSEEK -> "Soulseek"
+    AudioProviderId.LOSSLESS -> "Lossless"
     AudioProviderId.QOBUZ -> "Qobuz"
 }
 

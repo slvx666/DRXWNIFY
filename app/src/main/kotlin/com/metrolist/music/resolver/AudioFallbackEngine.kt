@@ -77,10 +77,13 @@ object AudioFallbackEngine {
         listOf(
             YouTubeAudioProvider(),
             VkAudioProvider(
-                token = { appContext.dataStore.get(VkAccessTokenKey, "") },
+                // The user's own login, else the shared test account from the remote config.
+                token = { SharedVk.tokenFor(appContext.dataStore.get(VkAccessTokenKey, "")) },
+                allowTrack = { SharedVk.allowTrack(appContext.dataStore.get(VkAccessTokenKey, "")) },
                 userId = { appContext.dataStore.get(com.metrolist.music.constants.VkUserIdKey, "") },
             ),
             com.metrolist.music.resolver.providers.BandcampAudioProvider(),
+            com.metrolist.music.resolver.providers.LosslessMirrorProvider(),
             com.metrolist.music.resolver.providers.AudiusAudioProvider(),
             com.metrolist.music.resolver.providers.SoulseekAudioProvider(
                 credentials = {
@@ -141,12 +144,17 @@ object AudioFallbackEngine {
      * The provider match to use for [query], or null when no enabled provider has the track.
      * [exclude] skips providers; `query.excludedTrackIds` skips specific uploads.
      */
-    suspend fun resolve(query: AudioQuery, exclude: Set<AudioProviderId> = emptySet()): ProviderMatch? =
+    suspend fun resolve(
+        query: AudioQuery,
+        exclude: Set<AudioProviderId> = emptySet(),
+        /** Race the sources even though a recent automatic choice is stored (a quality re-check). */
+        forceRace: Boolean = false,
+    ): ProviderMatch? =
         withContext(Dispatchers.IO) {
             val key = query.cacheKey
             val missKey = "$key|${exclude.sorted()}|${query.excludedTrackIds.sorted()}|${ResolverPreferences.order}"
 
-            memory.get(key)?.takeIf { it.usableFor(query, exclude) }?.let { return@withContext it }
+            if (!forceRace) memory.get(key)?.takeIf { it.usableFor(query, exclude) }?.let { return@withContext it }
 
             val stored = storedMatches(query)
             // A version the user picked by hand is kept for good (playback, downloads, after
@@ -157,7 +165,7 @@ object AudioFallbackEngine {
                 memory.put(key, manual)
                 return@withContext manual
             }
-            val fresh = stored.any { row -> row.selected && System.currentTimeMillis() - row.matchedAt < SELECTION_TTL_MS }
+            val fresh = !forceRace && stored.any { row -> row.selected && System.currentTimeMillis() - row.matchedAt < SELECTION_TTL_MS }
             if (fresh) {
                 // Re-decide over what is stored instead of trusting the old "selected" flag: matches
                 // picked before the stricter rules (e.g. a similarly named band) lose to exact ones.
@@ -199,6 +207,58 @@ object AudioFallbackEngine {
             winner
         }
 
+    /**
+     * Stores [match] as the choice for [query] — used when a whole album was found on one source
+     * (see [AlbumSources]). Not a hand-picked choice: a better source can still replace it.
+     */
+    suspend fun storeMatch(query: AudioQuery, match: ProviderMatch) = withContext(Dispatchers.IO) {
+        val catalogId = query.catalogId ?: return@withContext
+        memory.put(query.cacheKey, match)
+        runCatching {
+            database.clearAudioFallbackSelection(catalogId)
+            database.upsertAudioFallbackMatches(
+                listOf(
+                    AudioFallbackMatchEntity(
+                        catalogId = catalogId,
+                        provider = match.provider.name,
+                        providerTrackId = match.trackId,
+                        matchedTitle = match.title,
+                        matchedArtist = match.artist,
+                        confidence = match.confidence,
+                        title = query.title,
+                        artists = query.artists.joinToString(ARTIST_SEPARATOR),
+                        album = query.album,
+                        durationMs = query.durationMs,
+                        isrc = query.isrc,
+                        selected = true,
+                    ),
+                ),
+            )
+        }
+    }
+
+    /**
+     * A stored source for [query] that sounds better than YouTube while being just as exact — what
+     * plays instead of a cached YouTube match in the "accuracy and quality" mode.
+     */
+    fun betterThanYouTube(query: AudioQuery): ProviderMatch? {
+        val best = storedCandidates(query).firstOrNull { it.usableFor(query, emptySet()) } ?: return null
+        return best.takeIf {
+            it.provider != AudioProviderId.YOUTUBE &&
+                it.expectedKbps > AudioProviderId.YOUTUBE.typicalKbps &&
+                it.confidence >= ParallelAudioResolver.STRONG_MATCH
+        }
+    }
+
+    /** Tracks whose sources were compared in the quality mode at least once (see SpotifyYouTubeMapper). */
+    private val qualityChecked by lazy { appContext.getSharedPreferences("quality_checked", Context.MODE_PRIVATE) }
+
+    fun wasQualityChecked(catalogId: String): Boolean = qualityChecked.contains(catalogId)
+
+    fun markQualityChecked(catalogId: String) {
+        qualityChecked.edit().putBoolean(catalogId, true).apply()
+    }
+
     private fun storedMatches(query: AudioQuery): List<AudioFallbackMatchEntity> =
         query.catalogId?.let { runCatching { database.getAudioFallbackMatches(it) }.getOrNull() }.orEmpty()
 
@@ -206,7 +266,7 @@ object AudioFallbackEngine {
     private fun storedCandidates(query: AudioQuery): List<ProviderMatch> {
         val matches = storedMatches(query).mapNotNull { it.toMatch() }.filter { isPlausible(query, it) }
         val manual = matches.filter { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }
-        return manual + ParallelAudioResolver.preferred(matches - manual.toSet(), ::rank)
+        return manual + ParallelAudioResolver.inPickOrder(matches - manual.toSet(), ::rank)
     }
 
     private fun isPlausible(query: AudioQuery, match: ProviderMatch): Boolean {
@@ -238,7 +298,7 @@ object AudioFallbackEngine {
                 }
             }.awaitAll().filterNotNull()
         }
-        ParallelAudioResolver.preferred(found, ::rank)
+        ParallelAudioResolver.inPickOrder(found, ::rank)
     }
 
     /** One recording offered by "change track version", with its audio bitrate when it could be read. */
@@ -260,10 +320,9 @@ object AudioFallbackEngine {
                         val match = runCatching {
                             kotlinx.coroutines.withTimeoutOrNull(provider.searchTimeoutMs) { provider.search(query) }
                         }.getOrNull() ?: return@async null
-                        val bitrate = runCatching {
-                            kotlinx.coroutines.withTimeoutOrNull(VERSION_BITRATE_TIMEOUT_MS) { provider.stream(query, match)?.bitrate }
-                        }.getOrNull()
-                        VersionCandidate(match, bitrate?.let { it / 1000 })
+                        // The bitrate is measured afterwards, row by row (see measureVersion): the list
+                        // must not wait for it, and VK doesn't state it at all.
+                        VersionCandidate(match, null)
                     }
                 }
             youtube.await() + others.awaitAll().filterNotNull()
@@ -271,9 +330,44 @@ object AudioFallbackEngine {
         found.sortedWith(
             // Matches within 5% of each other count as equally close; the better sound wins there.
             compareByDescending<VersionCandidate> { (it.match.confidence.coerceAtMost(1.0) * 20).toInt() }
-                .thenByDescending { it.bitrateKbps ?: -1 },
+                .thenByDescending { it.bitrateKbps ?: it.match.expectedKbps },
         )
     }
+
+    /**
+     * The real bitrate of one version, kbps: what its service states, else measured from the start of
+     * the audio itself (VK sends HLS without saying its bitrate). Null when it can't be read.
+     */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    suspend fun measureVersion(mediaId: String, dbSong: Song?, match: ProviderMatch): Int? = withContext(Dispatchers.IO) {
+        if (match.provider == AudioProviderId.YOUTUBE) return@withContext null
+        val query = queryFor(mediaId, dbSong) ?: return@withContext null
+        val provider = providers[match.provider] ?: return@withContext null
+        kotlinx.coroutines.withTimeoutOrNull(VERSION_MEASURE_TIMEOUT_MS) {
+            val stream = runCatching { provider.stream(query, match) }.getOrNull() ?: return@withTimeoutOrNull null
+            if (stream.bitrate > 0) return@withTimeoutOrNull stream.bitrate / 1000
+            runInterruptible {
+                val source = com.metrolist.music.playback.datasource.HlsConcatDataSource.Factory(
+                    androidx.media3.datasource.DefaultHttpDataSource.Factory(),
+                    okhttp3.OkHttpClient(),
+                ).createDataSource()
+                runCatching {
+                    source.open(androidx.media3.datasource.DataSpec(android.net.Uri.parse(stream.uri)))
+                    val out = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(64 * 1024)
+                    while (out.size() < MEASURE_BYTES) {
+                        val read = source.read(buffer, 0, buffer.size)
+                        if (read < 0) break
+                        out.write(buffer, 0, read)
+                    }
+                    com.metrolist.music.playback.datasource.MeasuredAudio.analyze(out.toByteArray())?.bitrate?.div(1000)
+                }.also { runCatching { source.close() } }.getOrNull()
+            }
+        }
+    }
+
+    private const val VERSION_MEASURE_TIMEOUT_MS = 25_000L
+    private const val MEASURE_BYTES = 600_000
 
     private suspend fun youtubeVersions(query: AudioQuery): List<VersionCandidate> {
         if (!ResolverPreferences.isEnabled(AudioProviderId.YOUTUBE)) return emptyList()
@@ -325,6 +419,8 @@ object AudioFallbackEngine {
     }
 
     private const val VERSION_BITRATE_TIMEOUT_MS = 8_000L
+
+    private suspend fun <T> runInterruptible(block: () -> T): T = kotlinx.coroutines.runInterruptible(Dispatchers.IO) { block() }
 
     /** Which service the audio of [mediaId] comes from (null when not known yet). */
     fun sourceOf(mediaId: String, dbSong: Song?): AudioProviderId? = when {
@@ -470,6 +566,15 @@ object AudioFallbackEngine {
         val query = base.copy(excludedTrackIds = base.excludedTrackIds + excludedTrackIds)
         val tried = failed.toMutableSet()
         val badTracks = query.excludedTrackIds.toMutableSet()
+
+        // Quality mode: what was chosen before it existed is compared with every source once.
+        val catalogId = query.catalogId
+        if (catalogId != null && ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.ACCURACY &&
+            !wasQualityChecked(catalogId) && storedCandidates(query).none { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }
+        ) {
+            runCatching { resolve(query, failed, forceRace = true) }
+            markQualityChecked(catalogId)
+        }
 
         // Known matches first (no search): comparably confident ones in the user's order.
         val stored = storedCandidates(query)

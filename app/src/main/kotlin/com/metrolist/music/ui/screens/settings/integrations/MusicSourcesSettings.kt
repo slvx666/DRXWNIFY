@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -187,6 +188,8 @@ fun MusicSourcesSettings(
         var slskPass by rememberPreference(com.metrolist.music.constants.SoulseekPasswordKey, "")
         val (slskWifiOnly, setSlskWifiOnly) = rememberPreference(com.metrolist.music.constants.SoulseekWifiOnlyKey, true)
         var showSlskLogin by remember { mutableStateOf(false) }
+        val (lossless, setLossless) = rememberPreference(com.metrolist.music.constants.AudioSourceLosslessKey, true)
+        val losslessMirrorCount = com.metrolist.music.utils.RemoteConfig.config.collectAsState().value.losslessMirrors.size
         val slskReady = slskUser.isNotBlank() && slskPass.isNotBlank()
         var orderPref by rememberPreference(AudioSourceOrderKey, "")
         var vkToken by rememberPreference(VkAccessTokenKey, "")
@@ -196,6 +199,7 @@ fun MusicSourcesSettings(
         fun needsAccount(id: AudioProviderId) = when (id) {
             AudioProviderId.VK -> vkToken.isEmpty()
             AudioProviderId.SOULSEEK -> !slskReady
+            AudioProviderId.LOSSLESS -> losslessMirrorCount == 0
             else -> false
         }
         val order = AudioProviderId.parseOrder(orderPref)
@@ -220,6 +224,7 @@ fun MusicSourcesSettings(
                 AudioProviderId.BANDCAMP -> Triple(R.string.audio_source_bandcamp, R.string.audio_source_bandcamp_description, R.drawable.album)
                 AudioProviderId.AUDIUS -> Triple(R.string.audio_source_audius, R.string.audio_source_audius_description, R.drawable.graphic_eq)
                 AudioProviderId.SOULSEEK -> Triple(R.string.audio_source_soulseek, R.string.audio_source_soulseek_description, R.drawable.download)
+                AudioProviderId.LOSSLESS -> Triple(R.string.audio_source_lossless, R.string.audio_source_lossless_description, R.drawable.graphic_eq)
             }
             val checked = when (id) {
                 AudioProviderId.YOUTUBE -> youtube
@@ -229,10 +234,12 @@ fun MusicSourcesSettings(
                 AudioProviderId.BANDCAMP -> bandcamp
                 AudioProviderId.AUDIUS -> audius
                 AudioProviderId.SOULSEEK -> soulseek
+                AudioProviderId.LOSSLESS -> lossless
             }
             val extra = when {
                 id == AudioProviderId.VK && vkToken.isEmpty() -> "\n" + stringResource(R.string.vk_login_required)
                 id == AudioProviderId.SOULSEEK && !slskReady -> "\n" + stringResource(R.string.soulseek_login_required)
+                id == AudioProviderId.LOSSLESS && losslessMirrorCount == 0 -> "\n" + stringResource(R.string.lossless_no_mirrors)
                 else -> ""
             }
             PreferenceEntry(
@@ -274,6 +281,7 @@ fun MusicSourcesSettings(
                                     AudioProviderId.BANDCAMP -> { setBandcamp(enabled); ResolverPreferences.bandcampEnabled = enabled }
                                     AudioProviderId.AUDIUS -> { setAudius(enabled); ResolverPreferences.audiusEnabled = enabled }
                                     AudioProviderId.SOULSEEK -> { setSoulseek(enabled); ResolverPreferences.soulseekEnabled = enabled }
+                                    AudioProviderId.LOSSLESS -> { setLossless(enabled); ResolverPreferences.losslessEnabled = enabled }
                                 }
                             },
                         )
@@ -382,6 +390,45 @@ fun MusicSourcesSettings(
             description = stringResource(R.string.audio_search_log_description),
             icon = { Icon(painterResource(R.drawable.info), null) },
             onClick = { navController.navigate("settings/integrations/sources/log") },
+        )
+
+        // Where the remote config (mirrors, shared VK account) is read from; empty = built-in hosts.
+        val (configUrl, onConfigUrlChange) = com.metrolist.music.utils.rememberPreference(
+            com.metrolist.music.utils.RemoteConfig.UrlOverrideKey, "",
+        )
+        var configDraft by remember(configUrl) { mutableStateOf(configUrl) }
+        val remoteConfig by com.metrolist.music.utils.RemoteConfig.config.collectAsState()
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val configScope = rememberCoroutineScope()
+        androidx.compose.material3.OutlinedTextField(
+            value = configDraft,
+            onValueChange = { configDraft = it },
+            label = { Text(stringResource(R.string.remote_config_url)) },
+            supportingText = {
+                Text(
+                    stringResource(
+                        R.string.remote_config_state,
+                        remoteConfig.losslessMirrors.size,
+                        stringResource(if (remoteConfig.vkShared != null) R.string.remote_config_vk_yes else R.string.remote_config_vk_no),
+                    ),
+                )
+            },
+            singleLine = true,
+            trailingIcon = {
+                androidx.compose.material3.IconButton(onClick = {
+                    onConfigUrlChange(configDraft.trim())
+                    configScope.launch {
+                        kotlinx.coroutines.delay(300)
+                        val ok = com.metrolist.music.utils.RemoteConfig.refresh(context)
+                        android.widget.Toast.makeText(
+                            context,
+                            if (ok) R.string.remote_config_loaded else R.string.remote_config_failed,
+                            android.widget.Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }) { Icon(painterResource(R.drawable.check), contentDescription = null) }
+            },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         )
     }
 

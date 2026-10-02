@@ -8,6 +8,7 @@ package com.metrolist.music.playback.queues
 import android.content.Context
 import androidx.media3.common.MediaItem
 import com.metrolist.music.db.MusicDatabase
+import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.playback.SpotifyRecommendationEngine
 import com.metrolist.music.playback.SpotifyYouTubeMapper
@@ -62,7 +63,8 @@ class SpotifyQueue(
     private var recommendationsGenerated = false
 
     override suspend fun getInitialStatus(): Queue.Status = withContext(Dispatchers.IO) {
-        val initialMediaItem = mapper.resolveToMediaItem(initialTrack)
+        // Metadata only: the audio is found as the track starts, so a tap plays at once.
+        val initialMediaItem: MediaItem? = mapper.quickMetadata(initialTrack).toMediaItem()
 
         if (initialMediaItem == null) {
             Timber.w("SpotifyQueue: Could not resolve initial track '${initialTrack.name}'")
@@ -190,7 +192,7 @@ class SpotifyQueue(
         )
 
         coroutineScope {
-            batch.map { track -> async { mapper.resolveToMediaItem(track) } }
+            batch.map { track -> async { mapper.quickMetadata(track).toMediaItem() } }
                 .awaitAll()
                 .filterNotNull()
         }

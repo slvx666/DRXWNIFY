@@ -29,6 +29,36 @@ class EQViewModel @Inject constructor(
 
     init {
         loadProfiles()
+        GraphicEq.gainsOf(eqProfileRepository.getAllProfiles().firstOrNull { it.id == GraphicEq.PROFILE_ID })?.let { gains ->
+            _state.update { s ->
+                s.copy(graphicGains = gains, graphicPreset = GraphicEq.Preset.entries.firstOrNull { it.gains.contentEquals(gains) })
+            }
+        }
+    }
+
+    private var applyJob: kotlinx.coroutines.Job? = null
+
+    /** Plays [gains] through the graphic equalizer (it becomes the active profile). */
+    private fun applyGraphic(gains: FloatArray, preset: GraphicEq.Preset?) {
+        _state.update { it.copy(graphicGains = gains, graphicPreset = preset) }
+        applyJob?.cancel()
+        applyJob = viewModelScope.launch {
+            // Dragging a slider sends many values: the engine gets the last one of every 60 ms.
+            kotlinx.coroutines.delay(60)
+            val profile = GraphicEq.profile(gains, preset?.name ?: "Custom")
+            eqProfileRepository.saveProfile(profile)
+            equalizerService.applyProfile(profile).onSuccess {
+                eqProfileRepository.setActiveProfile(GraphicEq.PROFILE_ID)
+            }
+        }
+    }
+
+    fun selectPreset(preset: GraphicEq.Preset) = applyGraphic(preset.gains.copyOf(), preset)
+
+    fun setBand(index: Int, gain: Float) {
+        val gains = _state.value.graphicGains.copyOf()
+        gains[index] = gain
+        applyGraphic(gains, GraphicEq.Preset.entries.firstOrNull { it.gains.contentEquals(gains) })
     }
 
     /**

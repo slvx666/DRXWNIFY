@@ -39,7 +39,10 @@ suspend fun openDownloadLocation(
     val folder = withContext(Dispatchers.IO) { folderUriOf(context, uri) }
 
     withContext(Dispatchers.Main) {
-        val opened = folder != null && hasAccessTo(context, folder) && startViewing(context, folder)
+        // A folder of our own tree is handed over with a grant; a Music/Meld folder is opened
+        // without one — the file manager can read it by itself, and asking to grant a uri we don't
+        // hold is what the system refused (which fell back to "share").
+        val opened = folder != null && startViewing(context, folder, grant = hasAccessTo(context, folder))
         if (!opened) shareFile(context, uri)
     }
 }
@@ -163,14 +166,15 @@ private fun hasAccessTo(context: Context, uri: Uri): Boolean =
             uri.toString().startsWith(permission.uri.toString().substringBefore("/document/"))
     }
 
-private fun startViewing(context: Context, uri: Uri): Boolean {
+private fun startViewing(context: Context, uri: Uri, grant: Boolean): Boolean {
     val intent = Intent(Intent.ACTION_VIEW).apply {
         setDataAndType(uri, DIRECTORY_MIME)
-        addFlags(
-            Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                Intent.FLAG_ACTIVITY_NEW_TASK,
-        )
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (grant) addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        // The system file manager opens a storage folder reliably; vendor ones often don't.
+        DOCUMENTS_UI_PACKAGES.firstOrNull { pkg ->
+            runCatching { context.packageManager.getPackageInfo(pkg, 0) }.isSuccess
+        }?.let { setPackage(it) }
     }
     // Anything can go wrong here (no file manager, no permission for the document, a manufacturer
     // file app that rejects the intent) and none of it is worth a crash: the caller shares instead.
@@ -225,3 +229,5 @@ private fun folderUriOf(context: Context, fileUri: Uri): Uri? = runCatching {
 }.onFailure { Timber.d(it, "Could not derive the folder of %s", fileUri) }.getOrNull()
 
 private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
+
+private val DOCUMENTS_UI_PACKAGES = listOf("com.google.android.documentsui", "com.android.documentsui")

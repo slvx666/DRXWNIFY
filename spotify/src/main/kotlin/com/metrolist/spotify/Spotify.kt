@@ -60,6 +60,18 @@ object Spotify {
     @Volatile
     var accessToken: String? = null
 
+    /**
+     * Hands out the token each request should use — the account's when one is linked, otherwise an
+     * anonymous one — refreshing it when it has expired or when [forceRefresh] (the server has just
+     * answered 401). Set by the app. Without it every screen had to remember to refresh the token
+     * first, and one that didn't failed with "token expired" until Retry was pressed a few times.
+     */
+    @Volatile
+    var tokenSupplier: (suspend (forceRefresh: Boolean) -> String?)? = null
+
+    private suspend fun currentToken(forceRefresh: Boolean = false): String? =
+        tokenSupplier?.let { supply -> runCatching { supply(forceRefresh) }.getOrNull() } ?: accessToken
+
     private const val GQL_URL = "https://api-partner.spotify.com/pathfinder/v2/query"
 
     private fun randomUserAgent(): String {
@@ -178,8 +190,8 @@ object Spotify {
         operationName: String,
         variables: JsonObject = buildJsonObject {},
     ): JsonObject {
-        val token =
-            accessToken ?: throw SpotifyException(401, "Not authenticated").also {
+        var token =
+            currentToken() ?: throw SpotifyException(401, "Not authenticated").also {
                 log("E", "GQL $operationName — no token")
             }
 
@@ -193,7 +205,16 @@ object Spotify {
 
         for ((hashIdx, sha256Hash) in hashCandidates.withIndex()) {
             val body = buildGqlBody(operationName, sha256Hash, variables)
-            val result = executeGqlWithRetries(operationName, token, body)
+            val result = try {
+                executeGqlWithRetries(operationName, token, body)
+            } catch (e: SpotifyException) {
+                // Expired or revoked early: one fresh token, one more try.
+                if (e.statusCode != 401) throw e
+                val fresh = currentToken(forceRefresh = true)?.takeIf { it != token } ?: throw e
+                log("W", "GQL $operationName -> 401, retrying with a refreshed token")
+                token = fresh
+                executeGqlWithRetries(operationName, token, body)
+            }
 
             if (result.isPersistedQueryNotFound) {
                 if (hashIdx < hashCandidates.lastIndex) {
@@ -304,10 +325,11 @@ object Spotify {
         failFastOn429: Boolean = false,
         crossinline block: io.ktor.client.request.HttpRequestBuilder.() -> Unit = {},
     ): T {
-        val token =
-            accessToken ?: throw SpotifyException(401, "Not authenticated").also {
+        var token =
+            currentToken() ?: throw SpotifyException(401, "Not authenticated").also {
                 log("E", "REST $endpoint — no token")
             }
+        var refreshedAfter401 = false
 
         val maxRetries = if (failFastOn429) 1 else 3
         val maxRetryDelaySec = 3L
@@ -325,7 +347,19 @@ object Spotify {
             log("D", "REST GET $endpoint -> ${response.status.value}")
 
             if (response.status == HttpStatusCode.Unauthorized) {
-                throw SpotifyException(401, "Token expired or invalid")
+                // Expired or revoked early: one fresh token, one more try.
+                val fresh = if (refreshedAfter401) null else currentToken(forceRefresh = true)?.takeIf { it != token }
+                if (fresh == null) throw SpotifyException(401, "Token expired or invalid")
+                log("W", "REST $endpoint -> 401, retrying with a refreshed token")
+                refreshedAfter401 = true
+                token = fresh
+                val retried = restClient.get(endpoint) {
+                    header("Authorization", "Bearer $token")
+                    block()
+                }
+                if (retried.status.value in 200..299) return retried.body()
+                if (retried.status == HttpStatusCode.Unauthorized) throw SpotifyException(401, "Token expired or invalid")
+                throw SpotifyException(retried.status.value, "Spotify API error ${retried.status.value}")
             }
             if (response.status == HttpStatusCode.TooManyRequests) {
                 val retryAfter = response.headers["Retry-After"]?.toLongOrNull() ?: (2L * (attempt + 1))
@@ -520,7 +554,7 @@ object Spotify {
     /** Follows or unfollows an artist on the linked account (PUT/DELETE /me/following). */
     suspend fun setFollowingArtist(artistId: String, follow: Boolean): Result<Unit> =
         runCatching {
-            val token = accessToken ?: throw SpotifyException(401, "Not authenticated")
+            val token = currentToken() ?: throw SpotifyException(401, "Not authenticated")
             val response =
                 if (follow) {
                     restClient.put("me/following") {
@@ -555,7 +589,7 @@ object Spotify {
 
     private suspend fun writeSavedAlbums(albumId: String, save: Boolean): Result<Unit> =
         runCatching {
-            val token = accessToken ?: throw SpotifyException(401, "Not authenticated")
+            val token = currentToken() ?: throw SpotifyException(401, "Not authenticated")
             val response =
                 if (save) {
                     restClient.put("me/albums") {
@@ -575,7 +609,7 @@ object Spotify {
 
     private suspend fun writeSavedTracks(trackId: String, save: Boolean): Result<Unit> =
         runCatching {
-            val token = accessToken ?: throw SpotifyException(401, "Not authenticated")
+            val token = currentToken() ?: throw SpotifyException(401, "Not authenticated")
             val response =
                 if (save) {
                     restClient.put("me/tracks") {

@@ -259,7 +259,7 @@ fun SourceSearchResult(
                         .takeIf { vkSearch },
                 ),
                 currentValue = filter,
-                onValueUpdate = { viewModel.filter.value = it },
+                onValueUpdate = { viewModel.pickFilter(it) },
                 modifier = Modifier.fillMaxWidth(),
             )
         } else {
@@ -418,6 +418,7 @@ fun providerName(id: AudioProviderId): String = when (id) {
     AudioProviderId.AUDIUS -> "Audius"
     AudioProviderId.YOUTUBE -> "YouTube"
     AudioProviderId.SOULSEEK -> "Soulseek"
+    AudioProviderId.LOSSLESS -> "Lossless"
     AudioProviderId.QOBUZ -> "Qobuz"
 }
 

@@ -126,7 +126,19 @@ fun StorageSettings(
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or
                         Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
                 )
-                onDownloadFolderUriChange(uri.toString())
+                if (uri.toString() != downloadFolderUri) {
+                    onDownloadFolderUriChange(uri.toString())
+                    // Everything already downloaded moves along, so the new folder has it all.
+                    val appContext = context.applicationContext
+                    downloadUtil.downloadExporter.moveAllToCurrentFolderInBackground(
+                        onStart = { total ->
+                            android.widget.Toast.makeText(appContext, appContext.getString(R.string.moving_downloads, total), android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        onDone = { moved ->
+                            android.widget.Toast.makeText(appContext, appContext.getString(R.string.moved_downloads, moved), android.widget.Toast.LENGTH_LONG).show()
+                        },
+                    )
+                }
             } catch (e: SecurityException) {
                 // Permission could not be persisted; keep the previous value.
             }

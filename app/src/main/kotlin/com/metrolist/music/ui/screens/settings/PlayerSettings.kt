@@ -94,7 +94,7 @@ fun PlayerSettings(
 ) {
     val (audioQuality, onAudioQualityChange) = rememberEnumPreference(
         AudioQualityKey,
-        defaultValue = AudioQuality.AUTO
+        defaultValue = AudioQuality.HIGH
     )
     val (crossfadeEnabled, onCrossfadeEnabledChange) = rememberPreference(
         CrossfadeEnabledKey,
@@ -209,6 +209,53 @@ fun PlayerSettings(
     var showAudioQualityDialog by remember {
         mutableStateOf(false)
     }
+    val (pickMode, onPickModeChange) = rememberEnumPreference(
+        key = com.metrolist.music.constants.SourcePickModeKey,
+        defaultValue = com.metrolist.music.constants.SourcePickMode.ACCURACY,
+    )
+    val (downloadFormat, onDownloadFormatChange) = rememberEnumPreference(
+        key = com.metrolist.music.constants.DownloadFormatKey,
+        defaultValue = com.metrolist.music.constants.DownloadFormat.BEST,
+    )
+    var showPickModeDialog by remember { mutableStateOf(false) }
+    var showDownloadFormatDialog by remember { mutableStateOf(false) }
+    @Composable
+    fun pickModeText(mode: com.metrolist.music.constants.SourcePickMode) = when (mode) {
+        com.metrolist.music.constants.SourcePickMode.ACCURACY -> stringResource(R.string.source_pick_accuracy)
+        com.metrolist.music.constants.SourcePickMode.SPEED -> stringResource(R.string.source_pick_speed)
+    }
+    @Composable
+    fun downloadFormatText(format: com.metrolist.music.constants.DownloadFormat) = when (format) {
+        com.metrolist.music.constants.DownloadFormat.BEST -> stringResource(R.string.download_format_best)
+        com.metrolist.music.constants.DownloadFormat.MP3_320 -> stringResource(R.string.download_format_mp3)
+        com.metrolist.music.constants.DownloadFormat.M4A_256 -> stringResource(R.string.download_format_m4a)
+    }
+    if (showPickModeDialog) {
+        EnumDialog(
+            onDismiss = { showPickModeDialog = false },
+            onSelect = {
+                onPickModeChange(it)
+                showPickModeDialog = false
+            },
+            title = stringResource(R.string.source_pick_mode),
+            current = pickMode,
+            values = com.metrolist.music.constants.SourcePickMode.entries,
+            valueText = { pickModeText(it) },
+        )
+    }
+    if (showDownloadFormatDialog) {
+        EnumDialog(
+            onDismiss = { showDownloadFormatDialog = false },
+            onSelect = {
+                onDownloadFormatChange(it)
+                showDownloadFormatDialog = false
+            },
+            title = stringResource(R.string.download_format),
+            current = downloadFormat,
+            values = com.metrolist.music.constants.DownloadFormat.entries,
+            valueText = { downloadFormatText(it) },
+        )
+    }
 
     if (showAudioQualityDialog) {
         EnumDialog(
@@ -286,6 +333,18 @@ fun PlayerSettings(
                         )
                     },
                     onClick = { showAudioQualityDialog = true }
+                ))
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.graphic_eq),
+                    title = { Text(stringResource(R.string.source_pick_mode)) },
+                    description = { Text(pickModeText(pickMode)) },
+                    onClick = { showPickModeDialog = true }
+                ))
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.download),
+                    title = { Text(stringResource(R.string.download_format)) },
+                    description = { Text(downloadFormatText(downloadFormat)) },
+                    onClick = { showDownloadFormatDialog = true }
                 ))
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.linear_scale),

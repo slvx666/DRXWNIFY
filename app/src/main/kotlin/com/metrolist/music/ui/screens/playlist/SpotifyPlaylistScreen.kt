@@ -74,6 +74,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.only
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
@@ -144,12 +145,7 @@ fun SpotifyPlaylistScreen(
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val isPlaying by playerConnection.isPlaying.collectAsState()
     val currentSpotifyId by produceState<String?>(initialValue = null, mediaMetadata?.id) {
-        val ytId = mediaMetadata?.id
-        value = if (ytId != null) {
-            withContext(Dispatchers.IO) { database.getSpotifyMatchByYouTubeId(ytId)?.spotifyId }
-        } else {
-            null
-        }
+        value = com.metrolist.music.playback.SpotifyMetadataRegistry.catalogIdOf(database, mediaMetadata?.id)
     }
 
     val (sortType, onSortTypeChange) = rememberEnumPreference(
@@ -182,8 +178,8 @@ fun SpotifyPlaylistScreen(
     val allDownloadProgress by SpotifyBatchDownload.progressBySource.collectAsState()
     val playlistDownloadSourceId = "playlist_${viewModel.playlistId}"
     val playlistDownloadProgress = allDownloadProgress[playlistDownloadSourceId]
-    val startPlaylistDownload: () -> Unit = {
-        val toDownload = tracks
+    val selection = com.metrolist.music.ui.component.rememberTrackSelection()
+    fun downloadTracks(toDownload: List<com.metrolist.spotify.models.SpotifyTrack>) {
         if (toDownload.isNotEmpty()) {
             Timber.d("SpotifyPlaylistDownload: started, ${toDownload.size} tracks")
             Toast.makeText(
@@ -215,6 +211,7 @@ fun SpotifyPlaylistScreen(
             )
         }
     }
+    val startPlaylistDownload: () -> Unit = { downloadTracks(tracks) }
     val swipeRemoveEnabled by rememberPreference(SwipeToRemoveSongKey, defaultValue = false)
 
     LaunchedEffect(mutationError) {
@@ -365,7 +362,7 @@ fun SpotifyPlaylistScreen(
                     val downloadedCount = com.metrolist.music.ui.component.rememberDownloadedCount(tracks)
                     if (!isLoading && tracks.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        Row {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             // Play all button
                             androidx.compose.material3.Button(
                                 onClick = {
@@ -592,31 +589,8 @@ fun SpotifyPlaylistScreen(
                                         )
                                     }
                                 } else {
-                                    androidx.compose.material3.IconButton(
-                                        onClick = {
-                                            menuState.show {
-                                                PlayerMenu(
-                                                    mediaMetadata = track.toSongItem().toMediaMetadata(),
-                                                    spotifyTrack = track,
-                                                    navController = navController,
-                                                    isCurrentTrack = false,
-                                                    onRemoveFromPlaylist = {
-                                                        viewModel.removeTrack(track)
-                                                        Toast.makeText(
-                                                            context,
-                                                            context.getString(R.string.spotify_track_removed),
-                                                            Toast.LENGTH_SHORT,
-                                                        ).show()
-                                                    },
-                                                    onDismiss = menuState::dismiss,
-                                                )
-                                            }
-                                        },
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.more_vert),
-                                            contentDescription = null,
-                                        )
+                                    com.metrolist.music.ui.component.TrackSelectionCheck(selection.active, selection.isSelected(track.id)) {
+                                        selection.toggle(track.id)
                                     }
                                 }
                             },
@@ -624,6 +598,10 @@ fun SpotifyPlaylistScreen(
                                 .fillMaxWidth()
                                 .combinedClickable(
                                     onClick = {
+                                        if (selection.active) {
+                                            selection.toggle(track.id)
+                                            return@combinedClickable
+                                        }
                                         playerConnection.playQueue(
                                             SpotifyPlaylistQueue(
                                                 playlistId = viewModel.playlistId,
@@ -671,6 +649,7 @@ fun SpotifyPlaylistScreen(
                     }
                 }
             }
+            item(key = "selection_space") { com.metrolist.music.ui.component.TrackSelectionSpacer(selection) }
         }
 
         DraggableScrollbar(
@@ -735,6 +714,9 @@ fun SpotifyPlaylistScreen(
             },
             actions = {
                 if (!isSearching) {
+                    com.metrolist.music.ui.component.TrackSelectionActions(selection, tracks.map { it.id })
+                }
+                if (!isSearching && !selection.active) {
                     IconButton(
                         onClick = { isSearching = true },
                         onLongClick = {},
@@ -793,6 +775,26 @@ fun SpotifyPlaylistScreen(
                     }
                 }
             },
+        )
+
+        com.metrolist.music.ui.component.TrackSelectionBar(
+            selection = selection,
+            onDownload = { keys -> downloadTracks(tracks.filter { it.id in keys }); selection.stop() },
+            onShare = { keys ->
+                val picked = tracks.filter { it.id in keys }
+                com.metrolist.music.ui.component.SelectedTracks.share(context, downloadUtil) {
+                    com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, picked)
+                }
+            },
+            onDelete = { keys ->
+                val picked = tracks.filter { it.id in keys }
+                com.metrolist.music.ui.component.SelectedTracks.delete(context, downloadUtil) {
+                    com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, picked)
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(LocalPlayerAwareWindowInsets.current.only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom).asPaddingValues()),
         )
 
         SnackbarHost(

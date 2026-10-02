@@ -81,9 +81,13 @@ class SoulseekAudioProvider(
             var score = match.score * 100
             if (response.freeSlot) score += 60
             score -= response.queueLength.coerceAtMost(50).toDouble() * 2
+            // Soulseek is here for quality (slsk-batchdl style): lossless first, then 320,
+            // and low-bitrate files only when nothing better answers.
             score += when {
-                pick.file.extension == "flac" -> 20
-                (pick.file.bitrate ?: 0) >= 256 -> 15
+                pick.file.extension == "flac" -> 45
+                (pick.file.bitrate ?: 0) >= 300 -> 30
+                (pick.file.bitrate ?: 0) >= 256 -> 20
+                (pick.file.bitrate ?: 0) in 1 until 192 -> -40
                 else -> 0
             }
             score
@@ -97,6 +101,7 @@ class SoulseekAudioProvider(
             artist = pick.username,
             durationMs = pick.file.durationSec?.times(1000L),
             confidence = best.score,
+            qualityKbps = if (pick.file.extension == "flac") 1411 else pick.file.bitrate,
         )
     }
 

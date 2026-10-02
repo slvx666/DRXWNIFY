@@ -29,6 +29,21 @@ object SpotifyMetadataRegistry {
 
     fun get(youtubeId: String): SpotifyTrack? = byYoutubeId.get(youtubeId)
 
+    /**
+     * The catalog track a player item stands for, so a list can mark the row that is playing: the
+     * track the queue registered for this id, the catalog id inside a fallback id, else the saved
+     * YouTube match. The reverse match alone missed every `mfb:` item, and for a video matched to
+     * two tracks it could name the other one.
+     */
+    suspend fun catalogIdOf(database: com.metrolist.music.db.MusicDatabase, mediaId: String?): String? {
+        if (mediaId == null) return null
+        get(mediaId)?.let { return it.id }
+        com.metrolist.music.resolver.FallbackIds.catalogIdOf(mediaId)?.let { return it }
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { database.getSpotifyMatchByYouTubeId(mediaId)?.spotifyId }.getOrNull()
+        }
+    }
+
     fun invalidate(youtubeId: String) {
         byYoutubeId.remove(youtubeId)
     }

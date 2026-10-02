@@ -310,4 +310,37 @@ class SpotifyMapperSelectMatchTest {
         ))
         assertEquals("RIGHT", matchedId(r))
     }
+
+    @Test
+    fun `a cover or remix under the original title never beats the original`() {
+        val r = select(
+            "Welcome To The Jungle", "Guns N' Roses", 273,
+            listOf(
+                cand("remix", "Guns N' Roses - Welcome To The Jungle (Female Version Remix)", "SomeChannel", 270),
+                cand("orig", "Welcome To The Jungle", "Guns N' Roses", 272),
+            ),
+        )
+        assertEquals("orig", matchedId(r))
+    }
+
+    @Test
+    fun `only covers found means no match`() {
+        val r = select(
+            "Welcome To The Jungle", "Guns N' Roses", 273,
+            listOf(
+                cand("c1", "Welcome To The Jungle - Guns N' Roses (cover)", "Singer", 271),
+                cand("c2", "Guns N' Roses - Welcome To The Jungle | Karaoke", "Karaoke Hits", 273),
+            ),
+        )
+        assertTrue(r is MatchResult.NoMatch)
+    }
+
+    @Test
+    fun `a remix the catalog itself names is kept`() {
+        val r = select(
+            "Blinding Lights - Chromatics Remix", "The Weeknd", 360,
+            listOf(cand("rmx", "The Weeknd - Blinding Lights (Chromatics Remix)", "The Weeknd", 360)),
+        )
+        assertEquals("rmx", matchedId(r))
+    }
 }

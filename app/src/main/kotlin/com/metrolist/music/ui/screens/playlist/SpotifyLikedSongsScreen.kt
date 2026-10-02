@@ -64,6 +64,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.only
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
@@ -128,16 +129,11 @@ fun SpotifyLikedSongsScreen(
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val isPlaying by playerConnection.isPlaying.collectAsState()
     val currentSpotifyId by produceState<String?>(initialValue = null, mediaMetadata?.id) {
-        val ytId = mediaMetadata?.id
-        value = if (ytId != null) {
-            withContext(Dispatchers.IO) { database.getSpotifyMatchByYouTubeId(ytId)?.spotifyId }
-        } else {
-            null
-        }
+        value = com.metrolist.music.playback.SpotifyMetadataRegistry.catalogIdOf(database, mediaMetadata?.id)
     }
 
     // Downloaded state per track (spotifyId → resolved youtubeId → live download map).
-    val downloads by downloadUtil.downloads.collectAsState()
+    val downloads by downloadUtil.visibleDownloads.collectAsState()
     val allDownloadProgress by SpotifyBatchDownload.progressBySource.collectAsState()
     val downloadSourceId = "liked_songs"
     val downloadProgress = allDownloadProgress[downloadSourceId]
@@ -230,6 +226,32 @@ fun SpotifyLikedSongsScreen(
         query = TextFieldValue()
     }
 
+    val selection = com.metrolist.music.ui.component.rememberTrackSelection()
+
+    /** Downloads the ticked [picked] tracks into the "Liked Songs" folder. */
+    fun downloadPicked(picked: List<com.metrolist.spotify.models.SpotifyTrack>) {
+        if (picked.isEmpty()) return
+        Toast.makeText(context, context.getString(R.string.spotify_download_started, picked.size), Toast.LENGTH_SHORT).show()
+        val appContext = context.applicationContext
+        SpotifyBatchDownload.start(
+            appContext = appContext,
+            sourceId = downloadSourceId,
+            tracks = picked,
+            mapper = mapper,
+            label = context.getString(R.string.liked_songs),
+            downloads = downloadUtil.downloads,
+            database = database,
+            folderName = context.getString(R.string.liked_songs),
+            onFinished = { result ->
+                Toast.makeText(
+                    appContext,
+                    appContext.getString(R.string.spotify_dl_finished, result.current, result.skipped, result.failed),
+                    Toast.LENGTH_LONG,
+                ).show()
+            },
+        )
+    }
+
     PullToRefreshBox(
         state = pullRefreshState,
         isRefreshing = isRefreshing,
@@ -270,7 +292,7 @@ fun SpotifyLikedSongsScreen(
                     val downloadedCount = com.metrolist.music.ui.component.rememberDownloadedCount(tracks)
                     if (!isLoading && tracks.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        Row {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             androidx.compose.material3.Button(
                                 onClick = {
                                     playerConnection.playQueue(
@@ -493,7 +515,8 @@ fun SpotifyLikedSongsScreen(
                 val originalIndex = if (isSearching || downloadFilter != 0) sortedTracks.indexOf(track).coerceAtLeast(0) else index
 
                 val isActive = currentSpotifyId != null && currentSpotifyId == track.id
-                val trackDownloadState = spotifyToYt[track.id]?.let { downloads[it]?.state }
+                val trackDownloadState = (downloads[com.metrolist.music.resolver.FallbackIds.of(track.id)]
+                    ?: spotifyToYt[track.id]?.let { downloads[it] })?.state
                 // Why it isn't downloaded yet, when a download of this list tried and failed.
                 val issueText = if (track.id !in downloadedIds) {
                     when (downloadIssues[track.id]) {
@@ -530,23 +553,8 @@ fun SpotifyLikedSongsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             // Downloaded badge on the right.
                             com.metrolist.music.ui.component.Icon.Download(trackDownloadState)
-                            androidx.compose.material3.IconButton(
-                                onClick = {
-                                    menuState.show {
-                                        PlayerMenu(
-                                            mediaMetadata = track.toSongItem().toMediaMetadata(),
-                                            spotifyTrack = track,
-                                            navController = navController,
-                                            isCurrentTrack = false,
-                                            onDismiss = menuState::dismiss,
-                                        )
-                                    }
-                                },
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.more_vert),
-                                    contentDescription = null,
-                                )
+                            com.metrolist.music.ui.component.TrackSelectionCheck(selection.active, selection.isSelected(track.id)) {
+                                selection.toggle(track.id)
                             }
                         }
                     },
@@ -563,6 +571,10 @@ fun SpotifyLikedSongsScreen(
                         .fillMaxWidth()
                         .combinedClickable(
                             onClick = {
+                                if (selection.active) {
+                                    selection.toggle(track.id)
+                                    return@combinedClickable
+                                }
                                 playerConnection.playQueue(
                                     SpotifyLikedSongsQueue(
                                         startIndex = originalIndex,
@@ -586,6 +598,7 @@ fun SpotifyLikedSongsScreen(
                         .animateItem(),
                 )
             }
+            item(key = "selection_space") { com.metrolist.music.ui.component.TrackSelectionSpacer(selection) }
         }
 
         DraggableScrollbar(
@@ -594,6 +607,26 @@ fun SpotifyLikedSongsScreen(
                 .align(Alignment.CenterEnd),
             scrollState = lazyListState,
             headerItems = 1,
+        )
+
+        com.metrolist.music.ui.component.TrackSelectionBar(
+            selection = selection,
+            onDownload = { keys -> downloadPicked(sortedTracks.filter { it.id in keys }); selection.stop() },
+            onShare = { keys ->
+                val picked = sortedTracks.filter { it.id in keys }
+                com.metrolist.music.ui.component.SelectedTracks.share(context, downloadUtil) {
+                    com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, picked)
+                }
+            },
+            onDelete = { keys ->
+                val picked = sortedTracks.filter { it.id in keys }
+                com.metrolist.music.ui.component.SelectedTracks.delete(context, downloadUtil) {
+                    com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, picked)
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(LocalPlayerAwareWindowInsets.current.only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom).asPaddingValues()),
         )
 
         TopAppBar(
@@ -650,6 +683,9 @@ fun SpotifyLikedSongsScreen(
             },
             actions = {
                 if (!isSearching) {
+                    com.metrolist.music.ui.component.TrackSelectionActions(selection, sortedTracks.map { it.id })
+                }
+                if (!isSearching && !selection.active) {
                     IconButton(
                         onClick = { isSearching = true },
                         onLongClick = {},

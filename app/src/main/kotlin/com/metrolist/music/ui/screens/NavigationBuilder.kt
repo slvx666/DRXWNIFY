@@ -325,6 +325,10 @@ fun NavGraphBuilder.navigationBuilder(
         com.metrolist.music.ui.screens.vk.VkPlaylistScreen(navController)
     }
 
+    composable("import_playlist") {
+        com.metrolist.music.ui.screens.ImportPlaylistScreen(navController)
+    }
+
     composable(
         route = "local_playlist/{playlistId}",
         arguments =

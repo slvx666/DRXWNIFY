@@ -104,7 +104,7 @@ class WrappedAudioService(
 
         return try {
             val audioQuality = context.dataStore.get(com.metrolist.music.constants.AudioQualityKey).let {
-                AudioQuality.valueOf(it ?: AudioQuality.AUTO.name)
+                AudioQuality.valueOf(it ?: AudioQuality.HIGH.name)
             }
             val playbackData = withContext(Dispatchers.IO) {
                 YTPlayerUtils.playerResponseForPlayback(

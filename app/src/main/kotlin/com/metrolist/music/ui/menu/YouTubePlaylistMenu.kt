@@ -263,7 +263,7 @@ fun YouTubePlaylistMenu(
     }
     LaunchedEffect(songs) {
         if (songs.isEmpty()) return@LaunchedEffect
-        downloadUtil.downloads.collect { downloads ->
+        downloadUtil.visibleDownloads.collect { downloads ->
             downloadState =
                 if (songs.all { downloads[it.id]?.state == Download.STATE_COMPLETED }) {
                     Download.STATE_COMPLETED

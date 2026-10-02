@@ -141,7 +141,13 @@ class SpotifyLibraryViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val entries: StateFlow<List<SpotifyLibraryEntry>> =
-        combine(cache, _filter, _sort, _reversed, combine(localPlaylists, appCollection, ::Pair)) { c, f, s, reversed, (local, app) ->
+        combine(
+            combine(cache, com.metrolist.music.playback.LibraryRecents.version, ::Pair),
+            _filter,
+            _sort,
+            _reversed,
+            combine(localPlaylists, appCollection, ::Pair),
+        ) { (c, _), f, s, reversed, (local, app) ->
             val own = if (f == Filter.ALL || f == Filter.PLAYLISTS) local else emptyList()
             val saved = app.filter { entry ->
                 when (f) {
@@ -244,8 +250,17 @@ class SpotifyLibraryViewModel @Inject constructor(
         val (pinned, rest) = list.partition { it.pinned }
         val collator = java.text.Collator.getInstance().apply { strength = java.text.Collator.PRIMARY }
         val sorted = when (s) {
-            // The account's own order (recently played / added first), the app's playlists first.
-            Sort.RECENTS -> own + rest
+            // What was opened or played here most recently first; the rest in the account's own
+            // order (its recently played / added), the app's playlists leading that part.
+            Sort.RECENTS -> {
+                val touched = com.metrolist.music.playback.LibraryRecents.snapshot()
+                (own + rest).withIndex()
+                    .sortedWith(
+                        compareByDescending<IndexedValue<SpotifyLibraryEntry>> { touched[recentsKey(it.value)] ?: 0L }
+                            .thenBy { it.index },
+                    )
+                    .map { it.value }
+            }
             // Newest first. Entries without a date keep the account's own order (already newest
             // first); the app's own playlists, newest first as well, lead.
             Sort.DATE_ADDED -> own + rest.withIndex()
@@ -261,6 +276,13 @@ class SpotifyLibraryViewModel @Inject constructor(
             )
         }
         return pinned + if (reversed) sorted.asReversed() else sorted
+    }
+
+    private fun recentsKey(entry: SpotifyLibraryEntry): String = when (entry.kind) {
+        SpotifyLibraryEntry.Kind.ALBUM -> "album:" + entry.id
+        SpotifyLibraryEntry.Kind.ARTIST -> "artist:" + entry.id
+        SpotifyLibraryEntry.Kind.LIKED_SONGS -> "liked"
+        else -> if (entry.uri.startsWith(LOCAL_PLAYLIST_URI_PREFIX)) "local:" + entry.id else "playlist:" + entry.id
     }
 
     companion object {

@@ -159,5 +159,6 @@ private fun providerName(id: AudioProviderId): String = stringResource(
         AudioProviderId.BANDCAMP -> R.string.audio_source_bandcamp
         AudioProviderId.AUDIUS -> R.string.audio_source_audius
         AudioProviderId.SOULSEEK -> R.string.audio_source_soulseek
+        AudioProviderId.LOSSLESS -> R.string.audio_source_lossless
     },
 )

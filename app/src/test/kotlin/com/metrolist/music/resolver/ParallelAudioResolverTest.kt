@@ -47,7 +47,31 @@ class ParallelAudioResolverTest {
         override suspend fun stream(query: AudioQuery, match: ProviderMatch): AudioStream? = null
     }
 
-    private fun resolver(soft: Long = 400, hard: Long = 1_500) = ParallelAudioResolver(soft, hard)
+    /** Speed mode: the provider order decides between comparable matches (the tests below). */
+    private fun resolver(soft: Long = 400, hard: Long = 1_500) =
+        ParallelAudioResolver(soft, hard, preferQuality = { false })
+
+    private fun qualityResolver() = ParallelAudioResolver(400, 1_500, preferQuality = { true })
+
+    @Test
+    fun qualityModePicksTheBetterSoundingExactMatch() = runBlocking {
+        // Both found the very same track: VK's 320 kbps MP3 beats YouTube's ~160 Opus though
+        // YouTube is ranked first and answered first.
+        val youtube = FakeProvider(AudioProviderId.YOUTUBE, 20, found = true, confidence = 1.0)
+        val vk = FakeProvider(AudioProviderId.VK, 150, found = true, confidence = 1.0)
+        val order = listOf(AudioProviderId.YOUTUBE, AudioProviderId.VK)
+        val outcome = qualityResolver().resolve(query, listOf(youtube, vk), order)
+        assertEquals(AudioProviderId.VK, outcome.winner?.provider)
+    }
+
+    @Test
+    fun qualityModeNeverTradesAccuracyForBitrate() = runBlocking {
+        // A doubtful match stays behind an exact one whatever its bitrate.
+        val youtube = FakeProvider(AudioProviderId.YOUTUBE, 20, found = true, confidence = 1.0)
+        val vk = FakeProvider(AudioProviderId.VK, 50, found = true, confidence = 0.8)
+        val outcome = qualityResolver().resolve(query, listOf(youtube, vk))
+        assertEquals(AudioProviderId.YOUTUBE, outcome.winner?.provider)
+    }
 
     @Test
     fun exactMatchBeatsDoubtfulMatchFromHigherRankedProvider() = runBlocking {
@@ -154,7 +178,7 @@ class ParallelAudioResolverTest {
         assertEquals(
             listOf(
                 AudioProviderId.VK, AudioProviderId.YOUTUBE, AudioProviderId.SOUNDCLOUD,
-                AudioProviderId.BANDCAMP, AudioProviderId.AUDIUS, AudioProviderId.SOULSEEK,
+                AudioProviderId.LOSSLESS, AudioProviderId.BANDCAMP, AudioProviderId.AUDIUS, AudioProviderId.SOULSEEK,
             ),
             AudioProviderId.parseOrder("VK,YOUTUBE,BOGUS"),
         )

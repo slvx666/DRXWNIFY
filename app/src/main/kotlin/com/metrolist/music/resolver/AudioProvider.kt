@@ -27,10 +27,29 @@ enum class AudioProviderId {
     BANDCAMP,
     AUDIUS,
     SOULSEEK,
+
+    /** Lossless FLAC from public mirrors listed in the remote config. */
+    LOSSLESS,
     ;
 
+    /**
+     * What this service usually delivers, kbps (lossless = 1411): what "best quality" compares when
+     * several services have the exact track. A match can state its own ([ProviderMatch.qualityKbps]).
+     */
+    val typicalKbps: Int
+        get() = when (this) {
+            YOUTUBE -> 160 // Opus ~160 without Premium
+            QOBUZ -> 1411
+            VK -> 320
+            SOUNDCLOUD -> 160
+            BANDCAMP -> 128
+            AUDIUS -> 320
+            SOULSEEK -> 320
+            LOSSLESS -> 1411
+        }
+
     companion object {
-        val DEFAULT_ORDER = listOf(SOUNDCLOUD, YOUTUBE, VK, BANDCAMP, AUDIUS, SOULSEEK)
+        val DEFAULT_ORDER = listOf(SOUNDCLOUD, YOUTUBE, VK, LOSSLESS, BANDCAMP, AUDIUS, SOULSEEK)
 
         /** Parses a stored "A,B,C" order; unknown names are dropped, missing providers appended. */
         fun parseOrder(value: String?): List<AudioProviderId> {
@@ -119,7 +138,11 @@ data class ProviderMatch(
     val durationMs: Long?,
     val confidence: Double,
     val thumbnailUrl: String? = null,
-)
+    /** This file's own quality when the service tells it per file (Soulseek), kbps; lossless = 1411. */
+    val qualityKbps: Int? = null,
+) {
+    val expectedKbps: Int get() = qualityKbps ?: provider.typicalKbps
+}
 
 /** A playable stream. [uri] may be http(s) or an [HlsConcatDataSource] `meldhls://` uri. */
 data class AudioStream(
@@ -155,4 +178,17 @@ interface AudioProvider {
      * provider returns null: YouTube streams are resolved by the player's native pipeline.
      */
     suspend fun stream(query: AudioQuery, match: ProviderMatch): AudioStream?
+}
+
+/** Which service is actually sending the audio of a player item right now (for the quality line). */
+object NowServing {
+    private val byMediaId = java.util.concurrent.ConcurrentHashMap<String, AudioProviderId>()
+    private val _version = kotlinx.coroutines.flow.MutableStateFlow(0)
+    val version: kotlinx.coroutines.flow.StateFlow<Int> = _version
+
+    fun set(mediaId: String, provider: AudioProviderId) {
+        if (byMediaId.put(mediaId, provider) != provider) _version.value++
+    }
+
+    fun of(mediaId: String): AudioProviderId? = byMediaId[mediaId]
 }

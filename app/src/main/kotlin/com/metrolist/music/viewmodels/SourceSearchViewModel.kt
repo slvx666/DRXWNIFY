@@ -63,7 +63,8 @@ constructor(
     val vkPlaylists = MutableStateFlow<List<com.metrolist.music.resolver.providers.VkPlaylist>>(emptyList())
     val vkPlaylistsLoading = MutableStateFlow(false)
 
-    val filter = MutableStateFlow(SourceSearchFilter.TRACKS)
+    // A new query keeps the chosen filter instead of jumping back to tracks.
+    val filter = MutableStateFlow(lastFilter)
 
     /**
      * null = every usable source at once; otherwise only that one, which then returns far more.
@@ -175,10 +176,19 @@ constructor(
         }
     }
 
+    /** The user's own pick, which the next search starts with. */
+    fun pickFilter(value: SourceSearchFilter) {
+        filter.value = value
+        lastFilter = value
+    }
+
     companion object {
         /** Set right before navigating from "find this performer" in a track's menu. */
         @Volatile
         var pendingArtist: String? = null
+
+        @Volatile
+        private var lastFilter = SourceSearchFilter.TRACKS
     }
 
     fun closeArtist() {

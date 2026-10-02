@@ -33,6 +33,10 @@ constructor(
 ) : ViewModel() {
     val albumId: String = savedStateHandle.get<String>("albumId")
         ?: throw IllegalArgumentException("albumId is required")
+
+    init {
+        com.metrolist.music.playback.LibraryRecents.album(albumId)
+    }
     val mapper = SpotifyYouTubeMapper(database)
 
     private val _album = MutableStateFlow<SpotifyAlbum?>(null)
@@ -60,6 +64,14 @@ constructor(
                 _album.value = album
                 val loaded = album.tracks?.items?.filter { !it.isLocal } ?: emptyList()
                 _tracks.value = loaded
+                // The whole album from VK in one go, when VK has it (see AlbumSources).
+                kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+                    runCatching {
+                        com.metrolist.music.resolver.AlbumSources.prefetchVkAlbum(
+                            albumId, album.name, album.artists.firstOrNull()?.name.orEmpty(), loaded,
+                        )
+                    }
+                }
                 // Diagnostic: verify the returned album content matches the requested id. If the track
                 // names look unrelated to the album (e.g. ".m0lly /bin"), the mismatch is visible here.
                 val trackNames = loaded.take(15).joinToString(separator = " | ") { it.name }

@@ -272,7 +272,7 @@ fun LocalPlaylistScreen(
             addAll(songs)
         }
         if (songs.isEmpty()) return@LaunchedEffect
-        downloadUtil.downloads.collect { downloads ->
+        downloadUtil.visibleDownloads.collect { downloads ->
             downloadState =
                 if (songs.all { downloads[it.song.id]?.state == Download.STATE_COMPLETED }) {
                     Download.STATE_COMPLETED
@@ -1011,7 +1011,7 @@ fun LocalPlaylistHeader(
 
     LaunchedEffect(songs) {
         if (songs.isEmpty()) return@LaunchedEffect
-        downloadUtil.downloads.collect { downloads ->
+        downloadUtil.visibleDownloads.collect { downloads ->
             downloadState =
                 if (songs.all { downloads[it.song.id]?.state == Download.STATE_COMPLETED }) {
                     Download.STATE_COMPLETED

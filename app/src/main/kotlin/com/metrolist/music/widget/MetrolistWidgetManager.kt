@@ -28,6 +28,7 @@ import com.metrolist.music.R
 import com.metrolist.music.db.MusicDatabase
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -72,7 +73,8 @@ class MetrolistWidgetManager @Inject constructor(
         isPlaying: Boolean,
         isLiked: Boolean,
         duration: Long = 0,
-        currentPosition: Long = 0
+        currentPosition: Long = 0,
+        mediaId: String? = null,
     ) {
         renderMutex.withLock {
             val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
@@ -87,7 +89,12 @@ class MetrolistWidgetManager @Inject constructor(
             // Nothing on the home screen — skip artwork decoding and all the binder traffic
             // below. The refresh loop runs for the whole playback session, so this is the
             // common case for most users.
-            if (widgetIds.isEmpty() && turntableWidgetIds.isEmpty()) return
+            val radioIds = runCatching { appWidgetManager.getAppWidgetIds(ComponentName(context, MeldRadioWidget::class.java)) }
+                .getOrNull() ?: IntArray(0)
+            val classicIds = runCatching { appWidgetManager.getAppWidgetIds(ComponentName(context, MeldPlayerClassicWidget::class.java)) }
+                .getOrNull() ?: IntArray(0)
+            val freaks = FreakWidgets.placed(context)
+            if (widgetIds.isEmpty() && turntableWidgetIds.isEmpty() && radioIds.isEmpty() && classicIds.isEmpty() && freaks.isEmpty()) return
 
             // Reload album art only when the track actually changed.
             if (artworkUri != cachedArtworkUri || (artworkUri != null && cachedAlbumArt == null)) {
@@ -115,6 +122,33 @@ class MetrolistWidgetManager @Inject constructor(
                     currentPosition
                 )
                 runCatching { appWidgetManager.updateAppWidget(widgetId, views) }
+            }
+
+            val meld = MeldFace(
+                title = title,
+                artist = artist,
+                cover = roundedAlbumArt,
+                isPlaying = isPlaying,
+                isLiked = isLiked,
+                progress = if (duration > 0) (currentPosition * 1000 / duration).toInt().coerceIn(0, 1000) else 0,
+                quality = if (radioIds.isNotEmpty() || FreakKind.CYBER in freaks) mediaId?.let { qualityLine(it) } else null,
+            )
+            radioIds.forEach { id -> runCatching { appWidgetManager.updateAppWidget(id, responsive(appWidgetManager, id, radioFaces(meld))) } }
+            classicIds.forEach { id -> runCatching { appWidgetManager.updateAppWidget(id, responsive(appWidgetManager, id, classicFaces(meld))) } }
+            if (freaks.isNotEmpty()) {
+                FreakWidgets.update(
+                    context,
+                    FreakState(
+                        title = title,
+                        artist = artist,
+                        cover = cachedAlbumArt,
+                        isPlaying = isPlaying,
+                        isLiked = isLiked,
+                        progress = if (duration > 0) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f,
+                        live = true,
+                        quality = meld.quality?.toString(),
+                    ),
+                )
             }
 
             // Update turntable widgets
@@ -408,6 +442,120 @@ class MetrolistWidgetManager @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+    private val nextIntent: PendingIntent by lazy {
+        broadcastIntent(6, MusicWidgetReceiver::class.java, MusicWidgetReceiver.ACTION_NEXT)
+    }
+
+    private val previousIntent: PendingIntent by lazy {
+        broadcastIntent(7, MusicWidgetReceiver::class.java, MusicWidgetReceiver.ACTION_PREVIOUS)
+    }
+
+    private class MeldFace(
+        val title: String,
+        val artist: String,
+        val cover: Bitmap,
+        val isPlaying: Boolean,
+        val isLiked: Boolean,
+        val progress: Int,
+        val quality: CharSequence?,
+    )
+
+    /** A layout for each size, smallest first, as (min width dp, min height dp) to views. */
+    private class Face(val widthDp: Float, val heightDp: Float, val views: RemoteViews)
+
+    /**
+     * Android 12+: every layout goes to the launcher, which picks by size itself (resizing switches
+     * the layout at once). Before: the one that fits the widget's current size.
+     */
+    private fun responsive(manager: AppWidgetManager, widgetId: Int, faces: List<Face>): RemoteViews {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            return RemoteViews(faces.associate { android.util.SizeF(it.widthDp, it.heightDp) to it.views })
+        }
+        val options = manager.getAppWidgetOptions(widgetId)
+        val w = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
+        val h = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)
+        return faces.lastOrNull { w >= it.widthDp && h >= it.heightDp }?.views ?: faces.first().views
+    }
+
+    private fun playIcon(face: MeldFace, secondary: Boolean = true) = when {
+        face.isPlaying && secondary -> R.drawable.ic_widget_pause_secondary
+        face.isPlaying -> R.drawable.ic_widget_pause
+        secondary -> R.drawable.ic_widget_play_secondary
+        else -> R.drawable.ic_widget_play
+    }
+
+    private fun classicFaces(face: MeldFace): List<Face> {
+        fun build(layout: Int) = RemoteViews(context.packageName, layout).apply {
+            setImageViewBitmap(R.id.classic_cover, face.cover)
+            setTextViewText(R.id.classic_title, face.title)
+            setTextViewText(R.id.classic_artist, face.artist)
+            setImageViewResource(R.id.classic_play, playIcon(face, secondary = false))
+            setOnClickPendingIntent(R.id.classic_cover, openAppIntent)
+            setOnClickPendingIntent(R.id.classic_title, openAppIntent)
+            setOnClickPendingIntent(R.id.classic_play, playPauseIntent)
+            setOnClickPendingIntent(R.id.classic_prev, previousIntent)
+            setOnClickPendingIntent(R.id.classic_next, nextIntent)
+            if (layout == R.layout.widget_classic_full) {
+                setProgressBar(R.id.classic_progress, 1000, face.progress, false)
+                setImageViewResource(R.id.classic_like, if (face.isLiked) R.drawable.ic_widget_heart_nav else R.drawable.ic_widget_heart_outline_nav)
+                setOnClickPendingIntent(R.id.classic_like, likeIntent)
+            }
+        }
+        return listOf(
+            Face(180f, 40f, build(R.layout.widget_classic_row)),
+            Face(180f, 110f, build(R.layout.widget_classic_full)),
+        )
+    }
+
+    private fun radioFaces(face: MeldFace): List<Face> {
+        val lcdSource = face.quality?.toString()?.uppercase() ?: "MELD"
+        fun build(layout: Int) = RemoteViews(context.packageName, layout).apply {
+            setTextViewText(R.id.radio_source, lcdSource)
+            setTextViewText(R.id.radio_title, face.title)
+            if (layout != R.layout.widget_radio_strip) setTextViewText(R.id.radio_artist, face.artist)
+            setProgressBar(R.id.radio_progress, 1000, face.progress, false)
+            setImageViewResource(R.id.radio_play, playIcon(face, secondary = false))
+            setOnClickPendingIntent(R.id.radio_lcd, openAppIntent)
+            setOnClickPendingIntent(R.id.radio_play, playPauseIntent)
+            setOnClickPendingIntent(R.id.radio_prev, previousIntent)
+            setOnClickPendingIntent(R.id.radio_next, nextIntent)
+            if (layout == R.layout.widget_radio_full) {
+                setImageViewBitmap(R.id.radio_cover, face.cover)
+                setImageViewResource(R.id.radio_like, if (face.isLiked) R.drawable.ic_widget_heart_nav else R.drawable.ic_widget_heart_outline_nav)
+                setOnClickPendingIntent(R.id.radio_like, likeIntent)
+                setOnClickPendingIntent(R.id.radio_open, openAppIntent)
+                setOnClickPendingIntent(R.id.radio_cover, openAppIntent)
+            }
+        }
+        return listOf(
+            Face(100f, 100f, build(R.layout.widget_radio_small)),
+            Face(220f, 40f, build(R.layout.widget_radio_strip)),
+            Face(220f, 110f, build(R.layout.widget_radio_full)),
+        )
+    }
+
+    /** "320 kbps · MP3 · VK", the bitrate in its quality colour (as above the cover in the player). */
+    private suspend fun qualityLine(mediaId: String): CharSequence? = withContext(Dispatchers.IO) {
+        val format = runCatching { database.format(mediaId).firstOrNull() }.getOrNull() ?: return@withContext null
+        val codec = com.metrolist.music.ui.component.AudioQualityLevel.codecName(format.mimeType, format.codecs)
+        val source = (com.metrolist.music.resolver.NowServing.of(mediaId)
+            ?: com.metrolist.music.resolver.AudioFallbackEngine.sourceOf(mediaId, database.getSongByIdBlocking(mediaId)))
+            ?.let { com.metrolist.music.ui.component.providerLabel(it) }
+        val kbps = format.bitrate.takeIf { it > 0 }?.let { com.metrolist.music.ui.component.AudioQualityLevel.kbps(it) }
+        val out = android.text.SpannableStringBuilder()
+        kbps?.let {
+            val start = out.length
+            out.append("$it kbps")
+            val color = com.metrolist.music.ui.dialog.bitrateColor(it)
+            out.setSpan(
+                android.text.style.ForegroundColorSpan(android.graphics.Color.argb(255, (color.red * 255).toInt(), (color.green * 255).toInt(), (color.blue * 255).toInt())),
+                start, out.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
+        listOfNotNull(codec, source).forEach { if (out.isNotEmpty()) out.append(" · "); out.append(it) }
+        out.takeIf { it.isNotEmpty() }
+    }
+
     private val turntablePreviousIntent: PendingIntent by lazy {
         broadcastIntent(
             5,
@@ -419,6 +567,6 @@ class MetrolistWidgetManager @Inject constructor(
     private companion object {
         /** Matches 12dp at ~4x density for the 48dp artwork views. */
         const val DEFAULT_CORNER_RADIUS = 48f
-        const val ARTWORK_SIZE = 300
+        const val ARTWORK_SIZE = 512
     }
 }

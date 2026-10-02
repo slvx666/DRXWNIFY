@@ -211,6 +211,7 @@ import com.metrolist.music.playback.queues.filterExplicit
 import com.metrolist.music.playback.queues.filterVideoSongs
 import com.metrolist.music.utils.CoilBitmapLoader
 import com.metrolist.music.utils.DiscordRPC
+import com.metrolist.music.utils.InternetProbe
 import com.metrolist.music.utils.NetworkConnectivityObserver
 import com.metrolist.music.utils.ScrobbleManager
 import com.metrolist.music.utils.SyncUtils
@@ -644,7 +645,7 @@ class MusicService :
 
         audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
 
-        audioQuality = dataStore.get(AudioQualityKey).toEnum(com.metrolist.music.constants.AudioQuality.AUTO)
+        audioQuality = dataStore.get(AudioQualityKey).toEnum(com.metrolist.music.constants.AudioQuality.HIGH)
         playerVolume = MutableStateFlow(dataStore.get(PlayerVolumeKey, 1f).coerceIn(0f, 1f))
 
         // Initialize Google Cast
@@ -678,6 +679,7 @@ class MusicService :
             connectivityObserver.networkStatus.collect { isConnected ->
                 isNetworkConnected.value = isConnected
                 if (isConnected && waitingForNetworkConnection.value) {
+                    forgetFailuresForOutage(player.currentMediaItem?.mediaId)
                     triggerRetry()
                 }
                 // Update Discord RPC when network becomes available
@@ -700,7 +702,7 @@ class MusicService :
                     it[AudioQualityKey]?.let { value ->
                         com.metrolist.music.constants.AudioQuality.entries
                             .find { it.name == value }
-                    } ?: com.metrolist.music.constants.AudioQuality.AUTO
+                    } ?: com.metrolist.music.constants.AudioQuality.HIGH
                 }.distinctUntilChanged()
                 .collect { newQuality ->
                     val oldQuality = audioQuality
@@ -1352,31 +1354,31 @@ class MusicService :
 
     fun hasAudioFocusForPlayback(): Boolean = hasAudioFocus
 
+    /**
+     * The track could not load for lack of a working connection. Waits for as long as it takes —
+     * a metro ride can be minutes — and starts the track the moment the internet answers again.
+     * Android's "network available" can't be relied on for that: underground the phone keeps a
+     * mobile network that carries nothing, so no "available" event ever comes; the internet itself
+     * is asked instead, often at first and less often as the outage drags on.
+     */
     private fun waitOnNetworkError() {
         if (waitingForNetworkConnection.value) return
-
-        // Check if we've exceeded max retry attempts
-        if (retryCount >= MAX_RETRY_COUNT) {
-            Timber.tag(TAG).w("Max retry count ($MAX_RETRY_COUNT) reached, stopping playback")
-            stopOnError()
-            retryCount = 0
-            return
-        }
-
         waitingForNetworkConnection.value = true
 
-        // Start a retry timer with exponential backoff
         retryJob?.cancel()
         retryJob =
             scope.launch {
-                // Exponential backoff: 3s, 6s, 12s, 24s... max 30s
-                val delayMs = minOf(3000L * (1 shl retryCount), 30000L)
-                Timber.tag(TAG).d("Waiting ${delayMs}ms before retry attempt ${retryCount + 1}/$MAX_RETRY_COUNT")
-                delay(delayMs)
-
-                if (isNetworkConnected.value && waitingForNetworkConnection.value) {
-                    retryCount++
-                    triggerRetry()
+                var attempt = 0
+                while (isActive && waitingForNetworkConnection.value) {
+                    delay(NETWORK_RECHECK_DELAYS_MS[attempt.coerceAtMost(NETWORK_RECHECK_DELAYS_MS.lastIndex)])
+                    attempt++
+                    if (InternetProbe.isOnline()) {
+                        Timber.tag(TAG).d("Internet is back after %d check(s), retrying the track", attempt)
+                        retryCount++
+                        forgetFailuresForOutage(player.currentMediaItem?.mediaId)
+                        triggerRetry()
+                        break
+                    }
                 }
             }
     }
@@ -2503,6 +2505,13 @@ class MusicService :
         previousEpisodeId = null
         previousEpisodePosition = 0L
 
+        // Queues that pick songs by themselves skip what has just been heard.
+        mediaItem?.mediaId?.let(SpotifyMetadataRegistry::get)?.let { track ->
+            RecentlyPlayed.record(track)
+            // Playing a track counts as using its album ("Recents" in the library).
+            LibraryRecents.album(track.album?.id)
+        }
+
         // Check if new item is an episode and restore its position
         val newMetadata = mediaItem?.metadata
         if (newMetadata?.isEpisode == true) {
@@ -2559,35 +2568,54 @@ class MusicService :
         }
 
         // Auto load more songs from queue (lazy load: keep QUEUE_PRELOAD_AHEAD_THRESHOLD items ahead)
-        if (dataStore.get(AutoLoadMoreKey, true) &&
-            reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
-            player.mediaItemCount - player.currentMediaItemIndex <= QUEUE_PRELOAD_AHEAD_THRESHOLD &&
-            currentQueue.hasNextPage() &&
-            !(dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL)
+        if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
+            player.mediaItemCount - player.currentMediaItemIndex <= QUEUE_PRELOAD_AHEAD_THRESHOLD
         ) {
-            scope.launch(SilentHandler) {
-                val mediaItems =
-                    withContext(Dispatchers.IO) {
-                        currentQueue
-                            .nextPage()
-                            .filterExplicit(dataStore.get(HideExplicitKey, false))
-                            .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
-                    }
-                if (player.playbackState != STATE_IDLE && mediaItems.isNotEmpty()) {
-                    player.addMediaItems(mediaItems)
-                    // Don't re-shuffle here: ExoPlayer's DefaultShuffleOrder.cloneAndInsert()
-                    // already places newly added items at random positions within the existing
-                    // shuffle order, preserving the sequence the user is currently listening to.
-                }
-            }
+            loadMoreOfQueue(resumeWhenLoaded = false)
         }
 
         // Pre-cache upcoming tracks for offline playback
         triggerPreCache()
+        warmUpNextTrack()
 
         // Save state when media item changes
         if (dataStore.get(PersistentQueueKey, true)) {
             saveQueueToDisk()
+        }
+    }
+
+    private var loadMoreJob: Job? = null
+
+    /**
+     * Appends the queue's next page. One load at a time: skipping fast used to start several, and
+     * the queues are not built for concurrent paging. [resumeWhenLoaded]: the queue already ran out
+     * (the last load came back empty or late), so playback goes on with the first new track.
+     */
+    private fun loadMoreOfQueue(resumeWhenLoaded: Boolean) {
+        if (!dataStore.get(AutoLoadMoreKey, true) || !currentQueue.hasNextPage()) return
+        if (dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL) return
+        if (loadMoreJob?.isActive == true) return
+        val queue = currentQueue
+        loadMoreJob = scope.launch(SilentHandler) {
+            val mediaItems =
+                withContext(Dispatchers.IO) {
+                    queue
+                        .nextPage()
+                        .filterExplicit(dataStore.get(HideExplicitKey, false))
+                        .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
+                }
+            if (currentQueue !== queue || mediaItems.isEmpty()) return@launch
+            if (player.playbackState == STATE_IDLE && !resumeWhenLoaded) return@launch
+            val firstNew = player.mediaItemCount
+            player.addMediaItems(mediaItems)
+            // Don't re-shuffle here: ExoPlayer's DefaultShuffleOrder.cloneAndInsert()
+            // already places newly added items at random positions within the existing
+            // shuffle order, preserving the sequence the user is currently listening to.
+            if (resumeWhenLoaded && player.playbackState == Player.STATE_ENDED) {
+                player.seekTo(firstNew, 0)
+                player.prepare()
+                player.play()
+            }
         }
     }
 
@@ -2601,6 +2629,9 @@ class MusicService :
                 player.seekTo(0, 0)
                 player.prepare()
                 player.play()
+            } else {
+                // The queue ran out before its next page arrived: an endless queue goes on.
+                loadMoreOfQueue(resumeWhenLoaded = true)
             }
         }
 
@@ -3539,12 +3570,10 @@ class MusicService :
                 isPausedByVolumeMute = true
                 player.pause()
             }
-        } else if (volume > 0 && !muted && pauseOnMute) {
-            if (wasPlayingBeforeVolumeMute && !player.isPlaying && castConnectionHandler?.isCasting?.value != true) {
-                wasPlayingBeforeVolumeMute = false
-                isPausedByVolumeMute = false
-                player.play()
-            }
+        } else if (volume > 0 && !muted) {
+            // Turning the volume back up never starts the music by itself: the user presses play.
+            wasPlayingBeforeVolumeMute = false
+            isPausedByVolumeMute = false
         }
     }
 
@@ -3552,6 +3581,52 @@ class MusicService :
      * Pre-caches the next N tracks in the queue for offline playback.
      * Respects user preferences for track count and WiFi-only restriction.
      */
+    private var warmUpJob: Job? = null
+    private val warmUpSourceFactory by lazy { createDataSourceFactory() }
+
+    /**
+     * Gets the start of the next track ready while the current one plays, so it starts at once —
+     * also when the connection is weak by then (the metro). It goes through the player's own data
+     * source (same source lookup, same cache), and only once the current track has enough buffered
+     * that it never competes with it for bandwidth. On Wi-Fi more of it is fetched.
+     */
+    private fun warmUpNextTrack() {
+        warmUpJob?.cancel()
+        val nextIndex = player.nextMediaItemIndex
+        if (nextIndex == C.INDEX_UNSET) return
+        val next = player.getMediaItemAt(nextIndex)
+        val mediaId = next.mediaId
+        if (mediaId.isBlank() || mediaId.startsWith("local:")) return
+        val uri = next.localConfiguration?.uri ?: mediaId.toUri()
+        val key = next.localConfiguration?.customCacheKey ?: mediaId
+        warmUpJob = scope.launch(SilentHandler) {
+            // Wait for the current track to be safely ahead (or fully loaded).
+            val deadline = System.currentTimeMillis() + WARM_UP_MAX_WAIT_MS
+            while (isActive && System.currentTimeMillis() < deadline) {
+                val ahead = player.bufferedPosition - player.currentPosition
+                if (player.bufferedPercentage >= 100 || ahead >= WARM_UP_AHEAD_MS) break
+                delay(2_000)
+            }
+            if (!isActive || player.currentMediaItemIndex + 1 != nextIndex && player.nextMediaItemIndex != nextIndex) return@launch
+            val bytes = if (connectivityManager.isActiveNetworkMetered) WARM_UP_BYTES_METERED else WARM_UP_BYTES_UNMETERED
+            withContext(Dispatchers.IO) {
+                val source = warmUpSourceFactory.createDataSource()
+                runCatching {
+                    source.open(DataSpec.Builder().setUri(uri).setKey(key).setPosition(0).setLength(bytes).build())
+                    val buffer = ByteArray(64 * 1024)
+                    var total = 0L
+                    while (isActive && total < bytes) {
+                        val read = source.read(buffer, 0, buffer.size)
+                        if (read == C.RESULT_END_OF_INPUT) break
+                        total += read
+                    }
+                    Timber.tag(PRECACHE_TAG).d("[WARMUP] %s: %d bytes ready", mediaId, total)
+                }.onFailure { Timber.tag(PRECACHE_TAG).d("[WARMUP] %s failed: %s", mediaId, it.message) }
+                runCatching { source.close() }
+            }
+        }
+    }
+
     private fun triggerPreCache() {
         preCacheJob?.cancel()
 
@@ -3972,6 +4047,7 @@ class MusicService :
         return when (plan) {
             is AudioFallbackEngine.StreamPlan.Direct -> {
                 fallbackServing[mediaId] = FallbackServing(plan.provider, plan.trackId)
+                com.metrolist.music.resolver.NowServing.set(mediaId, plan.provider)
                 val stream = plan.stream
                 val streamFormat = FormatEntity(
                     id = mediaId,
@@ -4030,6 +4106,7 @@ class MusicService :
                     return resolveFallbackDataSpec(dataSpec, mediaId, bypassCache, youtubeRescue, depth = depth + 1)
                 }
                 fallbackServing[mediaId] = FallbackServing(AudioProviderId.YOUTUBE, plan.videoId)
+                com.metrolist.music.resolver.NowServing.set(mediaId, AudioProviderId.YOUTUBE)
                 database.query {
                     upsert(
                         FormatEntity(
@@ -4060,6 +4137,30 @@ class MusicService :
      * network-level YouTube failures in a short window, catalog tracks go straight to the other
      * providers for a while instead of paying YouTube's timeout on every track.
      */
+    /**
+     * The error to raise for a track no source could serve. With no working internet (the metro:
+     * a network is up but carries nothing) that is not the track's fault: every "failure" recorded
+     * on the way is forgotten, and the player is told it is a connection problem, so it waits for
+     * the connection and tries again instead of giving the track up.
+     */
+    private fun offlineOr(mediaId: String, otherwise: DataSourceException?): DataSourceException? {
+        val online = runCatching { runBlocking(Dispatchers.IO) { InternetProbe.isOnline() } }.getOrDefault(true)
+        if (online) return otherwise
+        forgetFailuresForOutage(mediaId)
+        return DataSourceException(
+            getString(R.string.error_no_internet),
+            null,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+        )
+    }
+
+    /** Failures seen while offline say nothing about the track or the sources: try them all again. */
+    private fun forgetFailuresForOutage(mediaId: String?) {
+        mediaId?.let { fallbackFailures.remove(it) }
+        youtubeUnavailableUntilMs = 0L
+        recentYouTubeRescues.clear()
+    }
+
     @Volatile
     private var youtubeUnavailableUntilMs = 0L
     private val recentYouTubeRescues = java.util.concurrent.ConcurrentLinkedDeque<Long>()
@@ -4152,7 +4253,7 @@ class MusicService :
             // through the audio fallback engine, which also switches provider when one fails.
             if (FallbackIds.isFallbackId(mediaId)) {
                 return@Factory resolveFallbackDataSpec(dataSpec, mediaId, shouldBypassCache, youtubeRescue = false)
-                    ?: throw DataSourceException(
+                    ?: throw offlineOr(mediaId, null) ?: DataSourceException(
                         getString(R.string.error_no_audio_source),
                         null,
                         PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
@@ -4438,6 +4539,9 @@ class MusicService :
                         noteYouTubeRescue(throwable)
                         resolveFallbackDataSpec(dataSpec, mediaId, shouldBypassCache, youtubeRescue = true, youtubeError = throwable)
                             ?.let { return@Factory it }
+                        if (isNetworkFailure(throwable) || throwable is java.net.SocketTimeoutException) {
+                            offlineOr(mediaId, null)?.let { throw it }
+                        }
                     }
                     /*
                      * Everything thrown from here travels through Media3's Loader, and Loader
@@ -4909,6 +5013,7 @@ class MusicService :
         val isLiked: Boolean,
         val duration: Long,
         val currentPosition: Long,
+        val mediaId: String? = null,
     )
 
     /**
@@ -4933,6 +5038,7 @@ class MusicService :
                 isLiked = isCurrentFavorite(),
                 duration = if (player.duration != C.TIME_UNSET) player.duration else 0,
                 currentPosition = player.currentPosition,
+                mediaId = player.currentMediaItem?.mediaId,
             )
         )
     }
@@ -4951,6 +5057,7 @@ class MusicService :
                         isLiked = state.isLiked,
                         duration = state.duration,
                         currentPosition = state.currentPosition,
+                        mediaId = state.mediaId,
                     )
                 } catch (e: Exception) {
                     // Widget not added to home screen or other error
@@ -5076,24 +5183,27 @@ class MusicService :
      */
     fun setAudioSource(mediaId: String, match: com.metrolist.music.resolver.ProviderMatch?) {
         if (mediaId.isBlank()) return
-        scope.launch(Dispatchers.IO) {
-            AudioFallbackEngine.setManualChoice(mediaId, database.getSongByIdBlocking(mediaId), match)
-            songUrlCache.remove(mediaId)
-            songUrlCache.remove(RESCUE_CACHE_PREFIX + mediaId)
-            fallbackServing.remove(mediaId)
-            fallbackFailures.remove(mediaId)
-            runCatching { playerCache.removeResource(mediaId) }
-            runCatching { playerCache.removeResource(RESCUE_CACHE_PREFIX + mediaId) }
-            withContext(Dispatchers.Main) {
-                if (player.currentMediaItem?.mediaId == mediaId) {
-                    val pos = player.currentPosition.coerceAtLeast(0L)
-                    val wasPlaying = player.playWhenReady
-                    val idx = player.currentMediaItemIndex
-                    player.stop()
-                    player.seekTo(idx, pos)
-                    player.prepare()
-                    if (wasPlaying) player.play()
-                }
+        scope.launch {
+            // The player lets go of the old audio first: cache spans it still holds can't be removed,
+            // and a restart then played the same old bytes — "switched to VK" but YouTube went on.
+            val isCurrent = player.currentMediaItem?.mediaId == mediaId
+            val pos = player.currentPosition.coerceAtLeast(0L)
+            val wasPlaying = player.playWhenReady
+            val idx = player.currentMediaItemIndex
+            if (isCurrent) player.stop()
+            withContext(Dispatchers.IO) {
+                AudioFallbackEngine.setManualChoice(mediaId, database.getSongByIdBlocking(mediaId), match)
+                songUrlCache.remove(mediaId)
+                songUrlCache.remove(RESCUE_CACHE_PREFIX + mediaId)
+                fallbackServing.remove(mediaId)
+                fallbackFailures.remove(mediaId)
+                runCatching { playerCache.removeResource(mediaId) }
+                runCatching { playerCache.removeResource(RESCUE_CACHE_PREFIX + mediaId) }
+            }
+            if (isCurrent && player.currentMediaItemIndex == idx) {
+                player.seekTo(idx, pos)
+                player.prepare()
+                if (wasPlaying) player.play()
             }
         }
     }
@@ -5446,6 +5556,14 @@ class MusicService :
         const val PERSISTENT_PLAYER_STATE_FILE = "persistent_player_state.data"
         const val MAX_CONSECUTIVE_ERR = 5
         const val MAX_RETRY_COUNT = 10
+
+        private const val WARM_UP_AHEAD_MS = 45_000L
+        private const val WARM_UP_MAX_WAIT_MS = 90_000L
+        private const val WARM_UP_BYTES_METERED = 1_500_000L
+        private const val WARM_UP_BYTES_UNMETERED = 4_000_000L
+
+        /** How long to wait before each "is the internet back?" check while a track waits for it. */
+        private val NETWORK_RECHECK_DELAYS_MS = longArrayOf(1_500, 2_500, 4_000, 5_000)
 
         // Constants for audio normalization
         private const val MAX_GAIN_MB = 300 // Maximum gain in millibels (3 dB)

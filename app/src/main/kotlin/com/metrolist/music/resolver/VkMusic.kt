@@ -18,9 +18,13 @@ object VkMusic {
     private val provider: VkAudioProvider?
         get() = AudioFallbackEngine.provider(AudioProviderId.VK) as? VkAudioProvider
 
-    /** Signed in and switched on. */
+    /** Signed in (own account or the shared test one) and switched on. */
     val isReady: Boolean
         get() = ResolverPreferences.isEnabled(AudioProviderId.VK) && provider?.isReady() == true
+
+    /** The user's own VK account is linked: library, likes and saving work only then. */
+    @Volatile
+    var ownAccount: Boolean = false
 
     /** Playlists seen on screen, so a playlist page can be opened by its key alone. */
     private val known = ConcurrentHashMap<String, VkPlaylist>()
@@ -125,6 +129,7 @@ object VkMusic {
      */
     @Volatile
     var likesToAccount: Boolean = true
+        get() = field && ownAccount
 
     @Volatile
     private var myOwnerId: Long? = null

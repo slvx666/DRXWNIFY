@@ -54,6 +54,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.only
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
@@ -110,7 +111,7 @@ fun SpotifyAlbumScreen(
 
     // Downloaded state per track: SpotifyTrack has no YT id, so map spotifyId → resolved youtubeId
     // via the spotify_match cache, then observe the live download map keyed on youtube id.
-    val downloads by downloadUtil.downloads.collectAsState()
+    val downloads by downloadUtil.visibleDownloads.collectAsState()
     val spotifyToYt by produceState<Map<String, String>>(initialValue = emptyMap(), tracks, downloadProgress) {
         value = if (tracks.isEmpty()) {
             emptyMap()
@@ -131,15 +132,40 @@ fun SpotifyAlbumScreen(
     }
 
     val currentSpotifyId by produceState<String?>(initialValue = null, mediaMetadata?.id) {
-        val ytId = mediaMetadata?.id
-        value = if (ytId != null) {
-            withContext(Dispatchers.IO) { database.getSpotifyMatchByYouTubeId(ytId)?.spotifyId }
-        } else {
-            null
-        }
+        value = com.metrolist.music.playback.SpotifyMetadataRegistry.catalogIdOf(database, mediaMetadata?.id)
     }
 
     val lazyListState = rememberLazyListState()
+    val selection = com.metrolist.music.ui.component.rememberTrackSelection()
+
+    /** Downloads [toDownload] (the whole album, or the tracks ticked in the selection). */
+    fun downloadTracks(toDownload: List<com.metrolist.spotify.models.SpotifyTrack>) {
+        if (toDownload.isEmpty()) return
+        android.widget.Toast.makeText(
+            context,
+            context.getString(R.string.spotify_download_started, toDownload.size),
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
+        // Background scope: keep downloading even after the user opens
+        // another album (previously this was cancelled on navigation).
+        val appContext = context.applicationContext
+        SpotifyBatchDownload.start(
+            appContext = appContext,
+            sourceId = downloadSourceId,
+            tracks = toDownload,
+            mapper = viewModel.mapper,
+            label = album?.name ?: "",
+            downloads = downloadUtil.downloads,
+            database = database,
+            onFinished = { result ->
+                android.widget.Toast.makeText(
+                    appContext,
+                    appContext.getString(R.string.spotify_dl_finished, result.current, result.skipped, result.failed),
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            },
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -216,7 +242,7 @@ fun SpotifyAlbumScreen(
                     val downloadedCount = com.metrolist.music.ui.component.rememberDownloadedCount(tracks)
                     if (!isLoading && tracks.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        Row {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Button(
                                 onClick = {
                                     val albumId = album?.id ?: return@Button
@@ -241,38 +267,7 @@ fun SpotifyAlbumScreen(
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             val isDownloading = downloadProgress != null
-                            val startAlbumDownload: () -> Unit = startAlbumDownload@{
-                                    val toDownload = tracks
-                                    if (toDownload.isEmpty()) return@startAlbumDownload
-                                    val albumLabel = album?.name ?: ""
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        context.getString(R.string.spotify_download_started, toDownload.size),
-                                        android.widget.Toast.LENGTH_SHORT,
-                                    ).show()
-                                    // Background scope: keep downloading even after the user opens
-                                    // another album (previously this was cancelled on navigation).
-                                    val appContext = context.applicationContext
-                                    SpotifyBatchDownload.start(
-                                        appContext = appContext,
-                                        sourceId = downloadSourceId,
-                                        tracks = toDownload,
-                                        mapper = viewModel.mapper,
-                                        label = albumLabel,
-                                        downloads = downloadUtil.downloads,
-                                        database = database,
-                                        onFinished = { result ->
-                                            android.widget.Toast.makeText(
-                                                appContext,
-                                                appContext.getString(
-                                                    R.string.spotify_dl_finished,
-                                                    result.current, result.skipped, result.failed,
-                                                ),
-                                                android.widget.Toast.LENGTH_LONG,
-                                            ).show()
-                                        },
-                                    )
-                                }
+                            val startAlbumDownload: () -> Unit = { downloadTracks(tracks) }
                             if (isDownloading) {
                                 // Cancel this album's batch download.
                                 OutlinedButton(onClick = { SpotifyBatchDownload.cancel(downloadSourceId) }) {
@@ -389,8 +384,10 @@ fun SpotifyAlbumScreen(
                 val thumbnailUrl = SpotifyMapper.getTrackThumbnail(track)
 
                 val isActive = currentSpotifyId != null && currentSpotifyId == track.id
-                val trackDownloadState = spotifyToYt[track.id]?.let { downloads[it]?.state }
-                val trackLiked = likedTracks.contains(track.id)
+                val trackDownloadState = (downloads[com.metrolist.music.resolver.FallbackIds.of(track.id)]
+                    ?: spotifyToYt[track.id]?.let { downloads[it] })?.state
+                val trackLiked = likedTracks.contains(track.id) ||
+                    com.metrolist.music.playback.rememberCatalogTrackLiked(database, track.id, spotifyToYt[track.id])
                 ListItem(
                     title = track.name,
                     subtitle = joinByBullet(
@@ -412,34 +409,8 @@ fun SpotifyAlbumScreen(
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             com.metrolist.music.ui.component.Icon.Download(trackDownloadState)
-                            IconButton(
-                                onClick = {
-                                    menuState.show {
-                                        PlayerMenu(
-                                            mediaMetadata = track.toSongItem().toMediaMetadata(),
-                                            spotifyTrack = track,
-                                            navController = navController,
-                                            isCurrentTrack = false,
-                                            onDismiss = menuState::dismiss,
-                                        )
-                                    }
-                                },
-                                onLongClick = {
-                                    menuState.show {
-                                        PlayerMenu(
-                                            mediaMetadata = track.toSongItem().toMediaMetadata(),
-                                            spotifyTrack = track,
-                                            navController = navController,
-                                            isCurrentTrack = false,
-                                            onDismiss = menuState::dismiss,
-                                        )
-                                    }
-                                },
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.more_vert),
-                                    contentDescription = null,
-                                )
+                            com.metrolist.music.ui.component.TrackSelectionCheck(selection.active, selection.isSelected(track.id)) {
+                                selection.toggle(track.id)
                             }
                         }
                     },
@@ -456,6 +427,10 @@ fun SpotifyAlbumScreen(
                         .fillMaxWidth()
                         .combinedClickable(
                             onClick = {
+                                if (selection.active) {
+                                    selection.toggle(track.id)
+                                    return@combinedClickable
+                                }
                                 val albumId = album?.id ?: return@combinedClickable
                                 playerConnection.playQueue(
                                     SpotifyPlaylistQueue(
@@ -481,10 +456,34 @@ fun SpotifyAlbumScreen(
                         .animateItem(),
                 )
             }
+            item(key = "selection_space") { com.metrolist.music.ui.component.TrackSelectionSpacer(selection) }
         }
+
+        com.metrolist.music.ui.component.TrackSelectionBar(
+            selection = selection,
+            onDownload = { keys -> downloadTracks(tracks.filter { it.id in keys }); selection.stop() },
+            onShare = { keys ->
+                val picked = tracks.filter { it.id in keys }
+                com.metrolist.music.ui.component.SelectedTracks.share(context, downloadUtil) {
+                    com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, picked)
+                }
+            },
+            onDelete = { keys ->
+                val picked = tracks.filter { it.id in keys }
+                com.metrolist.music.ui.component.SelectedTracks.delete(context, downloadUtil) {
+                    com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, picked)
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(LocalPlayerAwareWindowInsets.current.only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom).asPaddingValues()),
+        )
 
         TopAppBar(
             title = { Text(album?.name ?: stringResource(R.string.albums)) },
+            actions = {
+                com.metrolist.music.ui.component.TrackSelectionActions(selection, tracks.map { it.id })
+            },
             navigationIcon = {
                 IconButton(
                     onClick = navController::navigateUp,

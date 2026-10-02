@@ -47,10 +47,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.media3.exoplayer.offline.DownloadService
 import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.R
-import com.metrolist.music.playback.ExoDownloadService
 import kotlinx.coroutines.launch
 
 /**
@@ -144,9 +142,7 @@ fun DownloadOrShare(
             confirmButton = {
                 TextButton(onClick = {
                     confirmIds = null
-                    ids.forEach { id ->
-                        DownloadService.sendRemoveDownload(context, ExoDownloadService::class.java, id, false)
-                    }
+                    downloadUtil.removeDownloads(ids)
                     Toast.makeText(context, R.string.downloads_removed, Toast.LENGTH_SHORT).show()
                 }) { Text(stringResource(R.string.remove_downloads)) }
             },

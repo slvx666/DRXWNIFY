@@ -61,6 +61,7 @@ import androidx.media3.exoplayer.offline.DownloadService
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.metrolist.music.LocalDatabase
+import com.metrolist.music.LocalDownloadUtil
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
@@ -129,6 +130,9 @@ fun VkTrackRow(
     isActive: Boolean,
     isPlaying: Boolean,
     onClick: () -> Unit,
+    downloadState: Int? = null,
+    /** Non-null while tracks are being picked: whether this one is ticked. */
+    selected: Boolean? = null,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -142,6 +146,10 @@ fun VkTrackRow(
             com.metrolist.music.playback.LikedBadge(
                 androidx.compose.runtime.remember(match) { com.metrolist.music.resolver.SourceSearch.mediaIdOf(match) },
             )
+            com.metrolist.music.ui.component.Icon.Download(downloadState)
+        },
+        trailingContent = {
+            com.metrolist.music.ui.component.TrackSelectionCheck(selected != null, selected == true, onClick)
         },
         isActive = isActive,
         thumbnailContent = {
@@ -197,7 +205,8 @@ fun VkLibraryScreen(
             )
         }
 
-        if (!com.metrolist.music.resolver.VkMusic.isReady) {
+        // The shared test account plays VK, but its library is not the user's to see.
+        if (!com.metrolist.music.resolver.VkMusic.isReady || !com.metrolist.music.resolver.VkMusic.ownAccount) {
             item(key = "signin") {
                 EmptyPlaceholder(
                     icon = R.drawable.vk_music,
@@ -282,6 +291,9 @@ fun VkPlaylistScreen(
     val saving by viewModel.saving.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
+    val downloadUtil = LocalDownloadUtil.current
+    val downloads by downloadUtil.visibleDownloads.collectAsState()
+    val exported by com.metrolist.music.utils.DownloadExportState.exported.collectAsState()
 
     fun play(list: List<ProviderMatch>, index: Int, shuffle: Boolean = false) {
         if (list.isEmpty()) return
@@ -295,12 +307,17 @@ fun VkPlaylistScreen(
         )
     }
 
-    fun downloadAll() {
+    val selection = com.metrolist.music.ui.component.rememberTrackSelection()
+
+    fun downloadTracks(tracks: List<ProviderMatch>) {
+        if (tracks.isEmpty()) return
         val appContext = context.applicationContext
         scope.launch(Dispatchers.IO) {
             // Pinned to VK first: the download reads the audio through the pinned source.
             SourceSearch.remember(tracks)
-            tracks.forEach { match ->
+            // Only what isn't on the phone yet: re-adding a finished download fetches it again.
+            val done = com.metrolist.music.utils.DownloadExportState.exported.value
+            tracks.filterNot { SourceSearch.mediaIdOf(it) in done }.forEach { match ->
                 val mediaId = SourceSearch.mediaIdOf(match)
                 database.transaction { upsertMetadata(SourceSearch.metadataOf(match)) }
                 val request = DownloadRequest.Builder(mediaId, mediaId.toUri())
@@ -317,6 +334,9 @@ fun VkPlaylistScreen(
         ).show()
     }
 
+    fun downloadAll() = downloadTracks(tracks)
+
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         TopAppBar(
             title = {
@@ -331,6 +351,9 @@ fun VkPlaylistScreen(
                     Icon(painterResource(R.drawable.arrow_back), contentDescription = null)
                 }
             },
+            actions = {
+                com.metrolist.music.ui.component.TrackSelectionActions(selection, tracks.map { it.trackId })
+            },
         )
 
         LazyColumn(
@@ -343,8 +366,9 @@ fun VkPlaylistScreen(
                 item(key = "header") {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
                     ) {
+                        // The same page as a Spotify / Yandex album: one album design everywhere.
                         // Tap: full screen (zoomable). Long press: saved to the gallery.
                         val coverViewer = com.metrolist.music.ui.component.rememberCoverViewerState()
                         val coverName = listOf(playlist.artist, playlist.title).filter { it.isNotBlank() }.joinToString(" - ")
@@ -354,8 +378,8 @@ fun VkPlaylistScreen(
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
-                                .size(220.dp)
-                                .clip(RoundedCornerShape(12.dp))
+                                .size(240.dp)
+                                .clip(RoundedCornerShape(ThumbnailCornerRadius))
                                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                                 .coverSource(coverViewer)
                                 .combinedClickable(
@@ -363,72 +387,87 @@ fun VkPlaylistScreen(
                                     onLongClick = { coverViewer.showActions(playlist.coverUrl, coverName) },
                                 ),
                         )
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(16.dp))
                         Text(
                             text = playlist.title,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.headlineSmall,
                             textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
+                        if (playlist.artist.isNotBlank()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = playlist.artist,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
                         Text(
-                            text = vkPlaylistSubtitle(playlist),
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = listOfNotNull(
+                                stringResource(if (playlist.isAlbum) R.string.release_type_album else R.string.release_type_playlist),
+                                playlist.year?.toString(),
+                                tracks.size.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.n_song, it, it) },
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
                         )
-                        Spacer(Modifier.height(12.dp))
-                        // Three actions, as on any album page: download (left), listen (centre),
-                        // save to "Library → VK" (right).
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(20.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            val exported by com.metrolist.music.utils.DownloadExportState.exported.collectAsState()
-                            val downloadedIds = tracks.map { SourceSearch.mediaIdOf(it) }.filter { it in exported }
-                            com.metrolist.music.ui.component.DownloadOrShare(
-                                downloaded = downloadedIds.size,
-                                total = tracks.size,
-                                downloadedIds = { downloadedIds },
-                                onDownloadRest = ::downloadAll,
-                                compact = true,
-                            ) {
-                                androidx.compose.material3.FilledTonalIconButton(
-                                    onClick = ::downloadAll,
-                                    enabled = tracks.isNotEmpty(),
-                                    modifier = Modifier.size(48.dp),
+
+                        val downloadedIds = tracks.map { SourceSearch.mediaIdOf(it) }.filter { it in exported }
+                        if (tracks.isNotEmpty()) {
+                            Spacer(Modifier.height(12.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                androidx.compose.material3.Button(onClick = { play(tracks, 0) }) {
+                                    Icon(painterResource(R.drawable.play), contentDescription = null, modifier = Modifier.size(20.dp))
+                                    Spacer(Modifier.size(8.dp))
+                                    Text(stringResource(R.string.play))
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                com.metrolist.music.ui.component.DownloadOrShare(
+                                    downloaded = downloadedIds.size,
+                                    total = tracks.size,
+                                    downloadedIds = { downloadedIds },
+                                    onDownloadRest = ::downloadAll,
                                 ) {
-                                    Icon(painterResource(R.drawable.download), stringResource(R.string.action_download), Modifier.size(22.dp))
+                                    OutlinedButton(onClick = ::downloadAll) {
+                                        Icon(painterResource(R.drawable.download), contentDescription = null, modifier = Modifier.size(20.dp))
+                                        Spacer(Modifier.size(8.dp))
+                                        Text(stringResource(R.string.action_download))
+                                    }
+                                }
+                                if (canSave || isSaved) {
+                                    Spacer(Modifier.width(4.dp))
+                                    IconButton(
+                                        // The user's own playlists are already theirs; only others' can be saved.
+                                        enabled = canSave && !saving,
+                                        onClick = {
+                                            viewModel.toggleSaved { result ->
+                                                val message = when {
+                                                    result.isFailure -> R.string.vk_save_failed
+                                                    result.getOrNull() == true -> R.string.vk_saved
+                                                    else -> R.string.vk_unsaved
+                                                }
+                                                android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                    ) {
+                                        Icon(
+                                            painterResource(if (isSaved) R.drawable.favorite else R.drawable.favorite_border),
+                                            contentDescription = stringResource(R.string.vk_save),
+                                            tint = if (isSaved) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                                        )
+                                    }
                                 }
                             }
-                            androidx.compose.material3.FilledIconButton(
-                                onClick = { play(tracks, 0) },
-                                enabled = tracks.isNotEmpty(),
-                                modifier = Modifier.size(64.dp),
-                            ) {
-                                Icon(painterResource(R.drawable.play), stringResource(R.string.play), Modifier.size(32.dp))
-                            }
-                            androidx.compose.material3.FilledTonalIconButton(
-                                // The user's own playlists are already theirs; only others' can be saved.
-                                enabled = canSave && !saving,
-                                onClick = {
-                                    viewModel.toggleSaved { result ->
-                                        val message = when {
-                                            result.isFailure -> R.string.vk_save_failed
-                                            result.getOrNull() == true -> R.string.vk_saved
-                                            else -> R.string.vk_unsaved
-                                        }
-                                        android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                modifier = Modifier.size(48.dp),
-                            ) {
-                                Icon(
-                                    painterResource(if (isSaved) R.drawable.favorite else R.drawable.favorite_border),
-                                    contentDescription = stringResource(R.string.vk_save),
-                                    tint = if (isSaved) MaterialTheme.colorScheme.error else androidx.compose.material3.LocalContentColor.current,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            }
+                            com.metrolist.music.ui.component.BatchDownloadProgress(
+                                progress = null,
+                                downloaded = downloadedIds.size,
+                                total = tracks.size,
+                            )
                         }
                     }
                 }
@@ -440,7 +479,9 @@ fun VkPlaylistScreen(
                     match = match,
                     isActive = mediaMetadata?.id == mediaId,
                     isPlaying = isPlaying,
-                    onClick = { play(tracks, index) },
+                    downloadState = downloads[mediaId]?.state,
+                    selected = if (selection.active) selection.isSelected(match.trackId) else null,
+                    onClick = { if (selection.active) selection.toggle(match.trackId) else play(tracks, index) },
                     onLongClick = {
                         menuState.show {
                             SourceTrackMenu(match = match, onDismiss = menuState::dismiss, navController = navController)
@@ -465,7 +506,25 @@ fun VkPlaylistScreen(
                     )
                 }
             }
+            item(key = "selection_space") { com.metrolist.music.ui.component.TrackSelectionSpacer(selection) }
         }
+    }
+
+    com.metrolist.music.ui.component.TrackSelectionBar(
+        selection = selection,
+        onDownload = { keys -> downloadTracks(tracks.filter { it.trackId in keys }); selection.stop() },
+        onShare = { keys ->
+            val picked = tracks.filter { it.trackId in keys }
+            com.metrolist.music.ui.component.SelectedTracks.share(context, downloadUtil) { picked.map { SourceSearch.mediaIdOf(it) } }
+        },
+        onDelete = { keys ->
+            val picked = tracks.filter { it.trackId in keys }
+            com.metrolist.music.ui.component.SelectedTracks.delete(context, downloadUtil) { picked.map { SourceSearch.mediaIdOf(it) } }
+        },
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Bottom).asPaddingValues()),
+    )
     }
 }
 

@@ -111,3 +111,15 @@ fun LikedBadge(mediaId: String) {
             .size(18.dp),
     )
 }
+
+/**
+ * [rememberTrackLiked] for a catalog row in a list (album, playlist): the row has no single media id,
+ * the track may have been liked while playing as its "mfb:" item or as its YouTube video. Same answer
+ * as the players' hearts, so a list and the mini player no longer disagree.
+ */
+@Composable
+fun rememberCatalogTrackLiked(database: MusicDatabase, catalogId: String, youtubeId: String?): Boolean {
+    val viaFallback = rememberTrackLiked(database, FallbackIds.of(catalogId), catalogId)
+    val viaYouTube = rememberTrackLiked(database, youtubeId, catalogId)
+    return viaFallback || viaYouTube
+}

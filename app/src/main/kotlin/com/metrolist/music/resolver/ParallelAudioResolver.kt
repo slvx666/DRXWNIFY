@@ -31,6 +31,10 @@ class ParallelAudioResolver(
     private val softDeadlineMs: Long = SOFT_DEADLINE_MS,
     private val hardDeadlineMs: Long = HARD_DEADLINE_MS,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Quality mode: exact matches are compared by sound quality, and all sources get a chance. */
+    private val preferQuality: () -> Boolean = {
+        ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.ACCURACY
+    },
 ) {
     data class Outcome(
         val winner: ProviderMatch?,
@@ -96,7 +100,18 @@ class ParallelAudioResolver(
         val misses = mutableSetOf<AudioProviderId>()
         val report = mutableListOf<String>()
 
+        val quality = preferQuality()
+        fun ordered(matches: Collection<ProviderMatch>) =
+            if (quality) byQuality(matches, ::rank) else preferred(matches, ::rank)
+
         fun decide(now: Long): ProviderMatch? {
+            if (quality) {
+                // Every source may still have the same track in better quality: wait for all of them,
+                // but not beyond the quality deadline once an exact match is in hand.
+                val best = ordered(found.values).firstOrNull() ?: return null
+                val strongInHand = found.values.any { it.confidence >= STRONG_MATCH }
+                return if (pending.isEmpty() || (strongInHand && now - start >= QUALITY_DEADLINE_MS)) best else null
+            }
             val best = preferred(found.values, ::rank).firstOrNull() ?: return null
             val higherPending = pending.any { rank(it) < rank(best.provider) }
             // A doubtful match doesn't end the race early: a slower provider may still have the exact track.
@@ -107,10 +122,14 @@ class ParallelAudioResolver(
         var winner: ProviderMatch? = null
         while (pending.isNotEmpty()) {
             val now = clock()
-            val waitUntil = if (found.isEmpty()) start + hardDeadlineMs else start + softDeadlineMs
+            val waitUntil = when {
+                found.isEmpty() -> start + hardDeadlineMs
+                quality -> start + QUALITY_DEADLINE_MS
+                else -> start + softDeadlineMs
+            }
             val remaining = waitUntil - now
             if (remaining <= 0) {
-                winner = preferred(found.values, ::rank).firstOrNull()
+                winner = ordered(found.values).firstOrNull()
                 break
             }
             val answer = withTimeoutOrNull(remaining) { answers.receive() } ?: continue
@@ -131,12 +150,12 @@ class ParallelAudioResolver(
                 break
             }
         }
-        if (winner == null) winner = preferred(found.values, ::rank).firstOrNull()
+        if (winner == null) winner = ordered(found.values).firstOrNull()
         pending.forEach { report += "$it … not waited for" }
 
         jobs.forEach { it.cancel() }
         val elapsed = clock() - start
-        Outcome(winner, preferred(found.values, ::rank), misses, elapsed, report)
+        Outcome(winner, ordered(found.values), misses, elapsed, report)
     }
 
     companion object {
@@ -160,6 +179,33 @@ class ParallelAudioResolver(
             val best = matches.maxOf { it.confidence }
             val (strong, weak) = matches.partition { it.confidence >= best - CONFIDENCE_MARGIN }
             return strong.sortedBy { rank(it.provider) } + weak.sortedByDescending { it.confidence }
+        }
+
+        /** The order for the current setting: best quality among exact matches, or the user's order. */
+        fun inPickOrder(matches: Collection<ProviderMatch>, rank: (AudioProviderId) -> Int): List<ProviderMatch> =
+            if (ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.ACCURACY) {
+                byQuality(matches, rank)
+            } else {
+                preferred(matches, rank)
+            }
+
+        /** Exact matches differ by at most this much; among them the better-sounding one wins. */
+        const val QUALITY_CONFIDENCE_MARGIN = 0.05
+
+        /** Quality mode: how long the other sources may take once an exact match is in hand. */
+        const val QUALITY_DEADLINE_MS = 4_500L
+
+        /**
+         * The most exact matches first, best quality among them (VK's 320 kbps MP3 over YouTube's
+         * ~160 Opus when both found the very same track), the user's order breaking ties; the less
+         * exact ones after, by confidence.
+         */
+        fun byQuality(matches: Collection<ProviderMatch>, rank: (AudioProviderId) -> Int): List<ProviderMatch> {
+            if (matches.isEmpty()) return emptyList()
+            val best = matches.maxOf { it.confidence }
+            val (exact, rest) = matches.partition { it.confidence >= best - QUALITY_CONFIDENCE_MARGIN }
+            return exact.sortedWith(compareByDescending<ProviderMatch> { it.expectedKbps }.thenBy { rank(it.provider) }) +
+                rest.sortedByDescending { it.confidence }
         }
 
         /** After this, the best match so far is used without waiting for slower, higher-ranked providers. */

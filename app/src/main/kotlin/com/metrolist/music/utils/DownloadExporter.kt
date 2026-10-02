@@ -83,10 +83,10 @@ object DownloadExportState {
  * Assembles a completed Media3 download (stored as SimpleCache blocks in the app sandbox)
  * into a single, standalone media file the user can share or open with other apps.
  *
- * The cached stream (AAC-in-mp4 or Opus-in-webm) is transcoded to a tagged **.mp3** with embedded
- * cover art, so every exported file is a universally recognised music file (Telegram, car head
- * units, etc. all treat .mp3 as a track, unlike .webm). If FFmpeg is unavailable or fails, the
- * original container is written as a last resort so the user still gets *a* file.
+ * MP3, AAC and FLAC streams are copied untouched into a tagged file with embedded cover art;
+ * Opus/Vorbis (not a "music file" to Telegram, car head units…) becomes a 256k AAC .m4a. If FFmpeg
+ * is unavailable or fails, the original container is written as a last resort so the user still
+ * gets *a* file.
  *
  * The file is written either into a user-selected SAF tree ([DownloadFolderUriKey]) or,
  * when none is set, into MediaStore under Music/Meld (API 29+).
@@ -116,6 +116,8 @@ class DownloadExporter @Inject constructor(
                 Timber.d("DownloadExporter: retrying %d unfinished export(s)", pending.size)
                 for (songId in pending) export(songId)
             }
+            // Files still in a folder the user has since replaced move to the current one.
+            moveAllToCurrentFolder()
         }
     }
 
@@ -128,7 +130,25 @@ class DownloadExporter @Inject constructor(
      * @return [Result.success] with the output [Uri] on success, [Result.failure] otherwise.
      *   Never throws — all failures are wrapped.
      */
-    suspend fun export(songId: String, force: Boolean = false): Result<Uri> = withContext(Dispatchers.IO) {
+    suspend fun export(songId: String, force: Boolean = false): Result<Uri> {
+        // One export per track at a time. A finished download can be reported more than once and a
+        // "share" can ask for the file while it is still being written; each of those used to write
+        // its own copy (three identical files in the folder). They now all wait for the one file.
+        val mine = kotlinx.coroutines.CompletableDeferred<Result<Uri>>()
+        inFlight.putIfAbsent(songId, mine)?.let { running -> return running.await() }
+        return try {
+            exportOnce(songId, force).also { mine.complete(it) }
+        } catch (t: Throwable) {
+            mine.complete(Result.failure(t))
+            throw t
+        } finally {
+            inFlight.remove(songId, mine)
+        }
+    }
+
+    private val inFlight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<Result<Uri>>>()
+
+    private suspend fun exportOnce(songId: String, force: Boolean): Result<Uri> = withContext(Dispatchers.IO) {
         exportPermits.withPermit {
             // [force]: written again even though it was exported once (its file has gone since).
             if (!force && isExported(songId)) {
@@ -160,9 +180,105 @@ class DownloadExporter @Inject constructor(
      * Removes [songId] from the exported set so a later re-download exports it again.
      * Call from the download-removed callback.
      */
+    /**
+     * Deletes the file written for [songId] from the user's folder, then forgets it. Removing a
+     * download says "the files are deleted from the phone", and a file left behind kept being
+     * offered for sharing.
+     */
+    suspend fun deleteExported(songId: String) {
+        withContext(Dispatchers.IO) {
+            exportedUri(songId)?.let { uri ->
+                runCatching {
+                    if (DocumentsContract.isDocumentUri(context, uri)) {
+                        DocumentsContract.deleteDocument(context.contentResolver, uri)
+                    } else {
+                        context.contentResolver.delete(uri, null, null)
+                    }
+                }.onFailure { Timber.w(it, "DownloadExporter: could not delete %s", uri) }
+            }
+        }
+        forgetExported(songId)
+    }
+
+    /**
+     * After the download folder changed: writes every downloaded track into the new folder and
+     * deletes it from the old one. Otherwise the old files kept counting as downloaded while the
+     * folder the user now looks at had only the tracks downloaded since.
+     */
+    suspend fun moveAllToCurrentFolder(onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): Int {
+        val folder = context.dataStore.get(DownloadFolderUriKey, "")
+        val ids = DownloadExportState.exported.value.filter { id ->
+            exportedUri(id)?.let { !isInFolder(it, folder) } ?: false
+        }
+        var moved = 0
+        ids.forEachIndexed { index, id ->
+            val old = exportedUri(id)
+            val fresh = export(id, force = true).getOrNull()
+            if (fresh != null && old != null && old != fresh) {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        if (DocumentsContract.isDocumentUri(context, old)) {
+                            DocumentsContract.deleteDocument(context.contentResolver, old)
+                        } else {
+                            context.contentResolver.delete(old, null, null)
+                        }
+                    }.onFailure { Timber.w(it, "DownloadExporter: could not delete the old file %s", old) }
+                }
+                moved++
+            }
+            onProgress(index + 1, ids.size)
+        }
+        Timber.i("DownloadExporter: moved %d of %d file(s) to the new folder", moved, ids.size)
+        return moved
+    }
+
+    /** Whether [uri] was written into [folder] (a SAF tree uri, or "" for Music/Meld via MediaStore). */
+    private fun isInFolder(uri: Uri, folder: String): Boolean =
+        if (folder.isEmpty()) {
+            uri.authority == MediaStore.AUTHORITY
+        } else {
+            val tree = runCatching { DocumentsContract.getTreeDocumentId(Uri.parse(folder)) }.getOrNull()
+            val doc = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull()
+            tree != null && doc != null && uri.authority == Uri.parse(folder).authority &&
+                (doc == tree || doc.startsWith("$tree/"))
+        }
+
+    /** Writes [songId]'s file again (new tags or cover) and deletes the previous one. */
+    suspend fun rewrite(songId: String) {
+        val old = exportedUri(songId)
+        val fresh = export(songId, force = true).getOrNull() ?: return
+        if (old == null || old == fresh) return
+        withContext(Dispatchers.IO) {
+            runCatching {
+                if (DocumentsContract.isDocumentUri(context, old)) DocumentsContract.deleteDocument(context.contentResolver, old)
+                else context.contentResolver.delete(old, null, null)
+            }
+        }
+    }
+
+    /** [moveAllToCurrentFolder] on the app's scope, so leaving the settings screen doesn't stop it. */
+    fun moveAllToCurrentFolderInBackground(onStart: (total: Int) -> Unit, onDone: (moved: Int) -> Unit) {
+        scope.launch {
+            // The new folder must be the saved one before the files are written again.
+            delay(500)
+            val folder = context.dataStore.get(DownloadFolderUriKey, "")
+            val total = DownloadExportState.exported.value.count { id ->
+                exportedUri(id)?.let { !isInFolder(it, folder) } ?: false
+            }
+            if (total == 0) return@launch
+            withContext(Dispatchers.Main) { onStart(total) }
+            val moved = moveAllToCurrentFolder()
+            withContext(Dispatchers.Main) { onDone(moved) }
+        }
+    }
+
     suspend fun forgetExported(songId: String) {
         DownloadExportState.forget(songId)
         context.dataStore.edit { prefs ->
+            // An export that never finished must not be retried for a track that is gone.
+            prefs[PendingExportSongIdsKey]?.let { current ->
+                if (songId in current) prefs[PendingExportSongIdsKey] = current - songId
+            }
             prefs[ExportedSongIdsKey]?.let { current ->
                 if (songId in current) prefs[ExportedSongIdsKey] = current - songId
             }
@@ -366,27 +482,45 @@ class DownloadExporter @Inject constructor(
                 Timber.w("DownloadExporter: no cover art for %s, file will be saved without artwork", songId)
             }
 
-            // 3) FFmpeg transcode cascade, embedding cover + tags each time:
-            //    MP3 (most universally recognised as music) -> M4A/AAC -> original container.
-            // Preferring MP3 but degrading to M4A means the user still gets a Telegram-recognised
-            // music file even if this FFmpeg build lacks the LAME (MP3) encoder; only a total
-            // FFmpeg failure (native lib won't load) leaves the raw .webm/.m4a.
-            val sourceFile: File
-            val finalExt: String
-            val finalMime: String
-
-            val mp3Out = File.createTempFile("mld_out_", ".mp3", tempDir).also { tempOutputs.add(it) }
-            val m4aOut by lazy { File.createTempFile("mld_out_", ".m4a", tempDir).also { tempOutputs.add(it) } }
-
-            if (runFfmpeg(tempInput, tempCover, mp3Out, OutputFormat.MP3, title, artistString, albumName, songId)) {
-                Timber.i("DownloadExporter: %s -> .mp3 (from %s, cover=%b)", songId, srcMime, tempCover != null)
-                sourceFile = mp3Out; finalExt = "mp3"; finalMime = "audio/mpeg"
-            } else if (runFfmpeg(tempInput, tempCover, m4aOut, OutputFormat.M4A, title, artistString, albumName, songId)) {
-                Timber.w("DownloadExporter: %s MP3 encode unavailable, falling back to .m4a", songId)
-                sourceFile = m4aOut; finalExt = "m4a"; finalMime = "audio/mp4"
-            } else {
+            // 3) FFmpeg, embedding cover + tags. MP3, AAC and FLAC are music files everywhere
+            //    already, so they are copied as they are — re-encoding a 320k MP3 to MP3 only loses
+            //    quality. Opus/Vorbis (YouTube, SoundCloud) is not a "music file" to Telegram and
+            //    co., so it becomes AAC at a bitrate that keeps what the Opus stream carries.
+            //    Each step falls back to the next; a total FFmpeg failure leaves the original.
+            val wanted = runCatching {
+                com.metrolist.music.constants.DownloadFormat.valueOf(
+                    context.dataStore.get(com.metrolist.music.constants.DownloadFormatKey, com.metrolist.music.constants.DownloadFormat.BEST.name),
+                )
+            }.getOrDefault(com.metrolist.music.constants.DownloadFormat.BEST)
+            val plan = when (wanted) {
+                com.metrolist.music.constants.DownloadFormat.MP3_320 -> when (srcExt) {
+                    "mp3" -> listOf(OutputFormat.COPY_MP3, OutputFormat.MP3_320)
+                    else -> listOf(OutputFormat.MP3_320, OutputFormat.AAC_256)
+                }
+                com.metrolist.music.constants.DownloadFormat.M4A_256 -> when (srcExt) {
+                    "m4a", "aac" -> listOf(OutputFormat.COPY_M4A, OutputFormat.AAC_256)
+                    else -> listOf(OutputFormat.AAC_256, OutputFormat.AAC_192)
+                }
+                com.metrolist.music.constants.DownloadFormat.BEST -> when (srcExt) {
+                    "mp3" -> listOf(OutputFormat.COPY_MP3, OutputFormat.MP3_320)
+                    "m4a", "aac" -> listOf(OutputFormat.COPY_M4A, OutputFormat.AAC_256)
+                    "flac" -> listOf(OutputFormat.COPY_FLAC, OutputFormat.MP3_320)
+                    else -> listOf(OutputFormat.AAC_256, OutputFormat.MP3_320, OutputFormat.AAC_192)
+                }
+            }
+            var sourceFile: File = tempInput
+            var finalExt: String = srcExt
+            var finalMime: String = srcMime
+            for (target in plan) {
+                val out = File.createTempFile("mld_out_", ".${target.ext}", tempDir).also { tempOutputs.add(it) }
+                if (runFfmpeg(tempInput, srcExt, tempCover, out, target, title, artistString, albumName, songId)) {
+                    Timber.i("DownloadExporter: %s -> %s (from %s, cover=%b)", songId, target, srcMime, tempCover != null)
+                    sourceFile = out; finalExt = target.ext; finalMime = target.mime
+                    break
+                }
+            }
+            if (sourceFile === tempInput) {
                 Timber.w("DownloadExporter: FFmpeg failed for %s, saving original .%s without artwork", songId, srcExt)
-                sourceFile = tempInput; finalExt = srcExt; finalMime = srcMime
             }
 
             // 4) Write the result into the destination folder (SAF / MediaStore) — unchanged writer.
@@ -480,16 +614,24 @@ class DownloadExporter @Inject constructor(
         )
     }
 
-    /**
-     * Runs FFmpeg to produce [output] as a tagged .m4a. Any failure — including native libraries
-     * that won't load (UnsatisfiedLinkError / ExceptionInInitializerError) — returns false so the
-     * caller can gracefully fall back to saving the original container.
-     */
-    /** Output container/codec the exporter targets, in preference order. */
-    private enum class OutputFormat { MP3, M4A }
+    /** What the exported file is made of. */
+    private enum class OutputFormat(val ext: String, val mime: String) {
+        COPY_MP3("mp3", "audio/mpeg"),
+        COPY_M4A("m4a", "audio/mp4"),
+        COPY_FLAC("flac", "audio/flac"),
+        AAC_256("m4a", "audio/mp4"),
+        MP3_320("mp3", "audio/mpeg"),
+        AAC_192("m4a", "audio/mp4"),
+    }
 
+    /**
+     * Runs FFmpeg to produce [output] in [format]. Any failure — including native libraries that
+     * won't load (UnsatisfiedLinkError / ExceptionInInitializerError) — returns false so the
+     * caller can fall back to the next format.
+     */
     private fun runFfmpeg(
         input: File,
+        inputExt: String,
         cover: File?,
         output: File,
         format: OutputFormat,
@@ -506,10 +648,15 @@ class DownloadExporter @Inject constructor(
                 add("-map"); add("0:a:0")
                 if (cover != null) { add("-map"); add("1:v:0") }
                 when (format) {
-                    // MP3 via LAME at CBR 320k — a real, universally recognised music file.
-                    OutputFormat.MP3 -> { add("-c:a"); add("libmp3lame"); add("-b:a"); add("320k") }
-                    // AAC at 192k — the native encoder, always present; container is mp4/.m4a.
-                    OutputFormat.M4A -> { add("-c:a"); add("aac"); add("-b:a"); add("192k") }
+                    OutputFormat.COPY_MP3, OutputFormat.COPY_FLAC -> { add("-c:a"); add("copy") }
+                    OutputFormat.COPY_M4A -> {
+                        add("-c:a"); add("copy")
+                        // Raw ADTS AAC (SoundCloud HLS) needs its headers rewritten for MP4.
+                        if (inputExt == "aac") { add("-bsf:a"); add("aac_adtstoasc") }
+                    }
+                    OutputFormat.AAC_256 -> { add("-c:a"); add("aac"); add("-b:a"); add("256k") }
+                    OutputFormat.MP3_320 -> { add("-c:a"); add("libmp3lame"); add("-b:a"); add("320k") }
+                    OutputFormat.AAC_192 -> { add("-c:a"); add("aac"); add("-b:a"); add("192k") }
                 }
                 if (cover != null) {
                     add("-c:v"); add("mjpeg")
@@ -517,11 +664,11 @@ class DownloadExporter @Inject constructor(
                     add("-metadata:s:v"); add("title=Album cover")
                     add("-metadata:s:v"); add("comment=Cover (front)")
                 }
-                if (format == OutputFormat.MP3) { add("-id3v2_version"); add("3") }
+                if (format.ext == "mp3") { add("-id3v2_version"); add("3") }
                 add("-metadata"); add("title=$title")
                 add("-metadata"); add("artist=$artist")
                 if (album != null) { add("-metadata"); add("album=$album") }
-                if (format == OutputFormat.M4A) { add("-movflags"); add("+faststart") }
+                if (format.ext == "m4a") { add("-movflags"); add("+faststart") }
                 add(output.absolutePath)
             }.toTypedArray()
 

@@ -30,7 +30,8 @@ class NetworkConnectivityObserver(context: Context) {
         }
 
         override fun onLost(network: Network) {
-            _networkStatus.trySend(false)
+            // Losing one network (Wi-Fi) while another (mobile data) is still up is not "offline".
+            _networkStatus.trySend(isCurrentlyConnected())
         }
     }
 

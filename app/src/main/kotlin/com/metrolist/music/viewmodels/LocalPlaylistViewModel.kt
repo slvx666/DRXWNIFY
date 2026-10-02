@@ -41,6 +41,10 @@ constructor(
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     val playlistId = savedStateHandle.get<String>("playlistId")!!
+
+    init {
+        com.metrolist.music.playback.LibraryRecents.local(playlistId)
+    }
     val playlist =
         database
             .playlist(playlistId)

@@ -240,7 +240,8 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 // R8 inlines against this internal field; at runtime the platform class is resolved instead,
 // producing a NoSuchFieldError.  Excluding the artefact globally ensures only the platform
 // class is ever referenced.
-configurations.configureEach {
+// JVM unit tests have no platform org.json (android.jar holds stubs only): they keep the artefact.
+configurations.matching { !it.name.contains("UnitTest") && !it.name.startsWith("test") }.configureEach {
     exclude(group = "org.json", module = "json")
 }
 
@@ -327,4 +328,6 @@ dependencies {
     implementation(libs.ffmpeg.kit)
 
     testImplementation(libs.junit)
+    // Real org.json for JVM unit tests (the android.jar one is only stubs).
+    testImplementation("org.json:json:20240303")
 }

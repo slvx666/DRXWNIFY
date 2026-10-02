@@ -38,6 +38,10 @@ constructor(
 ) : ViewModel() {
     val playlistId: String = savedStateHandle.get<String>("playlistId")
         ?: throw IllegalArgumentException("playlistId is required")
+
+    init {
+        com.metrolist.music.playback.LibraryRecents.playlist(playlistId)
+    }
     val mapper = SpotifyYouTubeMapper(database)
 
     private val _playlist = MutableStateFlow<SpotifyPlaylist?>(null)

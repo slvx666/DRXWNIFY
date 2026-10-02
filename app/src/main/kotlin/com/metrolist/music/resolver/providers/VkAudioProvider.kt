@@ -30,6 +30,8 @@ import java.util.concurrent.TimeUnit
  */
 class VkAudioProvider(
     private val token: () -> String?,
+    /** Asked before each track is streamed; false = the shared account's daily tracks are used up. */
+    private val allowTrack: () -> Boolean = { true },
     private val userId: () -> String? = { null },
 ) : AudioProvider {
     override val id = AudioProviderId.VK
@@ -475,6 +477,10 @@ class VkAudioProvider(
     private val recentUrls = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
 
     override suspend fun stream(query: AudioQuery, match: ProviderMatch): AudioStream? {
+        if (!allowTrack()) {
+            Timber.tag("AudioRace").i("vk: the shared account's tracks for today are used up")
+            return null
+        }
         val now = System.currentTimeMillis()
         val url = recentUrls[match.trackId]?.takeIf { now - it.second < URL_TTL_MS }?.first
             ?: runCatching {

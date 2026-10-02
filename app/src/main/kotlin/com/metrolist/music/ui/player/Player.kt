@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui.player
 
+import com.metrolist.music.ui.utils.backToMain
 import androidx.activity.compose.BackHandler
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -2135,6 +2136,10 @@ fun BottomSheetPlayer(
                                     onNavigate = { route ->
                                         state.collapseSoft()
                                         navController.navigate(route)
+                                    },
+                                    onHome = {
+                                        state.collapseSoft()
+                                        navController.backToMain()
                                     },
                                 )
                             }

@@ -55,6 +55,25 @@ class SpotifyYouTubeMapper(
             return@withContext resolveViaProviders(track, exclude = setOf(AudioProviderId.YOUTUBE))
         }
 
+        // 0. Quality mode: a hand-picked YouTube upload stays; otherwise a better-sounding exact
+        // source already known (e.g. the whole album found on VK) wins over a cached YouTube match,
+        // and a YouTube match cached before this mode existed is compared with the others once.
+        if (ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.ACCURACY) {
+            val manual = memoryCache[track.id]?.isManualOverride == true ||
+                database.getSpotifyMatch(track.id)?.isManualOverride == true
+            if (!manual) {
+                val query = AudioQuery.from(track)
+                if (AudioFallbackEngine.betterThanYouTube(query) != null) {
+                    return@withContext fallbackMetadata(track)
+                }
+                if (!AudioFallbackEngine.wasQualityChecked(track.id)) {
+                    val upgraded = resolveViaProviders(track, exclude = emptySet(), forceRace = true)
+                    AudioFallbackEngine.markQualityChecked(track.id)
+                    if (upgraded != null) return@withContext upgraded
+                }
+            }
+        }
+
         // 1. In-memory LRU cache (zero I/O)
         memoryCache[track.id]?.let { mem ->
             if (mem.isManualOverride || isCachedMatchPlausible(track, mem.title, mem.artist)) {
@@ -92,8 +111,23 @@ class SpotifyYouTubeMapper(
      * video-id item (and is cached in spotify_match); any other provider yields a `mfb:` item whose
      * stream is resolved at playback/download time. Metadata always stays the catalog's.
      */
-    private suspend fun resolveViaProviders(track: SpotifyTrack, exclude: Set<AudioProviderId>): MediaMetadata? {
-        val match = AudioFallbackEngine.resolve(AudioQuery.from(track), exclude)
+    private fun fallbackMetadata(track: SpotifyTrack): MediaMetadata {
+        val fallbackId = FallbackIds.of(track.id)
+        SpotifyMetadataRegistry.register(fallbackId, track)
+        return buildMediaMetadata(
+            youtubeId = fallbackId,
+            spotifyTrack = track,
+            ytTitle = track.name,
+            ytArtist = track.artists.firstOrNull()?.name ?: "",
+        )
+    }
+
+    private suspend fun resolveViaProviders(
+        track: SpotifyTrack,
+        exclude: Set<AudioProviderId>,
+        forceRace: Boolean = false,
+    ): MediaMetadata? {
+        val match = AudioFallbackEngine.resolve(AudioQuery.from(track), exclude, forceRace)
         if (match == null) {
             Timber.w("No audio source for '${track.name}' by ${track.artists.firstOrNull()?.name}")
             return null
@@ -218,7 +252,11 @@ class SpotifyYouTubeMapper(
      * to switch the player to a tapped track instantly while the rest of the queue is prepared.
      */
     fun quickMetadata(track: SpotifyTrack): MediaMetadata {
-        val known = memoryCache[track.id]?.youtubeId
+        // In the quality mode only a hand-picked upload is played as is: otherwise the engine
+        // decides at play time, so a better source (VK, lossless) is not skipped for a cached video.
+        val known = memoryCache[track.id]
+            ?.takeIf { it.isManualOverride || ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.SPEED }
+            ?.youtubeId
         val id = known ?: FallbackIds.of(track.id)
         SpotifyMetadataRegistry.register(id, track)
         return buildMediaMetadata(

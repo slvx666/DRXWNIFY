@@ -213,6 +213,28 @@ object SpotifyMapper {
         RegexOption.IGNORE_CASE,
     )
 
+    /**
+     * Markers of a DIFFERENT recording of the song — someone else's cover, a remix, a sped-up or
+     * karaoke edit. Unlike [VARIANT_MARKER_REGEX] (a ranking penalty) these reject the candidate
+     * outright unless the catalog track itself carries the marker: a female-vocal remix titled
+     * "Welcome to the Jungle" used to win for Guns N' Roses because only a penalty stood against it.
+     */
+    private val FOREIGN_RECORDING_REGEX = Regex(
+        "\\b(cover|covered by|karaoke|remix|rmx|bootleg|mashup|nightcore|sped up|spedup|speed up|" +
+            "slowed|reverb|8d|tribute|instrumental|minus|lofi|lo-fi|8-bit|8 bit|" +
+            "(?:female|male|girl|boy|piano|acoustic|rock|metal|orchestral|russian|english) version|" +
+            "кавер|ремикс|минус|караоке)\\b",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** True when [candidateTitle] is another recording (cover/remix/edit) the catalog title isn't. */
+    fun isForeignRecording(catalogTitle: String, candidateTitle: String): Boolean {
+        val cand = FOREIGN_RECORDING_REGEX.findAll(candidateTitle.lowercase()).map { it.value.lowercase() }.toSet()
+        if (cand.isEmpty()) return false
+        val own = FOREIGN_RECORDING_REGEX.findAll(catalogTitle.lowercase()).map { it.value.lowercase() }.toSet()
+        return (cand - own).isNotEmpty()
+    }
+
     /** Splits multi-artist strings on collaboration separators before normalization. */
     private val ARTIST_SPLIT_REGEX = Regex("[,&/]+|\\s+(?:feat\\.?|ft\\.?|x|vs\\.?)\\s+", RegexOption.IGNORE_CASE)
 
@@ -332,7 +354,9 @@ object SpotifyMapper {
                 kotlin.math.abs(spotifyDurationMs / 1000 - c.durationSec)
             } else null
 
-        val titleOk = candidates.filter { titlePlausiblyMatches(it.title, spotifyTitle) }
+        val titleOk = candidates.filter {
+            titlePlausiblyMatches(it.title, spotifyTitle) && !isForeignRecording(spotifyTitle, it.title)
+        }
         if (titleOk.isEmpty()) return if (loose) loosePick(candidates, ::durationOff) else MatchResult.NoMatch
 
         val tokens = artistTokens(spotifyArtistsAll.ifBlank { spotifyPrimaryArtist })

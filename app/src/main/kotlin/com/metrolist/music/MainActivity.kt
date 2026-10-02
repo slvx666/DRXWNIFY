@@ -219,6 +219,10 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
     companion object {
         private const val ACTION_SEARCH = "com.metrolist.music.action.SEARCH"
+        const val ACTION_SEARCH_PUBLIC = ACTION_SEARCH
+
+        /** A screen to open (a navigation route), e.g. from a home-screen widget. */
+        const val EXTRA_ROUTE = "meld_route"
         private const val ACTION_LIBRARY = "com.metrolist.music.action.LIBRARY"
         const val ACTION_RECOGNITION = "com.metrolist.music.action.RECOGNITION"
         const val EXTRA_AUTO_START_RECOGNITION = "auto_start_recognition"
@@ -379,6 +383,14 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A playlist import the system cut short goes on (it is resumable, see PlaylistImporter).
+        if (com.metrolist.music.playback.PlaylistImporter.isRunning(this)) {
+            runCatching {
+                androidx.core.content.ContextCompat.startForegroundService(
+                    this, Intent(this, com.metrolist.music.playback.PlaylistImportService::class.java),
+                )
+            }
+        }
         window.decorView.layoutDirection = View.LAYOUT_DIRECTION_LTR
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
@@ -680,8 +692,8 @@ class MainActivity : ComponentActivity() {
                 val tabOpenedFromShortcut =
                     remember {
                         when (intent?.action) {
-                            ACTION_SEARCH -> NavigationTab.LIBRARY
-                            ACTION_LIBRARY -> NavigationTab.SEARCH
+                            ACTION_SEARCH -> NavigationTab.SEARCH
+                            ACTION_LIBRARY -> NavigationTab.LIBRARY
                             else -> null
                         }
                     }
@@ -1537,6 +1549,11 @@ class MainActivity : ComponentActivity() {
         intent: Intent,
         navController: NavHostController,
     ) {
+        intent.getStringExtra(EXTRA_ROUTE)?.let { route ->
+            intent.removeExtra(EXTRA_ROUTE)
+            runCatching { navController.navigate(route) }
+            return
+        }
         val uri = intent.data ?: intent.extras?.getString(Intent.EXTRA_TEXT)?.toUri() ?: return
         intent.data = null
         intent.removeExtra(Intent.EXTRA_TEXT)

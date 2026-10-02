@@ -222,6 +222,7 @@ private fun MediaInfoContent(
                         ?.let { com.metrolist.music.ui.component.AudioQualityLevel.kbps(it) }
                     val codec = com.metrolist.music.ui.component.AudioQualityLevel.codecName(format?.mimeType, format?.codecs)
                     QualityHero(kbps = kbps, codec = codec, sampleRate = format?.sampleRate, source = audioSource, isPreview = isPreview)
+                    com.metrolist.music.ui.component.SpectrumCard(mediaId = videoId, codec = codec, kbps = kbps)
 
                     val lowQualityNote = stringResource(R.string.low_quality)
                     val isLow = format != null &&
@@ -229,9 +230,9 @@ private fun MediaInfoContent(
                     val qualityItems = listOfNotNull(
                         copyItem(
                             stringResource(R.string.bitrate),
+                            // Plain here: the coloured bitrate is already at the top of the sheet.
                             kbps?.let { k -> if (isLow) "$k kbps — $lowQualityNote" else "$k kbps" },
                             R.drawable.graphic_eq,
-                            kbps?.let { com.metrolist.music.ui.dialog.bitrateColor(it) },
                         ),
                         copyItem(
                             stringResource(R.string.codecs),

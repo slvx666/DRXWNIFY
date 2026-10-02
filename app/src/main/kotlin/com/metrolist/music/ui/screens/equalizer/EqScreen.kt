@@ -120,6 +120,14 @@ fun EqScreen(
     EqScreenContent(
         profiles = state.profiles,
         activeProfileId = state.activeProfileId,
+        graphic = {
+            GraphicEqSection(
+                gains = state.graphicGains,
+                selectedPreset = state.graphicPreset.takeIf { state.activeProfileId == GraphicEq.PROFILE_ID },
+                onPreset = viewModel::selectPreset,
+                onBand = viewModel::setBand,
+            )
+        },
         onProfileSelected = { viewModel.selectProfile(it) },
         onImportCustomEQ = {
             // Launch file picker for .txt files
@@ -191,6 +199,7 @@ fun EqScreen(
 private fun EqScreenContent(
     profiles: List<SavedEQProfile>,
     activeProfileId: String?,
+    graphic: @Composable () -> Unit,
     onProfileSelected: (String?) -> Unit,
     onImportCustomEQ: () -> Unit,
     onOpenSystemEqualizer: () -> Unit,
@@ -201,8 +210,8 @@ private fun EqScreenContent(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
         modifier = Modifier
-            .fillMaxWidth(0.9f)
-            .heightIn(max = 600.dp)
+            .fillMaxWidth(0.94f)
+            .heightIn(max = 720.dp)
             .padding(vertical = 24.dp) // Optional extra padding if desired, but dialog handles it.
     ) {
         Column {
@@ -250,7 +259,10 @@ private fun EqScreenContent(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                // "No Equalization" option (always first)
+                // The graphic equalizer with its presets, on top: what most people come here for.
+                item { graphic() }
+
+                // "No Equalization" option
                 item {
                     NoEqualizationItem(
                         isSelected = activeProfileId == null,

@@ -359,7 +359,7 @@ fun AutoPlaylistScreen(
             songs?.let { addAll(it) }
         }
         if (songs?.isEmpty() == true) return@LaunchedEffect
-        downloadUtil.downloads.collect { downloads ->
+        downloadUtil.visibleDownloads.collect { downloads ->
             downloadState =
                 if (songs?.all { downloads[it.song.id]?.state == Download.STATE_COMPLETED } == true) {
                     Download.STATE_COMPLETED

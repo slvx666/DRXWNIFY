@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.withStyle
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.R
 
@@ -86,4 +87,75 @@ fun LowQualityBadge(mediaId: String?, modifier: Modifier = Modifier) {
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
         )
     }
+}
+
+private const val LOSSLESS_CHECK_DELAY_MS = 20_000L
+
+/** Gold for genuine lossless. */
+val LosslessGold = androidx.compose.ui.graphics.Color(0xFFE2B84C)
+
+/**
+ * The small line above the cover in the full-screen player: bitrate (in its quality colour), codec,
+ * sample rate and the service the audio comes from — "320 kbps · MP3 · 44.1 kHz · VK". Lossless is
+ * written in gold, unless the spectrum check found it to be an upscaled lossy file.
+ */
+@Composable
+fun PlayerQualityLine(mediaId: String?, color: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
+    if (mediaId.isNullOrBlank()) return
+    val database = LocalDatabase.current
+    val format by remember(mediaId) { database.format(mediaId) }.collectAsState(initial = null)
+    val served by com.metrolist.music.resolver.NowServing.version.collectAsState()
+    val source by androidx.compose.runtime.produceState<String?>(null, mediaId, served, format) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            (com.metrolist.music.resolver.NowServing.of(mediaId)
+                ?: com.metrolist.music.resolver.AudioFallbackEngine.sourceOf(mediaId, database.getSongByIdBlocking(mediaId)))
+                ?.let(::providerLabel)
+        }
+    }
+    val current = format ?: return
+    val codec = AudioQualityLevel.codecName(current.mimeType, current.codecs)
+    val lossless = codec.equals("FLAC", ignoreCase = true) || codec.equals("ALAC", ignoreCase = true)
+    val verdict by com.metrolist.music.playback.SpectrumCheck.verdictFlow(mediaId).collectAsState(initial = null)
+    val genuineLossless = lossless && verdict?.upscaled != true
+    // Lossless is checked by itself once enough of it has played: gold only for the real thing.
+    val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
+    if (lossless && verdict == null) {
+        androidx.compose.runtime.LaunchedEffect(mediaId) {
+            kotlinx.coroutines.delay(LOSSLESS_CHECK_DELAY_MS)
+            com.metrolist.music.playback.SpectrumCheck.analyze(
+                mediaId, codec, current.bitrate.takeIf { it > 0 }?.let { AudioQualityLevel.kbps(it) },
+                listOf(downloadUtil.downloadCache, downloadUtil.playerCache),
+            )
+        }
+    }
+    val kbps = current.bitrate.takeIf { it > 0 }?.let { AudioQualityLevel.kbps(it) }
+    val khz = current.sampleRate?.takeIf { it > 0 }?.let { hz ->
+        val v = hz / 1000.0
+        if (v % 1.0 == 0.0) "${v.toInt()} kHz" else "$v kHz"
+    }
+    val text = androidx.compose.ui.text.buildAnnotatedString {
+        var first = true
+        fun sep() { if (!first) append(" · "); first = false }
+        if (genuineLossless) {
+            sep()
+            withStyle(androidx.compose.ui.text.SpanStyle(color = LosslessGold, fontWeight = FontWeight.SemiBold)) { append(codec ?: "FLAC") }
+            kbps?.let { sep(); append("$it kbps") }
+        } else {
+            kbps?.let {
+                sep()
+                withStyle(androidx.compose.ui.text.SpanStyle(color = com.metrolist.music.ui.dialog.bitrateColor(it), fontWeight = FontWeight.SemiBold)) { append("$it kbps") }
+            }
+            codec?.let { sep(); append(it) }
+        }
+        khz?.let { sep(); append(it) }
+        source?.let { sep(); append(it) }
+    }
+    if (text.isEmpty()) return
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = color.copy(alpha = 0.75f),
+        maxLines = 1,
+        modifier = modifier,
+    )
 }

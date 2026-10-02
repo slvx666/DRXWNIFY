@@ -33,6 +33,10 @@ constructor(
 ) : ViewModel() {
     val mapper = SpotifyYouTubeMapper(database)
 
+    init {
+        com.metrolist.music.playback.LibraryRecents.touch("liked")
+    }
+
     private val _tracks = MutableStateFlow<List<SpotifyTrack>>(emptyList())
     val tracks = _tracks.asStateFlow()
 

@@ -63,15 +63,29 @@ object ResolverPreferences {
     @Volatile
     var audiusEnabled: Boolean = true
 
+    /** Lossless mirrors (FLAC), listed by the remote config. */
+    @Volatile
+    var losslessEnabled: Boolean = true
+
     /** Soulseek: P2P last resort (account required, slow, traffic/battery heavy). */
     @Volatile
     var soulseekEnabled: Boolean = true
+
+    /**
+     * ACCURACY (default): every source is asked and waited for (a few seconds at most); among the
+     * matches that are equally exact, the best-sounding one plays. SPEED: the first good match plays.
+     */
+    @Volatile
+    var pickMode: com.metrolist.music.constants.SourcePickMode = com.metrolist.music.constants.SourcePickMode.ACCURACY
 
     /** Provider ranking used to choose between matches, best first. */
     @Volatile
     var order: List<AudioProviderId> = AudioProviderId.DEFAULT_ORDER
 
-    fun isEnabled(id: AudioProviderId): Boolean = when (id) {
+    fun isEnabled(id: AudioProviderId): Boolean =
+        id.name !in com.metrolist.music.utils.RemoteConfig.config.value.disabledSources && isSwitchedOn(id)
+
+    private fun isSwitchedOn(id: AudioProviderId): Boolean = when (id) {
         AudioProviderId.YOUTUBE -> youtubeEnabled
         AudioProviderId.QOBUZ -> false // retired
         AudioProviderId.VK -> vkEnabled
@@ -79,6 +93,7 @@ object ResolverPreferences {
         AudioProviderId.BANDCAMP -> bandcampEnabled
         AudioProviderId.AUDIUS -> audiusEnabled
         AudioProviderId.SOULSEEK -> soulseekEnabled
+        AudioProviderId.LOSSLESS -> losslessEnabled
     }
 }
 

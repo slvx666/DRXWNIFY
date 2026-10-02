@@ -33,6 +33,7 @@ import com.metrolist.music.resolver.AudioFallbackEngine
 import com.metrolist.music.resolver.AudioProviderId
 import com.metrolist.music.resolver.FallbackIds
 import com.metrolist.music.resolver.ResolverPreferences
+import com.metrolist.music.utils.DownloadExportState
 import com.metrolist.music.utils.DownloadExporter
 import com.metrolist.music.utils.YTPlayerUtils
 import com.metrolist.music.utils.enumPreference
@@ -47,7 +48,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -72,12 +78,58 @@ constructor(
     private val TAG = "DownloadUtil"
     private val appContext = context
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
-    private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
+    private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.HIGH)
     private val songUrlCache = HashMap<String, Pair<String, Long>>()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** Raw Media3 download states: "completed" here only means the bytes are in the cache. */
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
+
+    /**
+     * What every screen shows. A track counts as downloaded only once its file is in the user's
+     * folder: bytes that are cached but still waiting for (or going through) the export read as
+     * "downloading", a failed export as "failed", and a download being removed is gone already.
+     * The header counts, the rows, the mini and fullscreen players and the menus all read this, so
+     * they can no longer disagree.
+     */
+    val visibleDownloads: StateFlow<Map<String, Download>> =
+        combine(
+            downloads,
+            DownloadExportState.exporting,
+            DownloadExportState.exported,
+            DownloadExportState.failed,
+        ) { raw, exporting, exported, failed ->
+            buildMap {
+                for ((id, download) in raw) {
+                    val state = when {
+                        download.state == Download.STATE_REMOVING -> null
+                        download.state != Download.STATE_COMPLETED -> download.state
+                        id in exporting -> Download.STATE_DOWNLOADING
+                        id in exported -> Download.STATE_COMPLETED
+                        id in failed -> Download.STATE_FAILED
+                        else -> Download.STATE_DOWNLOADING
+                    }
+                    if (state != null) put(id, download.withState(state))
+                }
+            }
+        }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+    /** A copy in another state; Download's constructor enforces which reasons fit which state. */
+    private fun Download.withState(state: Int): Download =
+        if (state == this.state) {
+            this
+        } else {
+            Download(
+                request,
+                state,
+                startTimeMs,
+                updateTimeMs,
+                contentLength,
+                if (state == Download.STATE_DOWNLOADING || state == Download.STATE_QUEUED) Download.STOP_REASON_NONE else stopReason,
+                if (state == Download.STATE_FAILED) Download.FAILURE_REASON_UNKNOWN else Download.FAILURE_REASON_NONE,
+            )
+        }
 
     private val dataSourceFactory =
         ResolvingDataSource.Factory(
@@ -141,8 +193,9 @@ constructor(
                     mediaId,
                     audioQuality = audioQuality,
                     connectivityManager = connectivityManager,
-                    // Prefer AAC for downloads so the exporter can copy the stream without transcoding.
-                    preferAac = true,
+                    // The best stream there is (Opus ~160k beats AAC 128k); the exporter turns it
+                    // into an AAC .m4a at a bitrate that keeps what the Opus stream carries.
+                    preferAac = false,
                 )
             }.getOrElse { error ->
                 // YouTube unreachable / video gone: take the catalog track from another provider.
@@ -248,6 +301,8 @@ constructor(
                                                 }
                                         }
                                     } else {
+                                        // No file will come of it: say so instead of spinning forever.
+                                        DownloadExportState.markFailed(download.request.id)
                                         Timber.tag(TAG).w(
                                             "Skipping export for ${download.request.id}: incomplete " +
                                                 "(${download.bytesDownloaded}/${download.contentLength})"
@@ -270,20 +325,15 @@ constructor(
                         download: Download,
                     ) {
                         val downloadId = download.request.id
-
-                        runCatching {
-                            database.updateDownloadedInfo(downloadId, false, null)
-                        }.onSuccess {
-                            downloads.update { map ->
-                                map.toMutableMap().apply {
-                                    remove(downloadId)
-                                }
-                            }
-                            // Allow a future re-download of this id to export again.
-                            scope.launch { downloadExporter.forgetExported(downloadId) }
-                            Timber.tag(TAG).d("Successfully removed download $downloadId from in-memory map")
-                        }.onFailure { error ->
-                            Timber.tag(TAG).e(error, "Failed to update database for removed download $downloadId, keeping in-memory entry")
+                        // The map first, on this (main) thread: the UI must not keep a removed
+                        // track as downloaded while the database write is still pending.
+                        downloads.update { map -> map - downloadId }
+                        // Room refuses the main thread; this used to throw and leave the track
+                        // "downloaded" with its file still offered for sharing.
+                        scope.launch {
+                            runCatching { database.updateDownloadedInfo(downloadId, false, null) }
+                                .onFailure { Timber.tag(TAG).e(it, "Failed to clear the download flag of $downloadId") }
+                            downloadExporter.deleteExported(downloadId)
                         }
                     }
                 }
@@ -298,6 +348,33 @@ constructor(
         }
         downloads.value = result
         reconcileWithDownloads()
+        exportMissingFiles()
+    }
+
+    /**
+     * Brings the files in the music folder in line with the downloads:
+     *  - downloads made before files were written there, or whose export never ran, would read as
+     *    "downloading" forever: their files are written now;
+     *  - files of downloads that were removed (removing used to leave them behind, still offered
+     *    for sharing) are deleted.
+     */
+    private fun exportMissingFiles() {
+        scope.launch {
+            kotlinx.coroutines.delay(EXPORT_CATCH_UP_DELAY_MS)
+            val exported = DownloadExportState.exported.value
+            val known = downloads.value
+            val orphaned = exported.filter { it !in known && it !in DownloadExportState.exporting.value }
+            if (orphaned.isNotEmpty()) {
+                Timber.tag(TAG).i("Deleting %d file(s) left behind by removed downloads", orphaned.size)
+                orphaned.forEach { downloadExporter.deleteExported(it) }
+            }
+            val missing = known.values
+                .filter { it.state == Download.STATE_COMPLETED && it.request.id !in exported }
+                .map { it.request.id }
+            if (missing.isEmpty()) return@launch
+            Timber.tag(TAG).i("Writing the files of %d download(s) that have none", missing.size)
+            missing.forEach { downloadExporter.export(it) }
+        }
     }
 
     /**
@@ -309,7 +386,7 @@ constructor(
     fun removeDownload(songId: String) {
         scope.launch(Dispatchers.IO) {
             database.updateDownloadedInfo(songId, false, null)
-            downloadExporter.forgetExported(songId)
+            downloadExporter.deleteExported(songId)
             downloads.update { map ->
                 map.toMutableMap().apply { remove(songId) }
             }
@@ -329,7 +406,7 @@ constructor(
                 songIds.forEach { updateDownloadedInfo(it, false, null) }
             }
             songIds.forEach { id ->
-                downloadExporter.forgetExported(id)
+                downloadExporter.deleteExported(id)
                 DownloadService.sendRemoveDownload(
                     appContext,
                     ExoDownloadService::class.java,
@@ -500,7 +577,7 @@ constructor(
                             plan.videoId,
                             audioQuality = audioQuality,
                             connectivityManager = connectivityManager,
-                            preferAac = true,
+                            preferAac = false,
                         )
                     }.getOrElse { error ->
                         if (isNetworkFailure(error)) {
@@ -566,9 +643,14 @@ constructor(
         return null
     }
 
-    fun getDownload(songId: String): Flow<Download?> = downloads.map { it[songId] }
+    fun getDownload(songId: String): Flow<Download?> = visibleDownloads.map { it[songId] }.distinctUntilChanged()
 
     fun release() {
         scope.cancel()
+    }
+
+    private companion object {
+        /** After the exporter has loaded what it already wrote (and retried its own pending work). */
+        const val EXPORT_CATCH_UP_DELAY_MS = 20_000L
     }
 }

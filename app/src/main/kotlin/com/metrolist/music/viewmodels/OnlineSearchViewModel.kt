@@ -63,7 +63,8 @@ constructor(
     } catch (e: IllegalArgumentException) {
         savedStateHandle.get<String>("query")!!
     }
-    val filter = MutableStateFlow<YouTube.SearchFilter?>(null)
+    // A new query keeps the chosen filter ("Albums" stays "Albums"), see [rememberFilters].
+    val filter = MutableStateFlow(lastFilter)
     var summaryPage by mutableStateOf<SearchSummaryPage?>(null)
     val viewStateMap = mutableStateMapOf<String, ItemsPage?>()
 
@@ -80,7 +81,21 @@ constructor(
      * Spotify-specific filter: maps to the API "type" parameter.
      * null = show all types (summary mode)
      */
-    val spotifyFilter = MutableStateFlow<String?>(null)
+    val spotifyFilter = MutableStateFlow(lastSpotifyFilter)
+
+    private fun rememberFilters() {
+        viewModelScope.launch { filter.collect { lastFilter = it } }
+        viewModelScope.launch { spotifyFilter.collect { lastSpotifyFilter = it } }
+    }
+
+    private companion object {
+        /** The filters picked last; each search screen is a new view model, so they live here. */
+        @Volatile
+        var lastFilter: YouTube.SearchFilter? = null
+
+        @Volatile
+        var lastSpotifyFilter: String? = null
+    }
 
     private suspend fun loadSummaryPage() {
         if (summaryPage == null) {
@@ -102,6 +117,7 @@ constructor(
 
 
     init {
+        rememberFilters()
         viewModelScope.launch(Dispatchers.IO) {
             val useSpotify = shouldUseSpotifySearch()
             isSpotifySearch.value = useSpotify

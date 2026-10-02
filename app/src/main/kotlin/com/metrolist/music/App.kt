@@ -136,8 +136,14 @@ class App :
                     bandcampEnabled = prefs[com.metrolist.music.constants.AudioSourceBandcampKey] ?: true
                     audiusEnabled = prefs[com.metrolist.music.constants.AudioSourceAudiusKey] ?: true
                     soulseekEnabled = prefs[com.metrolist.music.constants.AudioSourceSoulseekKey] ?: true
+                    losslessEnabled = prefs[com.metrolist.music.constants.AudioSourceLosslessKey] ?: true
+                    com.metrolist.music.resolver.VkMusic.ownAccount =
+                        !prefs[com.metrolist.music.constants.VkAccessTokenKey].isNullOrBlank()
                     com.metrolist.music.resolver.VkMusic.likesToAccount =
                         prefs[com.metrolist.music.constants.VkLikesToAccountKey] ?: true
+                    pickMode = prefs[com.metrolist.music.constants.SourcePickModeKey]
+                        ?.let { runCatching { com.metrolist.music.constants.SourcePickMode.valueOf(it) }.getOrNull() }
+                        ?: com.metrolist.music.constants.SourcePickMode.ACCURACY
                     order = com.metrolist.music.resolver.AudioProviderId.parseOrder(
                         prefs[com.metrolist.music.constants.AudioSourceOrderKey],
                     )
@@ -145,6 +151,31 @@ class App :
             }
         }
         com.metrolist.music.playback.ForYouSeen.init(this)
+        com.metrolist.music.playback.RecentlyPlayed.init(this)
+        com.metrolist.music.playback.LibraryRecents.init(this)
+        // Playlists imported before the fix were saved without the bookmark the library needs.
+        applicationScope.launch(Dispatchers.IO) {
+            runCatching {
+                database.openHelper.writableDatabase.execSQL(
+                    "UPDATE playlist SET bookmarkedAt = " + System.currentTimeMillis() +
+                        " WHERE bookmarkedAt IS NULL AND browseId IS NULL AND isEditable = 1",
+                )
+            }
+        }
+        // Everyone starts on High playback quality, also those who had the old Auto stored once.
+        applicationScope.launch(Dispatchers.IO) {
+            val migrated = androidx.datastore.preferences.core.booleanPreferencesKey("qualityHighByDefault")
+            dataStore.edit { prefs ->
+                if (prefs[migrated] != true) {
+                    if (prefs[com.metrolist.music.constants.AudioQualityKey] != com.metrolist.music.constants.AudioQuality.LOW.name) {
+                        prefs[com.metrolist.music.constants.AudioQualityKey] = com.metrolist.music.constants.AudioQuality.HIGH.name
+                    }
+                    prefs[migrated] = true
+                }
+            }
+        }
+        com.metrolist.music.resolver.SharedVk.init(this)
+        com.metrolist.music.utils.RemoteConfig.start(this)
         // Bitrates that used to be assumed (320 kbps for VK / Audius streams) are forgotten once:
         // they are measured from the audio instead now.
         applicationScope.launch(Dispatchers.IO) {

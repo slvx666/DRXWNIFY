@@ -173,6 +173,7 @@ fun SpotifyLibraryScreen(
                 onClear = { viewModel.clearFilter() },
                 onLocal = onLocalSelected,
                 onCreatePlaylist = { showCreatePlaylistDialog = true },
+                onImportPlaylist = { navController.navigate("import_playlist") },
                 onVk = onVkSelected,
             )
         }
@@ -238,6 +239,7 @@ fun LibraryChips(
     onClear: () -> Unit,
     onLocal: () -> Unit,
     onCreatePlaylist: (() -> Unit)? = null,
+    onImportPlaylist: (() -> Unit)? = null,
     vkSelected: Boolean = false,
     /** Shows the "VK" chip (the account's VK playlists); null while VK isn't connected. */
     onVk: (() -> Unit)? = null,
@@ -294,6 +296,15 @@ fun LibraryChips(
                                 contentDescription = stringResource(R.string.create_playlist),
                                 modifier = Modifier.size(20.dp),
                             )
+                        }
+                        onImportPlaylist?.let { import ->
+                            IconButton(onClick = import, modifier = Modifier.size(36.dp)) {
+                                Icon(
+                                    painter = painterResource(R.drawable.download),
+                                    contentDescription = stringResource(R.string.import_playlist),
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
                         }
                     }
                 }

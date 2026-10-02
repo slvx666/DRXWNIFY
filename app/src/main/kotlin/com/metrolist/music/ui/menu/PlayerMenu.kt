@@ -155,7 +155,7 @@ fun PlayerMenu(
     val coroutineScope = rememberCoroutineScope()
 
     val downloadUtil = LocalDownloadUtil.current
-    val downloads by downloadUtil.downloads.collectAsState()
+    val downloads by downloadUtil.visibleDownloads.collectAsState()
     val directDownload by downloadUtil
         .getDownload(mediaMetadata.id)
         .collectAsState(initial = null)
@@ -200,7 +200,9 @@ fun PlayerMenu(
             value = fromRegistry
         } else {
             value = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                val sid = database.getSpotifyMatchByYouTubeId(mediaMetadata.id)?.spotifyId
+                // Also finds the track behind an "mfb:" item, which the YouTube match can't.
+                val sid = SpotifyMetadataRegistry.catalogIdOf(database, mediaMetadata.id)
+                    ?.takeUnless { it.startsWith("src:") }
                 sid?.let { com.metrolist.music.catalog.Catalog.getTrack(it).getOrNull() }
             }
         }
@@ -224,7 +226,20 @@ fun PlayerMenu(
 
     // Album link for "View album": prefer the recovered Spotify track's album (spotify_album/{id}),
     // else the media's own album (album/{id}). null when neither is known.
-    val spotifyAlbumId = recoveredSpotifyTrack?.album?.id?.takeIf { it.isNotBlank() }
+    // The album is known only by its id (a quick queue item, an evicted registry entry): its name
+    // is fetched, so "View album" always says which album it opens.
+    val fetchedAlbumTitle by produceState<String?>(null, mediaMetadata.id, recoveredSpotifyTrack?.album?.id) {
+        val known = listOfNotNull(spotifyTrack?.album?.name, recoveredSpotifyTrack?.album?.name, mediaMetadata.album?.title)
+            .any { it.isNotBlank() }
+        if (known) return@produceState
+        val albumId = (spotifyTrack?.album?.id ?: recoveredSpotifyTrack?.album?.id ?: mediaMetadata.album?.id)
+            ?.takeIf { it.isNotBlank() }?.removePrefix(SPOTIFY_ID_PREFIX) ?: return@produceState
+        value = kotlinx.coroutines.withContext(Dispatchers.IO) {
+            com.metrolist.music.catalog.Catalog.album(albumId).getOrNull()?.name?.takeIf { it.isNotBlank() }
+        }
+    }
+    val spotifyAlbumId = spotifyTrack?.album?.id?.takeIf { it.isNotBlank() }
+        ?: recoveredSpotifyTrack?.album?.id?.takeIf { it.isNotBlank() }
         ?: mediaMetadata.album?.id?.takeIf { it.isSpotifyId() }?.stripSpotifyPrefix()
         ?: librarySong?.song?.albumId?.takeIf { it.isSpotifyId() }?.stripSpotifyPrefix()
         // Older rows/items carried the bare 22-char Spotify album id.
@@ -359,6 +374,17 @@ fun PlayerMenu(
         mapper = spotifyMapper,
         onDismiss = { showAddToSpotifyPlaylist = false },
     )
+
+    var showCoverPicker by rememberSaveable { mutableStateOf(false) }
+    if (showCoverPicker) {
+        com.metrolist.music.ui.dialog.CoverPickerDialog(
+            mediaId = mediaMetadata.id,
+            title = mediaMetadata.title,
+            artist = mediaMetadata.artists.joinToString { it.name },
+            durationMs = mediaMetadata.duration.takeIf { it > 0 }?.times(1000L),
+            onDismiss = { showCoverPicker = false },
+        )
+    }
 
     var showVersionDialog by rememberSaveable { mutableStateOf(false) }
     if (showVersionDialog) {
@@ -931,8 +957,13 @@ fun PlayerMenu(
                         }
                         // Works for Spotify tracks via the recovered album id, not only tracks that
                         // carry a native album on the MediaItem.
-                        val albumTitle = mediaMetadata.album?.title ?: recoveredSpotifyTrack?.album?.name
-                            ?: librarySong?.song?.albumName
+                        // First non-blank name: a blank title on the item used to hide the real one.
+                        val albumTitle = listOfNotNull(
+                            spotifyTrack?.album?.name,
+                            recoveredSpotifyTrack?.album?.name,
+                            mediaMetadata.album?.title,
+                            librarySong?.song?.albumName,
+                        ).firstOrNull { it.isNotBlank() } ?: fetchedAlbumTitle
                         if ((mediaMetadata.album != null || spotifyAlbumId != null) && !isPodcast) {
                             add(
                                 Material3MenuItemData(
@@ -1083,6 +1114,24 @@ fun PlayerMenu(
                                     onClick = {
                                         showVersionDialog = true
                                     },
+                                ),
+                            )
+                        }
+
+                        // Tracks from a source (Soulseek files above all) often come without a cover.
+                        if (com.metrolist.music.resolver.SourceSearch.isSourceTrack(mediaMetadata.id)) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.cover_picker_title)) },
+                                    description = { Text(text = stringResource(R.string.cover_picker_desc)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.album),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = { showCoverPicker = true },
                                 ),
                             )
                         }

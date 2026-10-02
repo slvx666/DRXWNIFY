@@ -69,10 +69,14 @@ abstract class SpotifyPagedQueue(
 
     /**
      * Queue tracks at once with what is known about them ([SpotifyYouTubeMapper.quickMetadata])
-     * instead of finding each one's audio first; the audio is found when a track is reached. For
-     * endless radios, where skipping fast must never outrun the queue.
+     * instead of finding each one's audio first; the audio is found when a track is reached.
+     *
+     * On for every list: looking the audio up ahead made the tapped track wait for its neighbours,
+     * a track whose lookup failed dropped out and shifted the queue (the tapped row then played
+     * another song), and the parallel lookups competed for a weak connection with the one track
+     * actually being played.
      */
-    protected open val quickItems: Boolean = false
+    protected open val quickItems: Boolean = true
 
     private suspend fun toItem(track: SpotifyTrack): MediaItem? =
         if (quickItems) mapper.quickMetadata(track).toMediaItem() else mapper.resolveToMediaItem(track)
@@ -115,10 +119,13 @@ abstract class SpotifyPagedQueue(
 
             val targetIndex = startIndex.coerceIn(0, (allTracks.size - 1).coerceAtLeast(0))
 
-            // Fast-start: resolve only a tiny window (target + 2 next) for instant playback.
-            // The rest of the queue is populated via nextPage() in the background.
-            val windowStart = (targetIndex - FAST_START_BEFORE).coerceAtLeast(0)
-            val windowEnd = (targetIndex + FAST_START_AFTER + 1).coerceAtMost(allTracks.size)
+            // Quick items cost nothing, so the list is queued around the tapped track as the user
+            // sees it ("previous" goes to the row above). Otherwise only a tiny window is looked
+            // up for a fast start; the rest of the queue is populated via nextPage().
+            val before = if (quickItems) QUICK_START_BEFORE else FAST_START_BEFORE
+            val after = if (quickItems) QUICK_START_AFTER else FAST_START_AFTER
+            val windowStart = (targetIndex - before).coerceAtLeast(0)
+            val windowEnd = (targetIndex + after + 1).coerceAtMost(allTracks.size)
             val windowTracks = allTracks.subList(windowStart, windowEnd)
 
             val resolvedItems = coroutineScope {
@@ -183,7 +190,7 @@ abstract class SpotifyPagedQueue(
             val resolved = ArrayList<MediaItem?>(allTracks.size)
             for (chunk in allTracks.chunked(RESOLVE_BATCH_SIZE)) {
                 resolved += coroutineScope {
-                    chunk.map { track -> async { mapper.resolveToMediaItem(track) } }.awaitAll()
+                    chunk.map { track -> async { toItem(track) } }.awaitAll()
                 }
             }
             val resolvedItems = mutableListOf<MediaItem>()
@@ -230,14 +237,17 @@ abstract class SpotifyPagedQueue(
         }
 
         if (resolveOffset >= allTracks.size && !apiHasMore && continues) {
+            var fruitless = 0
             while (continuationRounds < maxContinuationRounds && resolveOffset >= allTracks.size) {
                 continuationRounds++
                 val more = runCatching { continueWith(allTracks.toList()) }
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
                     .getOrDefault(emptyList())
                 val known = allTracks.mapTo(HashSet()) { it.id }
-                allTracks.addAll(more.filter { it.id !in known })
-                if (more.isEmpty()) break
+                val fresh = more.filter { it.id !in known }
+                allTracks.addAll(fresh)
+                // An endless queue must not spin on the network when a seed brings nothing new.
+                if (fresh.isEmpty() && ++fruitless >= MAX_FRUITLESS_ROUNDS) break
             }
         }
 
@@ -283,5 +293,8 @@ abstract class SpotifyPagedQueue(
         /** Resolve only the target + a few neighbors for instant playback start. */
         private const val FAST_START_BEFORE = 0
         private const val FAST_START_AFTER = 2
+        private const val MAX_FRUITLESS_ROUNDS = 3
+        private const val QUICK_START_BEFORE = 100
+        private const val QUICK_START_AFTER = 200
     }
 }

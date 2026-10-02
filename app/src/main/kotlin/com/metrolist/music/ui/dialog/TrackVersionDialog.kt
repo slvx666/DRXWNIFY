@@ -120,8 +120,18 @@ fun TrackVersionDialog(
                 else -> LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
                     items(candidates, key = { "${it.match.provider}:${it.match.trackId}" }) { candidate ->
                         val key = "${candidate.match.provider}:${candidate.match.trackId}"
+                        // Shown at once; the bitrate follows when it has been read (spinner till then).
+                        val measured by androidx.compose.runtime.produceState<Int?>(candidate.bitrateKbps, key) {
+                            if (value == null) {
+                                val lookupId = target?.catalogId?.let { FallbackIds.of(it) } ?: mediaId
+                                // Off the main thread: Room refuses it there (this crashed the app).
+                                value = withContext(Dispatchers.IO) {
+                                    AudioFallbackEngine.measureVersion(lookupId, database.getSongByIdBlocking(lookupId), candidate.match)
+                                } ?: -1
+                            }
+                        }
                         VersionRow(
-                            candidate = candidate,
+                            candidate = candidate.copy(bitrateKbps = measured),
                             isCurrent = key == currentKey,
                             onClick = {
                                 onDismiss()
@@ -196,9 +206,14 @@ private fun VersionRow(
 
 @Composable
 private fun BitratePill(kbps: Int?) {
-    val color = kbps?.let(::bitrateColor) ?: MaterialTheme.colorScheme.onSurfaceVariant
+    if (kbps == null) {
+        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+        return
+    }
+    val known = kbps.takeIf { it > 0 }
+    val color = known?.let(::bitrateColor) ?: MaterialTheme.colorScheme.onSurfaceVariant
     Text(
-        text = if (kbps != null) "$kbps kbps" else "— kbps",
+        text = if (known != null) "$known kbps" else "? kbps",
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.SemiBold,
         color = color,
@@ -223,6 +238,7 @@ private fun providerLabel(id: AudioProviderId): String = when (id) {
     AudioProviderId.BANDCAMP -> "Bandcamp"
     AudioProviderId.AUDIUS -> "Audius"
     AudioProviderId.SOULSEEK -> "Soulseek"
+    AudioProviderId.LOSSLESS -> "Lossless"
 }
 
 /**

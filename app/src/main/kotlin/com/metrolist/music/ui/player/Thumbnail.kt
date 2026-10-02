@@ -211,6 +211,8 @@ fun Thumbnail(
     isLandscape: Boolean = false,
     isListenTogetherGuest: Boolean = false,
     onNavigate: ((String) -> Unit)? = null,
+    /** Back to the home screen (the house at the top right); null hides it. */
+    onHome: (() -> Unit)? = null,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val context = LocalContext.current
@@ -362,7 +364,9 @@ fun Thumbnail(
                     ThumbnailHeader(
                         queueTitle = queueTitle,
                         albumTitle = mediaMetadata?.album?.title,
-                        textColor = textBackgroundColor
+                        textColor = textBackgroundColor,
+                        mediaId = mediaMetadata?.id,
+                        onHome = onHome,
                     )
                 }
                 
@@ -462,6 +466,8 @@ private fun ThumbnailHeader(
     queueTitle: String?,
     albumTitle: String?,
     textColor: Color,
+    mediaId: String?,
+    onHome: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     val listenTogetherManager = LocalListenTogetherManager.current
@@ -501,6 +507,24 @@ private fun ThumbnailHeader(
                     color = textColor.copy(alpha = 0.8f),
                     maxLines = 1,
                     modifier = Modifier.basicMarquee()
+                )
+            }
+            // Bitrate · codec · sample rate · source of what is playing.
+            com.metrolist.music.ui.component.PlayerQualityLine(
+                mediaId = mediaId,
+                color = textColor,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        if (onHome != null) {
+            androidx.compose.material3.IconButton(
+                onClick = onHome,
+                modifier = Modifier.align(Alignment.CenterEnd),
+            ) {
+                androidx.compose.material3.Icon(
+                    painter = androidx.compose.ui.res.painterResource(R.drawable.home_outlined),
+                    contentDescription = stringResource(R.string.home),
+                    tint = textColor.copy(alpha = 0.7f),
                 )
             }
         }
