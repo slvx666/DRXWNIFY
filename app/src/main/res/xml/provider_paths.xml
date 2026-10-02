@@ -11,5 +11,8 @@
         path="." />
     <external-files-path
         name="external_files_documents"
+        path="Documents/DrxwnifyExports/" />
+    <external-files-path
+        name="external_files_documents_legacy"
         path="Documents/MetrolistExports/" />
 </paths>

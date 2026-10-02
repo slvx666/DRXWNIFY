@@ -153,7 +153,7 @@ private fun createExportFile(
     filename: String,
 ): File {
     // Create directory if it doesn't exist
-    val exportDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), "MetrolistExports")
+    val exportDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), "DrxwnifyExports")
     if (!exportDir.exists()) {
         exportDir.mkdirs()
     }
@@ -195,14 +195,14 @@ fun getExportFileUri(
 ): Uri = getFileUri(context, file)
 
 /**
- * Copy a generated export file into the public Documents/MetrolistExports folder using MediaStore (scoped storage).
+ * Copy a generated export file into the public Documents/DrxwnifyExports folder using MediaStore (scoped storage).
  * Returns the Uri to the public copy on success.
  */
 fun saveToPublicDocuments(
     context: Context,
     source: File,
     mimeType: String,
-    subdirectory: String = "MetrolistExports",
+    subdirectory: String = "DrxwnifyExports",
 ): Result<Uri> {
     return try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

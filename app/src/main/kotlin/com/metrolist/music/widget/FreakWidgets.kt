@@ -285,7 +285,7 @@ object FreakWidgets {
         p.color = Color.rgb(230, 40, 60)
         c.drawRoundRect(RectF(bar.left, bar.top, bar.left + bar.width() * fed, bar.bottom), h * 0.03f, h * 0.03f, p)
         val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(60, 58, 80); textSize = h * 0.055f; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-        c.drawText((if (r) "МЕЛДИК · СЫТ НА " else "MELDY · FED ") + "${(fed * 100).toInt()}%", w / 2f, h * 0.97f, label)
+        c.drawText((if (r) "ДРАУНИК · СЫТ НА " else "DROWNY · FED ") + "${(fed * 100).toInt()}%", w / 2f, h * 0.97f, label)
         return bmp
     }
 

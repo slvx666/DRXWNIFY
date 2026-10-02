@@ -133,7 +133,7 @@ class AudiusAudioProvider : AudioProvider {
     }
 
     private companion object {
-        const val APP_NAME = "Meld"
+        const val APP_NAME = "Drxwnify"
         const val HOST_TTL_MS = 30 * 60 * 1000L
         const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
     }

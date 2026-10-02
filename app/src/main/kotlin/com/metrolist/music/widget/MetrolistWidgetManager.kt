@@ -508,7 +508,7 @@ class MetrolistWidgetManager @Inject constructor(
     }
 
     private fun radioFaces(face: MeldFace): List<Face> {
-        val lcdSource = face.quality?.toString()?.uppercase() ?: "MELD"
+        val lcdSource = face.quality?.toString()?.uppercase() ?: "DRXWNIFY"
         fun build(layout: Int) = RemoteViews(context.packageName, layout).apply {
             setTextViewText(R.id.radio_source, lcdSource)
             setTextViewText(R.id.radio_title, face.title)

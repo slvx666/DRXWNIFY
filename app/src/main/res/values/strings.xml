@@ -288,7 +288,7 @@
 
     <string name="storage">Storage</string>
     <string name="download_folder">Download folder</string>
-    <string name="download_folder_not_set">Default (Music/Meld)</string>
+    <string name="download_folder_not_set">Default (Music/Drxwnify)</string>
     <string name="download_folder_summary">Exported tracks are saved here after download</string>
     <string name="image_cache">Image Cache</string>
     <string name="song_cache">Song Cache</string>

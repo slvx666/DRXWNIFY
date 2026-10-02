@@ -414,7 +414,7 @@
     <string name="lastfm_now_playing">Send Now Playing status</string>
     <string name="lastfm_api_credentials_missing">Last.fm API credentials are missing from this build.</string>
     <string name="last_fm_send_likes">Sync Loved and Unloved</string>
-    <string name="last_fm_send_likes_description">Love or unlove songs in Last.fm when you like or unlike them in Meld</string>
+    <string name="last_fm_send_likes_description">Love or unlove songs in Last.fm when you like or unlike them in Drxwnify</string>
     <string name="logging_in">Logging in…</string>
 
     <string name="scrobbling_configuration">Scrobbling configuration</string>
@@ -625,19 +625,19 @@
     <string name="wrapped_total_artists_subtitle">unique artists!</string>
     <string name="wrapped_total_songs_title">You\'ve listened to</string>
     <string name="wrapped_total_songs_subtitle">unique songs!</string>
-    <string name="wrapped_intro_title">MELD</string>
+    <string name="wrapped_intro_title">DRXWNIFY</string>
     <string name="wrapped_intro_subtitle">it\'s time to see what you\'ve been listening to all this year…</string>
     <string name="wrapped_intro_button">let\'s go!</string>
-    <string name="wrapped_end_thanks">Thanks for listening with Meld!</string>
+    <string name="wrapped_end_thanks">Thanks for listening with Drxwnify!</string>
     <string name="wrapped_end_create_playlist">Create Your Wrapped Playlist</string>
     <string name="wrapped_end_creating_playlist">Creating...</string>
     <string name="wrapped_end_playlist_saved">Playlist Saved</string>
-    <string name="wrapped_logo_content_description">Meld Logo</string>
+    <string name="wrapped_logo_content_description">Drxwnify Logo</string>
     <string name="wrapped_year">2025</string>
     <string name="wrapped_ready_title">YOUR WRAPPED IS READY!</string>
     <string name="wrapped_ready_subtitle">Time to see what you loved all this year…</string>
     <string name="wrapped_thank_you">Thank you for listening!</string>
-    <string name="wrapped_special_thanks">Special thanks to MO Agamy for creating Metrolist, the foundation of Meld</string>
+    <string name="wrapped_special_thanks">Special thanks to MO Agamy and all contributors</string>
     <string name="wrapped_close">Close Wrapped</string>
     <string name="wrapped_playlist_title">Your %s Wrapped</string>
     <string name="wrapped_create_playlist">Create playlist</string>
@@ -871,7 +871,7 @@
     <string name="crash_description">An unexpected error occurred. Please share the crash report to help us fix the issue</string>
     <string name="crash_share_logs">Share logs</string>
     <string name="crash_share_title">Share crash report</string>
-    <string name="crash_report_subject">Meld Crash Report</string>
+    <string name="crash_report_subject">Drxwnify Crash Report</string>
     <string name="crash_close">Close</string>
     <string name="crash_no_log">No crash log available</string>
 
@@ -931,7 +931,7 @@
     <string name="recognition_notification_processing">Identifying…</string>
     <string name="recognition_notification_no_match">No match found</string>
     <string name="recognition_notification_failed">Recognition failed</string>
-    <string name="listen_on_metrolist">Listen on Metrolist</string>
+    <string name="listen_on_metrolist">Listen on Drxwnify</string>
 
     <!-- CSV Import Strings -->
     <string name="map_csv_columns">Map CSV columns</string>
@@ -1003,7 +1003,7 @@
     <string name="credits_collaborator">Collaborator</string>
     <string name="credits_collaborators_section">Collaborators</string>
     <string name="credits_original_project">Original Project</string>
-    <string name="credits_based_on_metrolist">Meld is based on Metrolist, an open-source YouTube Music client.</string>
+    <string name="credits_based_on_metrolist">Drxwnify is an open-source music client.</string>
     <string name="credits_license_name">GNU General Public License v3.0</string>
     <string name="credits_license_desc">Free, open-source software. You may use, study, share, and improve it</string>
     <string name="credits_discord">Discord server</string>
@@ -1016,7 +1016,7 @@
     <string name="like_what_i_do">Like what I do?</string>
     <string name="buy_mo_a_coffee">Buy me a coffee!</string>
     <string name="community_and_info">Community &amp; Info</string>
-    <string name="metrolist">MELD</string>
+    <string name="metrolist">DRXWNIFY</string>
     <string name="wanna_play_favorite_song">Want to play their favorite song?</string>
     <string name="yeah">Yeah!</string>
     <string name="stands_with_palestine">This project stands with Epstein 🇵🇸</string>
@@ -1378,7 +1378,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="vk_albums_empty">VK has no albums or playlists for this query</string>
     <string name="save_cover">Save cover</string>
     <string name="save_cover_action">Save to gallery</string>
-    <string name="cover_saved">Cover saved to Pictures/Meld</string>
+    <string name="cover_saved">Cover saved to Pictures/Drxwnify</string>
     <string name="cover_not_saved">Could not save the cover</string>
     <string name="experimental_source_tag">%1$s · exp.</string>
     <string name="vk_save">Save to my VK music</string>
@@ -1483,9 +1483,9 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="import_copy_prompt">Copy the prompt</string>
     <string name="import_help_body">• Telegram: Telegram Desktop → the chat → ⋮ → Export chat history → format JSON (files can stay unchecked) → choose result.json here. Only music files are taken; text, photos and voice messages are skipped.\n• AIMP, VLC, Winamp: save the playlist as M3U / M3U8 (AIMP: Playlist → Save as). AIMP .aimppl4 works too.\n• Spotify: paste a playlist or album link.\n• YouTube / YouTube Music: paste a playlist link.\n• Yandex Music, VK, Apple Music, Deezer…: export to CSV with TuneMyMusic or Soundiiz (Spotify: Exportify) and choose the file.\n• Any list: lines of \"Artist - Title\".</string>
     <string name="import_ai_prompt">Turn the list below into lines of the form \"Artist - Title\": one track per line, no numbering, no album names, no extra text. If a line has no artist, guess it only when you are sure, otherwise write just the title.\n\n[paste your list here]</string>
-    <string name="widget_pill">Meld · mini</string>
-    <string name="widget_now">Meld · cover</string>
-    <string name="widget_sc">Meld · shortcuts</string>
+    <string name="widget_pill">Drxwnify · mini</string>
+    <string name="widget_now">Drxwnify · cover</string>
+    <string name="widget_sc">Drxwnify · shortcuts</string>
     <string name="widget_pill_desc">Cover, play and next in one small pill</string>
     <string name="widget_now_desc">The cover with the track and controls. Resize it: square, wide, big.</string>
     <string name="widget_sc_desc">Liked, Downloaded, Search and Import at a tap</string>
@@ -1519,20 +1519,20 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="eq_phone_speaker">Phone speaker</string>
     <string name="eq_old_radio">Old radio</string>
     <string name="eq_underwater">Underwater</string>
-    <string name="widget_radio">Meld · car radio</string>
+    <string name="widget_radio">Drxwnify · car radio</string>
     <string name="widget_radio_desc">A retro head unit: LCD with the track, source and quality, big buttons. Resize it for other faces.</string>
-    <string name="freak_paper">Meld · toilet roll</string>
+    <string name="freak_paper">Drxwnify · toilet roll</string>
     <string name="freak_paper_desc">Unrolls as the track plays, the title printed on the sheets. Tap: roll back (previous track).</string>
-    <string name="freak_shoes">Meld · clown shoes</string>
+    <string name="freak_shoes">Drxwnify · clown shoes</string>
     <string name="freak_shoes_desc">Clown shoes sneaking along as the track goes, no background. Tap: play/pause.</string>
-    <string name="widget_classic">Meld · player</string>
+    <string name="widget_classic">Drxwnify · player</string>
     <string name="widget_classic_desc">Cover, track and controls. Make it taller for progress and like.</string>
-    <string name="freak_pet">Meld · pixel pet</string>
+    <string name="freak_pet">Drxwnify · pixel pet</string>
     <string name="freak_pet_desc">A Game Boy pet: dances to your music, sleeps when it stops, starves without it. Tap: play/pause.</string>
-    <string name="freak_tv">Meld · haunted TV</string>
+    <string name="freak_tv">Drxwnify · haunted TV</string>
     <string name="freak_tv_desc">A cursed CRT showing the cover through VHS glitches. Tap: next channel (track).</string>
-    <string name="freak_receipt">Meld · receipt</string>
+    <string name="freak_receipt">Drxwnify · receipt</string>
     <string name="freak_receipt_desc">A till receipt of today\'s listening, with a barcode of the track.</string>
-    <string name="freak_cyber">Meld · neural jack</string>
+    <string name="freak_cyber">Drxwnify · neural jack</string>
     <string name="freak_cyber_desc">Cyberpunk HUD: neon signal, bandwidth, upload. Tap: rewind.</string>
 </resources>

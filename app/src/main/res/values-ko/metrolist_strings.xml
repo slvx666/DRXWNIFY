@@ -37,7 +37,7 @@
     <string name="wrapped_top_album_title">당신의 최애 앨범은</string>
     <string name="wrapped_top_song_album_art_content_description">앨범 아트</string>
     <string name="wrapped_top_artist_title">올해 당신의 최애 아티스트는</string>
-    <string name="wrapped_intro_title">메트로리스트</string>
+    <string name="wrapped_intro_title">DRXWNIFY</string>
     <string name="wrapped_year">2025</string>
     <string name="equalizer_header">이퀄라이저</string>
     <string name="no_profiles">이퀄라이저 프로필 없음</string>
@@ -120,7 +120,7 @@
     <string name="swipe_song_to_remove">재생 목록에서 스프레드 곡을 제거하십시오</string>
     <string name="wrapped_album_listening_time">이 앨범을 %d 분들을 들었습니다</string>
     <string name="wrapped_ready_subtitle">올해 사랑하는 것을 볼 시간.</string>
-    <string name="wrapped_special_thanks">Metrolist를 만들기위한 MO Agamy의 특별한 감사</string>
+    <string name="wrapped_special_thanks">Drxwnify를 만들기위한 MO Agamy의 특별한 감사</string>
     <string name="turntable_widget_description">놀이와 같은 컨트롤과 원형 음악 위젯</string>
     <string name="transfer_ownership_desc">해당 이용 후기에 달린 코멘트가 없습니다</string>
     <string name="listen_together_auto_approval_suggestions_desc">고객의 소리와 노래 제안</string>

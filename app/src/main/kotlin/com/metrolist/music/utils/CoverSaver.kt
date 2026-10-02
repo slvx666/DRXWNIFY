@@ -21,7 +21,7 @@ import timber.log.Timber
 import java.util.concurrent.TimeUnit
 
 /**
- * Saves a cover to the gallery (Pictures/Meld), in the largest size its service offers — the
+ * Saves a cover to the gallery (Pictures/Drxwnify), in the largest size its service offers — the
  * artwork shown on screen is often a 300 px thumbnail of a much bigger original.
  */
 object CoverSaver {
@@ -133,7 +133,7 @@ object CoverSaver {
             put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
             put(MediaStore.Images.Media.MIME_TYPE, mime)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Meld")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Drxwnify")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }

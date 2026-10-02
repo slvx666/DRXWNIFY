@@ -83,7 +83,7 @@ private suspend fun existingExportUri(
                 .getOrNull()?.takeIf(::readable)
     }
     if (uri == null) {
-        android.util.Log.w("MeldExport", "no file for $songId: ${failure?.message}")
+        android.util.Log.w("DrxwnifyExport", "no file for $songId: ${failure?.message}")
         withContext(Dispatchers.Main) {
             Toast.makeText(context, context.getString(R.string.file_not_found), Toast.LENGTH_SHORT).show()
         }

@@ -168,7 +168,7 @@ class DownloadExporter @Inject constructor(
                         // Left in the pending set so the next app start tries again.
                         DownloadExportState.markFailed(songId)
                         Timber.e(it, "DownloadExporter: export failed for %s", songId)
-                        android.util.Log.w("MeldExport", "export failed for $songId: ${it.message}")
+                        android.util.Log.w("DrxwnifyExport", "export failed for $songId: ${it.message}")
                     }
             } finally {
                 DownloadExportState.end(songId)
@@ -723,12 +723,12 @@ class DownloadExporter @Inject constructor(
             )
         }
 
-        // Fallback: MediaStore into Music/Meld/<segments>. Requires the scoped-storage API (29+).
+        // Fallback: MediaStore into Music/Drxwnify/<segments>. Requires the scoped-storage API (29+).
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             error("No download folder set and MediaStore export requires API 29+")
         }
         val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val relativePath = (listOf("Music", "Meld") + relativeSegments).joinToString("/") + "/"
+        val relativePath = (listOf("Music", "Drxwnify") + relativeSegments).joinToString("/") + "/"
         val uniqueName = uniqueMediaStoreName(resolver, collection, relativePath, fileName)
         val pending = ContentValues().apply {
             put(MediaStore.Audio.Media.DISPLAY_NAME, uniqueName)
