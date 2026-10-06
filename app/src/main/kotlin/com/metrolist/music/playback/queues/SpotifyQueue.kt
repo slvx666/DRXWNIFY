@@ -195,6 +195,6 @@ class SpotifyQueue(
             batch.map { track -> async { mapper.quickMetadata(track).toMediaItem() } }
                 .awaitAll()
                 .filterNotNull()
-        }
+        }.also { com.metrolist.music.playback.RecommendedTracks.mark(it) }
     }
 }

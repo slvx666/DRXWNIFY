@@ -399,6 +399,24 @@ constructor(
         }
     }
 
+    /**
+     * Another version of a downloaded track was picked: its old audio and file go, and [newId] (the
+     * same id when only the source behind it changed) is downloaded from the new source. The
+     * download manager restarts a download that is still being removed, so the order is safe.
+     */
+    fun redownload(oldId: String, newId: String, title: String) {
+        scope.launch(Dispatchers.IO) {
+            downloadExporter.deleteExported(oldId)
+            if (oldId != newId) database.updateDownloadedInfo(oldId, false, null)
+            DownloadService.sendRemoveDownload(appContext, ExoDownloadService::class.java, oldId, false)
+            val request = androidx.media3.exoplayer.offline.DownloadRequest.Builder(newId, newId.toUri())
+                .setCustomCacheKey(newId)
+                .setData(title.toByteArray())
+                .build()
+            DownloadService.sendAddDownload(appContext, ExoDownloadService::class.java, request, false)
+        }
+    }
+
     fun removeDownloads(songIds: Collection<String>) {
         if (songIds.isEmpty()) return
         scope.launch(Dispatchers.IO) {

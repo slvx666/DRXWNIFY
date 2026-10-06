@@ -28,6 +28,7 @@ import kotlin.math.cos
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -61,6 +62,12 @@ object SpectrumCheck {
         val occupancy: FloatArray,
         val sampleRate: Int,
         val seconds: Int,
+        /** What a lossy encoder cutting where this file is cut runs at, kbps; null: no encoder cut. */
+        val equivalentKbps: Int? = null,
+        /** The spectrum falls off a wall (an encoder's low-pass) rather than fading out. */
+        val hasCliff: Boolean = false,
+        /** Measured in the middle of the track (not its intro). */
+        val fromMiddle: Boolean = false,
     ) {
         val upscaled: Boolean get() = upscaledPercent >= 60
     }
@@ -71,7 +78,7 @@ object SpectrumCheck {
 
     private const val FFT_SIZE = 4096
     private const val MAX_SECONDS = 60
-    private const val MAX_BYTES = 16L shl 20
+    private const val MAX_BYTES = 48L shl 20
     private const val SPECTROGRAM_COLUMNS = 720
     private const val SPECTROGRAM_ROWS = 512
     const val PROFILE_POINTS = 512
@@ -93,8 +100,10 @@ object SpectrumCheck {
                 caches.firstNotNullOfOrNull { cache -> copyCached(cache, key, file).takeIf { it > 64 * 1024 } }
             } ?: return@withContext null
             Timber.d("SpectrumCheck: %s — %d bytes cached", mediaId, copied)
-            val (pcm, sampleRate) = decode(file) ?: return@withContext null
-            val verdict = measure(pcm, sampleRate, codec, kbps)
+            // The middle of the track first: intros are often quiet or band-limited and say little.
+            val fromMiddle = decode(file, fromMiddle = true)
+            val (pcm, sampleRate) = fromMiddle ?: decode(file, fromMiddle = false) ?: return@withContext null
+            val verdict = measure(pcm, sampleRate, codec, kbps, fromMiddle = fromMiddle != null)
             verdicts.value = verdicts.value + (mediaId to verdict)
             verdict
         } catch (t: Throwable) {
@@ -129,8 +138,8 @@ object SpectrumCheck {
         return total
     }
 
-    /** Decodes up to [MAX_SECONDS] into mono floats. */
-    private fun decode(file: File): Pair<FloatArray, Int>? {
+    /** Decodes up to [MAX_SECONDS] into mono floats, from the start or from the middle of the track. */
+    private fun decode(file: File, fromMiddle: Boolean): Pair<FloatArray, Int>? {
         val extractor = MediaExtractor()
         extractor.setDataSource(file.absolutePath)
         val track = (0 until extractor.trackCount).firstOrNull {
@@ -141,6 +150,11 @@ object SpectrumCheck {
         val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
         var sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
         var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+        if (fromMiddle) {
+            val durationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else -1L
+            if (durationUs < (MAX_SECONDS + 30) * 1_000_000L) { extractor.release(); return null }
+            extractor.seekTo((durationUs - MAX_SECONDS * 1_000_000L) / 2, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+        }
         val codec = MediaCodec.createDecoderByType(mime)
         codec.configure(format, null, null, 0)
         codec.start()
@@ -206,7 +220,7 @@ object SpectrumCheck {
         return if (out.size >= FFT_SIZE * 8) out.toArray() to sampleRate else null
     }
 
-    private fun measure(pcm: FloatArray, sampleRate: Int, codec: String?, kbps: Int?): Verdict {
+    private fun measure(pcm: FloatArray, sampleRate: Int, codec: String?, kbps: Int?, fromMiddle: Boolean): Verdict {
         val bins = FFT_SIZE / 2
         val window = FloatArray(FFT_SIZE) { (0.5 - 0.5 * cos(2 * PI * it / (FFT_SIZE - 1))).toFloat() }
         val frameCount = min(SPECTROGRAM_COLUMNS, max(1, (pcm.size - FFT_SIZE) / (FFT_SIZE / 4)))
@@ -216,8 +230,9 @@ object SpectrumCheck {
         val re = DoubleArray(FFT_SIZE)
         val im = DoubleArray(FFT_SIZE)
         val hzPerBin = sampleRate.toDouble() / FFT_SIZE
-        val refFrom = (2000 / hzPerBin).toInt()
-        val refTo = (6000 / hzPerBin).toInt()
+        fun bin(hz: Int) = (hz / hzPerBin).toInt().coerceIn(0, bins - 1)
+        val refFrom = bin(2000)
+        val refTo = bin(6000)
         val frameRef = FloatArray(frameCount)
         for (f in 0 until frameCount) {
             val start = f * hop
@@ -234,42 +249,87 @@ object SpectrumCheck {
         // Silent frames (pauses, fade-outs) say nothing about the cut: only frames with music count.
         val loudFrames = frameRef.withIndex().sortedByDescending { it.value }.take(max(1, frameCount * 3 / 4)).map { it.index }
 
-        // The typical level per band (median: a few stray peaks after an upscale don't move it) and
-        // how often the band carries sound at all, against each frame's own loudness.
+        // Per band: the typical level against each frame's own 2–6 kHz loudness (median — the stray
+        // peaks and the faint noise an encoder sprinkles above an old cut don't move it), and how
+        // often the band carries real sound.
         val median = FloatArray(bins)
         val occupancy = FloatArray(bins)
         val column = FloatArray(loudFrames.size)
         for (k in 0 until bins) {
             var present = 0
             loudFrames.forEachIndexed { i, f ->
-                column[i] = frames[f][k]
-                if (frames[f][k] > frameRef[f] - PRESENT_DB) present++
+                val rel = frames[f][k] - frameRef[f]
+                column[i] = rel
+                if (rel > -PRESENT_DB) present++
             }
             column.sort()
             median[k] = column[column.size / 2]
             occupancy[k] = present.toFloat() / loudFrames.size
         }
-        val smooth = smoothOver(median, (150 / hzPerBin).toInt().coerceAtLeast(1))
-        val occ = smoothOver(occupancy, (150 / hzPerBin).toInt().coerceAtLeast(1))
+        val smooth = smoothOver(median, bin(100).coerceAtLeast(1))
+        val occ = smoothOver(occupancy, bin(150).coerceAtLeast(1))
 
-        // The cut: the highest band the music fills in at least half of its moments.
-        var cutoffBin = bins - 1
-        while (cutoffBin > refTo && occ[cutoffBin] < OCCUPIED) cutoffBin--
+        // The cut is a CLIFF: an encoder's low-pass drops the level by tens of dB within a few hundred
+        // Hz, and that stays true however the file was blown up later. A real recording fades out
+        // gradually. So: the frequency with the biggest drop between the band just below and the
+        // band just above it.
+        val side = bin(1200) - bin(0)
+        val gap = max(1, bin(200))
+        val searchFrom = bin(CLIFF_SEARCH_FROM_HZ)
+        val searchTo = bins - side - gap - 1
+        var bestDrop = 0f
+        var bestBin = -1
+        for (c in searchFrom..searchTo) {
+            val drop = mean(smooth, c - side, c - gap) - mean(smooth, c + gap, c + side)
+            if (drop > bestDrop) { bestDrop = drop; bestBin = c }
+        }
+        // The floor: what the empty top of the spectrum looks like.
+        val floor = smooth.copyOfRange(refTo, bins).sorted().let { it[it.size / 10] }
+        val hasCliff = bestBin > 0 && bestDrop >= CLIFF_DB &&
+            mean(smooth, bestBin + gap, min(bins - 1, bestBin + side)) <= floor + CLIFF_FLOOR_MARGIN_DB
+        val cutoffBin = if (hasCliff) {
+            // Exactly where the level crosses the middle of the fall.
+            val high = mean(smooth, bestBin - side, bestBin - gap)
+            val low = mean(smooth, bestBin + gap, bestBin + side)
+            val mid = (high + low) / 2
+            (max(0, bestBin - gap * 2)..min(bins - 1, bestBin + gap * 2)).firstOrNull { smooth[it] < mid } ?: bestBin
+        } else {
+            // No wall: where the sound fades into the floor.
+            var k = bins - 1
+            while (k > refTo && smooth[k] < floor + FADE_ABOVE_FLOOR_DB) k--
+            k
+        }
         val cutoffHz = (cutoffBin * hzPerBin).toInt()
-        // How sharp the fall right above it is: lossy encoders cut with a wall, real recordings fade.
-        val above = min(bins - 1, cutoffBin + (500 / hzPerBin).toInt())
-        val wallDb = (smooth[max(0, cutoffBin - (200 / hzPerBin).toInt())] - smooth[above]).toInt().coerceAtLeast(0)
+        val nyquist = sampleRate / 2
 
-        val expected = expectedCutoff(codec, kbps, sampleRate)
         val lossless = codec?.uppercase() in setOf("FLAC", "ALAC", "WAV")
-        val shortfall = (expected - cutoffHz).toDouble()
-        val span = max(1500.0, expected - 15500.0)
-        var percent = if (shortfall <= 300) 4 else (shortfall / span * 100).toInt().coerceIn(5, 99)
-        // A "lossless" file ending in an MP3-320-like wall around 19.5–20.5 kHz was made from one.
-        if (lossless && cutoffHz in 19_000..20_600 && wallDb >= SHARP_WALL_DB) percent = max(percent, 80)
-        else if (wallDb >= SHARP_WALL_DB && shortfall > 300) percent = max(percent, 60)
+        val claimed = when {
+            lossless -> 1411
+            kbps != null && kbps > 0 -> kbps
+            else -> null
+        }
+        // A wall right under nyquist is the resampler of a genuine file, not a lossy encoder.
+        val equivalent = if (hasCliff && cutoffHz < nyquist - NYQUIST_WALL_MARGIN_HZ) equivalentKbps(cutoffHz) else null
+        var percent = when {
+            equivalent == null -> 3
+            claimed == null -> if (equivalent <= 128) 50 else 10
+            else -> {
+                val ratio = claimed.toDouble() / equivalent
+                when {
+                    ratio <= 1.2 -> 5
+                    ratio <= 1.6 -> 40
+                    ratio <= 2.2 -> 75
+                    else -> 93
+                }
+            }
+        }
+        // A shallow wall is weaker evidence than a sheer one.
+        if (equivalent != null && bestDrop < STRONG_CLIFF_DB && percent > 10) percent -= 10
+        val expected = expectedCutoff(codec, kbps, sampleRate)
 
         // The picture: frames left to right, high frequencies on top, levels against the loudest.
+        // Each pixel row shows the AVERAGE power of its bins: a lone peak no longer paints a bright
+        // dot above the cut, so the picture shows the cut the way Spek does.
         val loudest = frames.maxOf { it.max() }
         val width = frameCount
         val height = SPECTROGRAM_ROWS
@@ -279,18 +339,52 @@ object SpectrumCheck {
             for (y in 0 until height) {
                 val from = y * bins / height
                 val to = max(from + 1, (y + 1) * bins / height)
-                var peak = -200f
-                for (k in from until to) if (row[k] > peak) peak = row[k]
-                val level = ((peak - (loudest - RANGE_DB)) / RANGE_DB).coerceIn(0f, 1f)
+                var power = 0.0
+                for (k in from until to) power += 10.0.pow(row[k] / 10.0)
+                val db = (10 * log10(power / (to - from) + 1e-12)).toFloat()
+                val level = ((db - (loudest - RANGE_DB)) / RANGE_DB).coerceIn(0f, 1f)
                 pixels[(height - 1 - y) * width + x] = palette(level)
             }
         }
         val profile = FloatArray(PROFILE_POINTS) { i -> smooth[i * bins / PROFILE_POINTS] }
         val occProfile = FloatArray(PROFILE_POINTS) { i -> occ[i * bins / PROFILE_POINTS] }
         return Verdict(
-            cutoffHz, expected, percent, wallDb, pixels, width, height, profile, occProfile,
-            sampleRate, pcm.size / sampleRate,
+            cutoffHz = cutoffHz,
+            expectedHz = expected,
+            upscaledPercent = percent,
+            wallDb = bestDrop.toInt().coerceAtLeast(0),
+            pixels = pixels,
+            imageWidth = width,
+            imageHeight = height,
+            profileDb = profile,
+            occupancy = occProfile,
+            sampleRate = sampleRate,
+            seconds = pcm.size / sampleRate,
+            equivalentKbps = equivalent,
+            hasCliff = hasCliff,
+            fromMiddle = fromMiddle,
         )
+    }
+
+    private fun mean(values: FloatArray, from: Int, to: Int): Float {
+        val a = from.coerceIn(0, values.size - 1)
+        val b = to.coerceIn(a, values.size - 1)
+        var sum = 0f
+        for (k in a..b) sum += values[k]
+        return sum / (b - a + 1)
+    }
+
+    /** What a lossy encoder that cuts at [cutoffHz] usually runs at, kbps (MP3/AAC rules of thumb). */
+    private fun equivalentKbps(cutoffHz: Int): Int = when {
+        cutoffHz < 11_500 -> 64
+        cutoffHz < 13_500 -> 80
+        cutoffHz < 15_000 -> 96
+        cutoffHz < 16_700 -> 128
+        cutoffHz < 17_700 -> 160
+        cutoffHz < 18_900 -> 192
+        cutoffHz < 19_700 -> 224
+        cutoffHz < 20_700 -> 320
+        else -> 1411
     }
 
     private fun smoothOver(values: FloatArray, radius: Int): FloatArray = FloatArray(values.size) { i ->
@@ -312,9 +406,16 @@ object SpectrumCheck {
         return (0xFF shl 24) or (mix(16) shl 16) or (mix(8) shl 8) or mix(0)
     }
 
-    private const val PRESENT_DB = 75f
-    private const val OCCUPIED = 0.5f
-    private const val SHARP_WALL_DB = 25
+    private const val PRESENT_DB = 45f
+    private const val CLIFF_SEARCH_FROM_HZ = 9_000
+    /** A fall at least this steep within ~1 kHz is an encoder's low-pass… */
+    private const val CLIFF_DB = 20f
+    /** …and this steep, beyond doubt. */
+    private const val STRONG_CLIFF_DB = 30f
+    /** Above a real cut the spectrum is (nearly) as empty as its emptiest part. */
+    private const val CLIFF_FLOOR_MARGIN_DB = 15f
+    private const val FADE_ABOVE_FLOOR_DB = 10f
+    private const val NYQUIST_WALL_MARGIN_HZ = 600
     private const val RANGE_DB = 90f
 
     /** Where a genuine file of this kind stops, Hz. */

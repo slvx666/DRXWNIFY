@@ -325,8 +325,17 @@ fun NavGraphBuilder.navigationBuilder(
         com.metrolist.music.ui.screens.vk.VkPlaylistScreen(navController)
     }
 
-    composable("import_playlist") {
-        com.metrolist.music.ui.screens.ImportPlaylistScreen(navController)
+    composable(
+        "import_playlist?target={target}",
+        arguments = listOf(
+            androidx.navigation.navArgument("target") {
+                type = androidx.navigation.NavType.StringType
+                nullable = true
+                defaultValue = null
+            },
+        ),
+    ) { entry ->
+        com.metrolist.music.ui.screens.ImportPlaylistScreen(navController, entry.arguments?.getString("target"))
     }
 
     composable(

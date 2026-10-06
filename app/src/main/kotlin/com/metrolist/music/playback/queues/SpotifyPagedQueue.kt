@@ -140,6 +140,7 @@ abstract class SpotifyPagedQueue(
             }
 
             resolveOffset = windowEnd
+            if (allRecommended) com.metrolist.music.playback.RecommendedTracks.mark(resolvedItems)
 
             val mediaItemIndex = (targetIndex - windowStart)
                 .coerceIn(0, (resolvedItems.size - 1).coerceAtLeast(0))
@@ -237,6 +238,7 @@ abstract class SpotifyPagedQueue(
         }
 
         if (resolveOffset >= allTracks.size && !apiHasMore && continues) {
+            if (continuationStart < 0) continuationStart = allTracks.size
             var fruitless = 0
             while (continuationRounds < maxContinuationRounds && resolveOffset >= allTracks.size) {
                 continuationRounds++
@@ -256,6 +258,7 @@ abstract class SpotifyPagedQueue(
         }
 
         // Resolve the next batch
+        val start = resolveOffset
         val end = (resolveOffset + RESOLVE_BATCH_SIZE).coerceAtMost(allTracks.size)
         val batch = allTracks.subList(resolveOffset, end)
         resolveOffset = end
@@ -264,11 +267,24 @@ abstract class SpotifyPagedQueue(
             "(offset=$resolveOffset/${allTracks.size}, apiTotal=$apiTotal)")
 
         coroutineScope {
-            batch.map { track -> async { toItem(track) } }
+            batch.mapIndexed { i, track ->
+                async {
+                    toItem(track)?.also { item ->
+                        val fromRadio = continuationStart in 0..(start + i)
+                        if (allRecommended || fromRadio) com.metrolist.music.playback.RecommendedTracks.mark(item)
+                    }
+                }
+            }
                 .awaitAll()
                 .filterNotNull()
         }
     }
+
+    /** Index in [allTracks] where the app's own picks begin (after the list itself ran out). */
+    private var continuationStart = -1
+
+    /** Every track of this queue is a recommendation ("For you"), not only what follows the list. */
+    protected open val allRecommended: Boolean = false
 
     private suspend fun fetchNextApiPage() {
         if (!apiHasMore) return

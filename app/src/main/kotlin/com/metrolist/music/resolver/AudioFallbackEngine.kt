@@ -273,7 +273,10 @@ object AudioFallbackEngine {
         if (match.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE) return true
         if (match.title.isBlank()) return true
         val tokens = com.metrolist.spotify.SpotifyMapper.artistTokens(query.artists.joinToString(", "))
-        return com.metrolist.spotify.SpotifyMapper.titlePlausiblyMatches(match.title, query.title) &&
+        // A symbol-only title ("./") was matched by artist + exact length; its title can't be re-checked.
+        val titleOk = com.metrolist.spotify.SpotifyMapper.isSymbolOnlyTitle(query.title) ||
+            com.metrolist.spotify.SpotifyMapper.titlePlausiblyMatches(match.title, query.title)
+        return titleOk &&
             com.metrolist.spotify.SpotifyMapper.artistPlausiblyMatches(match.title, match.artist, tokens)
     }
 

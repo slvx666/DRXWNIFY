@@ -446,6 +446,16 @@ fun SpotifyAlbumScreen(
                                     PlayerMenu(
                                         mediaMetadata = track.toSongItem().toMediaMetadata(),
                                         spotifyTrack = track,
+                                        albumQueue = album?.id?.let { albumId ->
+                                            {
+                                                SpotifyPlaylistQueue(
+                                                    playlistId = "album_$albumId",
+                                                    initialTracks = tracks,
+                                                    startIndex = index,
+                                                    mapper = viewModel.mapper,
+                                                )
+                                            }
+                                        },
                                         navController = navController,
                                         isCurrentTrack = false,
                                         onDismiss = menuState::dismiss,

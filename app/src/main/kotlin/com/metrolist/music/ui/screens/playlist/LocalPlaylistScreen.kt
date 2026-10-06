@@ -851,7 +851,15 @@ fun LocalPlaylistScreen(
                         )
                     }
                 } else if (!isSearching) {
-                    // Only search button remains in TopAppBar
+                    // Add more tracks to this playlist by import (lists, links, own audio files).
+                    if (playlist?.playlist?.isEditable == true) {
+                        IconButton(onClick = { navController.navigate("import_playlist?target=${playlist?.id}") }) {
+                            Icon(
+                                painter = painterResource(R.drawable.playlist_add),
+                                contentDescription = stringResource(R.string.import_more_into_playlist),
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = { isSearching = true },
                     ) {

@@ -13,7 +13,7 @@
 ### Your Spotify or Yandex Music library: listen and download without a subscription
 
 [![Android](https://img.shields.io/badge/Android-8.0+-3DDC84?style=for-the-badge&logo=android&logoColor=white)](#-install)
-[![Release](https://img.shields.io/github/v/release/DrxwnSlvt/Drxwnify?style=for-the-badge&color=c62828)](https://github.com/DrxwnSlvt/Drxwnify/releases/latest)
+[![Release](https://img.shields.io/github/v/release/slvx666/DRXWNIFY?style=for-the-badge&color=c62828)](https://github.com/slvx666/DRXWNIFY/releases/latest)
 [![License](https://img.shields.io/badge/license-GPL--3.0-455a64?style=for-the-badge)](LICENSE)
 
 [RU · Русский](README.md) &nbsp;|&nbsp; **EN · English**
@@ -22,124 +22,114 @@
 
 ---
 
-## What it is
+> [!NOTE]
+> 💻 **The PC / Desktop version (Windows / Linux / macOS) is currently in active development!**
 
-**Drxwnify** is an Android music player built around your own account: library, playlists, Liked Songs, albums, artists and search. For every track it finds the audio by itself, across several sources at once. No Premium or subscription needed.
+---
+
+## ⚡ About Drxwnify
+
+**Drxwnify** is an uncompromising music player for Android built around your favorite streaming catalog: library, playlists, Liked Songs, albums, artists, and search. For every track, the app resolves audio streams across multiple independent sources in parallel. No Premium subscription required.
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-### 📚 Your library
-- Sign in to **Spotify** or **Yandex Music** right in the app
-- Playlists, albums, artists and Liked Songs as you know them
-- Likes, saved albums and followed artists sync both ways
-- Search puts exact matches first
+### 📚 Your Library & Sync
+- Sign in to **Spotify** or **Yandex Music** directly in the app
+- Playlists, albums, artists, and Liked Songs faithfully synchronized
+- Two-way sync: likes, saved albums, and followed artists sync to your account
+- **Playlist Import**: easily import external playlists
+- Search prioritizing exact matches
 
 </td>
 <td width="50%" valign="top">
 
-### 🎧 Audio
-- Each track is searched on several sources in parallel, usually in a couple of seconds
-- Strict matching by title, artist and length
-- Wrong recording? Pick the right one from the track menu
-- If a source is down, the next one plays
+### 🎧 Audio & Diagnostics
+- Tracks resolved across multiple sources in parallel within seconds
+- Strict matching by title, artist, duration, and ISRC code
+- **Track Spectrogram Viewer**: built-in spectrogram analyzer to verify genuine audio bitrates and frequency cutoffs
+- Manual fallback override if an unexpected recording is matched
+- Seamless failover to subsequent providers
 
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 
-### 💾 Downloads
-- Albums, playlists and Liked Songs in one tap
-- MP3 with cover art and tags from your service
-- A playlist goes into one folder, an album into the artist's folders
-- Shows how much is already downloaded and fetches only what's missing
+### 💾 Downloads & Export
+- Download albums, playlists, and Liked Songs in one tap as tagged MP3s with covers
+- **YouTube Music Video Downloader**: download video clips directly in-app
+- **Photo / Cover Downloader**: save album art and artist pictures in original high resolution
+- **Share Playlist / Album via 2 buttons**: quickly send all downloaded audio files in a single batch
 
 </td>
 <td width="50%" valign="top">
 
-### ✨ And more
-- Artist pages with the full discography and similar artists
-- "Up next" built from similar artists
-- Listen together with friends
-- Lyrics, equalizer, sleep timer, widgets, music recognition
+### ✨ Recommendations & Features
+- **High-Quality Recommendations**: smart "For You" endless radio with taste-aware curation and fresh track rotation
+- Artist profiles with full discographies
+- Real-time Listen Together with friends
+- Time-synced lyrics with AI translations, equalizer, sleep timer, widgets
 
 </td>
 </tr>
 </table>
 
-## 🔊 Audio sources
+---
 
-| Source | Good for | Sign-in |
+## 🔊 Supported Audio Sources
+
+| Source | Highlights | Account Needed |
 |:--|:--|:--:|
-| **YouTube** | The largest catalog | — |
-| **SoundCloud** | Independent artists, remixes | — |
-| **VK Music** | Lots of Russian-language music | ✔ |
-| **Bandcamp** | Independent labels and releases | — |
-| **Audius** | Open music platform | — |
-| **Soulseek** | Rare releases and lossless, last resort | ✔ |
+| **YouTube & YouTube Music** | Vast catalog of official songs and music videos | — |
+| **SoundCloud** | Underground artists, remixes, live sets | — |
+| **VK Music** | Huge CIS and international audio library | ✔ |
+| **Bandcamp** | Independent creators and label releases | — |
+| **Audius** | Decentralized Web3 streaming network | — |
+| **Soulseek** | P2P network for rare and lossless gems | ✔ |
 
-Turn sources on or off and set their order in **Settings → Integrations → Music sources**.
+Source priorities and toggles can be configured under **Settings → Integrations → Music sources**.
+
+---
 
 ## 🔒 Privacy
 
-- **No own server, no ads, no analytics.** The app collects nothing about you.
-- **Everything stays on the phone:** accounts, likes, settings and downloads.
-- **Requests go straight** to Spotify, Yandex Music, YouTube and the other sources, like a browser does.
-- **Listen Together, Discord and Soulseek** only work if you turn them on.
-- **Open source:** you can read the code and build the app yourself.
+- **No proprietary servers, advertisements, or tracking telemetry.** The app collects zero user data.
+- **Everything is stored locally on device:** credentials, tokens, cache, and downloads.
+- **Direct requests** to Spotify, Yandex Music, YouTube, and fallback providers.
+- **Open Source:** fully inspectable and reproducible builds.
+
+---
 
 ## 📥 Install
 
-1. Download `Drxwnify.apk` from [**Releases**](https://github.com/DrxwnSlvt/Drxwnify/releases/latest).
-2. Open it and allow installing from that source.
-3. On first launch, connect Spotify or Yandex Music.
+1. Download the latest `Drxwnify.apk` from [**Releases**](https://github.com/slvx666/DRXWNIFY/releases/latest).
+2. Open the APK and allow installation.
+3. On first launch, link your Spotify or Yandex Music account.
 
-Updates: **Settings → Check for updates**. The new version downloads and installs over the old one, keeping your data.
+In-app updates: **Settings → Check for updates**. Updates install cleanly over existing builds while preserving your data.
 
 > Requires Android 8.0 or newer.
 
-## 🛠 Build from source
+---
 
-Requires JDK 21 and the Android SDK.
+## 🛠 Building from source
+
+Requirements: JDK 21 and Android SDK.
 
 ```bash
-git clone https://github.com/DrxwnSlvt/Drxwnify.git
-cd Drxwnify
+git clone https://github.com/slvx666/DRXWNIFY.git
+cd DRXWNIFY
 ./gradlew :app:assembleFossRelease
 ```
 
-The APK ends up in `app/build/outputs/apk/foss/release/`.
+Output APK will be located at: `app/build/outputs/apk/foss/release/`.
 
-## ❓ FAQ
-
-<details>
-<summary><b>Do I need Spotify Premium or Yandex Plus?</b></summary>
-<br/>
-No. Only your library and track information come from the account; the audio is found on other sources.
-</details>
-
-<details>
-<summary><b>The wrong version of a track plays. What now?</b></summary>
-<br/>
-Open the track menu (⋯) → "Choose audio source" and pick the right recording. The choice is remembered.
-</details>
-
-<details>
-<summary><b>Where do downloads go?</b></summary>
-<br/>
-To <code>Music</code> on the phone by default. You can pick another folder in the storage settings.
-</details>
-
-<details>
-<summary><b>Can I connect both Spotify and Yandex Music?</b></summary>
-<br/>
-Yes. The accounts are kept separate; in settings you choose which one provides the library and search.
-</details>
+---
 
 ## ⚖️ License
 
-Released under the [GPL-3.0](LICENSE) license.
+Distributed under the [GPL-3.0](LICENSE) license.
 
-Drxwnify is an unofficial app, not affiliated with Spotify, Yandex, Google, VK or any other service. All trademarks belong to their owners. Use it for personal listening and respect artists' rights.
+*Drxwnify is an independent open-source client and is not affiliated with Spotify AB, Google LLC, Yandex, or VK.*

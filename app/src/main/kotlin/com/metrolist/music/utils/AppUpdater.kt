@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit
  * release APK must come from the same build setup as the installed one.
  */
 object AppUpdater {
-    const val REPO = "DrxwnSlvt/Drxwnify"
+    const val REPO = "slvx666/DRXWNIFY"
     const val RELEASES_URL = "https://github.com/$REPO/releases"
 
     sealed interface State {

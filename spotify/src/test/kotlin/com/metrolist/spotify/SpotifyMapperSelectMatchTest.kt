@@ -42,6 +42,25 @@ class SpotifyMapperSelectMatchTest {
         return (r as MatchResult.Matched).id
     }
 
+    @Test
+    fun `symbol-only title matches by its symbols`() {
+        val r = select("./", "DOGBITE", 95, listOf(
+            cand("OTHER", "Punishment Routine", "DOGBITE", 180),
+            cand("RIGHT", "./", "DOGBITE", 95),
+        ))
+        assertEquals("RIGHT", matchedId(r))
+    }
+
+    @Test
+    fun `symbol-only title falls back to artist and exact length`() {
+        val r = select("./", "DOGBITE", 95, listOf(
+            cand("LONG", "Untitled", "DOGBITE", 200),
+            cand("RIGHT", "Intro", "DOGBITE", 96),
+        ))
+        assertEquals("RIGHT", matchedId(r))
+        assertTrue(select("./", "DOGBITE", 95, listOf(cand("X", "Intro", "Someone Else", 95))) is MatchResult.NoMatch)
+    }
+
     // 1. Exact match.
     @Test
     fun `exact title artist duration matches`() {

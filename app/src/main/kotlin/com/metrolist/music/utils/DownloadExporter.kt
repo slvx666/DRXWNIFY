@@ -256,6 +256,26 @@ class DownloadExporter @Inject constructor(
         }
     }
 
+    /**
+     * True when [uri] sits in a hidden folder (".m0lly/…") or is a hidden file — written by older
+     * builds that kept the leading dot. MediaStore treats such files as hidden, and messengers fail
+     * to read them when they are shared.
+     */
+    suspend fun isInHiddenPath(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val path = when {
+                DocumentsContract.isDocumentUri(context, uri) -> DocumentsContract.getDocumentId(uri).substringAfter(':')
+                uri.authority == MediaStore.AUTHORITY -> context.contentResolver.query(
+                    uri,
+                    arrayOf(MediaStore.MediaColumns.RELATIVE_PATH, MediaStore.MediaColumns.DISPLAY_NAME),
+                    null, null, null,
+                )?.use { c -> if (c.moveToFirst()) "${c.getString(0).orEmpty()}/${c.getString(1).orEmpty()}" else null }
+                else -> null
+            } ?: return@runCatching false
+            path.split('/').any { it.startsWith('.') }
+        }.getOrDefault(false)
+    }
+
     /** [moveAllToCurrentFolder] on the app's scope, so leaving the settings screen doesn't stop it. */
     fun moveAllToCurrentFolderInBackground(onStart: (total: Int) -> Unit, onDone: (moved: Int) -> Unit) {
         scope.launch {
@@ -905,9 +925,13 @@ class DownloadExporter @Inject constructor(
     }
 
     private fun sanitizeFileName(name: String): String {
-        val cleaned = name.map { c -> if (c in ILLEGAL_FILENAME_CHARS) '_' else c }
+        // A leading dot makes the file/folder hidden (".m0lly" → MediaStore skips it and other apps
+        // can't receive it), trailing dots/spaces are invalid on FAT SD cards.
+        val cleaned = name.map { c -> if (c in ILLEGAL_FILENAME_CHARS || c.code < 0x20) '_' else c }
             .joinToString("")
             .trim()
+            .trimStart('.', ' ')
+            .trimEnd('.', ' ')
         return cleaned.ifEmpty { "audio" }
     }
 

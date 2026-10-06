@@ -1008,6 +1008,74 @@ object YTPlayerUtils {
         return null
     }
 
+    /** A music video to save: the picture and the sound are separate streams on YouTube. */
+    data class VideoDownload(
+        val title: String?,
+        val video: PlayerResponse.StreamingData.Format,
+        val videoUrl: String,
+        val audio: PlayerResponse.StreamingData.Format,
+        val audioUrl: String,
+    )
+
+    /**
+     * Streams to download [videoId] as a video file, at the best height up to [maxHeight] (the
+     * lowest there is when none fits). H.264 in MP4 is preferred at equal height — it plays
+     * everywhere; VP9/AV1 is taken only when it is the one reaching the asked height. The audio is
+     * picked to fit the video's container. Same client chain as playback, without the clients that
+     * serve only a ~1 MiB preview.
+     */
+    suspend fun videoDownloadStreams(videoId: String, maxHeight: Int): Result<VideoDownload> = runCatching {
+        val sts = getSignatureTimestampOrNull(videoId).timestamp
+        var lastProblem: String? = null
+        for (client in STREAM_FALLBACK_CLIENTS) {
+            if (client == IOS || client == IPADOS) continue
+            if (client.loginRequired && YouTube.cookie == null) continue
+            val response = YouTube.player(videoId, null, client, sts, null).getOrNull() ?: continue
+            if (response.playabilityStatus.status != "OK") {
+                lastProblem = response.playabilityStatus.reason ?: response.playabilityStatus.status
+                continue
+            }
+            val usable = YouTube.newPipePlayer(videoId, response) ?: response
+            val formats = usable.streamingData?.adaptiveFormats.orEmpty()
+            val videos = formats.filter { !it.isAudio && (it.height ?: 0) > 0 && it.mimeType.startsWith("video/") }
+            if (videos.isEmpty()) { lastProblem = "no video formats (${client.clientName})"; continue }
+            fun isH264(f: PlayerResponse.StreamingData.Format) = f.mimeType.startsWith("video/mp4") && "avc1" in f.mimeType
+            val fitting = videos.filter { it.height!! <= maxHeight }
+            val video = (fitting.ifEmpty { listOf(videos.minBy { it.height!! }) })
+                .maxWithOrNull(
+                    compareBy<PlayerResponse.StreamingData.Format> { it.height }
+                        .thenBy { if (isH264(it)) 1 else 0 }
+                        .thenBy { it.fps ?: 0 }
+                        .thenBy { it.bitrate },
+                ) ?: continue
+            val wantMp4 = video.mimeType.startsWith("video/mp4")
+            val audios = formats.filter { it.isAudio && it.isOriginal }
+            val audio = audios.filter { it.mimeType.startsWith(if (wantMp4) "audio/mp4" else "audio/webm") }.maxByOrNull { it.bitrate }
+                ?: audios.maxByOrNull { it.bitrate }
+                ?: continue
+            val videoUrl = downloadUrlFor(client, video, videoId, usable) ?: run { lastProblem = "no video url (${client.clientName})"; null } ?: continue
+            val audioUrl = downloadUrlFor(client, audio, videoId, usable) ?: continue
+            if (!validateStatus(videoUrl, video.contentLength, "video ${client.clientName}")) {
+                lastProblem = "video stream refused (${client.clientName})"
+                continue
+            }
+            Timber.tag(TAG).i("Video download: client=${client.clientName} itag=${video.itag} ${video.height}p + audio itag=${audio.itag}")
+            return@runCatching VideoDownload(usable.videoDetails?.title, video, videoUrl, audio, audioUrl)
+        }
+        error(lastProblem ?: "No downloadable video stream")
+    }
+
+    private suspend fun downloadUrlFor(
+        client: YouTubeClient,
+        format: PlayerResponse.StreamingData.Format,
+        videoId: String,
+        response: PlayerResponse,
+    ): String? {
+        val url = findUrlOrNull(format, videoId, response) ?: return null
+        val needsNTransform = client.useWebPoTokens || client.clientName in listOf("WEB", "WEB_REMIX", "WEB_CREATOR", "TVHTML5")
+        return if (needsNTransform) runCatching { CipherDeobfuscator.transformNParamInUrl(url) }.getOrDefault(url) else url
+    }
+
     fun forceRefreshForVideo(videoId: String) {
         Timber.tag(logTag).d("Force refreshing for videoId: $videoId")
     }

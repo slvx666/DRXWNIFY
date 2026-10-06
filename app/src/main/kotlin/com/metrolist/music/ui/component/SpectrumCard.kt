@@ -143,9 +143,20 @@ private fun VerdictText(v: SpectrumCheck.Verdict) {
         style = MaterialTheme.typography.bodyMedium,
         fontWeight = FontWeight.SemiBold,
     )
+    // What the file really is, from its cut — the number to compare with what its format claims.
+    val equivalent = v.equivalentKbps
+    Text(
+        text = when {
+            equivalent != null && equivalent >= 1411 -> stringResource(R.string.spectrum_full_band, v.cutoffHz / 1000.0)
+            equivalent != null -> stringResource(R.string.spectrum_equivalent, equivalent, v.cutoffHz / 1000.0)
+            else -> stringResource(R.string.spectrum_no_cliff, v.cutoffHz / 1000.0)
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.padding(top = 2.dp),
+    )
     Text(
         text = stringResource(R.string.spectrum_cutoff, v.cutoffHz / 1000.0, v.expectedHz / 1000.0) +
-            " · " + stringResource(R.string.spectrum_wall, v.wallDb),
+            (if (v.hasCliff) " · " + stringResource(R.string.spectrum_wall, v.wallDb) else ""),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

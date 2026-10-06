@@ -55,9 +55,9 @@ import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.utils.backToMain
 
 private const val DEVELOPER_NAME = "DrxwnSlvt"
-private const val DEVELOPER_GITHUB = "https://github.com/DrxwnSlvt"
-private const val REPOSITORY_URL = "https://github.com/DrxwnSlvt/Drxwnify"
-private const val LICENSE_URL = "https://github.com/DrxwnSlvt/Drxwnify/blob/master/LICENSE"
+private const val DEVELOPER_GITHUB = "https://github.com/slvx666"
+private const val REPOSITORY_URL = "https://github.com/slvx666/DRXWNIFY"
+private const val LICENSE_URL = "https://github.com/slvx666/DRXWNIFY/blob/master/LICENSE"
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable

@@ -53,10 +53,35 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** Played once per process: rotating the screen or reopening the activity doesn't replay it. */
+/**
+ * Played once per process (rotating the screen or reopening the activity doesn't replay it), and
+ * only after the app has gone unused for [IDLE_BEFORE_INTRO_MS]: a quick return opens straight
+ * into the app.
+ */
 object AppIntroState {
     @Volatile
     var played = false
+
+    private const val IDLE_BEFORE_INTRO_MS = 8L * 60 * 60 * 1000
+    private const val PREFS = "app_intro"
+    private const val KEY_LAST_ACTIVE = "last_active"
+
+    @Volatile
+    private var due: Boolean? = null
+
+    /** Decided once per process, before [markActive] of this launch can move the timestamp. */
+    fun isDue(context: android.content.Context): Boolean = due ?: run {
+        val last = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+            .getLong(KEY_LAST_ACTIVE, 0L)
+        val now = System.currentTimeMillis()
+        (last == 0L || now - last >= IDLE_BEFORE_INTRO_MS || now < last).also { due = it }
+    }
+
+    /** The app was in use just now (leaving the screen, or music playing in the background). */
+    fun markActive(context: android.content.Context) {
+        context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit()
+            .putLong(KEY_LAST_ACTIVE, System.currentTimeMillis()).apply()
+    }
 }
 
 private val MetalMania = FontFamily(Font(R.font.metal_mania))

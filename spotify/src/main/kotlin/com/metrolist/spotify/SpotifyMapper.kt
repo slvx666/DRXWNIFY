@@ -273,11 +273,23 @@ object SpotifyMapper {
      * every video). Guards the failure mode where the top hit is a DIFFERENT song by the SAME artist.
      */
     fun titlePlausiblyMatches(candidateTitle: String, spotifyTitle: String): Boolean {
-        val cand = cachedNormalize(candidateTitle)
         val target = cachedNormalize(spotifyTitleCore(spotifyTitle))
-        if (target.isEmpty() || cand.isEmpty()) return false
+        // A title made only of symbols ("./", "...", "?!") normalizes to nothing: compare the
+        // symbols themselves instead of failing every candidate.
+        if (target.isEmpty()) {
+            val symbols = symbolsOf(spotifyTitle)
+            return symbols.isNotEmpty() && symbols in symbolsOf(candidateTitle)
+        }
+        val cand = cachedNormalize(candidateTitle)
+        if (cand.isEmpty()) return false
         return if (target.length >= 4) target in cand else target in cand.split(' ')
     }
+
+    /** True when the title has no letters or digits at all ("./", "…"). */
+    fun isSymbolOnlyTitle(title: String): Boolean =
+        title.isNotBlank() && cachedNormalize(spotifyTitleCore(title)).isEmpty()
+
+    private fun symbolsOf(s: String): String = s.filterNot { it.isWhitespace() }
 
     /** Normalized artist tokens from a (possibly multi-artist) credit string, empties removed. */
     fun artistTokens(spotifyArtists: String): List<String> =
@@ -354,12 +366,21 @@ object SpotifyMapper {
                 kotlin.math.abs(spotifyDurationMs / 1000 - c.durationSec)
             } else null
 
-        val titleOk = candidates.filter {
+        val tokens = artistTokens(spotifyArtistsAll.ifBlank { spotifyPrimaryArtist })
+        var titleOk = candidates.filter {
             titlePlausiblyMatches(it.title, spotifyTitle) && !isForeignRecording(spotifyTitle, it.title)
+        }
+        // Symbol-only titles are often written differently by uploaders ("./" → "Untitled", "dot
+        // slash"); the right artist with a near-exact length is then the best evidence there is.
+        if (titleOk.isEmpty() && isSymbolOnlyTitle(spotifyTitle)) {
+            titleOk = candidates.filter { c ->
+                artistPlausiblyMatches(c.title, c.artist, tokens) &&
+                    !isForeignRecording(spotifyTitle, c.title) &&
+                    (durationOff(c) ?: Int.MAX_VALUE) <= DURATION_TOLERANCE_S
+            }
         }
         if (titleOk.isEmpty()) return if (loose) loosePick(candidates, ::durationOff) else MatchResult.NoMatch
 
-        val tokens = artistTokens(spotifyArtistsAll.ifBlank { spotifyPrimaryArtist })
         var pool = titleOk.filter { artistPlausiblyMatches(it.title, it.artist, tokens) }
         if (pool.isEmpty()) {
             pool = if (!anyTokenHasLatin(tokens)) titleOk

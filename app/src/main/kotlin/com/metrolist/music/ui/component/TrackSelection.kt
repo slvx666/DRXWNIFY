@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -52,6 +53,9 @@ class TrackSelection {
     var active by mutableStateOf(false)
         private set
     val keys = mutableStateListOf<String>()
+
+    /** Measured height of the bar, px: the list leaves exactly this much room under its last row. */
+    internal var barHeightPx by androidx.compose.runtime.mutableIntStateOf(0)
 
     fun start() {
         active = true
@@ -113,14 +117,20 @@ fun TrackSelectionCheck(visible: Boolean, checked: Boolean, onToggle: () -> Unit
 @Composable
 fun TrackSelectionSpacer(selection: TrackSelection) {
     val height by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (selection.active) SELECTION_BAR_SPACE else 0.dp,
+        targetValue = if (selection.active) {
+            with(androidx.compose.ui.platform.LocalDensity.current) { selection.barHeightPx.toDp() }.takeIf { it > 0.dp } ?: SELECTION_BAR_SPACE
+        } else {
+            END_OF_LIST_GAP
+        },
         animationSpec = tween(240),
         label = "selectionSpacer",
     )
     androidx.compose.foundation.layout.Spacer(Modifier.fillMaxWidth().height(height))
 }
 
-private val SELECTION_BAR_SPACE = 150.dp
+private val SELECTION_BAR_SPACE = 110.dp
+
+/** Breathing room so the last row isn't tucked under the mini player's edge. */ val END_OF_LIST_GAP = 16.dp
 
 /** Download / send / delete for the ticked tracks, floating at the bottom of the list. */
 @Composable
@@ -137,7 +147,7 @@ fun TrackSelectionBar(
         enter = slideInVertically(tween(280)) { it / 2 } + fadeIn(tween(220)) +
             androidx.compose.animation.scaleIn(tween(280), initialScale = 0.94f),
         exit = slideOutVertically(tween(200)) { it / 2 } + fadeOut(tween(160)),
-        modifier = modifier,
+        modifier = modifier.then(androidx.compose.ui.Modifier.onSizeChanged { if (it.height > 0) selection.barHeightPx = it.height }),
     ) {
         val count = selection.keys.size
         val enabled = count > 0

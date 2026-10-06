@@ -67,7 +67,7 @@ private suspend fun existingExportUri(
         runCatching { context.contentResolver.openFileDescriptor(candidate, "r")?.close() }.isSuccess
 
     var failure: Throwable? = null
-    val existing = withContext(Dispatchers.IO) { exporter.exportedUri(songId)?.takeIf(::readable) }
+    val existing = withContext(Dispatchers.IO) { sharableExport(exporter, songId)?.takeIf(::readable) }
     if (existing == null) {
         withContext(Dispatchers.Main) {
             Toast.makeText(context, context.getString(R.string.file_restoring), Toast.LENGTH_SHORT).show()
@@ -109,8 +109,19 @@ suspend fun shareDownloadedFiles(
     }
     val uris = withContext(Dispatchers.IO) {
         songIds.mapNotNull { id ->
-            exporter.exportedUri(id)?.takeIf(::readable)
-                ?: exporter.export(id, force = true).getOrNull()?.takeIf(::readable)
+            sharableExport(exporter, id)?.takeIf(::readable)
+                ?: exporter.export(id, force = true)
+                    .onFailure { android.util.Log.w("DrxwnifyExport", "no file for $id: ${it.message}") }
+                    .getOrNull()?.takeIf(::readable)
+        }
+    }
+    if (uris.size < songIds.size) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(
+                context,
+                context.getString(R.string.files_partially_ready, uris.size, songIds.size),
+                Toast.LENGTH_LONG,
+            ).show()
         }
     }
     withContext(Dispatchers.Main) {
@@ -136,6 +147,14 @@ suspend fun shareDownloadedFiles(
             Timber.w(e, "Nothing can share %d files", uris.size)
         }
     }
+}
+
+/** The exported file, moved out of a hidden ".folder" first (messengers can't read those). */
+private suspend fun sharableExport(exporter: DownloadExporter, songId: String): Uri? {
+    val uri = exporter.exportedUri(songId) ?: return null
+    if (!exporter.isInHiddenPath(uri)) return uri
+    exporter.rewrite(songId)
+    return exporter.exportedUri(songId)
 }
 
 private fun shareFile(context: Context, uri: Uri) {

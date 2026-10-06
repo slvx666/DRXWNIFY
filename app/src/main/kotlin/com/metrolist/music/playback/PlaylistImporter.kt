@@ -65,10 +65,22 @@ object PlaylistImporter {
         if (_progress.value?.finished == true) _progress.value = null
     }
 
-    /** Saves the job and hands it to the service. */
-    fun start(context: Context, name: String, parsed: PlaylistImportParser.Parsed) {
+    /**
+     * Saves the job and hands it to the service. [targetPlaylistId]: an existing playlist to add to
+     * instead of a new one. [localSongIds]: the user's own audio files (already in the database,
+     * see [LocalAudioImport]) that go into the playlist as they are.
+     */
+    fun start(
+        context: Context,
+        name: String,
+        parsed: PlaylistImportParser.Parsed,
+        targetPlaylistId: String? = null,
+        localSongIds: List<String> = emptyList(),
+    ) {
         val job = JSONObject().apply {
             put("name", name)
+            targetPlaylistId?.let { put("playlistId", it) }
+            put("local", JSONArray(localSongIds))
             put("links", JSONArray(parsed.links))
             put("entries", JSONArray(parsed.entries.map { e ->
                 JSONObject().put("a", e.artist ?: "").put("t", e.title).put("d", e.durationSec ?: 0)
@@ -78,7 +90,7 @@ object PlaylistImporter {
             put("notFound", JSONArray())
         }
         jobFile(context).writeText(job.toString())
-        _progress.value = Progress(name, parsed.entries.size + parsed.links.size, 0, 0, emptyList(), null, false)
+        _progress.value = Progress(name, parsed.entries.size + parsed.links.size + localSongIds.size, 0, 0, emptyList(), targetPlaylistId, false)
         ContextCompat.startForegroundService(context, Intent(context, PlaylistImportService::class.java))
     }
 
@@ -106,6 +118,14 @@ object PlaylistImporter {
             }
         }.toMutableList()
         val added = HashSet<String>()
+
+        // The user's own files first: nothing to look up.
+        job.optJSONArray("local")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.takeIf { it.isNotEmpty() }?.let { local ->
+            addSongIds(database, playlistId, local)
+            job.put("found", job.optInt("found") + local.size)
+            job.remove("local")
+            file.writeText(job.toString())
+        }
 
         // Links once: Spotify lists go in as they are, a YouTube playlist becomes lines.
         if (!job.optBoolean("linksDone")) {
@@ -159,8 +179,15 @@ object PlaylistImporter {
     ) {
         val fresh = tracks.filter { added.add(it.id) }
         if (fresh.isEmpty()) return
-        val ids = fresh.map { mapper.persistWithoutResolving(it).id }
-        database.playlist(playlistId).firstOrNull()?.let { database.addSongToPlaylist(it, ids) }
+        addSongIds(database, playlistId, fresh.map { mapper.persistWithoutResolving(it).id })
+    }
+
+    /** Adds [ids] to the end of the playlist, skipping what it already holds (adding to an existing one). */
+    private suspend fun addSongIds(database: MusicDatabase, playlistId: String, ids: List<String>) {
+        val present = database.playlistSongs(playlistId).firstOrNull().orEmpty().mapTo(HashSet()) { it.map.songId }
+        val missing = ids.distinct().filter { it !in present }
+        if (missing.isEmpty()) return
+        database.playlist(playlistId).firstOrNull()?.let { database.addSongToPlaylist(it, missing) }
     }
 
     /** A failed request (rate limit, a blip) is not "not found": tried again a few times. */

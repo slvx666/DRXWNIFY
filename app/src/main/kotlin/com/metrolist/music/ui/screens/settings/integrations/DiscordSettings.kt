@@ -1048,10 +1048,10 @@ fun RichPresence(
                     }
                 val resolvedButton2Url =
                     if (song != null) {
-                        button2Url.ifEmpty { "https://github.com/DrxwnSlvt/Drxwnify" }
+                        button2Url.ifEmpty { "https://github.com/slvx666/DRXWNIFY" }
                             .let { DiscordRPC.resolveVariables(it, song) }
                     } else {
-                        button2Url.ifEmpty { "https://github.com/DrxwnSlvt/Drxwnify" }
+                        button2Url.ifEmpty { "https://github.com/slvx666/DRXWNIFY" }
                     }
                 OutlinedButton(
                     onClick = {

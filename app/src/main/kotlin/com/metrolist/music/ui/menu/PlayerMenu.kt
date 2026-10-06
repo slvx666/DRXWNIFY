@@ -123,6 +123,8 @@ fun PlayerMenu(
     isQueueTrigger: Boolean? = false,
     isCurrentTrack: Boolean = true,
     spotifyTrack: com.metrolist.spotify.models.SpotifyTrack? = null,
+    /** The opened album from this track on: "add to queue" brings the rest of the album along. */
+    albumQueue: (() -> com.metrolist.music.playback.queues.Queue)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     onShowDetailsDialog: (() -> Unit)? = null,
     /** Actions only the calling screen knows (remove from history / cache…), after the main ones. */
@@ -317,7 +319,10 @@ fun PlayerMenu(
     val addToQueueTrack: () -> Unit = {
         onDismiss()
         coroutineScope.launch {
-            if (spotifyTrack != null) {
+            if (albumQueue != null) {
+                playerConnection.service.addAlbumFromTrack(albumQueue())
+                Toast.makeText(context, context.getString(R.string.added_album_rest_to_queue), Toast.LENGTH_SHORT).show()
+            } else if (spotifyTrack != null) {
                 val item = withContext(Dispatchers.IO) {
                     spotifyMapper.resolveToMediaItem(spotifyTrack)
                 }
@@ -391,6 +396,18 @@ fun PlayerMenu(
         com.metrolist.music.ui.dialog.TrackVersionDialog(
             mediaMetadata = mediaMetadata,
             onDismiss = { showVersionDialog = false },
+        )
+    }
+
+    var showVideoClipDialog by rememberSaveable { mutableStateOf(false) }
+    if (showVideoClipDialog) {
+        com.metrolist.music.ui.dialog.VideoClipDialog(
+            title = recoveredSpotifyTrack?.name ?: spotifyTrack?.name ?: mediaMetadata.title,
+            artist = recoveredSpotifyTrack?.artists?.firstOrNull()?.name
+                ?: spotifyTrack?.artists?.firstOrNull()?.name
+                ?: mediaMetadata.artists.firstOrNull()?.name.orEmpty(),
+            durationSec = mediaMetadata.duration,
+            onDismiss = { showVideoClipDialog = false },
         )
     }
 
@@ -1114,6 +1131,24 @@ fun PlayerMenu(
                                     onClick = {
                                         showVersionDialog = true
                                     },
+                                ),
+                            )
+                        }
+
+                        // The track's music video from YouTube, saved as a video file.
+                        if (!mediaMetadata.isEpisode) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.video_clip_download)) },
+                                    description = { Text(text = stringResource(R.string.video_clip_download_desc)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.slow_motion_video),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = { showVideoClipDialog = true },
                                 ),
                             )
                         }

@@ -29,6 +29,8 @@ class ForYouQueue(
 
     override val continues: Boolean = true
 
+    override val allRecommended: Boolean = true
+
     override val maxContinuationRounds: Int = Int.MAX_VALUE
 
     // Skipping fast through the radio must never reach an end that is still loading.

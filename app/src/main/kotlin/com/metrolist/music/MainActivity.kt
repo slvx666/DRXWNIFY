@@ -350,6 +350,7 @@ class MainActivity : ComponentActivity() {
         // (the service is still bound), so the manager never got the player back. Leaving the app
         // for a moment - e.g. to send the room code in a messenger - left the host broadcasting
         // nothing and the guest ignoring every sync, each phone playing its own music.
+        com.metrolist.music.ui.component.AppIntroState.markActive(this)
         super.onStop()
     }
 
@@ -621,10 +622,13 @@ class MainActivity : ComponentActivity() {
                         it.data == null && it.action != ACTION_RECOGNITION && it.getStringExtra(Intent.EXTRA_TEXT) == null
                     } ?: true
                 }
-                // Played on every fresh start (it hides the loading), but not twice in one process
-                // — an activity restart (rotation, theme change) must not replay it.
+                // Played only after ~8 h without using the app (it hides that cold load), never twice
+                // in one process — an activity restart (rotation, theme change) must not replay it.
                 var introVisible by remember {
-                    mutableStateOf(!com.metrolist.music.ui.component.AppIntroState.played && launchedPlainly)
+                    mutableStateOf(
+                        !com.metrolist.music.ui.component.AppIntroState.played && launchedPlainly &&
+                            com.metrolist.music.ui.component.AppIntroState.isDue(this@MainActivity),
+                    )
                 }
                 val introExit = remember { androidx.compose.animation.core.Animatable(if (introVisible) 0f else 1f) }
                 var appComposed by remember { mutableStateOf(!introVisible) }

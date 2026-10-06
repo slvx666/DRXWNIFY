@@ -430,6 +430,37 @@ fun MusicSourcesSettings(
             },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         )
+
+        // For the app's owner: the VK account signed in right now becomes the shared demo account.
+        // Gives the config file text to put on the host (a gist, the config repo); the token itself
+        // never leaves the phone any other way.
+        val (vkTokenNow) = com.metrolist.music.utils.rememberPreference(com.metrolist.music.constants.VkAccessTokenKey, "")
+        if (vkTokenNow.isNotBlank()) {
+            androidx.compose.material3.TextButton(
+                onClick = {
+                    val json = org.json.JSONObject().apply {
+                        put("version", 1)
+                        put("vkShared", org.json.JSONObject().put("token", vkTokenNow).put("dailyTracks", SHARED_VK_DAILY_TRACKS))
+                        put("losslessMirrors", org.json.JSONArray(remoteConfig.losslessMirrors))
+                        put("disabledSources", org.json.JSONArray(remoteConfig.disabledSources.toList()))
+                    }.toString(2)
+                    val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                    clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("config.json", json))
+                    android.widget.Toast.makeText(context, R.string.shared_vk_config_copied, android.widget.Toast.LENGTH_LONG).show()
+                    runCatching {
+                        context.startActivity(
+                            android.content.Intent.createChooser(
+                                android.content.Intent(android.content.Intent.ACTION_SEND)
+                                    .setType("text/plain")
+                                    .putExtra(android.content.Intent.EXTRA_TEXT, json),
+                                null,
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                },
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) { Text(stringResource(R.string.shared_vk_make_config)) }
+        }
     }
 
     if (showSourceDialog) {
@@ -535,3 +566,5 @@ private fun InfoText(text: String) {
     )
 }
 
+/** Tracks a phone may play a day through the shared demo VK account. */
+private const val SHARED_VK_DAILY_TRACKS = 60

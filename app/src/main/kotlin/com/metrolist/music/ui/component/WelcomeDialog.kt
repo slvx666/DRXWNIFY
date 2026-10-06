@@ -46,7 +46,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.net.toUri
 import com.metrolist.music.R
 
-const val DRXWNIFY_GITHUB_URL = "https://github.com/DrxwnSlvt/Drxwnify"
+const val DRXWNIFY_GITHUB_URL = "https://github.com/slvx666/DRXWNIFY"
 private val SpotifyGreen = Color(0xFF1ED760)
 val YandexMusicYellow = Color(0xFFFFCC00)
 
@@ -178,7 +178,7 @@ fun WelcomeDialog(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "github.com/DrxwnSlvt/Drxwnify",
+                            text = "github.com/slvx666/DRXWNIFY",
                             style = MaterialTheme.typography.bodySmall,
                             color = SpotifyGreen,
                         )

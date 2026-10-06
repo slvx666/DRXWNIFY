@@ -68,6 +68,7 @@ fun TrackVersionDialog(
     val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
+    val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
     val scope = rememberCoroutineScope()
     val mediaId = mediaMetadata.id
 
@@ -138,7 +139,7 @@ fun TrackVersionDialog(
                                 if (key == currentKey) return@VersionRow
                                 val t = target ?: return@VersionRow
                                 scope.launch {
-                                    applyVersion(database, playerConnection, mediaMetadata, t, candidate.match)
+                                    applyVersion(database, playerConnection, downloadUtil, mediaMetadata, t, candidate.match)
                                     Toast.makeText(context, R.string.track_version_changed, Toast.LENGTH_SHORT).show()
                                 }
                             },
@@ -158,7 +159,7 @@ fun TrackVersionDialog(
                     onDismiss()
                     val t = target ?: return@TextButton
                     scope.launch {
-                        applyVersion(database, playerConnection, mediaMetadata, t, null)
+                        applyVersion(database, playerConnection, downloadUtil, mediaMetadata, t, null)
                         Toast.makeText(context, R.string.track_version_changed, Toast.LENGTH_SHORT).show()
                     }
                 }) { Text(stringResource(R.string.track_version_auto)) }
@@ -299,6 +300,7 @@ private suspend fun versionTarget(metadata: MediaMetadata, database: com.metroli
 private suspend fun applyVersion(
     database: com.metrolist.music.db.MusicDatabase,
     playerConnection: com.metrolist.music.playback.PlayerConnection,
+    downloadUtil: com.metrolist.music.playback.DownloadUtil,
     mediaMetadata: MediaMetadata,
     target: VersionTarget,
     match: com.metrolist.music.resolver.ProviderMatch?,
@@ -335,12 +337,18 @@ private suspend fun applyVersion(
             }
         }
     }
+    // A downloaded track kept playing its old file (VK 63 kbps after Bandcamp 128 was picked):
+    // the download follows the version too.
+    val downloaded = listOf(mediaId, fallbackId).distinct().firstOrNull { id ->
+        downloadUtil.downloads.value[id]?.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED
+    }
     if (newId == mediaId) {
         // Same item (a source id before and after): drop what was cached for it and restart it.
-        playerConnection.service.setAudioSource(mediaId, match)
+        playerConnection.service.setAudioSource(mediaId, match, dropDownloaded = downloaded == mediaId)
     } else {
         replaceInQueue(playerConnection, mediaId, mediaMetadata.copy(id = newId))
     }
+    if (downloaded != null) downloadUtil.redownload(downloaded, newId, mediaMetadata.title)
 }
 
 private fun replaceInQueue(

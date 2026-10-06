@@ -8,6 +8,7 @@ package com.metrolist.music.ui.screens
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -68,8 +69,19 @@ import kotlinx.coroutines.withContext
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ImportPlaylistScreen(navController: NavController) {
+fun ImportPlaylistScreen(navController: NavController, targetPlaylistId: String? = null) {
     val context = LocalContext.current
+    val database = LocalDatabase.current
+    // Where the tracks go: a new playlist (named below) or one of the user's own playlists.
+    var target by rememberSaveable { mutableStateOf(targetPlaylistId) }
+    var intoExisting by rememberSaveable { mutableStateOf(targetPlaylistId != null) }
+    val ownPlaylists by database.editablePlaylistsByCreateDateAsc().collectAsState(initial = emptyList())
+    // The user's own audio files, added as they are (no lookup).
+    var audioUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var starting by remember { mutableStateOf(false) }
+    val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) audioUris = (audioUris + uris).distinct()
+    }
     val scope = rememberCoroutineScope()
     var name by rememberSaveable { mutableStateOf("") }
     var text by rememberSaveable { mutableStateOf("") }
@@ -134,13 +146,49 @@ fun ImportPlaylistScreen(navController: NavController) {
                 ImportProgress(p, onOpen = { id -> navController.navigate("local_playlist/$id") })
                 return@Column
             }
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text(stringResource(R.string.import_name)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.FilterChip(
+                    selected = !intoExisting,
+                    onClick = { intoExisting = false },
+                    label = { Text(stringResource(R.string.import_into_new)) },
+                )
+                androidx.compose.material3.FilterChip(
+                    selected = intoExisting,
+                    onClick = { intoExisting = true },
+                    enabled = ownPlaylists.isNotEmpty(),
+                    label = { Text(stringResource(R.string.import_into_existing)) },
+                )
+            }
+            if (!intoExisting) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.import_name)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Column(Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(rememberScrollState())) {
+                    ownPlaylists.forEach { playlist ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { target = playlist.id }
+                                .padding(vertical = 2.dp),
+                        ) {
+                            androidx.compose.material3.RadioButton(selected = target == playlist.id, onClick = { target = playlist.id })
+                            Text(
+                                text = playlist.playlist.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(playlist.songCount.toString(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }) {
                     Icon(painterResource(R.drawable.add), null, Modifier.size(18.dp))
@@ -148,6 +196,17 @@ fun ImportPlaylistScreen(navController: NavController) {
                     Text(stringResource(R.string.import_pick_file))
                 }
                 fileName?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*")) }) {
+                    Icon(painterResource(R.drawable.music_note), null, Modifier.size(18.dp))
+                    Spacer(Modifier.size(6.dp))
+                    Text(stringResource(R.string.import_pick_audio))
+                }
+                if (audioUris.isNotEmpty()) {
+                    Text(stringResource(R.string.import_audio_count, audioUris.size), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { audioUris = emptyList() }) { Icon(painterResource(R.drawable.close), null) }
+                }
             }
             OutlinedTextField(
                 value = text,
@@ -161,11 +220,26 @@ fun ImportPlaylistScreen(navController: NavController) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            val destination = if (intoExisting) ownPlaylists.firstOrNull { it.id == target } else null
             Button(
-                enabled = name.isNotBlank() && (parsed.entries.isNotEmpty() || parsed.links.isNotEmpty()),
-                onClick = { PlaylistImporter.start(context, name.trim(), parsed) },
+                enabled = !starting && (if (intoExisting) destination != null else name.isNotBlank()) &&
+                    (parsed.entries.isNotEmpty() || parsed.links.isNotEmpty() || audioUris.isNotEmpty()),
+                onClick = {
+                    starting = true
+                    scope.launch {
+                        val localIds = com.metrolist.music.playback.LocalAudioImport.importFiles(context, database, audioUris)
+                        PlaylistImporter.start(
+                            context,
+                            destination?.playlist?.name ?: name.trim(),
+                            parsed,
+                            targetPlaylistId = destination?.id,
+                            localSongIds = localIds,
+                        )
+                        starting = false
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(stringResource(R.string.import_start)) }
+            ) { Text(stringResource(if (intoExisting) R.string.import_start_add else R.string.import_start)) }
             Text(
                 text = stringResource(R.string.import_no_download),
                 style = MaterialTheme.typography.bodySmall,

@@ -1567,6 +1567,7 @@ class MusicService :
         // right away, so the app switches to the newly chosen track immediately.
         queueLoadJob?.cancel()
         currentQueue = queue
+        RecommendedTracks.clear()
         queueTitle = null
         val persistShuffleAcrossQueues = dataStore.get(PersistentShuffleAcrossQueuesKey, false)
         val previousShuffleEnabled = player.shuffleModeEnabled
@@ -1993,6 +1994,29 @@ class MusicService :
 
                 player.setShuffleOrder(DefaultShuffleOrder(finalOrder, System.currentTimeMillis()))
             }
+        }
+    }
+
+    /**
+     * "Add to queue" on a track of an opened album ([albumQueue] starts at that track): the track and
+     * the rest of the album after it go to the end of the queue in album order, and once the album
+     * is over the queue goes on with recommendations built from this album.
+     */
+    fun addAlbumFromTrack(albumQueue: Queue) {
+        if (player.mediaItemCount == 0 || player.playbackState == STATE_IDLE) {
+            playQueue(albumQueue)
+            return
+        }
+        scope.launch(SilentHandler) {
+            val status = withContext(Dispatchers.IO) {
+                albumQueue.getInitialStatus()
+                    .filterExplicit(dataStore.get(HideExplicitKey, false))
+                    .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
+            }
+            if (status.items.isEmpty()) return@launch
+            addToQueue(status.items.drop(status.mediaItemIndex.coerceIn(0, status.items.size - 1)))
+            // What follows the album now comes from the album, not from the previous queue's radio.
+            currentQueue = albumQueue
         }
     }
 
@@ -2622,6 +2646,8 @@ class MusicService :
     override fun onPlaybackStateChanged(
         @Player.State playbackState: Int,
     ) {
+        // Listening in the background is using the app: no launch intro on the next open.
+        if (player.playWhenReady) com.metrolist.music.ui.component.AppIntroState.markActive(this)
         // Force Repeat All if the player ignored it and ended playback
         if (playbackState == Player.STATE_ENDED) {
             val repeatMode = dataStore.get(RepeatModeKey, REPEAT_MODE_OFF)
@@ -4046,6 +4072,17 @@ class MusicService :
 
         return when (plan) {
             is AudioFallbackEngine.StreamPlan.Direct -> {
+                // A recommended track is not let in below RecommendedTracks.MIN_KBPS: another
+                // source first, otherwise it is skipped.
+                if (RecommendedTracks.tooLow(mediaId, plan.stream.bitrate)) {
+                    AudioDiagnostics.info(
+                        "recommended $mediaId: ${plan.provider} is only ${plan.stream.bitrate / 1000} kbps — trying another source",
+                    )
+                    markFallbackFailed(mediaId, provider = plan.provider)
+                    resolveFallbackDataSpec(dataSpec, mediaId, bypassCache, youtubeRescue, youtubeError, depth + 1)
+                        ?.let { return it }
+                    scope.launch { dropRecommendation(mediaId) }
+                }
                 fallbackServing[mediaId] = FallbackServing(plan.provider, plan.trackId)
                 com.metrolist.music.resolver.NowServing.set(mediaId, plan.provider)
                 val stream = plan.stream
@@ -4065,6 +4102,12 @@ class MusicService :
                 // A stream whose service doesn't state its bitrate: the real one, once measured.
                 com.metrolist.music.playback.datasource.HlsConcatDataSource.playlistUrlOf(stream.uri)?.let { key ->
                     com.metrolist.music.playback.datasource.MeasuredAudio.whenMeasured(key) { measured ->
+                        // A measurement of a version that was swapped out meanwhile (VK 63 kbps still
+                        // finishing after Bandcamp was picked) must not overwrite the new one's quality.
+                        if (fallbackServing[mediaId]?.trackId != plan.trackId) return@whenMeasured
+                        if (RecommendedTracks.tooLow(mediaId, measured.bitrate)) {
+                            scope.launch { rejectLowRecommendation(mediaId, plan.provider) }
+                        }
                         database.query {
                             upsert(
                                 streamFormat.copy(
@@ -5166,6 +5209,51 @@ class MusicService :
         }
     }
 
+    /**
+     * A recommended track turned out below [RecommendedTracks.MIN_KBPS] once its audio was measured
+     * (VK doesn't state its bitrate): another source is tried, and without one the track goes.
+     */
+    private suspend fun rejectLowRecommendation(mediaId: String, provider: AudioProviderId) {
+        AudioDiagnostics.info("recommended $mediaId: $provider measured below ${RecommendedTracks.MIN_KBPS} kbps")
+        markFallbackFailed(mediaId, provider = provider)
+        songUrlCache.remove(mediaId)
+        val failures = currentFailures(mediaId)
+        val alternative = withContext(Dispatchers.IO) {
+            runCatching {
+                withTimeout(FALLBACK_RESOLVE_TIMEOUT_MS) {
+                    AudioFallbackEngine.streamPlan(mediaId, database.getSongById(mediaId), failures.providers, failures.tracks)
+                }
+            }.getOrNull()
+        }
+        val good = alternative != null && !(alternative is AudioFallbackEngine.StreamPlan.Direct &&
+            RecommendedTracks.tooLow(mediaId, alternative.stream.bitrate))
+        if (!good) {
+            dropRecommendation(mediaId)
+            return
+        }
+        val index = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == mediaId } ?: return
+        val isCurrent = index == player.currentMediaItemIndex
+        val position = player.currentPosition
+        if (isCurrent) player.stop()
+        withContext(Dispatchers.IO) { runCatching { playerCache.removeResource(mediaId) } }
+        if (isCurrent && player.currentMediaItemIndex == index) {
+            player.seekTo(index, position)
+            player.prepare()
+            player.play()
+        }
+    }
+
+    /** Takes a too-quiet recommended track out of the queue (skipping it first when it plays). */
+    private fun dropRecommendation(mediaId: String) {
+        val index = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == mediaId } ?: return
+        if (index == player.currentMediaItemIndex) {
+            if (!player.hasNextMediaItem()) return
+            player.seekToNextMediaItem()
+        }
+        AudioDiagnostics.info("recommended $mediaId skipped: no source at ${RecommendedTracks.MIN_KBPS}+ kbps")
+        player.removeMediaItem(index)
+    }
+
     /** Each enabled source's best match for [mediaId], for the "choose audio source" dialog. */
     suspend fun audioSourceCandidates(mediaId: String): List<com.metrolist.music.resolver.ProviderMatch> =
         withContext(Dispatchers.IO) {
@@ -5181,7 +5269,12 @@ class MusicService :
      * Pins the recording that plays for [mediaId] (null = automatic again). Every cached form of the
      * stream is dropped and, if it's the current track, playback restarts at the same position.
      */
-    fun setAudioSource(mediaId: String, match: com.metrolist.music.resolver.ProviderMatch?) {
+    fun setAudioSource(
+        mediaId: String,
+        match: com.metrolist.music.resolver.ProviderMatch?,
+        /** The downloaded audio is replaced too (the caller downloads the new version). */
+        dropDownloaded: Boolean = false,
+    ) {
         if (mediaId.isBlank()) return
         scope.launch {
             // The player lets go of the old audio first: cache spans it still holds can't be removed,
@@ -5199,6 +5292,8 @@ class MusicService :
                 fallbackFailures.remove(mediaId)
                 runCatching { playerCache.removeResource(mediaId) }
                 runCatching { playerCache.removeResource(RESCUE_CACHE_PREFIX + mediaId) }
+                // Otherwise the downloaded old version keeps playing until it is downloaded again.
+                if (dropDownloaded) runCatching { downloadCache.removeResource(mediaId) }
             }
             if (isCurrent && player.currentMediaItemIndex == idx) {
                 player.seekTo(idx, pos)
