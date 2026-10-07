@@ -429,6 +429,10 @@
             </intent-filter>
         </service>
 
+        <receiver
+            android:name=".utils.UpdateCheckReceiver"
+            android:exported="false" />
+
     </application>
 
 </manifest>

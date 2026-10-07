@@ -201,6 +201,7 @@ class App :
         // Metadata/library catalog: Spotify and/or Yandex Music, per the connected accounts.
         com.metrolist.music.catalog.Catalog.setCacheDir(cacheDir)
         com.metrolist.music.catalog.LibraryCache.setDir(cacheDir)
+        com.metrolist.music.utils.UpdateCheckReceiver.schedule(this)
         com.metrolist.music.friends.FriendsHub.init(this, database)
         com.metrolist.music.catalog.Catalog.init(dataStore, applicationScope, getString(R.string.liked_songs))
 

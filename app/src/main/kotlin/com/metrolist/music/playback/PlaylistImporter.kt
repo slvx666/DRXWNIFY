@@ -65,6 +65,20 @@ object PlaylistImporter {
         if (_progress.value?.finished == true) _progress.value = null
     }
 
+    @Volatile
+    private var cancelled = false
+
+    /**
+     * Stops the import now: the job is forgotten (also one left over from an older version, which
+     * otherwise came back every time the screen was opened). What was added so far stays.
+     */
+    fun cancel(context: Context) {
+        cancelled = true
+        jobFile(context).delete()
+        _progress.value = null
+        context.stopService(Intent(context, PlaylistImportService::class.java))
+    }
+
     /**
      * Saves the job and hands it to the service. [targetPlaylistId]: an existing playlist to add to
      * instead of a new one. [localSongIds]: the user's own audio files (already in the database,
@@ -89,6 +103,7 @@ object PlaylistImporter {
             put("found", 0)
             put("notFound", JSONArray())
         }
+        cancelled = false
         jobFile(context).writeText(job.toString())
         _progress.value = Progress(name, parsed.entries.size + parsed.links.size + localSongIds.size, 0, 0, emptyList(), targetPlaylistId, false)
         ContextCompat.startForegroundService(context, Intent(context, PlaylistImportService::class.java))
@@ -152,7 +167,7 @@ object PlaylistImporter {
         publish(false)
 
         val gate = Semaphore(CONCURRENT_LOOKUPS)
-        while (index < entries.size) {
+        while (index < entries.size && !cancelled) {
             val batch = entries.subList(index, (index + BATCH).coerceAtMost(entries.size))
             val results = coroutineScope {
                 batch.map { entry -> async { gate.withPermit { lookupWithRetry(entry) } } }.awaitAll()
@@ -162,10 +177,12 @@ object PlaylistImporter {
             addTracks(database, mapper, playlistId, tracks, added)
             found += tracks.size
             index += batch.size
+            if (cancelled) return
             job.put("index", index).put("found", found).put("notFound", JSONArray(notFound))
             file.writeText(job.toString())
             publish(false)
         }
+        if (cancelled) return
         publish(true)
         file.delete()
     }
@@ -192,18 +209,37 @@ object PlaylistImporter {
 
     /** A failed request (rate limit, a blip) is not "not found": tried again a few times. */
     private suspend fun lookupWithRetry(entry: PlaylistImportParser.Entry): SpotifyTrack? {
-        repeat(3) { attempt ->
-            val result = runCatching { lookup(entry) }
+        repeat(2) {
+            // A search that hangs (slow network, a throttled catalog) must not hold up the list.
+            val result = runCatching { kotlinx.coroutines.withTimeout(LOOKUP_TIMEOUT_MS) { lookup(entry) } }
             result.getOrNull()?.let { return it.takeIf { t -> t.id.isNotBlank() } }
             if (result.isSuccess) return null
-            delay(1_500L * (attempt + 1))
+            delay(1_000L)
         }
         return null
     }
 
     /** Null = searched, no match; throws = could not search. */
     private suspend fun lookup(entry: PlaylistImportParser.Entry): SpotifyTrack? {
-        val query = listOfNotNull(entry.artist, entry.title).joinToString(" ")
+        lookupOnce(entry, listOfNotNull(entry.artist, entry.title).joinToString(" "))?.let { return it }
+        // File and video names carry noise: "(Official Video)", "[HQ]", "feat. …", "prod. …".
+        val cleanTitle = cleanForSearch(entry.title)
+        val cleanArtist = entry.artist?.let(::cleanForSearch)
+        if (cleanTitle == entry.title && cleanArtist == entry.artist) return null
+        val cleaned = entry.copy(artist = cleanArtist, title = cleanTitle)
+        return lookupOnce(cleaned, listOfNotNull(cleanArtist, cleanTitle).joinToString(" "))
+    }
+
+    private val NOISE = Regex(
+        "[(\\[][^)\\]]*(official|video|audio|lyric|hq|hd|4k|mv|клип|prod|feat|ft\\.|remaster|visuali)[^)\\]]*[)\\]]" +
+            "|\\s(feat|ft)\\.?\\s.*$|\\s+prod\\.?\\s.*$",
+        RegexOption.IGNORE_CASE,
+    )
+
+    private fun cleanForSearch(s: String): String =
+        NOISE.replace(s, " ").replace('_', ' ').replace(Regex("\\s+"), " ").trim().ifBlank { s }
+
+    private suspend fun lookupOnce(entry: PlaylistImportParser.Entry, query: String): SpotifyTrack? {
         val results = Catalog.search(query, listOf("track"), SEARCH_LIMIT).getOrThrow().tracks?.items.orEmpty()
         if (results.isEmpty()) return null
         val byId = results.associateBy { it.id }
@@ -252,8 +288,9 @@ object PlaylistImporter {
         entries += songs.map { PlaylistImportParser.Entry(it.artists.firstOrNull()?.name, it.title, it.duration) }
     }
 
-    private const val CONCURRENT_LOOKUPS = 3
-    private const val BATCH = 24
+    private const val CONCURRENT_LOOKUPS = 6
+    private const val BATCH = 30
+    private const val LOOKUP_TIMEOUT_MS = 12_000L
     private const val SEARCH_LIMIT = 8
     private const val MAX_LINK_TRACKS = 5000
 }

@@ -144,6 +144,16 @@ fun ImportPlaylistScreen(navController: NavController, targetPlaylistId: String?
             val p = progress
             if (p != null) {
                 ImportProgress(p, onOpen = { id -> navController.navigate("local_playlist/$id") })
+                if (!p.finished) {
+                    // Also ends an import left over from an older version that never finishes.
+                    OutlinedButton(onClick = { PlaylistImporter.cancel(context) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.import_cancel))
+                    }
+                } else {
+                    OutlinedButton(onClick = { PlaylistImporter.reset() }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.import_new))
+                    }
+                }
                 return@Column
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
