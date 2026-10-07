@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -72,6 +73,7 @@ fun VideoClipDialog(
     var candidates by remember { mutableStateOf<List<VideoClipDownloader.Candidate>>(emptyList()) }
     var selected by remember { mutableStateOf<String?>(null) }
     var height by remember { mutableIntStateOf(VideoClipDownloader.DEFAULT_HEIGHT) }
+    var preview by remember { mutableStateOf<VideoClipDownloader.Candidate?>(null) }
 
     LaunchedEffect(title, artist) {
         candidates = withContext(Dispatchers.IO) {
@@ -103,7 +105,7 @@ fun VideoClipDialog(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp),
                     ) {
                         items(candidates, key = { it.videoId }) { clip ->
-                            ClipRow(clip, isSelected = clip.videoId == selected) { selected = clip.videoId }
+                            ClipRow(clip, isSelected = clip.videoId == selected, onLongClick = { preview = clip }) { selected = clip.videoId }
                         }
                     }
                 }
@@ -143,10 +145,14 @@ fun VideoClipDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } },
     )
+
+    preview?.let { clip ->
+        ClipPreview(clip, onPick = { selected = clip.videoId; preview = null }, onDismiss = { preview = null })
+    }
 }
 
 @Composable
-private fun ClipRow(clip: VideoClipDownloader.Candidate, isSelected: Boolean, onClick: () -> Unit) {
+private fun ClipRow(clip: VideoClipDownloader.Candidate, isSelected: Boolean, onLongClick: () -> Unit, onClick: () -> Unit) {
     val accent = MaterialTheme.colorScheme.primary
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -154,7 +160,7 @@ private fun ClipRow(clip: VideoClipDownloader.Candidate, isSelected: Boolean, on
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(if (isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(6.dp),
     ) {
         Box(
@@ -192,6 +198,7 @@ private fun ClipRow(clip: VideoClipDownloader.Candidate, isSelected: Boolean, on
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            ClipKindBadge(clip)
             Text(
                 clip.channel,
                 style = MaterialTheme.typography.bodySmall,
@@ -201,4 +208,62 @@ private fun ClipRow(clip: VideoClipDownloader.Candidate, isSelected: Boolean, on
             )
         }
     }
+}
+
+/** What kind of video it is: YouTube's label plus whether the picture actually moves. */
+@Composable
+private fun ClipKindBadge(clip: VideoClipDownloader.Candidate) {
+    val motion by androidx.compose.runtime.produceState<Float?>(null, clip.videoId) { value = VideoClipDownloader.motionOf(clip.videoId) }
+    val still = motion?.let { it < VideoClipDownloader.STILL_MOTION } == true
+    val (label, color) = when {
+        still -> stringResource(R.string.video_clip_kind_still) to MaterialTheme.colorScheme.error
+        clip.videoType == "MUSIC_VIDEO_TYPE_OMV" -> stringResource(R.string.video_clip_kind_official) to Color(0xFF4CAF50)
+        clip.videoType == "MUSIC_VIDEO_TYPE_ATV" -> stringResource(R.string.video_clip_kind_audio) to MaterialTheme.colorScheme.error
+        clip.videoType == "MUSIC_VIDEO_TYPE_UGC" -> stringResource(R.string.video_clip_kind_fan) to Color(0xFFE0A030)
+        motion != null -> stringResource(R.string.video_clip_kind_moving) to MaterialTheme.colorScheme.primary
+        else -> return
+    }
+    Text(
+        label,
+        style = MaterialTheme.typography.labelSmall,
+        color = color,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(vertical = 2.dp),
+    )
+}
+
+/** Long press: three frames of the video (a quarter, half, three quarters in) to tell a clip from a still cover. */
+@Composable
+private fun ClipPreview(clip: VideoClipDownloader.Candidate, onPick: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(clip.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ClipKindBadge(clip)
+                clip.frameUrls.forEachIndexed { i, url ->
+                    Box {
+                        AsyncImage(
+                            model = url,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)),
+                        )
+                        Text(
+                            text = listOf("25%", "50%", "75%")[i],
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(6.dp)
+                                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onPick) { Text(stringResource(R.string.video_clip_pick)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } },
+    )
 }

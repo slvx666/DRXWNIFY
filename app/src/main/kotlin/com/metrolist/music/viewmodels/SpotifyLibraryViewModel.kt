@@ -199,14 +199,22 @@ class SpotifyLibraryViewModel @Inject constructor(
 
     fun refresh() {
         Catalog.invalidateCaches()
-        cache.value = emptyMap()
+        // The list stays on screen while the new one loads.
         load(_filter.value, force = true)
     }
 
     private fun load(f: Filter, force: Boolean = false) {
         if (!force && loadJob?.isActive == true && _filter.value == f) return
         loadJob = viewModelScope.launch(Dispatchers.IO) {
-            _loading.value = true
+            // What was loaded last time shows at once; a fresh copy needs no request at all.
+            val account = Catalog.source?.name ?: "none"
+            val cached = com.metrolist.music.catalog.LibraryCache.get(f.name, account)
+            if (cached != null) {
+                cache.value = cache.value + (f to cached.first)
+                if (!force && cached.second < com.metrolist.music.catalog.LibraryCache.FRESH_MS) return@launch
+            }
+            // The spinner only while there is nothing to show; a refresh behind the list is silent.
+            _loading.value = cached == null
             try {
                 // The library of the connected account(s): Spotify, Yandex Music or both merged.
                 // Without one there is nothing to fetch (the app's own collection is local).
@@ -233,7 +241,11 @@ class SpotifyLibraryViewModel @Inject constructor(
                         Filter.ARTISTS -> e.kind == SpotifyLibraryEntry.Kind.ARTIST
                     }
                 }
-                cache.value = cache.value + (f to cleaned)
+                // A failed refresh (no network) keeps the previous copy instead of an empty library.
+                if (cleaned.isNotEmpty() || cached == null) {
+                    cache.value = cache.value + (f to cleaned)
+                    com.metrolist.music.catalog.LibraryCache.put(f.name, account, cleaned)
+                }
             } finally {
                 _loading.value = false
             }

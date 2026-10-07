@@ -967,6 +967,9 @@ class MainActivity : ComponentActivity() {
                     if (showChangelog.value && !introVisible) {
                         ChangelogScreen(onDismiss = { showChangelog.value = false })
                     }
+                    if (!introVisible && !showChangelog.value) {
+                        com.metrolist.music.ui.component.AppUpdateOffer()
+                    }
 
                     if (appComposed) {
                     Scaffold(

@@ -40,6 +40,7 @@ import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.Updater
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 
@@ -224,6 +225,12 @@ fun SettingsScreen(
                 // Updates from the author's GitHub releases: first tap checks, second tap installs.
                 val updateState by com.metrolist.music.utils.AppUpdater.state.collectAsState()
                 val updateScope = androidx.compose.runtime.rememberCoroutineScope()
+                var updateDialog by androidx.compose.runtime.remember {
+                    androidx.compose.runtime.mutableStateOf<com.metrolist.music.utils.AppUpdater.State.Available?>(null)
+                }
+                updateDialog?.let { available ->
+                    com.metrolist.music.ui.component.AppUpdateDialog(available, onDismiss = { updateDialog = null })
+                }
                 add(
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.update),
@@ -252,11 +259,7 @@ fun SettingsScreen(
                         showBadge = updateState is com.metrolist.music.utils.AppUpdater.State.Available,
                         onClick = {
                             when (val st = updateState) {
-                                is com.metrolist.music.utils.AppUpdater.State.Available -> updateScope.launch {
-                                    if (!com.metrolist.music.utils.AppUpdater.downloadAndInstall(context, st)) {
-                                        com.metrolist.music.utils.AppUpdater.openReleases(context)
-                                    }
-                                }
+                                is com.metrolist.music.utils.AppUpdater.State.Available -> updateDialog = st
                                 is com.metrolist.music.utils.AppUpdater.State.Failed -> {
                                     com.metrolist.music.utils.AppUpdater.openReleases(context)
                                     updateScope.launch { com.metrolist.music.utils.AppUpdater.check() }

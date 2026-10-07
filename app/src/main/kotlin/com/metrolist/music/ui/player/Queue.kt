@@ -259,6 +259,9 @@ fun Queue(
     BottomSheet(
         state = state,
         modifier = modifier,
+        // The bar is full of buttons; a tap that slips off one while the player is still sliding up
+        // must not open the queue (it used to, instead of the track menu).
+        expandOnCollapsedTap = false,
         background = {
             Box(Modifier.fillMaxSize().background(Color.Unspecified))
         },

@@ -344,6 +344,7 @@ object Catalog {
     private val spotifyLibraryPages = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, SpotifyPaging<SpotifyLibraryEntry>>>()
 
     fun invalidateCaches() {
+        LibraryCache.markStale()
         yandexLibrary.clear()
         spotifyLibraryPages.clear()
     }

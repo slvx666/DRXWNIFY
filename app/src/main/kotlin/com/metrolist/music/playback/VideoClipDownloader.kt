@@ -47,7 +47,12 @@ object VideoClipDownloader {
         val channel: String,
         val durationSec: Int?,
         val thumbnailUrl: String,
-    )
+        /** YouTube Music's own label: MUSIC_VIDEO_TYPE_OMV (official video), _UGC (fan upload), _ATV (audio with a cover). */
+        val videoType: String? = null,
+    ) {
+        /** Three frames YouTube keeps of every video, at about a quarter, half and three quarters. */
+        val frameUrls: List<String> get() = listOf(1, 2, 3).map { "https://i.ytimg.com/vi/$videoId/hq$it.jpg" }
+    }
 
     /** Heights offered in the dialog; [DEFAULT_HEIGHT] is preselected. */
     val HEIGHTS = listOf(2160, 1440, 1080, 720, 480, 360)
@@ -85,6 +90,11 @@ object VideoClipDownloader {
             if (titleKey.isNotEmpty() && titleKey in name) s += 40
             if (artistKey.isNotEmpty() && (artistKey in channel || artistKey in name)) s += 30
             if (OFFICIAL.containsMatchIn(item.title)) s += 15
+            // YouTube's own label: an official video first, a static "audio + cover" upload last.
+            when (item.musicVideoType) {
+                "MUSIC_VIDEO_TYPE_OMV" -> s += 20
+                "MUSIC_VIDEO_TYPE_ATV" -> s -= 30
+            }
             if (NOT_A_CLIP.containsMatchIn(item.title) && !NOT_A_CLIP.containsMatchIn(title)) s -= 35
             val d = item.duration
             if (d != null && durationSec != null && durationSec > 0) {
@@ -109,9 +119,41 @@ object VideoClipDownloader {
                     durationSec = it.duration,
                     // 16:9 frame (the search thumbnail of a video can be a square crop).
                     thumbnailUrl = "https://i.ytimg.com/vi/${it.id}/hqdefault.jpg",
+                    videoType = it.musicVideoType,
                 )
             }
     }
+
+    /**
+     * How much the picture moves, 0..1, from YouTube's three small automatic frames: a still cover
+     * or "visualizer" gives nearly identical frames (~0), a real music video differs a lot. Null when
+     * the frames can't be fetched.
+     */
+    suspend fun motionOf(videoId: String): Float? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        motionCache[videoId]?.let { return@withContext it }
+        val frames = (1..3).map { i ->
+            runCatching {
+                http.newCall(Request.Builder().url("https://i.ytimg.com/vi/$videoId/$i.jpg").build()).execute().use { r ->
+                    if (!r.isSuccessful) return@use null
+                    val bytes = r.body?.bytes() ?: return@use null
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        ?.let { android.graphics.Bitmap.createScaledBitmap(it, 32, 18, true) }
+                }
+            }.getOrNull() ?: return@withContext null
+        }
+        fun luma(b: android.graphics.Bitmap) = IntArray(32 * 18).also { b.getPixels(it, 0, 32, 0, 0, 32, 18) }
+            .map { p -> ((p shr 16 and 0xff) * 0.3f + (p shr 8 and 0xff) * 0.59f + (p and 0xff) * 0.11f) / 255f }
+        val l = frames.map(::luma)
+        fun diff(a: List<Float>, b: List<Float>) = a.indices.sumOf { kotlin.math.abs(a[it] - b[it]).toDouble() }.toFloat() / a.size
+        val score = ((diff(l[0], l[1]) + diff(l[1], l[2]) + diff(l[0], l[2])) / 3f * 4f).coerceIn(0f, 1f)
+        motionCache[videoId] = score
+        score
+    }
+
+    private val motionCache = java.util.concurrent.ConcurrentHashMap<String, Float>()
+
+    /** Below this the three frames are practically the same picture. */
+    const val STILL_MOTION = 0.06f
 
     private fun normalize(s: String): String =
         s.lowercase().map { if (it.isLetterOrDigit()) it else ' ' }.joinToString("").replace(Regex("\\s+"), " ").trim()

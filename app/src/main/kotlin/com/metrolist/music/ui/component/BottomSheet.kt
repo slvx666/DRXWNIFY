@@ -62,6 +62,8 @@ fun BottomSheet(
     onDismiss: (() -> Unit)? = null,
     collapsedContent: @Composable BoxScope.() -> Unit,
     isExpandable: Boolean = true,
+    /** A tap on the collapsed bar expands the sheet (off where the bar holds its own buttons). */
+    expandOnCollapsedTap: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val density = LocalDensity.current
@@ -136,6 +138,7 @@ fun BottomSheet(
                     }.clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
+                        enabled = expandOnCollapsedTap,
                         onClick = { if (isExpandable) state.expandSoft() },
                     ).fillMaxWidth()
                     .height(state.collapsedBound),

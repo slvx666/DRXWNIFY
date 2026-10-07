@@ -19,7 +19,9 @@ data class ReleaseInfo(
     val versionName: String,
     val description: String,
     val releaseDate: String,
-    val assets: List<ReleaseAsset>
+    val assets: List<ReleaseAsset>,
+    /** The release's page on GitHub. */
+    val pageUrl: String? = null,
 )
 
 data class ReleaseAsset(
@@ -43,7 +45,7 @@ object Updater {
 
     // Download page from /website (e.g. "https://drxwnify.example"). While empty,
     // update buttons link straight to the APK as before.
-    private const val UPDATE_PAGE_URL = ""
+    const val UPDATE_PAGE_URL = "https://drxwnify.pages.dev"
 
     /**
      * Compares two version strings.
@@ -69,6 +71,10 @@ object Updater {
      * Checks if the latest version is newer than the current version.
      * Returns true if an update is available (latestVersion > currentVersion)
      */
+    /** The version a release stands for: its tag ("v1.4.0" → "1.4.0"), not its title ("Drxwnify 1.4.0"). */
+    fun versionOf(json: JSONObject): String =
+        json.optString("tag_name").removePrefix("v").ifBlank { json.optString("name").substringAfterLast(' ') }
+
     fun isUpdateAvailable(currentVersion: String, latestVersion: String): Boolean {
         return compareVersions(latestVersion, currentVersion) > 0
     }
@@ -138,10 +144,11 @@ object Updater {
                 
                 val releaseInfo = ReleaseInfo(
                     tagName = json.getString("tag_name"),
-                    versionName = json.getString("name"),
+                    versionName = versionOf(json),
                     description = json.getString("body"),
                     releaseDate = json.getString("published_at"),
-                    assets = parseAssets(json.getJSONArray("assets"))
+                    assets = parseAssets(json.getJSONArray("assets")),
+                    pageUrl = json.optString("html_url").takeIf { it.isNotBlank() },
                 )
                 
                 cachedReleaseInfo = releaseInfo
@@ -178,7 +185,7 @@ object Updater {
                         val releaseObj = json.getJSONObject(i)
                         releases.add(ReleaseInfo(
                             tagName = releaseObj.getString("tag_name"),
-                            versionName = releaseObj.getString("name"),
+                            versionName = versionOf(releaseObj),
                             description = releaseObj.getString("body"),
                             releaseDate = releaseObj.getString("published_at"),
                             assets = parseAssets(releaseObj.getJSONArray("assets"))
@@ -212,7 +219,7 @@ object Updater {
         if (UPDATE_PAGE_URL.isNotBlank()) {
             "${UPDATE_PAGE_URL.trimEnd('/')}/?v=${BuildConfig.VERSION_NAME}"
         } else {
-            getDownloadUrlForCurrentVariant(releaseInfo)
+            releaseInfo.pageUrl ?: getDownloadUrlForCurrentVariant(releaseInfo)
         }
 
     /**

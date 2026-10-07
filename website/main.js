@@ -23,6 +23,12 @@ const ghReleasesPage = `https://github.com/${CONFIG.repo}/releases`;
 const fallbackApkUrl = `${ghReleasesPage}/latest/download/${CONFIG.apkName}`;
 const userVersion = (new URLSearchParams(location.search).get("v") || "").trim().replace(/^v/i, "") || null;
 
+// Перезагрузка всегда открывает страницу сверху: браузер не восстанавливает
+// прокрутку, а якоря разделов не остаются в адресе. Ссылки #v1.3.0 работают.
+const releaseAnchor = /^#v\d/.test(location.hash) ? decodeURIComponent(location.hash.slice(1)) : null;
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+if (location.hash && !releaseAnchor) history.replaceState(null, "", location.pathname + location.search);
+
 /* ───────── Версии ───────── */
 function compareVersions(a, b) {
   const pa = String(a).replace(/^v/i, "").split(".").map((n) => parseInt(n, 10) || 0);
@@ -125,6 +131,7 @@ async function loadReleases() {
       rel = { version, date: (g.published_at || "").slice(0, 10), notes: g.body || "" };
       releases.push(rel);
     }
+    rel.published = true;
     rel.pageUrl = g.html_url;
     if (apk) {
       rel.apkUrl = apk.browser_download_url;
@@ -133,6 +140,11 @@ async function loadReleases() {
   }
 
   releases.sort((a, b) => compareVersions(b.version, a.version));
+  // Версия из патч-ноутов, которой ещё нет на GitHub, — «скоро»: скачать её нельзя.
+  const newestPublished = releases.find((r) => r.published);
+  if (newestPublished) {
+    releases.forEach((r) => { r.upcoming = compareVersions(r.version, newestPublished.version) > 0; });
+  }
   return releases;
 }
 
@@ -178,7 +190,7 @@ function releaseCounts(groups) {
   return parts;
 }
 
-function releaseNode(rel, { isLatest, isNew, isYours, isOld, open }) {
+function releaseNode(rel, { isLatest, isNew, isYours, isOld, isUpcoming, open }) {
   const groups = parseNotes(rel.notes);
   const el = document.createElement("details");
   el.className = "release reveal";
@@ -190,6 +202,7 @@ function releaseNode(rel, { isLatest, isNew, isYours, isOld, open }) {
 
   const tags = [
     isLatest && `<span class="tag tag--latest">Последняя</span>`,
+    isUpcoming && `<span class="tag tag--soon">Скоро</span>`,
     isNew && !isLatest && `<span class="tag tag--new">Новое для тебя</span>`,
     isYours && `<span class="tag tag--yours">Твоя версия</span>`,
   ].filter(Boolean).join("");
@@ -227,9 +240,9 @@ function renderTimeline(releases) {
     return;
   }
 
-  const latest = releases[0];
+  const latest = releases.find((r) => !r.upcoming) || releases[0];
   const hasUser = !!userVersion;
-  const newCount = hasUser ? releases.filter((r) => compareVersions(r.version, userVersion) > 0).length : 0;
+  const newCount = hasUser ? releases.filter((r) => !r.upcoming && compareVersions(r.version, userVersion) > 0).length : 0;
 
   if (hasUser && newCount) {
     $("#changelog-sub").textContent = `С твоей версии ${userVersion} ${plural(newCount, "вышло", "вышло", "вышло")} ${newCount} ${plural(newCount, "обновление", "обновления", "обновлений")} — они отмечены красным.`;
@@ -237,17 +250,19 @@ function renderTimeline(releases) {
 
   const hidden = [];
   releases.forEach((rel, i) => {
-    const isNew = hasUser && compareVersions(rel.version, userVersion) > 0;
+    const isUpcoming = !!rel.upcoming;
+    const isNew = hasUser && !isUpcoming && compareVersions(rel.version, userVersion) > 0;
     const isYours = hasUser && compareVersions(rel.version, userVersion) === 0;
-    const isOld = hasUser && !isNew && !isYours;
+    const isOld = hasUser && !isNew && !isYours && !isUpcoming;
     const node = releaseNode(rel, {
       isLatest: rel === latest,
       isNew,
       isYours,
       isOld,
-      open: hasUser ? isNew : i === 0,
+      isUpcoming,
+      open: hasUser ? isNew : rel === latest,
     });
-    const limit = Math.max(CONFIG.initiallyShown, newCount + 1);
+    const limit = Math.max(CONFIG.initiallyShown, newCount + 1 + releases.filter((r) => r.upcoming).length);
     if (i >= limit) {
       node.hidden = true;
       hidden.push(node);
@@ -270,14 +285,73 @@ function renderTimeline(releases) {
   observeReveals($$(".reveal", root));
 
   // Пришли по ссылке вида #v1.3.0 — раскрываем нужную версию.
-  const target = location.hash.length > 1 && document.getElementById(decodeURIComponent(location.hash.slice(1)));
-  if (target?.matches(".release")) {
+  const target = releaseAnchor && document.getElementById(releaseAnchor);
+  if (target) {
     target.hidden = false;
     target.open = true;
+    target.scrollIntoView({ block: "start" });
   }
-  // Список подгружается после первой прокрутки к якорю — доводим ещё раз.
-  if (target) target.scrollIntoView({ block: "start" });
 }
+
+/* ───────── Плавное раскрытие патч-ноутов и FAQ ───────── */
+const OPEN_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+const CLOSE_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
+
+function toggleDetails(details) {
+  const content = $(":scope > summary", details)?.nextElementSibling;
+  if (!content || reducedMotion) {
+    details.open = !details.open;
+    return;
+  }
+  if (details._anim) details._anim.forEach((a) => a.cancel());
+
+  const opening = !details.open;
+  const cs = getComputedStyle(content);
+  details.open = true;
+  const full = content.scrollHeight;
+  const from = opening ? 0 : content.getBoundingClientRect().height;
+  const to = opening ? full : 0;
+  const pad = [cs.paddingTop, cs.paddingBottom];
+  const duration = Math.min(700, 320 + full * 0.35);
+
+  content.style.overflow = "hidden";
+  const frames = opening
+    ? [{ height: `${from}px`, paddingTop: 0, paddingBottom: 0, opacity: 0 },
+       { height: `${to}px`, paddingTop: pad[0], paddingBottom: pad[1], opacity: 1 }]
+    : [{ height: `${from}px`, paddingTop: pad[0], paddingBottom: pad[1], opacity: 1 },
+       { height: `${to}px`, paddingTop: 0, paddingBottom: 0, opacity: 0 }];
+  const anim = content.animate(frames, { duration: opening ? duration : duration * 0.75, easing: opening ? OPEN_EASE : CLOSE_EASE });
+  const kids = opening
+    ? [...content.children].map((c, i) => c.animate(
+        [{ opacity: 0, transform: "translateY(-6px)" }, { opacity: 1, transform: "none" }],
+        { duration: duration, delay: 60 + i * 50, easing: OPEN_EASE, fill: "backwards" }))
+    : [];
+  details._anim = [anim, ...kids];
+  anim.onfinish = () => {
+    content.style.overflow = "";
+    if (!opening) details.open = false;
+    details._anim = null;
+  };
+}
+
+document.addEventListener("click", (e) => {
+  const summary = e.target.closest("details > summary");
+  if (!summary || !summary.parentElement.matches(".release, .faq details")) return;
+  e.preventDefault();
+  toggleDetails(summary.parentElement);
+});
+
+// Ссылки на разделы прокручивают плавно и не меняют адрес.
+document.addEventListener("click", (e) => {
+  const link = e.target.closest('a[href^="#"]');
+  if (!link) return;
+  const id = link.getAttribute("href").slice(1);
+  const el = id ? document.getElementById(id) : document.body;
+  if (!el) return;
+  e.preventDefault();
+  if (id === "top") scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
+  else el.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+});
 
 /* ───────── Анимации ───────── */
 let revealObserver;
@@ -336,7 +410,7 @@ function buildBars(container, count, shape) {
 
 function initVisuals() {
   const bars = $(".hero__bars");
-  const barCount = Math.round(Math.min(innerWidth, 1600) / 18);
+  const barCount = Math.max(20, Math.round(Math.min(innerWidth, 1600) / 30));
   buildBars(bars, barCount, (x) => {
     const hump = Math.sin(x * Math.PI);
     return [0.05 + hump * 0.15 * Math.random(), 0.25 + hump * 0.75 * (0.4 + Math.random() * 0.6)];
@@ -365,24 +439,41 @@ function initVisuals() {
     new IntersectionObserver(([e]) => { finalVisible = e.isIntersecting; update(); }).observe(finalSection);
   }
 
+  // Бесконечные анимации крутятся, только пока блок на экране.
+  if ("IntersectionObserver" in window) {
+    const pauser = new IntersectionObserver((entries) => {
+      entries.forEach((e) => e.target.classList.toggle("is-offscreen", !e.isIntersecting));
+    });
+    $$(".hero, .sources, .spectrum").forEach((el) => pauser.observe(el));
+  }
+
   if (matchMedia("(hover: hover)").matches && !reducedMotion) {
+    // Свечение догоняет курсор и засыпает, когда догнало.
     const glow = $(".glow-cursor");
-    let x = innerWidth / 2, y = innerHeight / 3, gx = x, gy = y;
-    addEventListener("pointermove", (e) => { x = e.clientX; y = e.clientY; }, { passive: true });
+    let x = innerWidth / 2, y = innerHeight / 3, gx = x, gy = y, running = false;
     const loop = () => {
-      gx += (x - gx) * 0.12;
-      gy += (y - gy) * 0.12;
-      glow.style.transform = `translate(${gx}px, ${gy}px)`;
-      requestAnimationFrame(loop);
+      gx += (x - gx) * 0.14;
+      gy += (y - gy) * 0.14;
+      glow.style.transform = `translate3d(${gx}px, ${gy}px, 0)`;
+      running = Math.abs(x - gx) + Math.abs(y - gy) > 0.5;
+      if (running) requestAnimationFrame(loop);
     };
-    loop();
+    addEventListener("pointermove", (e) => {
+      x = e.clientX; y = e.clientY;
+      if (!running) { running = true; requestAnimationFrame(loop); }
+    }, { passive: true });
 
     $$(".card").forEach((card) => {
+      let pending = null;
       card.addEventListener("pointermove", (e) => {
-        const r = card.getBoundingClientRect();
-        card.style.setProperty("--mx", `${e.clientX - r.left}px`);
-        card.style.setProperty("--my", `${e.clientY - r.top}px`);
-      });
+        if (!pending) requestAnimationFrame(() => {
+          const r = card.getBoundingClientRect();
+          card.style.setProperty("--mx", `${pending.x - r.left}px`);
+          card.style.setProperty("--my", `${pending.y - r.top}px`);
+          pending = null;
+        });
+        pending = { x: e.clientX, y: e.clientY };
+      }, { passive: true });
     });
   }
 }
@@ -406,6 +497,7 @@ function initQr() {
 
 /* ───────── Старт ───────── */
 document.addEventListener("DOMContentLoaded", async () => {
+  if (!releaseAnchor) scrollTo(0, 0);
   $("#all-builds").href = ghReleasesPage;
   $("#repo-link").href = `https://github.com/${CONFIG.repo}`;
   renderDownload(null);
@@ -414,7 +506,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   initQr();
 
   const releases = await loadReleases();
-  renderDownload(releases[0]);
-  renderBanner(releases[0]);
+  const latest = releases.find((r) => !r.upcoming) || releases[0];
+  renderDownload(latest);
+  renderBanner(latest);
   renderTimeline(releases);
 });

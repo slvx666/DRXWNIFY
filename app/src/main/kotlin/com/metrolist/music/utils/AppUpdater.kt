@@ -40,7 +40,7 @@ object AppUpdater {
         data object Idle : State
         data object Checking : State
         data class UpToDate(val latest: String) : State
-        data class Available(val version: String, val apkUrl: String?, val apkName: String?) : State
+        data class Available(val version: String, val apkUrl: String?, val apkName: String?, val pageUrl: String? = null) : State
         data class Downloading(val version: String, val progress: Float) : State
         data class Failed(val message: String) : State
     }
@@ -73,7 +73,7 @@ object AppUpdater {
                     }
                     if (!response.isSuccessful) error("GitHub HTTP ${response.code}")
                     val json = JSONObject(response.body?.string().orEmpty())
-                    val version = json.optString("tag_name").removePrefix("v").ifBlank { json.optString("name") }
+                    val version = Updater.versionOf(json)
                     val assets = json.optJSONArray("assets")
                     var apkUrl: String? = null
                     var apkName: String? = null
@@ -89,7 +89,7 @@ object AppUpdater {
                         }
                     }
                     if (version.isNotBlank() && Updater.isUpdateAvailable(currentVersion, version)) {
-                        State.Available(version, apkUrl, apkName)
+                        State.Available(version, apkUrl, apkName, json.optString("html_url").takeIf { it.isNotBlank() })
                     } else {
                         State.UpToDate(version.ifBlank { currentVersion })
                     }
@@ -158,6 +158,25 @@ object AppUpdater {
             Timber.w(e, "Could not open the installer")
             false
         }
+    }
+
+    /**
+     * The page of the new version: the Drxwnify site when it has an address, else the release on
+     * GitHub (download button + what changed).
+     */
+    fun openUpdatePage(context: Context, available: State.Available? = _state.value as? State.Available) {
+        val url = Updater.UPDATE_PAGE_URL.takeIf { it.isNotBlank() }?.let { "${it.trimEnd('/')}/?v=$currentVersion" }
+            ?: available?.pageUrl
+            ?: RELEASES_URL
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
+
+    /** True once per new version: the launch offer to open its page is not repeated. */
+    fun shouldOffer(context: Context, version: String): Boolean {
+        val prefs = context.getSharedPreferences("app_update", Context.MODE_PRIVATE)
+        if (prefs.getString("offered", null) == version) return false
+        prefs.edit().putString("offered", version).apply()
+        return true
     }
 
     fun openReleases(context: Context) {
