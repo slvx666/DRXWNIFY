@@ -41,6 +41,10 @@ object Updater {
     private const val CHECK_INTERVAL_MILLIS = 2 * 60 * 60 * 1000L // 2 hours
     private const val GITHUB_API_BASE = "https://api.github.com/repos/slvx666/DRXWNIFY"
 
+    // Download page from /website (e.g. "https://drxwnify.example"). While empty,
+    // update buttons link straight to the APK as before.
+    private const val UPDATE_PAGE_URL = ""
+
     /**
      * Compares two version strings.
      * Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
@@ -199,6 +203,17 @@ object Updater {
             .find { it.architecture == currentArch && it.variant == currentVariant }
             ?.downloadUrl
     }
+
+    /**
+     * Where the "new version" buttons lead: the download page with the user's
+     * version (so it can highlight what changed since), or the APK itself.
+     */
+    fun getUpdateUrl(releaseInfo: ReleaseInfo): String? =
+        if (UPDATE_PAGE_URL.isNotBlank()) {
+            "${UPDATE_PAGE_URL.trimEnd('/')}/?v=${BuildConfig.VERSION_NAME}"
+        } else {
+            getDownloadUrlForCurrentVariant(releaseInfo)
+        }
 
     /**
      * Get all available download URLs for a release

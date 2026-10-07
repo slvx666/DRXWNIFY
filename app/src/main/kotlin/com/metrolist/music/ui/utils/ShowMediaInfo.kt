@@ -67,28 +67,16 @@ fun ShowMediaInfo(
     val database = LocalDatabase.current
     // A catalog track that hasn't played yet has no audio of its own: find the recording it will
     // play from (as playback would), so the sheet shows that recording's real quality.
-    val playableId by androidx.compose.runtime.produceState<String?>(
-        initialValue = videoId.takeUnless { needsResolving(it) },
-        videoId,
-    ) {
+    // Shown at once under the id it was opened with; swapped (local lookups only, never a network
+    // search — that is what kept the sheet loading) when the audio comes from another id.
+    val playableId by androidx.compose.runtime.produceState(initialValue = videoId, videoId) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching { resolvePlayableId(videoId, database) }.getOrNull() ?: videoId
+            kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                runCatching { resolvePlayableId(videoId, database) }.getOrNull()
+            } ?: videoId
         }
     }
-    val id = playableId
-    if (id == null) {
-        ShimmerHost {
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(all = 16.dp),
-            ) {
-                TextPlaceholder()
-            }
-        }
-        return
-    }
-    MediaInfoContent(id, fallbackMetadata)
+    MediaInfoContent(playableId, videoId, fallbackMetadata)
 }
 
 private fun needsResolving(id: String): Boolean =
@@ -100,11 +88,7 @@ private fun needsResolving(id: String): Boolean =
 private suspend fun resolvePlayableId(id: String, database: com.metrolist.music.db.MusicDatabase): String {
     if (id.startsWith(com.metrolist.music.utils.SPOTIFY_ID_PREFIX)) {
         val spotifyId = id.removePrefix(com.metrolist.music.utils.SPOTIFY_ID_PREFIX)
-        database.getSpotifyMatch(spotifyId)?.youtubeId?.let { return it }
-        val track = com.metrolist.music.playback.SpotifyMetadataRegistry.get(id)
-            ?: com.metrolist.music.catalog.Catalog.getTrack(spotifyId).getOrNull()
-            ?: return id
-        return com.metrolist.music.playback.SpotifyYouTubeMapper(database).mapToYouTube(track)?.id ?: id
+        return database.getSpotifyMatch(spotifyId)?.youtubeId ?: com.metrolist.music.resolver.FallbackIds.of(spotifyId)
     }
     if (com.metrolist.music.resolver.FallbackIds.isFallbackId(id)) {
         val choice = com.metrolist.music.resolver.AudioFallbackEngine.currentChoice(id, database.getSongByIdBlocking(id))
@@ -116,6 +100,8 @@ private suspend fun resolvePlayableId(id: String, database: com.metrolist.music.
 @Composable
 private fun MediaInfoContent(
     videoId: String,
+    /** The id the sheet was opened with (a download or cache may be kept under it). */
+    openedId: String,
     fallbackMetadata: com.metrolist.music.models.MediaMetadata?,
 ) {
 
@@ -133,7 +119,10 @@ private fun MediaInfoContent(
     val playerConnection = LocalPlayerConnection.current
     val context = LocalContext.current
     val downloadUtil = LocalDownloadUtil.current
-    val download by downloadUtil.getDownload(videoId).collectAsState(initial = null)
+    val downloadOfPlayable by downloadUtil.getDownload(videoId).collectAsState(initial = null)
+    val downloadOfOpened by downloadUtil.getDownload(openedId).collectAsState(initial = null)
+    val download = downloadOfPlayable ?: downloadOfOpened
+    val downloadId = if (downloadOfPlayable != null) videoId else openedId
     val coroutineScope = rememberCoroutineScope()
 
     // Views/likes exist only for a YouTube video. For a track from VK, SoundCloud, … the YouTube
@@ -143,7 +132,11 @@ private fun MediaInfoContent(
         ?.takeIf { it.id == videoId }
 
     LaunchedEffect(Unit, videoId) {
-        info = if (isYouTubeVideoId(videoId)) YouTube.getMediaInfo(videoId).getOrNull() else null
+        info = if (isYouTubeVideoId(videoId)) {
+            kotlinx.coroutines.withTimeoutOrNull(8_000L) { YouTube.getMediaInfo(videoId).getOrNull() }
+        } else {
+            null
+        }
         infoDone = true
     }
 
@@ -186,7 +179,8 @@ private fun MediaInfoContent(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        if (infoDone && (song != null || playerMetadata != null || fallbackMetadata != null)) {
+        // Everything known locally is shown right away; views/likes/description arrive when they do.
+        if (infoDone || song != null || playerMetadata != null || fallbackMetadata != null) {
             item(contentType = "MediaDetails") {
                 Column {
                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -222,7 +216,16 @@ private fun MediaInfoContent(
                         ?.let { com.metrolist.music.ui.component.AudioQualityLevel.kbps(it) }
                     val codec = com.metrolist.music.ui.component.AudioQualityLevel.codecName(format?.mimeType, format?.codecs)
                     QualityHero(kbps = kbps, codec = codec, sampleRate = format?.sampleRate, source = audioSource, isPreview = isPreview)
-                    com.metrolist.music.ui.component.SpectrumCard(mediaId = videoId, codec = codec, kbps = kbps)
+                    com.metrolist.music.ui.component.SpectrumCard(
+                        mediaIds = listOf(downloadId, videoId, openedId).distinct(),
+                        codec = codec,
+                        kbps = kbps,
+                        title = listOfNotNull(
+                            (song?.artists?.joinToString { it.name } ?: fallbackMetadata?.artists?.joinToString { it.name })
+                                ?.takeIf { it.isNotBlank() },
+                            song?.title ?: playerMetadata?.title ?: fallbackMetadata?.title,
+                        ).joinToString(" - "),
+                    )
 
                     val lowQualityNote = stringResource(R.string.low_quality)
                     val isLow = format != null &&
@@ -269,7 +272,7 @@ private fun MediaInfoContent(
                                             com.metrolist.music.utils.openDownloadLocation(
                                                 appContext,
                                                 downloadUtil.downloadExporter,
-                                                videoId,
+                                                downloadId,
                                             )
                                         }
                                     },
@@ -284,7 +287,7 @@ private fun MediaInfoContent(
                                             com.metrolist.music.utils.shareDownloadedFile(
                                                 appContext,
                                                 downloadUtil.downloadExporter,
-                                                videoId,
+                                                downloadId,
                                             )
                                         }
                                     },

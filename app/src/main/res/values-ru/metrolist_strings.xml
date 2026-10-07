@@ -985,6 +985,27 @@
     <string name="about_source_code">Исходный код</string>
     <string name="about_license">Лицензия GPL-3.0</string>
     <string name="credits_developer">Разработчик</string>
+    <string name="changelog_1_4_0">### Добавлено
++ Друзья без серверов и регистрации: профиль, код для друзей, что слушают друзья, их история, плейлисты и статистика
++ «Слушать вместе» с другом — твой плеер идёт за его воспроизведением
++ Вкладка «Приватность»: что показывать — никому, друзьям или всем
++ Скачивание клипа с YouTube с выбором качества (по умолчанию 1080p)
++ Полная спектрограмма трека в PNG
++ Импорт в существующий плейлист и свои аудиофайлы в импорте
+### Изменено
+• Спектрограмма считает срез по каждому моменту трека (начало, середина, конец) и показывает реальное качество
+• «Добавить в очередь» / «Играть следующим» из альбома: альбом идёт дальше по порядку, потом рекомендации по нему
+• Альбомы кэшируются и открываются мгновенно, в том числе без сети
+• Заставка при запуске — только после 8 часов без использования
+• «Низкое качество» — только ниже 127 kbps; такие треки не попадают в рекомендации
+• «Информация о треке» открывается сразу
+• «Информация о треке» стоит над «Поделиться»
+### Исправлено
+✓ Смена версии трека: выбор больше не сбрасывается и не игнорируется
+✓ Скачанный трек больше не подгружается при перемотке
+✓ Спектрограмма видит скачанный трек
+✓ Треки с названием из символов («./»)
+✓ Отправка альбомов с папкой, начинающейся с точки</string>
     <string name="changelog_1_3_0">### Добавлено
 + Интеграция с VK Музыкой: поиск, альбомы, плейлисты, лайки
 + Новые рекомендации «Для тебя» и бесконечное радио
@@ -1149,6 +1170,79 @@
     <string name="video_clip_failed">Не удалось скачать клип: %s</string>
     <string name="shared_vk_make_config">Сделать этот VK-аккаунт общим демо (файл конфига)</string>
     <string name="shared_vk_config_copied">Конфиг скопирован: выложите его на хост конфига — все телефоны без своего VK будут слушать через этот аккаунт</string>
+    <string name="spectrum_full">Полная спектрограмма (PNG)</string>
+    <string name="spectrum_full_saved">Сохранено в Pictures/Drxwnify</string>
+    <string name="spectrum_kind_genuine">Похоже на настоящее · вероятность подделки %d%%</string>
+    <string name="spectrum_kind_full">Полный диапазон, среза кодировщика нет · %d%%</string>
+    <string name="spectrum_kind_transcoded">Перекодирован из худшего качества · %d%%</string>
+    <string name="spectrum_kind_mixed">Собран из источников разного качества · %d%%</string>
+    <string name="spectrum_distribution">Срез по моментам: худший %1$.1f · обычный %2$.1f · лучший %3$.1f кГц · %4$d%% моментов со срезом ≤16.5 кГц</string>
+    <string name="spectrum_expected">Формат (%2$s kbps) должен доходить до ~%1$.1f кГц</string>
+    <string name="spectrum_from_file">проверен скачанный файл</string>
+    <string name="track_version_pinned_failed">Выбрана версия %1$s, но сейчас она не ответила — играет %2$s. Нажмите %1$s, чтобы попробовать снова.</string>
+    <string name="track_version_pin_unavailable">Выбранная версия (%s) сейчас недоступна — играет другой источник</string>
+    <string name="friends_title">Друзья</string>
+    <string name="friends_integration_description">Профиль, друзья, что они слушают, совместное прослушивание — без серверов и регистрации</string>
+    <string name="friends_privacy">Приватность</string>
+    <string name="friends_no_name">Без имени</string>
+    <string name="friends_my_code">Мой код для друзей</string>
+    <string name="friends_copy_code">Скопировать</string>
+    <string name="friends_share_text">Добавь меня в Drxwnify: %s</string>
+    <string name="friends_backup_key">Ключ восстановления</string>
+    <string name="friends_backup_warning">Кто знает этот ключ — тот и есть твой профиль. Сохрани его, чтобы перенести профиль на новый телефон, и никому не отправляй.</string>
+    <string name="friends_name">Имя</string>
+    <string name="friends_listening_with">Слушаете вместе с %s</string>
+    <string name="friends_stop">Остановить</string>
+    <string name="friends_requests">Заявки в друзья</string>
+    <string name="friends_wants_to_add">хочет добавить вас в друзья</string>
+    <string name="friends_decline">Отклонить</string>
+    <string name="friends_accept">Принять</string>
+    <string name="friends_list_title">Друзья (%d)</string>
+    <string name="friends_empty">Друзей пока нет. Отправь кому‑нибудь свой код и вставь его код выше.</string>
+    <string name="friends_how_it_works">Как это работает: твой профиль — это ключ, созданный на телефоне. То, чем ты делишься, уходит подписанными сообщениями через бесплатные публичные Nostr‑серверы; то, что только для друзей, шифруется отдельно для каждого друга — больше никто это не прочтёт. Своего сервера нет, ничего не нужно оплачивать и поддерживать.</string>
+    <string name="friends_create_title">Твой профиль Drxwnify</string>
+    <string name="friends_create_explain">Друзья увидят, что ты слушаешь (насколько разрешишь в «Приватности»), и смогут слушать вместе с тобой. Профиль создаётся на телефоне — без почты и пароля.</string>
+    <string name="friends_restore">Восстановить</string>
+    <string name="friends_create">Создать профиль</string>
+    <string name="friends_create_new_instead">Создать новый</string>
+    <string name="friends_have_key">У меня есть ключ восстановления</string>
+    <string name="friends_bad_key">Это не ключ восстановления (nsec1…)</string>
+    <string name="friends_add_hint">Код друга (npub1…)</string>
+    <string name="friends_bad_code">Это не код друга</string>
+    <string name="friends_own_code">Это твой собственный код</string>
+    <string name="friends_added">Добавлен — ему придёт заявка</string>
+    <string name="friends_add">Добавить</string>
+    <string name="friends_nothing_shared">Пока ничего не показывает</string>
+    <string name="friends_just_now">только что</string>
+    <string name="friends_minutes_ago">%d мин назад</string>
+    <string name="friends_hours_ago">%d ч назад</string>
+    <string name="friends_days_ago">%d дн назад</string>
+    <string name="friends_remove">Удалить из друзей</string>
+    <string name="friends_now_playing">Сейчас играет</string>
+    <string name="friends_playing_now">Играет сейчас</string>
+    <string name="friends_paused">На паузе · %s</string>
+    <string name="friends_stop_listening">Перестать слушать вместе</string>
+    <string name="friends_listen_along">Слушать вместе</string>
+    <string name="friends_week_stats">За 7 дней</string>
+    <string name="friends_stats_line">%1$d мин · %2$d прослушиваний · %3$d лайков</string>
+    <string name="friends_top_artists">Топ исполнителей</string>
+    <string name="friends_playlists">Плейлисты</string>
+    <string name="friends_tracks_count">Треков: %d</string>
+    <string name="friends_history">Недавно слушал</string>
+    <string name="friends_waiting_data">Жду данные друга… Если ничего не появится — он ещё не добавил тебя в ответ или скрыл это.</string>
+    <string name="friends_remove_confirm">Удалить %s из друзей? Он перестанет видеть то, что ты показываешь друзьям.</string>
+    <string name="friends_privacy_now">Что я слушаю сейчас</string>
+    <string name="friends_privacy_history">История прослушивания</string>
+    <string name="friends_privacy_playlists">Мои плейлисты</string>
+    <string name="friends_privacy_stats">Статистика</string>
+    <string name="friends_privacy_along">Разрешить слушать вместе</string>
+    <string name="friends_privacy_along_desc">Приложение друга следует за твоим воспроизведением в реальном времени</string>
+    <string name="friends_privacy_discoverable">Можно найти по имени</string>
+    <string name="friends_privacy_discoverable_desc">Публичный профиль с именем; иначе найти можно только по коду</string>
+    <string name="friends_privacy_explain">«Друзьям» — шифруется отдельно для каждого друга; «Всем» — видит любой, у кого есть твой код; «Никому» — не отправляется вовсе (отправленное раньше затирается).</string>
+    <string name="friends_audience_nobody">Никому</string>
+    <string name="friends_audience_friends">Друзьям</string>
+    <string name="friends_audience_everyone">Всем</string>
     <string name="files_partially_ready">Готово %1$d из %2$d файлов — остальные не удалось записать</string>
     <plurals name="remove_downloads_confirm">
         <item quantity="one">Удалить %d скачанный трек?</item>
@@ -1234,7 +1328,7 @@
     <string name="spectrum_no_cliff">Среза кодировщика нет: звук плавно затухает к %1$.1f кГц</string>
     <string name="spectrum_wall">спад над ним %d дБ</string>
     <string name="spectrum_profile">Белая — типичный уровень по частотам · оранжевая — как часто в полосе есть звук · красная — срез</string>
-    <string name="spectrum_how">Проанализировано %d с из середины трека. Вердикт — по срезу, а не по пикам: lossy-кодировщик обрывает спектр стенкой (20 дБ и больше в пределах ~1 кГц) на частоте, которая выдаёт его настоящий битрейт — 16 кГц ≈ 128 kbps, 19 кГц ≈ 192, 20 кГц ≈ 320, — и если потом раздуть файл, верх уже не вернётся.</string>
+    <string name="spectrum_how">Проанализировано %1$d с из 3 частей трека (начало, середина, конец), громких моментов: %2$d. Для каждого момента свой срез — самая высокая частота, ещё заметно выше «пустого дна» этого момента; тихие моменты пропускаются. Вердикт — по разбросу срезов: файл, раздутый из 128 kbps, иногда дотягивает до 20 кГц, но в основном обрывается на 16 кГц.</string>
     <string name="eq_graphic">Эквалайзер</string>
     <string name="eq_reset">Сбросить</string>
     <string name="eq_flat">Ровно</string>

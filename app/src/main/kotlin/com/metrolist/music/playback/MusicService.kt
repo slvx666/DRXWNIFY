@@ -526,6 +526,21 @@ class MusicService :
         super.onCreate()
         isRunning = true
 
+        // The user's hand-picked version couldn't play: say so instead of switching silently.
+        scope.launch {
+            var lastShown = 0L
+            AudioFallbackEngine.manualPinFailures.collect { (mediaId, provider) ->
+                val now = System.currentTimeMillis()
+                if (player.currentMediaItem?.mediaId != mediaId || now - lastShown < 15_000L) return@collect
+                lastShown = now
+                android.widget.Toast.makeText(
+                    this@MusicService,
+                    getString(R.string.track_version_pin_unavailable, com.metrolist.music.ui.component.providerLabel(provider)),
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+
         // Player rediness reset to false
         playerInitialized.value = false
 
@@ -589,6 +604,7 @@ class MusicService :
         )
         player = createExoPlayer()
         player.addListener(this@MusicService)
+        com.metrolist.music.friends.ListenAlong.attach(this)
         sleepTimer =
             SleepTimer(scope, player) { multiplier ->
                 sleepTimerVolumeMultiplier.value = multiplier
@@ -2002,7 +2018,7 @@ class MusicService :
      * the rest of the album after it go to the end of the queue in album order, and once the album
      * is over the queue goes on with recommendations built from this album.
      */
-    fun addAlbumFromTrack(albumQueue: Queue) {
+    fun addAlbumFromTrack(albumQueue: Queue, playNext: Boolean = false) {
         if (player.mediaItemCount == 0 || player.playbackState == STATE_IDLE) {
             playQueue(albumQueue)
             return
@@ -2014,9 +2030,22 @@ class MusicService :
                     .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
             }
             if (status.items.isEmpty()) return@launch
-            addToQueue(status.items.drop(status.mediaItemIndex.coerceIn(0, status.items.size - 1)))
+            // The radio queued so far was the app's pick; the album the user chose replaces it.
+            // Otherwise the album sat behind 20+ radio tracks and "didn't continue".
+            loadMoreJob?.cancel()
+            dropUpcomingRecommendations()
+            val albumPart = status.items.drop(status.mediaItemIndex.coerceIn(0, status.items.size - 1))
+            if (playNext) playNext(albumPart) else addToQueue(albumPart)
             // What follows the album now comes from the album, not from the previous queue's radio.
             currentQueue = albumQueue
+        }
+    }
+
+    /** Takes the not-yet-played tracks the app recommended by itself out of the queue. */
+    private fun dropUpcomingRecommendations() {
+        val current = player.currentMediaItemIndex
+        for (i in player.mediaItemCount - 1 downTo current + 1) {
+            if (RecommendedTracks.isRecommended(player.getMediaItemAt(i).mediaId)) player.removeMediaItem(i)
         }
     }
 
@@ -2725,6 +2754,15 @@ class MusicService :
         player: Player,
         events: Player.Events,
     ) {
+        // Friends see what plays (and can listen along): a track change, play/pause or a seek.
+        if (events.containsAny(
+                Player.EVENT_MEDIA_ITEM_TRANSITION,
+                Player.EVENT_IS_PLAYING_CHANGED,
+                Player.EVENT_POSITION_DISCONTINUITY,
+            )
+        ) {
+            com.metrolist.music.friends.FriendsHub.playerChanged(player, database)
+        }
         if (events.containsAny(
                 Player.EVENT_PLAYBACK_STATE_CHANGED,
                 Player.EVENT_PLAY_WHEN_READY_CHANGED,
@@ -4290,6 +4328,15 @@ class MusicService :
 
             // Check if we need to bypass cache for quality change
             val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId)
+
+            // A downloaded track plays from its download, before any lookup: with YouTube marked
+            // unreachable (no VPN) or a rescue remembered for it, every seek used to search for the
+            // audio over the network first — the half-second "loading" on a downloaded track.
+            if (!shouldBypassCache &&
+                downloadCache.isCached(mediaId, dataSpec.position, if (dataSpec.length >= 0) dataSpec.length else 1)
+            ) {
+                return@Factory dataSpec.buildUpon().setKey(mediaId).build()
+            }
 
             // A fallback id ("mfb:" / legacy "qbzfb:") is a catalog track whose audio comes from a
             // non-YouTube provider (Qobuz / VK / SoundCloud). It is not a video id: resolve it only

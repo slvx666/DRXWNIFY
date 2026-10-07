@@ -460,7 +460,7 @@ class MainActivity : ComponentActivity() {
                             if (releaseInfo != null) {
                                 onLatestVersionNameChange(releaseInfo.versionName)
                                 if (hasUpdate && notifEnabled) {
-                                    val downloadUrl = Updater.getDownloadUrlForCurrentVariant(releaseInfo)
+                                    val downloadUrl = Updater.getUpdateUrl(releaseInfo)
                                     if (downloadUrl != null) {
                                         val intent = Intent(Intent.ACTION_VIEW, downloadUrl.toUri())
 

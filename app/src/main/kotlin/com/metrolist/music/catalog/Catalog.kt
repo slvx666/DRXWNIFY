@@ -131,8 +131,54 @@ object Catalog {
 
     // ── Entities (routed by id) ──────────────────────────────────────────────────────────────────
 
-    suspend fun album(id: String): Result<SpotifyAlbum> =
-        if (isYandexId(id)) YandexMusic.album(id) else Spotify.album(id)
+    /**
+     * An album, from the cache when it was fetched in the last [ALBUM_CACHE_TTL_MS] (albums barely
+     * change): reopening one used to download it again every time. Kept in memory and on disk, so
+     * it opens at once after a restart too.
+     */
+    suspend fun album(id: String): Result<SpotifyAlbum> {
+        val now = System.currentTimeMillis()
+        albumMemory[id]?.takeIf { now - it.first < ALBUM_CACHE_TTL_MS }?.let { return Result.success(it.second) }
+        readAlbumFromDisk(id)?.takeIf { now - it.first < ALBUM_CACHE_TTL_MS }?.let { cached ->
+            albumMemory[id] = cached
+            return Result.success(cached.second)
+        }
+        val fresh = if (isYandexId(id)) YandexMusic.album(id) else Spotify.album(id)
+        fresh.onSuccess { album ->
+            if (album.tracks?.items.isNullOrEmpty()) return@onSuccess
+            albumMemory[id] = now to album
+            if (albumMemory.size > ALBUM_MEMORY_MAX) albumMemory.keys.firstOrNull()?.let { albumMemory.remove(it) }
+            writeAlbumToDisk(id, album)
+        }
+        // Offline or a failed request: an older copy beats an error screen.
+        if (fresh.isFailure) readAlbumFromDisk(id)?.let { return Result.success(it.second) }
+        return fresh
+    }
+
+    private const val ALBUM_CACHE_TTL_MS = 24 * 60 * 60 * 1000L
+    private const val ALBUM_MEMORY_MAX = 80
+    private val albumMemory = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, SpotifyAlbum>>()
+    private val albumJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = false }
+
+    @Volatile
+    private var cacheDir: java.io.File? = null
+
+    /** Where catalog entities are kept between launches (the app's cache directory). */
+    fun setCacheDir(dir: java.io.File) {
+        cacheDir = java.io.File(dir, "catalog_albums").also { it.mkdirs() }
+    }
+
+    private fun albumFile(id: String): java.io.File? =
+        cacheDir?.let { java.io.File(it, id.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".json") }
+
+    private fun readAlbumFromDisk(id: String): Pair<Long, SpotifyAlbum>? = runCatching {
+        val file = albumFile(id)?.takeIf { it.exists() } ?: return null
+        file.lastModified() to albumJson.decodeFromString(SpotifyAlbum.serializer(), file.readText())
+    }.getOrNull()
+
+    private fun writeAlbumToDisk(id: String, album: SpotifyAlbum) {
+        runCatching { albumFile(id)?.writeText(albumJson.encodeToString(SpotifyAlbum.serializer(), album)) }
+    }
 
     suspend fun artist(id: String): Result<SpotifyArtist> =
         if (isYandexId(id)) YandexMusic.artist(id) else Spotify.artist(id)

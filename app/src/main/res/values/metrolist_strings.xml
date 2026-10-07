@@ -1281,6 +1281,27 @@
     <string name="download_issues_hint">For tracks that weren’t found, connect VK or turn on more sources in Settings → Integrations → Music sources, then tap “Download the rest”.</string>
     <string name="about_source_code">Source code</string>
     <string name="about_license">Licensed under GPL-3.0</string>
+    <string name="changelog_1_4_0">### Added
++ Friends with no server and no sign-up: profile, friend code, what friends play, their history, playlists and stats
++ Listen together with a friend — your player follows theirs
++ Privacy tab: show each thing to nobody, friends or everyone
++ Music video download from YouTube with a quality choice (1080p by default)
++ Full spectrogram of a track as a PNG
++ Import into an existing playlist, and your own audio files in the import
+### Changed
+• The spectrogram measures the cut moment by moment (start, middle, end) and shows the real quality
+• Add to queue / Play next from an album: the album goes on in order, then recommendations based on it
+• Albums are cached and open instantly, offline too
+• The launch intro only after 8 hours away
+• "Low quality" only below 127 kbps; such tracks stay out of recommendations
+• Track info opens at once
+• Track info sits above Share
+### Fixed
+✓ Changing the track version: the choice is no longer lost or ignored
+✓ A downloaded track no longer loads when seeking
+✓ The spectrogram finds downloaded tracks
+✓ Tracks named only with symbols ("./")
+✓ Sending albums whose folder starts with a dot</string>
     <string name="changelog_1_3_0">### Added
 + VK Music: search, albums, playlists, likes
 + New “For you” picks and an endless radio
@@ -1442,6 +1463,79 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="video_clip_failed">Could not download the clip: %s</string>
     <string name="shared_vk_make_config">Make this VK account the shared demo (config file)</string>
     <string name="shared_vk_config_copied">Config copied: put it on the config host — every phone without its own VK will use this account</string>
+    <string name="spectrum_full">Full spectrogram (PNG)</string>
+    <string name="spectrum_full_saved">Saved to Pictures/Drxwnify</string>
+    <string name="spectrum_kind_genuine">Looks genuine · %d%% chance it is inflated</string>
+    <string name="spectrum_kind_full">Full band, no encoder cut · %d%%</string>
+    <string name="spectrum_kind_transcoded">Re-encoded from a lower quality · %d%%</string>
+    <string name="spectrum_kind_mixed">Pieced from sources of different quality · %d%%</string>
+    <string name="spectrum_distribution">Cut per moment: worst %1$.1f · typical %2$.1f · best %3$.1f kHz · %4$d%% of moments at 16.5 kHz or lower</string>
+    <string name="spectrum_expected">The format (%2$s kbps) should reach ~%1$.1f kHz</string>
+    <string name="spectrum_from_file">the downloaded file</string>
+    <string name="track_version_pinned_failed">Your choice is %1$s, but it did not answer just now — %2$s is playing. Tap %1$s to try again.</string>
+    <string name="track_version_pin_unavailable">The chosen version (%s) is not available right now — playing another source</string>
+    <string name="friends_title">Friends</string>
+    <string name="friends_integration_description">Your profile, friends, what they listen to, listening together — no server, no account</string>
+    <string name="friends_privacy">Privacy</string>
+    <string name="friends_no_name">No name</string>
+    <string name="friends_my_code">My friend code</string>
+    <string name="friends_copy_code">Copy</string>
+    <string name="friends_share_text">Add me in Drxwnify: %s</string>
+    <string name="friends_backup_key">Backup key</string>
+    <string name="friends_backup_warning">Whoever has this key IS your profile. Keep it to move the profile to a new phone; never send it to anyone.</string>
+    <string name="friends_name">Name</string>
+    <string name="friends_listening_with">Listening together with %s</string>
+    <string name="friends_stop">Stop</string>
+    <string name="friends_requests">Friend requests</string>
+    <string name="friends_wants_to_add">wants to be friends</string>
+    <string name="friends_decline">Decline</string>
+    <string name="friends_accept">Accept</string>
+    <string name="friends_list_title">Friends (%d)</string>
+    <string name="friends_empty">No friends yet. Send someone your code and paste theirs above.</string>
+    <string name="friends_how_it_works">How it works: your profile is a key made on this phone. What you share goes as signed messages through free public Nostr relays; what is for friends only is encrypted for each friend, so nobody else can read it. No server of ours, nothing to pay or maintain.</string>
+    <string name="friends_create_title">Your Drxwnify profile</string>
+    <string name="friends_create_explain">Friends will see what you listen to (as much as you allow in Privacy) and can listen along with you. The profile is created on this phone — no e-mail, no password.</string>
+    <string name="friends_restore">Restore</string>
+    <string name="friends_create">Create profile</string>
+    <string name="friends_create_new_instead">Create a new one instead</string>
+    <string name="friends_have_key">I have a backup key</string>
+    <string name="friends_bad_key">That is not a valid backup key (nsec1…)</string>
+    <string name="friends_add_hint">Friend code (npub1…)</string>
+    <string name="friends_bad_code">That is not a friend code</string>
+    <string name="friends_own_code">That is your own code</string>
+    <string name="friends_added">Added — they get a request</string>
+    <string name="friends_add">Add</string>
+    <string name="friends_nothing_shared">Nothing shared yet</string>
+    <string name="friends_just_now">just now</string>
+    <string name="friends_minutes_ago">%d min ago</string>
+    <string name="friends_hours_ago">%d h ago</string>
+    <string name="friends_days_ago">%d d ago</string>
+    <string name="friends_remove">Remove friend</string>
+    <string name="friends_now_playing">Now playing</string>
+    <string name="friends_playing_now">Playing now</string>
+    <string name="friends_paused">Paused · %s</string>
+    <string name="friends_stop_listening">Stop listening together</string>
+    <string name="friends_listen_along">Listen together</string>
+    <string name="friends_week_stats">Last 7 days</string>
+    <string name="friends_stats_line">%1$d min · %2$d plays · %3$d liked</string>
+    <string name="friends_top_artists">Top artists</string>
+    <string name="friends_playlists">Playlists</string>
+    <string name="friends_tracks_count">%d tracks</string>
+    <string name="friends_history">Recently played</string>
+    <string name="friends_waiting_data">Waiting for their data… If nothing appears, they have not added you back yet or keep it hidden.</string>
+    <string name="friends_remove_confirm">Remove %s from friends? They stop seeing what you share with friends.</string>
+    <string name="friends_privacy_now">What I am listening to</string>
+    <string name="friends_privacy_history">Listening history</string>
+    <string name="friends_privacy_playlists">My playlists</string>
+    <string name="friends_privacy_stats">Statistics</string>
+    <string name="friends_privacy_along">Let friends listen along</string>
+    <string name="friends_privacy_along_desc">Their app follows your playback live</string>
+    <string name="friends_privacy_discoverable">Findable by name</string>
+    <string name="friends_privacy_discoverable_desc">A public profile with your name; otherwise only your code finds you</string>
+    <string name="friends_privacy_explain">\"Friends\" = encrypted separately for each friend; \"Everyone\" = readable by anyone with your code; \"Nobody\" = not sent at all (what was sent before is overwritten).</string>
+    <string name="friends_audience_nobody">Nobody</string>
+    <string name="friends_audience_friends">Friends</string>
+    <string name="friends_audience_everyone">Everyone</string>
     <string name="files_partially_ready">%1$d of %2$d files are ready — the rest could not be written</string>
     <plurals name="remove_downloads_confirm">
         <item quantity="one">Remove %d downloaded track?</item>
@@ -1525,7 +1619,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="spectrum_no_cliff">No encoder cut: the sound fades out towards %1$.1f kHz</string>
     <string name="spectrum_wall">fall above it %d dB</string>
     <string name="spectrum_profile">White: typical level per frequency · orange: how often the band has sound · red: the cut</string>
-    <string name="spectrum_how">%d s from the middle of the track analysed. The verdict comes from the cut, not from peaks: a lossy encoder drops the spectrum off a wall (20 dB and more within ~1 kHz) at a frequency that gives its real bitrate away — 16 kHz ≈ 128 kbps, 19 kHz ≈ 192, 20 kHz ≈ 320 — and blowing the file up later never brings the top back.</string>
+    <string name="spectrum_how">%1$d s from 3 parts of the track (start, middle, end), %2$d loud moments. Each moment gets its own cut — the highest frequency still clearly above that moment\'s empty floor; quiet moments are skipped. The verdict comes from how the cuts are spread: a file blown up from 128 kbps may touch 20 kHz now and then, but most of it stops at 16 kHz.</string>
     <string name="eq_graphic">Equalizer</string>
     <string name="eq_reset">Reset</string>
     <string name="eq_flat">Flat</string>

@@ -24,17 +24,11 @@ import com.metrolist.music.R
 
 /** Where "low quality" starts, per codec family. */
 object AudioQualityLevel {
-    /** MP3 needs more bits than the modern codecs for the same result; 128 kbps MP3 is audibly poor. */
-    private const val MP3_MIN_GOOD = 192_000
+    /** "Low quality" means below 127 kbps, whatever the codec (the user's line, same as for radio). */
+    private const val MIN_GOOD = com.metrolist.music.playback.RecommendedTracks.MIN_KBPS * 1000
 
-    /** AAC / Opus / Vorbis sound fine from ~128 kbps; below ~120 kbps they don't. */
-    private const val MODERN_MIN_GOOD = 120_000
-
-    fun isLow(bitrate: Int, mimeType: String?): Boolean {
-        if (bitrate <= 0) return false
-        val mp3 = mimeType?.startsWith("audio/mpeg") == true || mimeType?.startsWith("audio/mp3") == true
-        return bitrate < if (mp3) MP3_MIN_GOOD else MODERN_MIN_GOOD
-    }
+    @Suppress("UNUSED_PARAMETER")
+    fun isLow(bitrate: Int, mimeType: String?): Boolean = bitrate in 1 until MIN_GOOD
 
     fun kbps(bitrate: Int): Int = (bitrate + 500) / 1000
 

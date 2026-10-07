@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Drxwnify — музыка без подписки</title>
+  <meta name="description" content="Музыкальный плеер для Android: медиатека Spotify или Яндекс Музыки, звук из шести источников, скачивание в MP3. Без подписки, рекламы и трекеров.">
+  <meta name="theme-color" content="#07070a">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" type="image/png" href="assets/icon.png">
+  <link rel="apple-touch-icon" href="assets/icon.png">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Drxwnify — музыка без подписки">
+  <meta property="og:description" content="Медиатека Spotify или Яндекс Музыки, звук из шести источников, скачивание в MP3. Бесплатно и без рекламы.">
+  <meta property="og:image" content="assets/icon.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="glow-cursor" aria-hidden="true"></div>
+
+  <!-- ───────── Навигация ───────── -->
+  <header class="nav" id="nav">
+    <a class="nav__brand" href="#top" aria-label="Drxwnify — наверх">
+      <img src="assets/icon.png" alt="" width="34" height="34">
+      <img class="nav__logo" src="assets/logo_dark.png" alt="Drxwnify" height="22">
+    </a>
+    <nav class="nav__links" aria-label="Разделы">
+      <a href="#features">Возможности</a>
+      <a href="#changelog">Что нового</a>
+      <a href="#faq">Вопросы</a>
+    </nav>
+    <a class="btn btn--small js-download" href="#">Скачать</a>
+  </header>
+
+  <main id="top">
+    <!-- ───────── Hero ───────── -->
+    <section class="hero">
+      <div class="hero__bars" aria-hidden="true"></div>
+
+      <div class="update-banner" id="update-banner" hidden>
+        <span class="update-banner__dot"></span>
+        <span id="update-banner-text"></span>
+      </div>
+
+      <div class="hero__emblem" aria-hidden="true">
+        <div class="hero__ring"></div>
+        <div class="hero__ring hero__ring--inner"></div>
+        <img src="assets/icon.png" alt="" width="220" height="220">
+      </div>
+
+      <img class="hero__logo" src="assets/logo_dark.png" alt="Drxwnify" width="475" height="148">
+
+      <h1 class="hero__title">Вся твоя музыка.<br> <span class="accent">Без подписки.</span></h1>
+      <p class="hero__lead">
+        Медиатека из Spotify или Яндекс Музыки, а звук — сразу из шести источников.
+        Слушай, скачивай и делись без Premium и рекламы.
+      </p>
+
+      <div class="hero__cta">
+        <a class="btn btn--primary js-download" href="#" id="hero-download">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" /></svg>
+          <span>Скачать <span class="js-version">1.3.0</span></span>
+        </a>
+        <a class="btn btn--ghost" href="#changelog">Что нового в <span class="js-version">1.3.0</span></a>
+      </div>
+      <p class="hero__meta">
+        <span>APK</span><span class="js-size" hidden></span><span>Android 8.0+</span><span class="js-date"></span>
+      </p>
+
+      <!-- Для гостей с ПК: QR на телефон -->
+      <div class="qr" id="qr" hidden>
+        <div class="qr__code" id="qr-code"></div>
+        <p><b>Приложение для Android.</b><br>Наведи камеру телефона, чтобы открыть эту страницу на нём.</p>
+      </div>
+
+      <a class="hero__scroll" href="#stats" aria-label="Листать вниз"><span></span></a>
+    </section>
+
+    <!-- ───────── Цифры ───────── -->
+    <section class="stats" id="stats">
+      <div class="stat reveal"><b data-count="6">0</b><span>источников звука</span></div>
+      <div class="stat reveal"><b data-count="2" data-prefix="~" data-suffix=" с">0</b><span>на поиск трека</span></div>
+      <div class="stat reveal"><b data-count="0">0</b><span>рекламы и трекеров</span></div>
+      <div class="stat reveal"><b data-count="100" data-suffix="%">0</b><span>открытый код</span></div>
+    </section>
+
+    <!-- ───────── Возможности ───────── -->
+    <section class="section" id="features">
+      <div class="section__head reveal">
+        <p class="eyebrow">Возможности</p>
+        <h2>Всё, что нужно,<br>в одном плеере</h2>
+      </div>
+
+      <div class="bento">
+        <article class="card card--wide reveal">
+          <div class="card__icon"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 12h10M4 19h7M17 15v6m-3-3h6"/></svg></div>
+          <h3>Твоя медиатека — как в оригинале</h3>
+          <p>Войди в Spotify или Яндекс Музыку — и плейлисты, «Любимые треки», альбомы и исполнители уже на месте. Лайки и подписки синхронизируются в обе стороны.</p>
+          <div class="library-mock" aria-hidden="true">
+            <div class="lm-row"><i style="--c:#c62828"></i><span></span><em></em></div>
+            <div class="lm-row"><i style="--c:#d8dee9"></i><span></span><em></em></div>
+            <div class="lm-row"><i style="--c:#5c6b80"></i><span></span><em></em></div>
+          </div>
+        </article>
+
+        <article class="card card--tall reveal">
+          <div class="card__icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg></div>
+          <h3>Звук находится сам</h3>
+          <p>Трек ищется параллельно в нескольких источниках и проходит строгую проверку: название, исполнитель, длительность, ISRC. Источник молчит — играет следующий.</p>
+          <ul class="race" aria-hidden="true">
+            <li><span>YouTube</span><i style="--w:92%"></i></li>
+            <li><span>VK</span><i style="--w:78%"></i></li>
+            <li><span>SoundCloud</span><i style="--w:64%"></i></li>
+            <li><span>Soulseek</span><i style="--w:45%"></i></li>
+          </ul>
+        </article>
+
+        <article class="card reveal">
+          <div class="card__icon"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16"/></svg></div>
+          <h3>Скачивание в один тап</h3>
+          <p>Альбомы, плейлисты и любимое — в MP3 с тегами и обложками. Весь альбом отправляется в мессенджер одной кнопкой.</p>
+        </article>
+
+        <article class="card reveal">
+          <div class="card__icon"><svg viewBox="0 0 24 24"><path d="M3 20h18M6 16V9m4 7V5m4 11v-5m4 5V7"/></svg></div>
+          <h3>Спектрограмма</h3>
+          <p>Встроенный анализатор покажет реальное качество записи. Не та версия — выбери другую по битрейту.</p>
+          <div class="spectrum" aria-hidden="true"></div>
+        </article>
+
+        <article class="card reveal">
+          <div class="card__icon"><svg viewBox="0 0 24 24"><path d="M12 21s-7-4.5-7-10a4 4 0 017-2.6A4 4 0 0119 11c0 5.5-7 10-7 10z"/></svg></div>
+          <h3>Рекомендации «Для тебя»</h3>
+          <p>Персональное радио по твоему вкусу и бесконечная очередь — музыка не заканчивается.</p>
+        </article>
+
+        <article class="card reveal">
+          <div class="card__icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.5v5l4-2.5z"/></svg></div>
+          <h3>Клипы и обложки</h3>
+          <p>Скачивай клипы с YouTube, обложки альбомов и фото артистов в исходном качестве.</p>
+        </article>
+
+        <article class="card reveal">
+          <div class="card__icon"><svg viewBox="0 0 24 24"><path d="M4 7h11M4 12h7M4 17h7M15 12l5 5m0 0l-5 5m5-5h-6"/></svg></div>
+          <h3>Импорт плейлистов</h3>
+          <p>Перенеси плейлисты из другого сервиса за пару тапов — или собирай свои прямо в приложении, даже без аккаунта.</p>
+        </article>
+
+        <article class="card card--full card--chips reveal">
+          <h3>И ещё</h3>
+          <ul class="chips">
+            <li>Тексты с синхронизацией</li>
+            <li>AI-перевод текстов</li>
+            <li>Эквалайзер</li>
+            <li>Баланс L/R</li>
+            <li>Таймер сна</li>
+            <li>Виджеты</li>
+            <li>Совместное прослушивание</li>
+            <li>Полная дискография артиста</li>
+            <li>Бесконечная очередь</li>
+            <li>Скачанные / не скачанные</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <!-- ───────── Источники ───────── -->
+    <section class="sources" aria-label="Источники звука">
+      <p class="eyebrow reveal">Откуда берётся звук</p>
+      <div class="marquee">
+        <div class="marquee__track">
+          <span>YouTube Music</span><span>SoundCloud</span><span>VK Музыка</span><span>Bandcamp</span><span>Audius</span><span>Soulseek</span>
+          <span aria-hidden="true">YouTube Music</span><span aria-hidden="true">SoundCloud</span><span aria-hidden="true">VK Музыка</span><span aria-hidden="true">Bandcamp</span><span aria-hidden="true">Audius</span><span aria-hidden="true">Soulseek</span>
+        </div>
+      </div>
+      <p class="sources__note reveal">Порядок и включение источников — в «Настройки → Интеграции → Источники музыки».</p>
+    </section>
+
+    <!-- ───────── Приватность + установка ───────── -->
+    <section class="section split">
+      <div class="privacy reveal">
+        <p class="eyebrow">Приватность</p>
+        <h2>Ничего не собираем</h2>
+        <ul class="checks">
+          <li>Нет своих серверов, рекламы и телеметрии</li>
+          <li>Токены, кеш и музыка хранятся только на телефоне</li>
+          <li>Запросы идут напрямую в сервисы, без посредников</li>
+          <li>Код открыт — можно собрать самому</li>
+        </ul>
+      </div>
+
+      <div class="install reveal">
+        <p class="eyebrow">Установка за минуту</p>
+        <h2>Три шага</h2>
+        <ol class="steps">
+          <li><b>Скачай APK</b><span>Кнопка «Скачать» на этой странице.</span></li>
+          <li><b>Открой файл</b><span>Разреши установку из этого источника.</span></li>
+          <li><b>Войди</b><span>Подключи Spotify или Яндекс Музыку.</span></li>
+        </ol>
+        <p class="install__note">Обновление ставится поверх — лайки, скачанное и настройки сохраняются.</p>
+      </div>
+    </section>
+
+    <!-- ───────── Патч-ноуты ───────── -->
+    <section class="section" id="changelog">
+      <div class="section__head reveal">
+        <p class="eyebrow">Что нового</p>
+        <h2>История версий</h2>
+        <p class="section__sub" id="changelog-sub">Что изменилось в каждом обновлении.</p>
+      </div>
+      <div class="timeline" id="timeline">
+        <p class="timeline__loading">Загружаем список изменений…</p>
+      </div>
+    </section>
+
+    <!-- ───────── FAQ ───────── -->
+    <section class="section" id="faq">
+      <div class="section__head reveal">
+        <p class="eyebrow">Вопросы</p>
+        <h2>Коротко о главном</h2>
+      </div>
+      <div class="faq">
+        <details class="reveal">
+          <summary>Нужен ли Spotify Premium или Яндекс Плюс?</summary>
+          <p>Нет. Аккаунт нужен только для медиатеки и рекомендаций, а звук приложение находит в открытых источниках.</p>
+        </details>
+        <details class="reveal">
+          <summary>Слетит ли что-то при обновлении?</summary>
+          <p>Нет. Новая версия ставится поверх старой: вход, лайки, скачанные треки и настройки остаются на месте.</p>
+        </details>
+        <details class="reveal">
+          <summary>Как проверить реальное качество трека?</summary>
+          <p>Меню трека → «Спектрограмма трека». По срезу частот сразу видно, честный ли битрейт.</p>
+        </details>
+        <details class="reveal">
+          <summary>Куда сохраняются скачанные файлы?</summary>
+          <p>По умолчанию в папку <code>Music</code>. Путь меняется в настройках хранилища.</p>
+        </details>
+        <details class="reveal">
+          <summary>Играет не та версия песни — что делать?</summary>
+          <p>Меню трека → смена версии: выбери нужную запись вручную, приложение её запомнит.</p>
+        </details>
+        <details class="reveal">
+          <summary>А на компьютер будет?</summary>
+          <p>Да, версия для Windows, Linux и macOS в активной разработке.</p>
+        </details>
+      </div>
+    </section>
+
+    <!-- ───────── Финальный CTA ───────── -->
+    <section class="final reveal">
+      <img src="assets/icon.png" alt="" width="96" height="96">
+      <h2>Готов слушать?</h2>
+      <a class="btn btn--primary js-download" href="#">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" /></svg>
+        <span>Скачать <span class="js-version">1.3.0</span></span>
+      </a>
+      <a class="final__alt" id="all-builds" href="#" target="_blank" rel="noopener">Все сборки и прошлые версии</a>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <img src="assets/logo_dark.png" alt="Drxwnify" height="24">
+    <p>Независимый проект с открытым кодом под лицензией GPL-3.0. Не связан со Spotify AB, Google LLC, Yandex или VK.</p>
+    <a id="repo-link" href="#" target="_blank" rel="noopener">Исходный код на GitHub</a>
+  </footer>
+
+  <!-- Липкая кнопка на телефоне -->
+  <div class="sticky-dl" id="sticky-dl">
+    <div>
+      <b>Drxwnify <span class="js-version">1.3.0</span></b>
+      <span class="sticky-dl__meta">Android 8.0+</span>
+    </div>
+    <a class="btn btn--primary btn--small js-download" href="#">Скачать</a>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
+  <script src="main.js" defer></script>
+</body>
+</html>

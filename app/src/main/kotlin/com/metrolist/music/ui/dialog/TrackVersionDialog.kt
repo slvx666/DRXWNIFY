@@ -76,6 +76,7 @@ fun TrackVersionDialog(
     var candidates by remember { mutableStateOf<List<AudioFallbackEngine.VersionCandidate>>(emptyList()) }
     var currentKey by remember { mutableStateOf<String?>(null) }
     var target by remember { mutableStateOf<VersionTarget?>(null) }
+    var pinnedButNotPlaying by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     LaunchedEffect(mediaId) {
         withContext(Dispatchers.IO) {
@@ -86,7 +87,16 @@ fun TrackVersionDialog(
                 .ifEmpty { AudioFallbackEngine.versionCandidates(mediaId, database.getSongByIdBlocking(mediaId)) }
                 // A plain YouTube track has no catalog entry to pin another source to.
                 .filter { t.catalogId != null || FallbackIds.isFallbackId(mediaId) || it.match.provider == AudioProviderId.YOUTUBE }
-            currentKey = t.currentKey
+            // What really plays: a pinned version whose source didn't answer (VK down, token gone)
+            // is not "the current one" — the player fell back to another source.
+            val serving = com.metrolist.music.resolver.NowServing.of(mediaId)
+            val pinned = t.currentKey
+            currentKey = pinned?.takeIf { serving == null || it.startsWith(serving.name + ":") }
+            pinnedButNotPlaying = if (pinned != null && serving != null && !pinned.startsWith(serving.name + ":")) {
+                providerLabel(AudioProviderId.valueOf(pinned.substringBefore(':'))) to providerLabel(serving)
+            } else {
+                null
+            }
         }
         loading = false
     }
@@ -103,6 +113,14 @@ fun TrackVersionDialog(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
+            pinnedButNotPlaying?.let { (pinned, playing) ->
+                Text(
+                    text = stringResource(R.string.track_version_pinned_failed, pinned, playing),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
             when {
                 loading -> Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -136,7 +154,8 @@ fun TrackVersionDialog(
                             isCurrent = key == currentKey,
                             onClick = {
                                 onDismiss()
-                                if (key == currentKey) return@VersionRow
+                                // Picking the current one again still applies it: it retries a source
+                                // that failed before (its failure is forgotten) and restarts the track.
                                 val t = target ?: return@VersionRow
                                 scope.launch {
                                     applyVersion(database, playerConnection, downloadUtil, mediaMetadata, t, candidate.match)

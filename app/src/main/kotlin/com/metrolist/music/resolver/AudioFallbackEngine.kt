@@ -213,6 +213,10 @@ object AudioFallbackEngine {
      */
     suspend fun storeMatch(query: AudioQuery, match: ProviderMatch) = withContext(Dispatchers.IO) {
         val catalogId = query.catalogId ?: return@withContext
+        // Never over a version the user picked by hand.
+        val hasPin = runCatching { database.getAudioFallbackMatches(catalogId) }.getOrNull().orEmpty()
+            .any { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }
+        if (hasPin) return@withContext
         memory.put(query.cacheKey, match)
         runCatching {
             database.clearAudioFallbackSelection(catalogId)
@@ -303,6 +307,12 @@ object AudioFallbackEngine {
         }
         ParallelAudioResolver.inPickOrder(found, ::rank)
     }
+
+    /** A hand-picked version whose source couldn't play it just now (media id, its provider). */
+    val manualPinFailures = kotlinx.coroutines.flow.MutableSharedFlow<Pair<String, AudioProviderId>>(
+        extraBufferCapacity = 8,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+    )
 
     /** One recording offered by "change track version", with its audio bitrate when it could be read. */
     data class VersionCandidate(val match: ProviderMatch, val bitrateKbps: Int?)
@@ -480,6 +490,33 @@ object AudioFallbackEngine {
         val catalogId = query.catalogId ?: return
         scope.launch {
             runCatching {
+                // A hand-picked version is never overwritten by what a race found: its row and the
+                // selection stay, other sources are only added as alternates.
+                val pinned = database.getAudioFallbackMatches(catalogId)
+                    .filter { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }
+                    .map { it.provider }
+                    .toSet()
+                if (pinned.isNotEmpty()) {
+                    database.upsertAudioFallbackMatches(
+                        matches.filter { it.provider.name !in pinned }.map { m ->
+                            AudioFallbackMatchEntity(
+                                catalogId = catalogId,
+                                provider = m.provider.name,
+                                providerTrackId = m.trackId,
+                                matchedTitle = m.title,
+                                matchedArtist = m.artist,
+                                confidence = m.confidence,
+                                title = query.title,
+                                artists = query.artists.joinToString(ARTIST_SEPARATOR),
+                                album = query.album,
+                                durationMs = query.durationMs,
+                                isrc = query.isrc,
+                                selected = false,
+                            )
+                        },
+                    )
+                    return@runCatching
+                }
                 database.clearAudioFallbackSelection(catalogId)
                 database.upsertAudioFallbackMatches(
                     matches.map { m ->
@@ -582,14 +619,20 @@ object AudioFallbackEngine {
         // Known matches first (no search): comparably confident ones in the user's order.
         val stored = storedCandidates(query)
         for (match in stored) {
-            if (!match.usableFor(query.copy(excludedTrackIds = badTracks), tried)) continue
+            val manual = match.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE
+            if (!match.usableFor(query.copy(excludedTrackIds = badTracks), tried)) {
+                if (manual) manualPinFailures.tryEmit(mediaId to match.provider)
+                continue
+            }
             val plan = planFor(query, match)
             if (plan != null) {
                 AudioDiagnostics.clearProblems(mediaId)
                 return@withContext plan
             }
             badTracks += match.trackId
-            forget(query, match)
+            // A hand-picked version stays picked: a source that is down now (VK without a session,
+            // a blip) must not erase the user's choice — it used to, so the version "didn't change".
+            if (manual) manualPinFailures.tryEmit(mediaId to match.provider) else forget(query, match)
         }
 
         // Then races, each time without what already failed.
@@ -609,7 +652,8 @@ object AudioFallbackEngine {
                 return@withContext plan
             }
             badTracks += match.trackId
-            forget(query, match)
+            if (match.confidence < ParallelAudioResolver.MANUAL_CONFIDENCE) forget(query, match)
+            else memory.remove(query.cacheKey)
             // A provider whose best match can't stream is unlikely to have a second playable upload.
             if (match.provider != AudioProviderId.YOUTUBE) tried += match.provider
         }

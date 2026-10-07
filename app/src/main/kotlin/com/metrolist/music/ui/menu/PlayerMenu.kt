@@ -280,7 +280,10 @@ fun PlayerMenu(
     val playNextTrack: () -> Unit = {
         onDismiss()
         coroutineScope.launch {
-            if (spotifyTrack != null) {
+            if (albumQueue != null) {
+                playerConnection.service.addAlbumFromTrack(albumQueue(), playNext = true)
+                Toast.makeText(context, context.getString(R.string.added_album_rest_to_queue), Toast.LENGTH_SHORT).show()
+            } else if (spotifyTrack != null) {
                 val item = withContext(Dispatchers.IO) {
                     spotifyMapper.resolveToMediaItem(spotifyTrack)
                 }
@@ -841,6 +844,31 @@ fun PlayerMenu(
 
                         add(
                             Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.track_info)) },
+                                description = { Text(text = stringResource(R.string.details_desc)) },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.info),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                onClick = {
+                                    if (onShowDetailsDialog != null) {
+                                        onShowDetailsDialog()
+                                    } else {
+                                        val detailsId = resolvedSpotifyMatch?.youtubeId ?: mediaMetadata.id
+                                        bottomSheetPageState.show {
+                                            ShowMediaInfo(detailsId, mediaMetadata)
+                                        }
+                                    }
+                                    onDismiss()
+                                },
+                            ),
+                        )
+
+                        add(
+                            Material3MenuItemData(
                                 title = { Text(text = stringResource(R.string.share)) },
                                 description = if (effectiveDownloadState == Download.STATE_COMPLETED) {
                                     { Text(text = stringResource(R.string.share_file_desc)) }
@@ -877,31 +905,6 @@ fun PlayerMenu(
                                     }
                                 },
                             )
-                        )
-
-                        add(
-                            Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.track_info)) },
-                                description = { Text(text = stringResource(R.string.details_desc)) },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.info),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                },
-                                onClick = {
-                                    if (onShowDetailsDialog != null) {
-                                        onShowDetailsDialog()
-                                    } else {
-                                        val detailsId = resolvedSpotifyMatch?.youtubeId ?: mediaMetadata.id
-                                        bottomSheetPageState.show {
-                                            ShowMediaInfo(detailsId, mediaMetadata)
-                                        }
-                                    }
-                                    onDismiss()
-                                },
-                            ),
                         )
 
                         addAll(extraItems)

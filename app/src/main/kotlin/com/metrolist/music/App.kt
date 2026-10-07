@@ -199,6 +199,8 @@ class App :
             }
         }
         // Metadata/library catalog: Spotify and/or Yandex Music, per the connected accounts.
+        com.metrolist.music.catalog.Catalog.setCacheDir(cacheDir)
+        com.metrolist.music.friends.FriendsHub.init(this, database)
         com.metrolist.music.catalog.Catalog.init(dataStore, applicationScope, getString(R.string.liked_songs))
 
         // تهيئة إعدادات التطبيق عند الإقلاع

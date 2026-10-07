@@ -325,6 +325,19 @@ fun NavGraphBuilder.navigationBuilder(
         com.metrolist.music.ui.screens.vk.VkPlaylistScreen(navController)
     }
 
+    composable("friends") {
+        com.metrolist.music.ui.screens.friends.FriendsScreen(navController)
+    }
+    composable("friends/privacy") {
+        com.metrolist.music.ui.screens.friends.FriendsPrivacyScreen(navController)
+    }
+    composable(
+        "friend/{pubkey}",
+        arguments = listOf(androidx.navigation.navArgument("pubkey") { type = androidx.navigation.NavType.StringType }),
+    ) { entry ->
+        com.metrolist.music.ui.screens.friends.FriendScreen(navController, entry.arguments?.getString("pubkey").orEmpty())
+    }
+
     composable(
         "import_playlist?target={target}",
         arguments = listOf(

@@ -156,7 +156,7 @@ fun AccountSettings(
 
             if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.VERSION_NAME) {
                 val releaseInfo = Updater.getCachedLatestRelease()
-                val downloadUrl = releaseInfo?.let { Updater.getDownloadUrlForCurrentVariant(it) }
+                val downloadUrl = releaseInfo?.let { Updater.getUpdateUrl(it) }
                 
                 if (downloadUrl != null) {
                     PreferenceEntry(

@@ -95,6 +95,12 @@ fun IntegrationScreen(
             title = stringResource(R.string.general),
             items = listOf(
                 IntegrationCardItem(
+                    icon = painterResource(R.drawable.person),
+                    title = { Text(stringResource(R.string.friends_title)) },
+                    description = { Text(stringResource(R.string.friends_integration_description)) },
+                    onClick = { navController.navigate("friends") },
+                ),
+                IntegrationCardItem(
                     icon = painterResource(R.drawable.library_music),
                     title = { Text(stringResource(R.string.music_sources)) },
                     description = { Text(stringResource(R.string.integration_sources_description)) },
