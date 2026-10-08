@@ -139,21 +139,34 @@ object Catalog {
     suspend fun album(id: String): Result<SpotifyAlbum> {
         val now = System.currentTimeMillis()
         albumMemory[id]?.takeIf { now - it.first < ALBUM_CACHE_TTL_MS }?.let { return Result.success(it.second) }
-        readAlbumFromDisk(id)?.takeIf { now - it.first < ALBUM_CACHE_TTL_MS }?.let { cached ->
+        val onDisk = readAlbumFromDisk(id)
+        onDisk?.takeIf { now - it.first < ALBUM_CACHE_TTL_MS }?.let { cached ->
             albumMemory[id] = cached
             return Result.success(cached.second)
         }
-        val fresh = if (isYandexId(id)) YandexMusic.album(id) else Spotify.album(id)
-        fresh.onSuccess { album ->
-            if (album.tracks?.items.isNullOrEmpty()) return@onSuccess
-            albumMemory[id] = now to album
-            if (albumMemory.size > ALBUM_MEMORY_MAX) albumMemory.keys.firstOrNull()?.let { albumMemory.remove(it) }
-            writeAlbumToDisk(id, album)
+        suspend fun fetch(): Result<SpotifyAlbum> {
+            val fresh = if (isYandexId(id)) YandexMusic.album(id) else Spotify.album(id)
+            fresh.onSuccess { album ->
+                if (album.tracks?.items.isNullOrEmpty()) return@onSuccess
+                albumMemory[id] = System.currentTimeMillis() to album
+                if (albumMemory.size > ALBUM_MEMORY_MAX) albumMemory.keys.firstOrNull()?.let { albumMemory.remove(it) }
+                writeAlbumToDisk(id, album)
+            }
+            return fresh
         }
-        // Offline or a failed request: an older copy beats an error screen.
-        if (fresh.isFailure) readAlbumFromDisk(id)?.let { return Result.success(it.second) }
-        return fresh
+        if (onDisk != null) {
+            // An older copy is there: a slow or missing connection must not keep a downloaded album
+            // behind a spinner. Wait briefly for a fresh one, else show the copy and refresh behind it.
+            val fresh = kotlinx.coroutines.withTimeoutOrNull(STALE_ALBUM_WAIT_MS) { fetch() }
+            if (fresh?.isSuccess == true) return fresh
+            if (fresh == null) refreshScope.launch { fetch() }
+            return Result.success(onDisk.second)
+        }
+        return fetch()
     }
+
+    private const val STALE_ALBUM_WAIT_MS = 2_500L
+    private val refreshScope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 
     private const val ALBUM_CACHE_TTL_MS = 24 * 60 * 60 * 1000L
     private const val ALBUM_MEMORY_MAX = 80

@@ -92,6 +92,26 @@
                     android:pathPrefix="/callback" />
             </intent-filter>
 
+            <!-- Friend invite link (opens Together → Friends with accept / cancel) -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:host="drxwnify.pages.dev" />
+                <data android:pathPrefix="/add/" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="drxwnify" android:host="add" />
+            </intent-filter>
+
             <!-- Listen Together invite link -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
@@ -326,17 +346,6 @@
 
         <!-- Odd widgets (FreakWidgets.kt) -->
         <receiver
-            android:name=".widget.FreakPetWidget"
-            android:exported="true"
-            android:label="@string/freak_pet">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/freak_pet_info" />
-        </receiver>
-        <receiver
             android:name=".widget.FreakTvWidget"
             android:exported="true"
             android:label="@string/freak_tv">
@@ -368,17 +377,6 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/freak_cyber_info" />
-        </receiver>
-        <receiver
-            android:name=".widget.FreakPaperWidget"
-            android:exported="true"
-            android:label="@string/freak_paper">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/freak_paper_info" />
         </receiver>
         <receiver
             android:name=".widget.FreakShoesWidget"

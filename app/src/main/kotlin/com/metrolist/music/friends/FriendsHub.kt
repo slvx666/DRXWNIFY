@@ -49,8 +49,54 @@ object FriendsHub {
         val listenAlong: Boolean = true,
     )
 
-    data class Profile(val pubkey: String, val name: String) {
+    /** [avatar]: a small JPEG as base64, sent inside the profile event (there is no server for files). */
+    data class Profile(val pubkey: String, val name: String, val avatar: String? = null) {
         val code: String get() = Nostr.bech32Encode("npub", pubkey.hexToBytes())
+        val isDeveloper: Boolean get() = pubkey == DEVELOPER_PUBKEY
+    }
+
+    /** An invite opened from a link (drxwnify.pages.dev/add/<npub>), waiting for "accept" or "cancel". */
+    data class Invite(val pubkey: String, val name: String)
+
+    /**
+     * The developer's public profile (drxwnslvt): shown to everyone at the top of Friends with the
+     * avatar from "About", whatever the network returns, and followed for what it shares publicly.
+     */
+    const val DEVELOPER_PUBKEY = "e114d6d2c422913fbb0c5b525cf927015aaecdfbea72fadd5c1dd2693f1c7f74"
+    const val DEVELOPER_NAME = "drxwnslvt"
+
+    fun isDeveloper(pubkey: String) = pubkey == DEVELOPER_PUBKEY
+
+    /** Base url of invite links; the site turns them into "open in the app". */
+    const val INVITE_BASE = "https://drxwnify.pages.dev/add/"
+
+    fun inviteLink(): String? {
+        val me = _profile.value ?: return null
+        val name = java.net.URLEncoder.encode(me.name, "UTF-8")
+        return INVITE_BASE + me.code + if (me.name.isNotBlank()) "?n=$name" else ""
+    }
+
+    /** An invite from [uri] (the site link or drxwnify://add/<npub>), or null. */
+    fun parseInvite(uri: android.net.Uri): Invite? {
+        val isSite = uri.host == "drxwnify.pages.dev" && uri.path.orEmpty().startsWith("/add/")
+        val isScheme = uri.scheme == "drxwnify" && (uri.host == "add" || uri.path.orEmpty().startsWith("/add"))
+        if (!isSite && !isScheme) return null
+        val pub = parseCode(uri.toString()) ?: return null
+        return Invite(pub, uri.getQueryParameter("n").orEmpty().take(40))
+    }
+
+    private val _invite = MutableStateFlow<Invite?>(null)
+    val invite: StateFlow<Invite?> = _invite
+
+    fun openInvite(invite: Invite) {
+        if (invite.pubkey == _profile.value?.pubkey) return
+        _invite.value = invite
+    }
+
+    fun answerInvite(accept: Boolean) {
+        val invite = _invite.value ?: return
+        _invite.value = null
+        if (accept) addFriend(invite.pubkey, invite.name)
     }
 
     data class Friend(val pubkey: String, val name: String, val addedAt: Long)
@@ -75,6 +121,7 @@ object FriendsHub {
 
     data class FriendData(
         val name: String? = null,
+        val avatar: String? = null,
         val now: NowPlaying? = null,
         val history: List<TrackRef>? = null,
         val playlists: List<SharedPlaylist>? = null,
@@ -131,7 +178,7 @@ object FriendsHub {
             runCatching {
                 val sk = hex.hexToBytes()
                 secretKey = sk
-                _profile.value = Profile(Secp256k1.publicKey(sk).toHex(), p.getString("name", null).orEmpty())
+                _profile.value = Profile(Secp256k1.publicKey(sk).toHex(), p.getString("name", null).orEmpty(), p.getString("avatar", null))
             }
         }
         _friends.value = runCatching {
@@ -143,6 +190,15 @@ object FriendsHub {
             }
         }.getOrDefault(emptyList())
         _privacy.value = runCatching { privacyFromJson(JSONObject(p.getString("privacy", "{}")!!)) }.getOrDefault(Privacy())
+        // The developer's account is public by design: once, everything is opened to everyone.
+        if (_profile.value?.isDeveloper == true && !p.getBoolean("devPublic", false)) {
+            p.edit().putBoolean("devPublic", true).apply()
+            val open = Privacy(Audience.EVERYONE, Audience.EVERYONE, Audience.EVERYONE, Audience.EVERYONE, discoverable = true, listenAlong = true)
+            _privacy.value = open
+            p.edit().putString("privacy", privacyToJson(open).toString()).apply()
+            scope.launch { delay(5_000L); publishProfile(); publishLibrary() }
+        }
+        ensureDeveloperFriend()
         // What friends see is refreshed now and then, never more than every few hours.
         if (secretKey != null) scope.launch {
             delay(20_000L)
@@ -155,16 +211,66 @@ object FriendsHub {
     fun createProfile(name: String) {
         val sk = Secp256k1.newPrivateKey()
         saveKey(sk, name.trim())
+        ensureDeveloperFriend()
         scope.launch { publishProfile(); publishLibrary() }
     }
 
-    /** Restores a profile from its backup key (nsec); false when the key is not valid. */
+    /**
+     * Everyone starts with the developer among their friends — once: removed, it stays removed. Added
+     * quietly (no request): what the developer shares is public anyway.
+     */
+    private fun ensureDeveloperFriend() {
+        val p = prefs ?: return
+        val me = _profile.value ?: return
+        if (me.isDeveloper || p.getBoolean("devAdded", false)) return
+        p.edit().putBoolean("devAdded", true).apply()
+        if (_friends.value.none { it.pubkey == DEVELOPER_PUBKEY }) {
+            _friends.value = _friends.value + Friend(DEVELOPER_PUBKEY, DEVELOPER_NAME, System.currentTimeMillis())
+            saveFriends()
+        }
+    }
+
+    /**
+     * Restores a profile from its backup key (nsec), also replacing the current one; false when the
+     * key is not valid. A blank [name] keeps the current one (the developer key gets its own name).
+     */
     fun importProfile(nsec: String, name: String): Boolean {
-        val (hrp, bytes) = Nostr.bech32Decode(nsec) ?: return false
+        val (hrp, bytes) = Nostr.bech32Decode(nsec.trim()) ?: return false
         if (hrp != "nsec" || bytes.size != 32) return false
-        saveKey(bytes, name.trim())
+        val pub = runCatching { Secp256k1.publicKey(bytes).toHex() }.getOrNull() ?: return false
+        val finalName = when {
+            pub == DEVELOPER_PUBKEY -> DEVELOPER_NAME
+            name.isNotBlank() -> name.trim()
+            else -> _profile.value?.name.orEmpty()
+        }
+        if (pub != _profile.value?.pubkey) prefs?.edit()?.remove("avatar")?.remove("devPublic")?.apply()
+        saveKey(bytes, finalName)
+        if (pub == DEVELOPER_PUBKEY && prefs?.getBoolean("devPublic", false) != true) {
+            prefs?.edit()?.putBoolean("devPublic", true)?.apply()
+            setPrivacy(Privacy(Audience.EVERYONE, Audience.EVERYONE, Audience.EVERYONE, Audience.EVERYONE, discoverable = true, listenAlong = true))
+        }
+        ensureDeveloperFriend()
+        restartLive()
         scope.launch { publishProfile(); publishLibrary() }
         return true
+    }
+
+    /** Sets (or with null removes) the profile picture: any image, cut to a small square JPEG. */
+    fun setAvatar(bitmap: android.graphics.Bitmap?) {
+        val encoded = bitmap?.let(::encodeAvatar)
+        prefs?.edit()?.apply { if (encoded == null) remove("avatar") else putString("avatar", encoded) }?.apply()
+        _profile.value = _profile.value?.copy(avatar = encoded)
+        scope.launch { publishProfile() }
+    }
+
+    private fun encodeAvatar(source: android.graphics.Bitmap): String {
+        val side = minOf(source.width, source.height)
+        val square = android.graphics.Bitmap.createBitmap(source, (source.width - side) / 2, (source.height - side) / 2, side, side)
+        val small = android.graphics.Bitmap.createScaledBitmap(square, AVATAR_PX, AVATAR_PX, true)
+        val out = java.io.ByteArrayOutputStream()
+        // Relays keep events small: ~6-10 KB at this size and quality.
+        small.compress(android.graphics.Bitmap.CompressFormat.JPEG, 78, out)
+        return android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
     }
 
     fun rename(name: String) {
@@ -179,7 +285,7 @@ object FriendsHub {
     private fun saveKey(sk: ByteArray, name: String) {
         secretKey = sk
         prefs?.edit()?.putString("sk", sk.toHex())?.putString("name", name)?.apply()
-        _profile.value = Profile(Secp256k1.publicKey(sk).toHex(), name)
+        _profile.value = Profile(Secp256k1.publicKey(sk).toHex(), name, prefs?.getString("avatar", null))
     }
 
     fun setPrivacy(privacy: Privacy) {
@@ -279,7 +385,7 @@ object FriendsHub {
     @Synchronized
     private fun openLive() {
         val me = _profile.value?.pubkey ?: return
-        val friendKeys = _friends.value.map { it.pubkey }
+        val friendKeys = (_friends.value.map { it.pubkey } + DEVELOPER_PUBKEY).distinct().filter { it != me }
         if (friendKeys.isNotEmpty()) {
             val dValues = JSONArray().put(D_PREFIX + F_PROFILE)
             DATA_FIELDS.forEach { dValues.put(D_PREFIX + it); dValues.put("$D_PREFIX$it:$me") }
@@ -327,14 +433,18 @@ object FriendsHub {
             }
             return
         }
-        if (_friends.value.none { it.pubkey == author }) return
+        // Friends, and the developer's public profile which everyone sees.
+        if (_friends.value.none { it.pubkey == author } && author != DEVELOPER_PUBKEY) return
         synchronized(this) {
             val current = _data.value[author] ?: FriendData()
             if ((current.stamps[field] ?: 0L) > event.createdAt) return
             val stamps = current.stamps + (field to event.createdAt)
             val json = content.takeIf { it.isNotBlank() }?.let { runCatching { JSONObject(it) }.getOrNull() }
             val updated = when (field) {
-                F_PROFILE -> current.copy(name = json?.optString("name")?.takeIf { it.isNotBlank() } ?: current.name)
+                F_PROFILE -> current.copy(
+                    name = json?.optString("name")?.takeIf { it.isNotBlank() } ?: current.name,
+                    avatar = json?.optString("pic")?.takeIf { it.isNotBlank() && it.length <= MAX_AVATAR_CHARS } ?: current.avatar,
+                )
                 F_NOW -> current.copy(now = json?.let(::nowFromJson))
                 F_HISTORY -> current.copy(history = json?.optJSONArray("tracks")?.let(::refsFromJson))
                 F_PLAYLISTS -> current.copy(playlists = json?.optJSONArray("playlists")?.let(::playlistsFromJson))
@@ -390,7 +500,7 @@ object FriendsHub {
     private fun publishProfile() {
         val sk = secretKey ?: return
         val me = _profile.value ?: return
-        publishPublic(F_PROFILE, JSONObject().put("name", me.name).toString())
+        publishPublic(F_PROFILE, JSONObject().put("name", me.name).apply { me.avatar?.let { put("pic", it) } }.toString())
         val metadata = if (_privacy.value.discoverable) {
             JSONObject().put("name", me.name).put("about", "Drxwnify").toString()
         } else {
@@ -585,4 +695,6 @@ object FriendsHub {
     private const val MAX_PLAYLISTS = 10
     private const val MAX_PLAYLIST_TRACKS = 50
     private const val MAX_FRIENDS_ENCRYPTED = 40
+    private const val AVATAR_PX = 160
+    private const val MAX_AVATAR_CHARS = 60_000
 }

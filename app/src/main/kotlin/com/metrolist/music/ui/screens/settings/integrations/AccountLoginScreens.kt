@@ -5,6 +5,10 @@
 
 package com.metrolist.music.ui.screens.settings.integrations
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.autofill.ContentType
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.webkit.CookieManager
@@ -189,6 +193,33 @@ fun VkLoginScreen(navController: NavController) {
     var captcha by remember { mutableStateOf<VkDirectAuth.Result.NeedCaptcha?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var smsInfo by remember { mutableStateOf<String?>(null) }
+    var smsSentAt by remember { mutableStateOf(0L) }
+    val autofill = androidx.compose.ui.platform.LocalAutofillManager.current
+    val loginPrefs = remember { context.getSharedPreferences("vk_login", android.content.Context.MODE_PRIVATE) }
+
+    // The last login (never the password) is filled in again; the password comes from the phone's
+    // password manager, which is also offered to save both after a successful login.
+    LaunchedEffect(Unit) {
+        val saved = loginPrefs.getString("login", null).orEmpty()
+        if (saved.isNotEmpty() && phone.text.isEmpty() && email.isEmpty()) {
+            if (loginPrefs.getBoolean("byPhone", true)) {
+                val formatted = PhoneNumberInput.format(saved)
+                phone = TextFieldValue(formatted, selection = TextRange(formatted.length))
+            } else {
+                byPhone = false
+                email = saved
+            }
+        }
+    }
+
+    fun sendSms(sid: String) {
+        smsSentAt = System.currentTimeMillis()
+        scope.launch {
+            val problem = VkDirectAuth.requestSms(sid)
+            smsInfo = if (problem == null) context.getString(R.string.vk_sms_sent) else context.getString(R.string.vk_sms_failed, problem)
+        }
+    }
 
     fun submit() {
         if (busy || !loginReady || password.isEmpty()) return
@@ -205,13 +236,19 @@ fun VkLoginScreen(navController: NavController) {
             when (result) {
                 is VkDirectAuth.Result.Success -> {
                     saveToken(result.token, result.userId)
+                    loginPrefs.edit().putString("login", if (byPhone) phone.text else email.trim()).putBoolean("byPhone", byPhone).apply()
+                    // Hands login + password to the password manager ("Save password?").
+                    runCatching { autofill?.commit() }
                     password = ""
                     Toast.makeText(context, context.getString(R.string.login_connected), Toast.LENGTH_SHORT).show()
                     navController.navigateUp()
                 }
                 is VkDirectAuth.Result.NeedCode -> {
+                    val first = needCode == null
                     needCode = result
                     captcha = null
+                    // VK only sends the SMS when asked to; without this the code never arrived.
+                    if (first && !result.viaApp) result.validationSid?.let(::sendSms)
                 }
                 is VkDirectAuth.Result.NeedCaptcha -> {
                     captcha = result
@@ -274,7 +311,9 @@ fun VkLoginScreen(navController: NavController) {
                     singleLine = true,
                     enabled = !busy,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentType = ContentType.Username + ContentType.PhoneNumber },
                 )
             } else {
                 OutlinedTextField(
@@ -284,7 +323,9 @@ fun VkLoginScreen(navController: NavController) {
                     singleLine = true,
                     enabled = !busy,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentType = ContentType.Username + ContentType.EmailAddress },
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -310,7 +351,9 @@ fun VkLoginScreen(navController: NavController) {
                     imeAction = if (needCode == null && captcha == null) ImeAction.Done else ImeAction.Next,
                 ),
                 keyboardActions = KeyboardActions(onDone = { submit() }),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentType = ContentType.Password },
             )
 
             needCode?.let { request ->
@@ -333,8 +376,34 @@ fun VkLoginScreen(navController: NavController) {
                     enabled = !busy,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { submit() }),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentType = ContentType.SmsOtpCode },
                 )
+                smsInfo?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                request.validationSid?.let { sid ->
+                    // A minute between requests, as VK itself allows.
+                    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+                    LaunchedEffect(smsSentAt) {
+                        while (System.currentTimeMillis() - smsSentAt < SMS_RESEND_MS) {
+                            now = System.currentTimeMillis()
+                            kotlinx.coroutines.delay(1_000L)
+                        }
+                        now = System.currentTimeMillis()
+                    }
+                    val wait = ((SMS_RESEND_MS - (now - smsSentAt)) / 1000).coerceAtLeast(0)
+                    TextButton(enabled = !busy && wait == 0L, onClick = { sendSms(sid) }) {
+                        Text(
+                            when {
+                                wait > 0 -> stringResource(R.string.vk_sms_resend_in, wait)
+                                request.viaApp && smsSentAt == 0L -> stringResource(R.string.vk_sms_instead)
+                                else -> stringResource(R.string.vk_sms_resend)
+                            },
+                        )
+                    }
+                }
             }
 
             captcha?.let { request ->
@@ -381,9 +450,6 @@ fun VkLoginScreen(navController: NavController) {
                 }
             }
             Spacer(Modifier.height(4.dp))
-            TextButton(onClick = { useWebLogin = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.vk_login_via_page))
-            }
             // A token made elsewhere (by a tool that performs VK's full music-client handshake) is
             // the one sure way in while the in-app login cannot produce a music-capable token.
             TextButton(onClick = { showPasteToken = true }, modifier = Modifier.fillMaxWidth()) {
@@ -617,3 +683,5 @@ private fun OAuthTokenLoginScreen(
         )
     }
 }
+
+private const val SMS_RESEND_MS = 60_000L

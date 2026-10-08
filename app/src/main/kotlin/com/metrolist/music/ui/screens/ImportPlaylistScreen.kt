@@ -268,10 +268,23 @@ private fun ImportProgress(p: PlaylistImporter.Progress, onOpen: (String) -> Uni
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.SemiBold,
     )
+    val deep = p.deep?.takeIf { !p.finished && it.second > 0 }
     LinearProgressIndicator(
-        progress = { if (p.total > 0) p.done.toFloat() / p.total else 0f },
+        progress = {
+            when {
+                deep != null -> deep.first.toFloat() / deep.second
+                p.total > 0 -> p.done.toFloat() / p.total
+                else -> 0f
+            }
+        },
         modifier = Modifier.fillMaxWidth(),
     )
+    if (deep != null) {
+        Text(
+            stringResource(R.string.import_deep_pass, deep.first, deep.second),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
     if (!p.finished) {
         Text(
             stringResource(R.string.import_background),

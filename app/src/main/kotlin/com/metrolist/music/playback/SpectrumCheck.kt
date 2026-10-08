@@ -103,6 +103,15 @@ object SpectrumCheck {
         val loudFrames: Int,
         /** The downloaded file itself was analysed (not the player's cache). */
         val fromFile: Boolean,
+        /**
+         * A former encoder ceiling, Hz: a sharp horizontal step at the same frequency through the
+         * track, still there under whatever a later re-encode painted above it. Null when none.
+         */
+        val shelfHz: Int? = null,
+        /** Share of loud frames that show that step, 0..1. */
+        val shelfShare: Float = 0f,
+        /** The top the audio really had, Hz: the former ceiling when there is one, else [cutoffHz]. */
+        val realCutoffHz: Int = cutoffHz,
     ) {
         val upscaled: Boolean get() = upscaledPercent >= 60
     }
@@ -112,7 +121,18 @@ object SpectrumCheck {
     fun verdictFlow(mediaId: String): Flow<Verdict?> = verdicts.map { it[mediaId] }
 
     private const val FFT_SIZE = 4096
-    private const val SEGMENT_SECONDS = 8
+    private const val SEGMENT_SECONDS = 6
+    private const val SEGMENTS = 8
+
+    /** Former-ceiling search: ± this much on each side of an edge, the stretch length, the share it needs. */
+    private const val SHELF_HALF_HZ = 65
+    private const val SHELF_WINDOW_SECONDS = 4
+    private const val SHELF_MIN_SHARE = 0.12f
+    private const val SHELF_MIN_WINDOWS = 8
+    private const val SHELF_MIN_DEPTH_DB = 12.0
+    private const val LOUDNESS_SAMPLE_US = 350_000L
+    private const val SHELF_FROM_HZ = 11_000
+    private const val SHELF_TO_HZ = 21_000
     private const val MAX_BYTES = 48L shl 20
     private const val SPECTROGRAM_ROWS = 384
     const val PROFILE_POINTS = 512
@@ -152,9 +172,12 @@ object SpectrumCheck {
         val source = openSource(context, ids, caches, exportedUri) ?: return@withContext null
         try {
             val decoded = decodeSegments(context, source) ?: return@withContext null
+            val shelf = runCatching { scanShelves(context, source) }
+                .onFailure { Timber.w(it, "SpectrumCheck: ceiling scan failed") }
+                .getOrNull()
             val fromFile = source is Source.Content
             val fileKbps = decoded.bitrateKbps?.takeIf { fromFile }
-            val verdict = measure(decoded, codec, fileKbps ?: kbps, fromFile)
+            val verdict = measure(decoded, codec, fileKbps ?: kbps, fromFile, shelf)
             verdicts.value = verdicts.value + ids.associateWith { verdict }
             verdict
         } catch (t: Throwable) {
@@ -236,7 +259,11 @@ object SpectrumCheck {
         val mime = format.getString(MediaFormat.KEY_MIME) ?: run { extractor.release(); return null }
         val durationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else -1L
         val bitrate = if (format.containsKey(MediaFormat.KEY_BIT_RATE)) format.getInteger(MediaFormat.KEY_BIT_RATE) else 0
-        val starts = if (durationUs > (SEGMENT_SECONDS * 4) * 1_000_000L) {
+        // Eight stretches spread over the track: a former ceiling often shows only in some parts
+        // (quiet passages), so three samples could miss it.
+        val starts = if (durationUs > 60_000_000L) {
+            (0 until SEGMENTS).map { (durationUs * (0.05 + 0.88 * it / (SEGMENTS - 1))).toLong() }
+        } else if (durationUs > (SEGMENT_SECONDS * 4) * 1_000_000L) {
             listOf(0.15, 0.5, 0.8).map { (durationUs * it).toLong() }
         } else {
             listOf(0L)
@@ -320,7 +347,7 @@ object SpectrumCheck {
         return Decoded(segments, sampleRate, durationUs, (bitrate / 1000).takeIf { it > 0 })
     }
 
-    private fun measure(decoded: Decoded, codec: String?, kbps: Int?, fromFile: Boolean): Verdict {
+    private fun measure(decoded: Decoded, codec: String?, kbps: Int?, fromFile: Boolean, shelf: Shelf? = null): Verdict {
         val sampleRate = decoded.sampleRate
         val bins = FFT_SIZE / 2
         val hzPerBin = sampleRate.toDouble() / FFT_SIZE
@@ -400,9 +427,14 @@ object SpectrumCheck {
             else -> null
         }
         val expected = expectedCutoff(codec, kbps, sampleRate)
+        val shelfHz = shelf?.hz
+        val shelfShare = shelf?.share ?: 0f
+        // A step well under where the content (and the format) reaches = the file once stopped there.
+        val shelfMatters = shelfHz != null && shelfHz < max(median, expected) - 700 && shelfHz < 20_300
+        val realCutoff = if (shelfMatters) min(shelfHz!!, median) else median
         // A cut right under nyquist is the resampler of a genuine file, not a lossy encoder.
-        val fullBand = median >= min(20_700, nyquist - 600)
-        val equivalent = if (fullBand) 1411 else equivalentKbps(median)
+        val fullBand = !shelfMatters && median >= min(20_700, nyquist - 600)
+        val equivalent = if (fullBand) 1411 else equivalentKbps(realCutoff)
         val pieced = spread > 1_500 && low <= LOW_CUT_HZ && high >= 19_000
         val transcoded = expected > 17_000 && ((high >= 19_500 && median < 18_000) || lowShare > 0.15f)
         var percent = when {
@@ -421,8 +453,13 @@ object SpectrumCheck {
         }
         if (transcoded) percent = max(percent, 80)
         if (pieced) percent = max(percent, 65)
+        val shelfUpscale = shelfMatters && (claimed == null || claimed > equivalent * 1.2)
+        // Seen in every third stretch or more: certain; in one of eight: likely (an MP3's own
+        // band edge at 16 kHz can leave a faint step too, so a rare one alone proves little).
+        if (shelfUpscale) percent = max(percent, (55 + shelfShare * 100).toInt().coerceAtMost(97))
         val kind = when {
             fullBand && !pieced -> Kind.FULL_BAND
+            shelfUpscale -> Kind.TRANSCODED
             pieced -> Kind.MIXED
             transcoded || percent >= 60 -> Kind.TRANSCODED
             else -> Kind.GENUINE
@@ -474,7 +511,214 @@ object SpectrumCheck {
             seconds = decoded.segments.sumOf { it.size } / sampleRate,
             loudFrames = loud.size,
             fromFile = fromFile,
+            shelfHz = shelfHz.takeIf { shelfMatters },
+            shelfShare = if (shelfMatters) shelfShare else 0f,
+            realCutoffHz = realCutoff,
         )
+    }
+
+    /** A former encoder ceiling: [hz], seen in [share] of the track's [windows] stretches. */
+    private class Shelf(val hz: Int, val share: Float, val windows: Int)
+
+    /**
+     * Looks through the WHOLE track for a former encoder ceiling. The track is cut into 4-second
+     * stretches; each stretch's spectrum is averaged over time (what makes the line visible to the
+     * eye on a spectrogram) and searched for sharp steps — the band just below a frequency much
+     * louder than the band just above, far more than the spectrum's usual unevenness around there.
+     * A lowpass leaves such a step at one exact frequency in stretch after stretch, even under the
+     * noise a later re-encode paints above it; music does not. The lowest frequency that keeps
+     * coming back is the former ceiling.
+     */
+    private fun scanShelves(context: Context?, source: Source): Shelf? {
+        val extractor = extractorFor(context, source)
+        val track = (0 until extractor.trackCount).firstOrNull {
+            extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+        } ?: run { extractor.release(); return null }
+        extractor.selectTrack(track)
+        val format = extractor.getTrackFormat(track)
+        val mime = format.getString(MediaFormat.KEY_MIME) ?: run { extractor.release(); return null }
+        var sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+        var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+        var pcmFloat = false
+        val bins = FFT_SIZE / 2
+        val hop = FFT_SIZE / 2
+        val window = DoubleArray(FFT_SIZE) { 0.5 - 0.5 * cos(2 * PI * it / (FFT_SIZE - 1)) }
+        val ring = FloatArray(FFT_SIZE)
+        var ringPos = 0
+        var filled = 0
+        var sinceHop = 0
+        var sinceWindow = 0
+        val re = DoubleArray(FFT_SIZE)
+        val im = DoubleArray(FFT_SIZE)
+        val sum = DoubleArray(bins)
+        var frames = 0
+        val counts = IntArray(bins)
+        var used = 0
+        var limits: IntArray? = null // from, to, half
+
+        fun limitsFor(rate: Int): IntArray {
+            val hzPerBin = rate.toDouble() / FFT_SIZE
+            val half = max(4, (SHELF_HALF_HZ / hzPerBin).toInt())
+            val from = (SHELF_FROM_HZ / hzPerBin).toInt()
+            val to = min(((min(SHELF_TO_HZ, rate / 2 - 300)) / hzPerBin).toInt(), bins - 4 * half - 2)
+            return intArrayOf(from, to, half, (6000 / hzPerBin).toInt(), (1000 / hzPerBin).toInt())
+        }
+
+        fun closeWindow() {
+            if (frames >= 5) {
+                val l = limits ?: limitsFor(sampleRate).also { limits = it }
+                val (from, to, half, floorFrom, around) = l.toList()
+                val avg = DoubleArray(bins) { sum[it] / frames }
+                val floor = avg.copyOfRange(floorFrom, bins).sorted()[(bins - floorFrom) / 20]
+                val prefix = DoubleArray(bins + 1)
+                for (b in 0 until bins) prefix[b + 1] = prefix[b] + avg[b]
+                val n = to - from + 1
+                if (n > 8) {
+                    val step = DoubleArray(n) { i ->
+                        val c = from + i
+                        (prefix[c] - prefix[c - half]) / half - (prefix[c + 1 + half] - prefix[c + 1]) / half
+                    }
+                    val absPrefix = DoubleArray(n + 1)
+                    for (i in 0 until n) absPrefix[i + 1] = absPrefix[i] + kotlin.math.abs(step[i])
+                    for (i in 0 until n) {
+                        val c = from + i
+                        val below = (prefix[c] - prefix[c - half]) / half
+                        if (step[i] < 4.0 || below < floor + 6) continue
+                        val a = max(0, i - around)
+                        val b = min(n, i + around)
+                        val rough = max(0.4, (absPrefix[b] - absPrefix[a]) / (b - a))
+                        if (step[i] < 3 * rough) continue
+                        // A shelf, not the upper flank of one loud tone: it stays down well above too.
+                        val wide = (prefix[c + 1 + 4 * half] - prefix[c + 1]) / (4 * half)
+                        if (below - wide < 0.6 * step[i]) continue
+                        // A ceiling has (almost) nothing above it: the band 0.3–2 kHz over the edge
+                        // is far below the band under it. A step inside dense music (a synth's
+                        // filter, a hi-hat band) has music on both sides — a few dB apart.
+                        val near = around * 3 / 10
+                        val depthAbove = (prefix[min(bins, c + 2 * around)] - prefix[min(bins - 1, c + near)]) /
+                            max(1, min(bins, c + 2 * around) - min(bins - 1, c + near))
+                        val depthBelow = (prefix[c - near] - prefix[max(0, c - 2 * around)]) / max(1, c - near - max(0, c - 2 * around))
+                        if (depthBelow - depthAbove < SHELF_MIN_DEPTH_DB) continue
+                        // One count per edge: the strongest bin within ±3.
+                        var isPeak = true
+                        for (d in max(0, i - 3)..min(n - 1, i + 3)) if (step[d] > step[i]) { isPeak = false; break }
+                        if (isPeak) counts[c]++
+                    }
+                    used++
+                }
+            }
+            java.util.Arrays.fill(sum, 0.0)
+            frames = 0
+        }
+
+        fun push(sample: Float) {
+            ring[ringPos] = sample
+            ringPos = (ringPos + 1) % FFT_SIZE
+            if (filled < FFT_SIZE) filled++
+            sinceHop++
+            sinceWindow++
+            if (filled == FFT_SIZE && sinceHop >= hop) {
+                sinceHop = 0
+                var energy = 0.0
+                for (i in 0 until FFT_SIZE) {
+                    val v = ring[(ringPos + i) % FFT_SIZE].toDouble()
+                    energy += v * v
+                    re[i] = v * window[i]
+                    im[i] = 0.0
+                }
+                if (10 * log10(energy / FFT_SIZE + 1e-20) >= SILENCE_DBFS - 3) {
+                    fft(re, im)
+                    for (k in 0 until bins) sum[k] += 10 * log10(re[k] * re[k] + im[k] * im[k] + 1e-12)
+                    frames++
+                }
+            }
+            if (sinceWindow >= sampleRate * SHELF_WINDOW_SECONDS) {
+                sinceWindow = 0
+                closeWindow()
+            }
+        }
+
+        val codec = MediaCodec.createDecoderByType(mime)
+        codec.configure(format, null, null, 0)
+        codec.start()
+        val info = MediaCodec.BufferInfo()
+        var inputDone = false
+        var outputDone = false
+        var idle = 0
+        try {
+            while (!outputDone && idle < 300) {
+                if (!inputDone) {
+                    val inIndex = codec.dequeueInputBuffer(10_000)
+                    if (inIndex >= 0) {
+                        val buffer = codec.getInputBuffer(inIndex)!!
+                        val size = extractor.readSampleData(buffer, 0)
+                        if (size < 0) {
+                            codec.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inputDone = true
+                        } else {
+                            codec.queueInputBuffer(inIndex, 0, size, extractor.sampleTime, 0)
+                            extractor.advance()
+                        }
+                    }
+                }
+                val outIndex = codec.dequeueOutputBuffer(info, 10_000)
+                when {
+                    outIndex >= 0 -> {
+                        idle = 0
+                        val buffer = codec.getOutputBuffer(outIndex)!!.order(ByteOrder.nativeOrder())
+                        buffer.position(info.offset)
+                        buffer.limit(info.offset + info.size)
+                        if (pcmFloat) {
+                            val floats = buffer.asFloatBuffer()
+                            while (floats.remaining() >= channels) {
+                                var acc = 0f
+                                repeat(channels) { acc += floats.get() }
+                                push(acc / channels)
+                            }
+                        } else {
+                            val shorts = buffer.asShortBuffer()
+                            while (shorts.remaining() >= channels) {
+                                var acc = 0f
+                                repeat(channels) { acc += shorts.get() / 32768f }
+                                push(acc / channels)
+                            }
+                        }
+                        codec.releaseOutputBuffer(outIndex, false)
+                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
+                    }
+                    outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        val newFormat = codec.outputFormat
+                        sampleRate = newFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                        channels = newFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                        pcmFloat = newFormat.containsKey(MediaFormat.KEY_PCM_ENCODING) &&
+                            newFormat.getInteger(MediaFormat.KEY_PCM_ENCODING) == android.media.AudioFormat.ENCODING_PCM_FLOAT
+                        limits = null
+                    }
+                    else -> idle++
+                }
+            }
+        } finally {
+            runCatching { codec.stop() }
+            codec.release()
+            extractor.release()
+        }
+        closeWindow()
+        if (used < SHELF_MIN_WINDOWS) return null
+        val l = limits ?: return null
+        val from = l[0]
+        val to = l[1]
+        val hzPerBin = sampleRate.toDouble() / FFT_SIZE
+        // Counts merged over ±2 bins (the edge wobbles by a bin), then the lowest frequency that
+        // comes back in enough stretches.
+        val merged = IntArray(bins) { c -> if (c < from || c > to) 0 else (max(from, c - 2)..min(to, c + 2)).sumOf { counts[it] } }
+        for (c in from..to) {
+            val share = merged[c].toFloat() / used
+            if (merged[c] < 3 || share < SHELF_MIN_SHARE) continue
+            var peak = c
+            for (d in c..min(to, c + 6)) if (merged[d] > merged[peak]) peak = d
+            return Shelf((peak * hzPerBin).toInt(), merged[peak].toFloat() / used, used)
+        }
+        return null
     }
 
     // ── The full spectrogram, as an image file ──────────────────────────────────────────────────
@@ -503,6 +747,143 @@ object SpectrumCheck {
             null
         } finally {
             (source as? Source.Local)?.takeIf { it.temporary }?.file?.delete()
+        }
+    }
+
+    /**
+     * How loud the track is along its length, for the bar seek bar: [bars] values 0..1, -1 for the
+     * stretches not on the phone yet (a stream still being cached). Read from the downloaded file or
+     * the caches, never the network. Null when nothing of the track is here.
+     */
+    suspend fun waveform(
+        context: Context,
+        mediaIds: List<String>,
+        caches: List<SimpleCache>,
+        exportedUri: Uri?,
+        bars: Int,
+        /** The player's length: a partly cached stream would otherwise claim to be as long as what is cached. */
+        durationMs: Long = 0,
+    ): FloatArray? = withContext(Dispatchers.IO) {
+        val ids = mediaIds.filter { it.isNotBlank() }.distinct()
+        if (ids.isEmpty()) return@withContext null
+        val source = openSource(context, ids, caches, exportedUri) ?: return@withContext null
+        try {
+            decodeLoudness(context, source, bars, durationMs * 1000)
+        } catch (t: Throwable) {
+            Timber.w(t, "waveform failed for %s", ids.first())
+            null
+        } finally {
+            (source as? Source.Local)?.takeIf { it.temporary }?.file?.delete()
+        }
+    }
+
+    /**
+     * Loudness per bar from a short sample in the middle of each bar (seek, decode ~0.35 s) instead
+     * of the whole track: about ten times faster, and the bars look the same. Decoding everything took
+     * ~20 s on a phone, so the bar seek bar showed even bars that long on every downloaded track.
+     */
+    private fun decodeLoudness(context: Context, source: Source, bars: Int, durationHintUs: Long): FloatArray? {
+        val extractor = extractorFor(context, source)
+        val track = (0 until extractor.trackCount).firstOrNull {
+            extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+        } ?: run { extractor.release(); return null }
+        extractor.selectTrack(track)
+        val format = extractor.getTrackFormat(track)
+        val mime = format.getString(MediaFormat.KEY_MIME) ?: run { extractor.release(); return null }
+        val fileUs = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else -1L
+        val durationUs = max(fileUs, durationHintUs)
+        if (durationUs <= 0) { extractor.release(); return null }
+        var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+        var pcmFloat = false
+        val sumSq = DoubleArray(bars)
+        val counts = IntArray(bars)
+        val usPerBar = durationUs.toDouble() / bars
+        val sampleUs = min(LOUDNESS_SAMPLE_US.toDouble(), usPerBar * 0.8).toLong()
+        val codec = MediaCodec.createDecoderByType(mime)
+        codec.configure(format, null, null, 0)
+        codec.start()
+        val info = MediaCodec.BufferInfo()
+        try {
+            for (bar in 0 until bars) {
+                val from = (bar * usPerBar + (usPerBar - sampleUs) / 2).toLong()
+                val to = from + sampleUs
+                if (bar > 0) codec.flush()
+                extractor.seekTo(from, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                // Past what the file holds (a partly cached stream): this bar stays unknown.
+                if (extractor.sampleTime < 0) continue
+                var inputDone = false
+                var reached = false
+                var idle = 0
+                while (!reached && idle < 60) {
+                    if (!inputDone) {
+                        val inIndex = codec.dequeueInputBuffer(5_000)
+                        if (inIndex >= 0) {
+                            val buffer = codec.getInputBuffer(inIndex)!!
+                            val size = extractor.readSampleData(buffer, 0)
+                            if (size < 0 || extractor.sampleTime > to + 500_000) {
+                                codec.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                inputDone = true
+                            } else {
+                                codec.queueInputBuffer(inIndex, 0, size, extractor.sampleTime, 0)
+                                extractor.advance()
+                            }
+                        }
+                    }
+                    val outIndex = codec.dequeueOutputBuffer(info, 5_000)
+                    when {
+                        outIndex >= 0 -> {
+                            idle = 0
+                            val t = info.presentationTimeUs
+                            if (t >= from && t <= to && info.size > 0) {
+                                val buffer = codec.getOutputBuffer(outIndex)!!.order(ByteOrder.nativeOrder())
+                                buffer.position(info.offset)
+                                buffer.limit(info.offset + info.size)
+                                var acc = 0.0
+                                var n = 0
+                                if (pcmFloat) {
+                                    val floats = buffer.asFloatBuffer()
+                                    while (floats.remaining() >= channels) {
+                                        val v = floats.get()
+                                        acc += v * v
+                                        n++
+                                        floats.position(floats.position() + channels - 1)
+                                    }
+                                } else {
+                                    val shorts = buffer.asShortBuffer()
+                                    while (shorts.remaining() >= channels) {
+                                        val v = shorts.get() / 32768.0
+                                        acc += v * v
+                                        n++
+                                        shorts.position(shorts.position() + channels - 1)
+                                    }
+                                }
+                                sumSq[bar] += acc
+                                counts[bar] += n
+                            }
+                            codec.releaseOutputBuffer(outIndex, false)
+                            if (t > to || info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) reached = true
+                        }
+                        outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                            val newFormat = codec.outputFormat
+                            channels = newFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                            pcmFloat = newFormat.containsKey(MediaFormat.KEY_PCM_ENCODING) &&
+                                newFormat.getInteger(MediaFormat.KEY_PCM_ENCODING) == android.media.AudioFormat.ENCODING_PCM_FLOAT
+                        }
+                        else -> idle++
+                    }
+                }
+            }
+        } finally {
+            runCatching { codec.stop() }
+            codec.release()
+            extractor.release()
+        }
+        val rms = DoubleArray(bars) { if (counts[it] > 0) sqrt(sumSq[it] / counts[it]) else -1.0 }
+        val loudest = rms.maxOrNull()?.takeIf { it > 0 } ?: return null
+        // Decibels mapped onto 0..1 over a 36 dB range: quiet passages stay visible, peaks don't clip.
+        return FloatArray(bars) { i ->
+            val v = rms[i]
+            if (v < 0) -1f else ((20 * log10(max(v, 1e-6) / loudest) + 36.0) / 36.0).coerceIn(0.04, 1.0).toFloat()
         }
     }
 

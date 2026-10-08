@@ -58,7 +58,7 @@ class SpotifyYouTubeMapper(
         // 0. Quality mode: a hand-picked YouTube upload stays; otherwise a better-sounding exact
         // source already known (e.g. the whole album found on VK) wins over a cached YouTube match,
         // and a YouTube match cached before this mode existed is compared with the others once.
-        if (ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.ACCURACY) {
+        if (ResolverPreferences.pickMode != com.metrolist.music.constants.SourcePickMode.SPEED) {
             val manual = memoryCache[track.id]?.isManualOverride == true ||
                 database.getSpotifyMatch(track.id)?.isManualOverride == true
             if (!manual) {

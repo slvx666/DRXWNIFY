@@ -1440,7 +1440,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="friends_no_name">No name</string>
     <string name="friends_my_code">My friend code</string>
     <string name="friends_copy_code">Copy</string>
-    <string name="friends_share_text">Add me in Drxwnify: %s</string>
+    <string name="friends_share_text">Add me as a friend in Drxwnify: %s</string>
     <string name="friends_backup_key">Backup key</string>
     <string name="friends_backup_warning">Whoever has this key IS your profile. Keep it to move the profile to a new phone; never send it to anyone.</string>
     <string name="friends_name">Name</string>
@@ -1452,7 +1452,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="friends_accept">Accept</string>
     <string name="friends_list_title">Friends (%d)</string>
     <string name="friends_empty">No friends yet. Send someone your code and paste theirs above.</string>
-    <string name="friends_how_it_works">How it works: your profile is a key made on this phone. What you share goes as signed messages through free public Nostr relays; what is for friends only is encrypted for each friend, so nobody else can read it. No server of ours, nothing to pay or maintain.</string>
+    <string name="friends_how_it_works">How it works: your profile is a key made on this phone. Your name, picture and what you share go out as signed messages through free public Nostr relays; what is for friends only is encrypted for each friend separately, nobody else can read it. There is no server of our own, nothing to pay for or maintain.</string>
     <string name="friends_create_title">Your Drxwnify profile</string>
     <string name="friends_create_explain">Friends will see what you listen to (as much as you allow in Privacy) and can listen along with you. The profile is created on this phone — no e-mail, no password.</string>
     <string name="friends_restore">Restore</string>
@@ -1538,7 +1538,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="spectrum_verdict_fake">Probably inflated · %d%%</string>
     <string name="spectrum_cutoff">Sound ends at %1$.1f kHz; this format should reach ~%2$.1f kHz</string>
     <string name="source_pick_mode">Picking the audio source</string>
-    <string name="source_pick_accuracy">Accuracy and quality — every source is asked, the exact track in the best quality plays (a few seconds longer to start)</string>
+    <string name="source_pick_accuracy">Accuracy: the most exact match plays, quality only decides between near-identical ones (least risk of a remix or another version)</string>
     <string name="source_pick_speed">Speed — the first good match plays</string>
     <string name="download_format">Downloaded files</string>
     <string name="download_format_best">Best quality — MP3/AAC/FLAC as they are, YouTube as M4A 256</string>
@@ -1588,7 +1588,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="import_background">The import goes on in the background (see the notification) — you can leave this screen or the app.</string>
     <string name="import_notification_starting">Starting…</string>
     <string name="spectrum_tap_to_open">Tap to open full screen</string>
-    <string name="spectrum_equivalent">Real quality ≈ %1$d kbps (cut at %2$.1f kHz)</string>
+    <string name="spectrum_equivalent">Real bitrate ≈ %1$d kbps (ceiling %2$.1f kHz)</string>
     <string name="spectrum_full_band">Full band up to %1$.1f kHz — no encoder cut</string>
     <string name="spectrum_no_cliff">No encoder cut: the sound fades out towards %1$.1f kHz</string>
     <string name="spectrum_wall">fall above it %d dB</string>
@@ -1618,8 +1618,8 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="freak_paper_desc">Unrolls as the track plays, the title printed on the sheets. Tap: roll back (previous track).</string>
     <string name="freak_shoes">Drxwnify · clown shoes</string>
     <string name="freak_shoes_desc">Clown shoes sneaking along as the track goes, no background. Tap: play/pause.</string>
-    <string name="widget_classic">Drxwnify · player</string>
-    <string name="widget_classic_desc">Cover, track and controls. Make it taller for progress and like.</string>
+    <string name="widget_classic">Drxwnify</string>
+    <string name="widget_classic_desc">Black and red player: blurred cover, a live equalizer, sound quality, like and every button. Stretch it taller for the big one.</string>
     <string name="freak_pet">Drxwnify · pixel pet</string>
     <string name="freak_pet_desc">A Game Boy pet: dances to your music, sleeps when it stops, starves without it. Tap: play/pause.</string>
     <string name="freak_tv">Drxwnify · haunted TV</string>
@@ -1628,4 +1628,28 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="freak_receipt_desc">A till receipt of today\'s listening, with a barcode of the track.</string>
     <string name="freak_cyber">Drxwnify · neural jack</string>
     <string name="freak_cyber_desc">Cyberpunk HUD: neon signal, bandwidth, upload. Tap: rewind.</string>
+    <string name="import_deep_pass">Second pass, a closer look at what was missed: %1$d of %2$d</string>
+    <string name="vk_sms_sent">An SMS with the code was requested; it usually arrives within a minute.</string>
+    <string name="vk_sms_failed">VK did not send the SMS: %s</string>
+    <string name="vk_sms_resend_in">Resend the SMS in %d s</string>
+    <string name="vk_sms_resend">Resend the SMS</string>
+    <string name="vk_sms_instead">Send the code by SMS</string>
+    <string name="friends_developer">Drxwnify developer</string>
+    <string name="friends_developer_public">The developer\'s public account: visible to everyone</string>
+    <string name="friends_developer_line">Developer · everyone sees what plays</string>
+    <string name="friends_avatar_failed">Could not open the picture</string>
+    <string name="friends_avatar_remove">Remove the picture</string>
+    <string name="friends_invite_link">Invite by link</string>
+    <string name="friends_use_other_key">Sign in with a backup key</string>
+    <string name="friends_use_other_key_warning">The profile on this phone is replaced by the one in the key. Save the current backup key if you want to come back.</string>
+    <string name="friends_invite_title">%s invites you to be friends</string>
+    <string name="friends_invite_body">Accept to see what each other plays and to listen along (as far as each of you allows in Privacy).</string>
+    <string name="friends_invite_needs_profile">%s invites you to be friends — create your profile below first.</string>
+    <string name="friends_add_to_friends">Add as a friend</string>
+    <string name="slider_waveform">Loudness bars (beta)</string>
+    <string name="spectrum_shelf">Found a former encoder ceiling at %1$.1f kHz: a straight edge kept in %2$d%% of the track, only re-encode noise above it — the file was blown up from lower quality (red dotted line).</string>
+    <string name="changelog_1_5_0">### Added\n+ \"Together\" tab: \"Friends\" and \"Listen together\" at the top (friends moved out of Integrations); Listen together takes the Friends name by default\n+ Profile pictures in Friends: tap yours, pick a photo, crop and zoom\n+ Invite by link: a friend opens it and the app asks \"Accept / Cancel\"\n+ The developer drxwnslvt is in everyone\'s friends from the start (a normal friend, can be removed)\n+ Friends privacy also in Settings → Privacy\n+ \"Loudness bars\" seek bar: Appearance → Slider style; drawn for the whole track at once, no jumping\n+ New \"Drxwnify · player\" widget: colour taken from the cover (as in AIMP), live equalizer, like, every button\n+ Playlists: the cover opens full screen, \"Select all\", a Download / Send / Delete bar, a download-or-share button\n+ The spectrogram looks for a former encoder ceiling (e.g. 16 kHz in a blown-up 320) and shows the real bitrate\n+ A shared VK account for everyone without their own VK\n### Fixed\n• Import: tracks with \"(feat. …)\" are no longer lost; a second, closer pass looks for what was missed (typos, a year in the title, track numbers)\n• The seek bar of SoundCloud tracks sometimes froze and the track jumped back to the start\n• Downloading all likes: \"errors\" counts only this run\'s real failures; failed tracks get a second try; a setting picks \"Quality\" or \"Accuracy\" for choosing the source\n• \"Download\" in the long-press menu works again, the like there shows at once\n• After an update or a restart the tracks of the restored queue are found again\n• Switching a track\'s version (e.g. YouTube → VK) works at once again\n• The widget no longer says \"nothing is playing\" while a Spotify track plays\n• The spectrogram no longer mistakes dense music for a ceiling (a clean 320 is no longer called 80 kbps)\n• Loudness bars of a downloaded track appear almost at once\n• A downloaded album no longer \"loads\" with bad or no internet\n• A track that YouTube has only as an official music video is found now\n• VK login: the SMS code really arrives now (and can be requested again), a workaround for \"unable to resolve oauth.vk.com\", login and password can be saved to the password manager; the broken page login is gone\n### Removed\n• The toilet-paper and pixel-pet widgets</string>
+    <string name="friends_avatar_crop">Profile picture</string>
+    <string name="spectrum_legend">Green dashes: what the file\'s format and bitrate promise (MP3 320 → ~20 kHz, Opus even at 128 → ~20 kHz, FLAC → 22 kHz). Solid red: where the sound really ends. Red dots: a former encoder ceiling.</string>
+    <string name="source_pick_quality">Quality: among close matches the best sound plays (FLAC, 320); now and then another version of the track may slip in</string>
 </resources>

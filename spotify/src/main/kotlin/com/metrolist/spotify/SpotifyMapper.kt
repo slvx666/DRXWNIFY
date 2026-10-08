@@ -314,7 +314,11 @@ object SpotifyMapper {
             .filter { it.isNotEmpty() }
         if (parts.size <= 1) return true
         val expected = tokens.map { stripArticle(it) }
-        return parts.all { part -> expected.any { e -> part == e || e in part || part in e } }
+        fun isExpected(part: String) = expected.any { e -> part == e || e in part || part in e }
+        // The expected artist credited FIRST is the same act with guests ("The Callous Daoboys,
+        // Orthodox, Adam Easterling" for a "(feat. …)" track), not a different band.
+        if (isExpected(parts.first())) return true
+        return parts.all(::isExpected)
     }
 
     private fun stripArticle(name: String): String = name.removePrefix("the ").trim()
@@ -386,6 +390,11 @@ object SpotifyMapper {
             pool = if (!anyTokenHasLatin(tokens)) titleOk
             else return if (loose) loosePick(titleOk, ::durationOff) else MatchResult.NoMatch
         }
+
+        // Too long or too short is another edit: dropped BEFORE ranking, so one extended upload
+        // ranked first no longer hides a right-length one further down.
+        pool = pool.filter { (durationOff(it) ?: 0) <= DURATION_TOLERANCE_WIDE_S }
+        if (pool.isEmpty()) return if (loose) loosePick(titleOk, ::durationOff) else MatchResult.NoMatch
 
         // Highest adjusted score wins; ties broken toward the duration-closest candidate.
         val chosen = pool.minWithOrNull(

@@ -97,7 +97,14 @@ class HlsConcatDataSource(
         val playlistUrl = unwrap(dataSpec.uri)
             ?: throw DataSourceException(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS)
         if (dataSpec.uri.getQueryParameter(WHOLE_PARAM) == "1") return openWhole(dataSpec, playlistUrl)
-        val l = layoutCache.get(playlistUrl) ?: loadLayout(playlistUrl).also { layoutCache.put(playlistUrl, it) }
+        val l = layoutCache.get(playlistUrl) ?: loadLayout(playlistUrl).also { if (it.sizes != null) layoutCache.put(playlistUrl, it) }
+        // AAC whose output length could not be worked out (a probe failed on a weak network): without
+        // a length the player can neither seek nor resume after a dropped connection — it starts the
+        // track over. Built whole instead (a few MB), which gives the exact length.
+        if (l.adts != null && l.sizes == null) {
+            val bytes = wholeCache.get(playlistUrl) ?: assembleAdts(l, l.adts).also { wholeCache.put(playlistUrl, it) }
+            return serveBytes(dataSpec, bytes)
+        }
         layout = l
 
         val position = dataSpec.position
@@ -136,6 +143,11 @@ class HlsConcatDataSource(
      */
     private fun openWhole(dataSpec: DataSpec, playlistUrl: String): Long {
         val bytes = wholeCache.get(playlistUrl) ?: assembleWhole(playlistUrl).also { wholeCache.put(playlistUrl, it) }
+        return serveBytes(dataSpec, bytes)
+    }
+
+    private fun serveBytes(dataSpec: DataSpec, bytes: ByteArray): Long {
+        val playlistUrl = uri?.let { unwrap(it) }.orEmpty()
         val position = dataSpec.position
         if (position > bytes.size) throw DataSourceException(PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
         layout = Layout(listOf(playlistUrl), longArrayOf(bytes.size.toLong()), null)
@@ -147,6 +159,35 @@ class HlsConcatDataSource(
         opened = true
         transferStarted(dataSpec)
         return bytesRemaining
+    }
+
+    /** Every fMP4 segment fetched (in parallel, each retried) and transmuxed to ADTS, joined. */
+    private fun assembleAdts(l: Layout, config: Fmp4AdtsTransmuxer.AudioConfig): ByteArray {
+        val parts = arrayOfNulls<ByteArray>(l.urls.size)
+        val latch = CountDownLatch(l.urls.size)
+        val executor = client.dispatcher.executorService
+        l.urls.forEachIndexed { i, url ->
+            executor.execute {
+                try {
+                    parts[i] = segmentCache.get(url) ?: retrying { Fmp4AdtsTransmuxer.transmux(fetchBytes(url, null), config) }
+                } finally {
+                    latch.countDown()
+                }
+            }
+        }
+        if (!latch.await(WHOLE_TIMEOUT_S, TimeUnit.SECONDS)) {
+            throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT)
+        }
+        if (parts.any { it == null }) throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
+        return java.io.ByteArrayOutputStream(parts.sumOf { it!!.size }).apply { parts.forEach { write(it!!) } }.toByteArray()
+    }
+
+    private fun <T : Any> retrying(block: () -> T?): T? {
+        repeat(PROBE_ATTEMPTS) { attempt ->
+            runCatching(block).getOrNull()?.let { return it }
+            if (attempt < PROBE_ATTEMPTS - 1) Thread.sleep(400L * (attempt + 1))
+        }
+        return null
     }
 
     private fun assembleWhole(playlistUrl: String): ByteArray {
@@ -403,27 +444,36 @@ class HlsConcatDataSource(
         }
     }
 
-    /** Runs [block] for every url concurrently on OkHttp's dispatcher; null if any result is missing. */
+    /**
+     * Runs [block] for every url concurrently on OkHttp's dispatcher, then retries the ones that
+     * failed (a single dropped request on mobile data used to cost the whole track its length);
+     * null if any result is still missing.
+     */
     private fun parallelMap(urls: List<String>, block: (String) -> Long?): LongArray? {
-        val results = LongArray(urls.size) { -1L }
+        val results = java.util.concurrent.atomic.AtomicLongArray(urls.size).apply { for (i in 0 until length()) set(i, -1L) }
         val latch = CountDownLatch(urls.size)
         val executor = client.dispatcher.executorService
         urls.forEachIndexed { i, url ->
             executor.execute {
                 try {
-                    results[i] = runCatching { block(url) }.getOrNull() ?: -1L
+                    results.set(i, runCatching { block(url) }.getOrNull() ?: -1L)
                 } finally {
                     latch.countDown()
                 }
             }
         }
-        if (!latch.await(SIZE_PROBE_TIMEOUT_S, TimeUnit.SECONDS)) return null
-        return results.takeIf { r -> r.all { it >= 0 } }
+        latch.await(SIZE_PROBE_TIMEOUT_S, TimeUnit.SECONDS)
+        val out = LongArray(urls.size) { results.get(it) }
+        for (i in out.indices) {
+            if (out[i] < 0) out[i] = retrying { block(urls[i]) } ?: return null
+        }
+        return out
     }
 
     companion object {
         const val SCHEME = "meldhls"
-        private const val SIZE_PROBE_TIMEOUT_S = 10L
+        private const val SIZE_PROBE_TIMEOUT_S = 12L
+        private const val PROBE_ATTEMPTS = 3
         private const val HEADER_PROBE_BYTES = 8192
         private const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"

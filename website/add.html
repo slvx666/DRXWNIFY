@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Приглашение в Drxwnify</title>
+  <meta name="description" content="Тебя зовут в друзья в Drxwnify: открой ссылку на телефоне с приложением.">
+  <meta name="theme-color" content="#07070a">
+  <meta name="color-scheme" content="dark">
+  <meta name="robots" content="noindex">
+  <link rel="icon" type="image/png" href="/assets/icon-180.png">
+  <meta property="og:title" content="Добавь меня в друзья в Drxwnify">
+  <meta property="og:description" content="Открой ссылку на телефоне — приложение спросит «принять» или «отмена».">
+  <meta property="og:image" content="/assets/icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=Unbounded:wght@700;900&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #07070a; --card: #111117; --line: rgba(238,242,248,.1); --text: #eef2f8; --muted: #9aa3b2; --red: #e0283a; --red-glow: rgba(224,40,58,.45); }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: radial-gradient(circle at 50% 0%, rgba(224,40,58,.18), transparent 60%), var(--bg); color: var(--text); font: 17px/1.55 Manrope, system-ui, sans-serif; }
+    .card { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--line); border-radius: 26px; padding: 32px 24px; text-align: center; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+    .avatar { width: 88px; height: 88px; border-radius: 50%; margin: 0 auto 18px; display: grid; place-items: center; font: 900 36px Unbounded, sans-serif; background: linear-gradient(140deg, var(--red), #8e0f1b); box-shadow: 0 0 40px var(--red-glow); }
+    h1 { font: 700 22px/1.25 Unbounded, sans-serif; margin: 0 0 10px; letter-spacing: -.01em; }
+    p { margin: 0 0 22px; color: var(--muted); }
+    .btn { display: block; width: 100%; padding: 15px 18px; border-radius: 16px; font-weight: 800; text-decoration: none; margin-top: 10px; }
+    .primary { background: var(--red); color: #fff; box-shadow: 0 10px 30px var(--red-glow); }
+    .ghost { border: 1px solid var(--line); color: var(--text); }
+    code { display: block; margin-top: 18px; padding: 10px; border-radius: 12px; background: #0b0b10; color: var(--muted); font-size: 12px; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="avatar" id="avatar">?</div>
+    <h1 id="title">Тебя зовут в друзья</h1>
+    <p>Открой в Drxwnify — приложение спросит «принять» или «отмена». Друзья видят, что слушают друг друга, и могут слушать вместе.</p>
+    <a class="btn primary" id="open" href="#">Открыть в Drxwnify</a>
+    <a class="btn ghost" href="/">Скачать Drxwnify</a>
+    <code id="code" hidden></code>
+  </main>
+  <script>
+    (function () {
+      var npub = (location.pathname.match(/npub1[02-9ac-hj-np-z]{58}/) || location.hash.match(/npub1[02-9ac-hj-np-z]{58}/) || [""])[0];
+      var name = new URLSearchParams(location.search).get("n") || "";
+      if (name) {
+        document.getElementById("title").textContent = name + " зовёт тебя в друзья";
+        document.getElementById("avatar").textContent = name.trim().charAt(0).toUpperCase();
+        document.title = name + " — приглашение в Drxwnify";
+      }
+      var open = document.getElementById("open");
+      if (!npub) { open.hidden = true; return; }
+      var code = document.getElementById("code");
+      code.textContent = npub;
+      code.hidden = false;
+      var tail = "add/" + npub + (name ? "?n=" + encodeURIComponent(name) : "");
+      var fallback = encodeURIComponent(location.origin + "/");
+      // Chrome on Android: an intent link opens the app (or the site when it is not installed).
+      open.href = /android/i.test(navigator.userAgent)
+        ? "intent://" + tail + "#Intent;scheme=drxwnify;package=com.meld.app;S.browser_fallback_url=" + fallback + ";end"
+        : "drxwnify://" + tail;
+    })();
+  </script>
+</body>
+</html>

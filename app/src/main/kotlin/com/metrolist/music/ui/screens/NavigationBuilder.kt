@@ -119,13 +119,13 @@ fun NavGraphBuilder.navigationBuilder(
     }
 
     composable(Screens.ListenTogether.route) {
-        ListenTogetherScreen(navController, showTopBar = false)
+        TogetherScreen(navController, showBack = false)
     }
 
     composable(
         route = "listen_together_from_topbar",
     ) {
-        ListenTogetherScreen(navController, showTopBar = true)
+        TogetherScreen(navController, showBack = true)
     }
 
     composable("history") {
@@ -326,7 +326,7 @@ fun NavGraphBuilder.navigationBuilder(
     }
 
     composable("friends") {
-        com.metrolist.music.ui.screens.friends.FriendsScreen(navController)
+        TogetherScreen(navController, showBack = true, initialTab = TAB_FRIENDS)
     }
     composable("friends/privacy") {
         com.metrolist.music.ui.screens.friends.FriendsPrivacyScreen(navController)

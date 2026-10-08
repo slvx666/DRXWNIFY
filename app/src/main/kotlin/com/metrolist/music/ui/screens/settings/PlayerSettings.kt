@@ -211,7 +211,7 @@ fun PlayerSettings(
     }
     val (pickMode, onPickModeChange) = rememberEnumPreference(
         key = com.metrolist.music.constants.SourcePickModeKey,
-        defaultValue = com.metrolist.music.constants.SourcePickMode.ACCURACY,
+        defaultValue = com.metrolist.music.constants.SourcePickMode.QUALITY,
     )
     val (downloadFormat, onDownloadFormatChange) = rememberEnumPreference(
         key = com.metrolist.music.constants.DownloadFormatKey,
@@ -221,6 +221,7 @@ fun PlayerSettings(
     var showDownloadFormatDialog by remember { mutableStateOf(false) }
     @Composable
     fun pickModeText(mode: com.metrolist.music.constants.SourcePickMode) = when (mode) {
+        com.metrolist.music.constants.SourcePickMode.QUALITY -> stringResource(R.string.source_pick_quality)
         com.metrolist.music.constants.SourcePickMode.ACCURACY -> stringResource(R.string.source_pick_accuracy)
         com.metrolist.music.constants.SourcePickMode.SPEED -> stringResource(R.string.source_pick_speed)
     }

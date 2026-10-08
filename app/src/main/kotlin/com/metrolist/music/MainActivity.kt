@@ -891,9 +891,10 @@ class MainActivity : ComponentActivity() {
                     val isListenTogetherScreen =
                         currentRoute == Screens.ListenTogether.route ||
                             currentRoute == "listen_together_from_topbar"
+                    // "Together" draws its own top bar with the Listen / Friends tabs.
                     shouldShowTopBar = currentRoute in topLevelScreens &&
                         currentRoute != "settings" &&
-                        !(isListenTogetherScreen && listenTogetherInTopBar)
+                        !isListenTogetherScreen
                 }
 
                 val coroutineScope = rememberCoroutineScope()
@@ -1565,6 +1566,14 @@ class MainActivity : ComponentActivity() {
         intent.data = null
         intent.removeExtra(Intent.EXTRA_TEXT)
         val coroutineScope = lifecycle.coroutineScope
+
+        // A friend's invite link (drxwnify.pages.dev/add/<npub> or drxwnify://add/<npub>): open
+        // Together → Friends, where it asks "accept / cancel".
+        com.metrolist.music.friends.FriendsHub.parseInvite(uri)?.let { invite ->
+            com.metrolist.music.friends.FriendsHub.openInvite(invite)
+            runCatching { navController.navigate("friends") { launchSingleTop = true } }
+            return
+        }
 
         val listenCode =
             uri.getQueryParameter("code")

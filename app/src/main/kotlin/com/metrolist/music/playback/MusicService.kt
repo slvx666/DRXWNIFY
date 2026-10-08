@@ -4309,6 +4309,25 @@ class MusicService :
         )
     }
 
+    /** mediaId → the other id the same catalog track goes by (a match, once found, does not change). */
+    private val downloadAliases = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun downloadedAlias(mediaId: String): String? {
+        downloadAliases[mediaId]?.let { return it }
+        val alias = runCatching {
+            runBlocking(Dispatchers.IO) {
+                val catalogId = FallbackIds.catalogIdOf(mediaId)
+                if (catalogId != null) {
+                    database.getSpotifyMatch(catalogId)?.youtubeId
+                } else {
+                    database.getSpotifyMatchByYouTubeId(mediaId)?.spotifyId?.let(FallbackIds::of)
+                }
+            }
+        }.getOrNull()?.takeIf { it.isNotEmpty() && it != mediaId } ?: return null
+        downloadAliases[mediaId] = alias
+        return alias
+    }
+
     private fun createDataSourceFactory(): DataSource.Factory {
         return ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
             val mediaId = stripQobuzCacheKeyPrefix(dataSpec.key ?: error("No media id"))
@@ -4336,6 +4355,14 @@ class MusicService :
                 downloadCache.isCached(mediaId, dataSpec.position, if (dataSpec.length >= 0) dataSpec.length else 1)
             ) {
                 return@Factory dataSpec.buildUpon().setKey(mediaId).build()
+            }
+            // The same catalog track is queued as "mfb:<catalog id>" (quality mode) but may have been
+            // downloaded under its YouTube video id, or the other way round: without this the player
+            // looked for audio over the network — a downloaded album "loading" with bad or no internet.
+            if (!shouldBypassCache) {
+                downloadedAlias(mediaId)?.takeIf { alias ->
+                    downloadCache.isCached(alias, dataSpec.position, if (dataSpec.length >= 0) dataSpec.length else 1)
+                }?.let { alias -> return@Factory dataSpec.buildUpon().setKey(alias).build() }
             }
 
             // A fallback id ("mfb:" / legacy "qbzfb:") is a catalog track whose audio comes from a
@@ -5117,13 +5144,18 @@ class MusicService :
      * Dispatchers.Main, which piled up without bound and saturated the main looper.
      */
     private fun updateWidgetUI(isPlaying: Boolean) {
-        val songData = currentSong.value
+        val songData = currentSong.value?.takeIf { it.id == player.currentMediaItem?.mediaId }
         val song = songData?.song
+        // A queued catalog track may have no saved row yet: the player's own item still knows it
+        // (the widget used to say "nothing is playing" while its progress bar ran).
+        val itemMeta = player.currentMediaItem?.mediaMetadata
         widgetRenderRequests.trySend(
             WidgetUiState(
-                title = song?.title ?: getString(R.string.no_song_playing),
-                artist = songData?.artists?.joinToString(", ") { it.name } ?: getString(R.string.tap_to_open),
-                artworkUri = song?.thumbnailUrl,
+                title = song?.title ?: itemMeta?.title?.toString()?.takeIf { it.isNotBlank() } ?: getString(R.string.no_song_playing),
+                artist = songData?.artists?.joinToString(", ") { it.name }
+                    ?: itemMeta?.artist?.toString()?.takeIf { it.isNotBlank() }
+                    ?: getString(R.string.tap_to_open),
+                artworkUri = song?.thumbnailUrl ?: itemMeta?.artworkUri?.toString(),
                 isPlaying = isPlaying,
                 isLiked = isCurrentFavorite(),
                 duration = if (player.duration != C.TIME_UNSET) player.duration else 0,
@@ -5337,6 +5369,10 @@ class MusicService :
                 songUrlCache.remove(RESCUE_CACHE_PREFIX + mediaId)
                 fallbackServing.remove(mediaId)
                 fallbackFailures.remove(mediaId)
+                // The other id this track went by (its old YouTube video) must not keep serving the
+                // old version's download.
+                downloadAliases.remove(mediaId)?.let { old -> downloadAliases.remove(old) }
+                downloadAliases.entries.removeIf { it.value == mediaId }
                 runCatching { playerCache.removeResource(mediaId) }
                 runCatching { playerCache.removeResource(RESCUE_CACHE_PREFIX + mediaId) }
                 // Otherwise the downloaded old version keeps playing until it is downloaded again.

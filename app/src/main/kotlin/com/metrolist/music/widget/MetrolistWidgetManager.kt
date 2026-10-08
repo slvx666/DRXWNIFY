@@ -131,10 +131,12 @@ class MetrolistWidgetManager @Inject constructor(
                 isPlaying = isPlaying,
                 isLiked = isLiked,
                 progress = if (duration > 0) (currentPosition * 1000 / duration).toInt().coerceIn(0, 1000) else 0,
-                quality = if (radioIds.isNotEmpty() || FreakKind.CYBER in freaks) mediaId?.let { qualityLine(it) } else null,
+                quality = if (radioIds.isNotEmpty() || classicIds.isNotEmpty() || FreakKind.CYBER in freaks) mediaId?.let { qualityLine(it) } else null,
+                rawCover = cachedAlbumArt,
+                seed = title.hashCode() * 31 + artist.hashCode(),
             )
             radioIds.forEach { id -> runCatching { appWidgetManager.updateAppWidget(id, responsive(appWidgetManager, id, radioFaces(meld))) } }
-            classicIds.forEach { id -> runCatching { appWidgetManager.updateAppWidget(id, responsive(appWidgetManager, id, classicFaces(meld))) } }
+            classicIds.forEach { id -> runCatching { appWidgetManager.updateAppWidget(id, responsive(appWidgetManager, id, classicFaces(meld, appWidgetManager.getAppWidgetOptions(id)))) } }
             if (freaks.isNotEmpty()) {
                 FreakWidgets.update(
                     context,
@@ -458,7 +460,12 @@ class MetrolistWidgetManager @Inject constructor(
         val isLiked: Boolean,
         val progress: Int,
         val quality: CharSequence?,
+        val rawCover: Bitmap? = null,
+        val seed: Int = 0,
     )
+
+    private var classicCoverFor: Bitmap? = null
+    private var classicCover: Bitmap? = null
 
     /** A layout for each size, smallest first, as (min width dp, min height dp) to views. */
     private class Face(val widthDp: Float, val heightDp: Float, val views: RemoteViews)
@@ -484,26 +491,54 @@ class MetrolistWidgetManager @Inject constructor(
         else -> R.drawable.ic_widget_play
     }
 
-    private fun classicFaces(face: MeldFace): List<Face> {
-        fun build(layout: Int) = RemoteViews(context.packageName, layout).apply {
-            setImageViewBitmap(R.id.classic_cover, face.cover)
+    private fun classicFaces(face: MeldFace, options: Bundle): List<Face> {
+        val density = context.resources.displayMetrics.density
+        val scale = minOf(density, 2.2f)
+        val widthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH).takeIf { it > 0 } ?: 300
+        val fullHeightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it >= 110 } ?: 160
+        val frame = System.currentTimeMillis() / 1000
+        val progress = face.progress / 1000f
+        val source = face.rawCover ?: face.cover
+        if (classicCoverFor !== source) {
+            classicCoverFor = source
+            classicCover = runCatching {
+                ClassicWidgetArt.cover(source, (92 * scale).toInt(), ClassicWidgetArt.accentOf(face.rawCover))
+            }.getOrNull()
+        }
+        val cover = classicCover ?: face.cover
+
+        fun build(layout: Int, heightDp: Int) = RemoteViews(context.packageName, layout).apply {
+            val bg = runCatching {
+                ClassicWidgetArt.draw(
+                    (widthDp * scale).toInt().coerceIn(200, 900),
+                    (heightDp * scale).toInt().coerceIn(80, 700),
+                    face.rawCover, face.isPlaying, progress, face.seed, frame,
+                )
+            }.getOrNull()
+            bg?.let { setImageViewBitmap(R.id.classic_bg, it) }
+            setImageViewBitmap(R.id.classic_cover, cover)
             setTextViewText(R.id.classic_title, face.title)
             setTextViewText(R.id.classic_artist, face.artist)
-            setImageViewResource(R.id.classic_play, playIcon(face, secondary = false))
+            setImageViewResource(R.id.classic_play, if (face.isPlaying) R.drawable.wd_pause else R.drawable.wd_play)
+            setImageViewResource(R.id.classic_like, if (face.isLiked) R.drawable.wd_heart_filled else R.drawable.wd_heart)
+            // A liked heart in the cover's colour, like the rest of the widget.
+            if (face.isLiked) setInt(R.id.classic_like, "setColorFilter", ClassicWidgetArt.accentOf(face.rawCover))
+            else setInt(R.id.classic_like, "setColorFilter", android.graphics.Color.TRANSPARENT)
             setOnClickPendingIntent(R.id.classic_cover, openAppIntent)
-            setOnClickPendingIntent(R.id.classic_title, openAppIntent)
+            setOnClickPendingIntent(R.id.classic_texts, openAppIntent)
             setOnClickPendingIntent(R.id.classic_play, playPauseIntent)
-            setOnClickPendingIntent(R.id.classic_prev, previousIntent)
             setOnClickPendingIntent(R.id.classic_next, nextIntent)
+            setOnClickPendingIntent(R.id.classic_like, likeIntent)
+            setOnClickPendingIntent(R.id.classic_prev, previousIntent)
             if (layout == R.layout.widget_classic_full) {
-                setProgressBar(R.id.classic_progress, 1000, face.progress, false)
-                setImageViewResource(R.id.classic_like, if (face.isLiked) R.drawable.ic_widget_heart_nav else R.drawable.ic_widget_heart_outline_nav)
-                setOnClickPendingIntent(R.id.classic_like, likeIntent)
+                setTextViewText(R.id.classic_quality, face.quality?.let { android.text.SpannableStringBuilder("DRXWNIFY  ·  ").append(it) } ?: "DRXWNIFY")
+                setTextColor(R.id.classic_quality, ClassicWidgetArt.accentOf(face.rawCover))
+                setOnClickPendingIntent(R.id.classic_open, openAppIntent)
             }
         }
         return listOf(
-            Face(180f, 40f, build(R.layout.widget_classic_row)),
-            Face(180f, 110f, build(R.layout.widget_classic_full)),
+            Face(180f, 40f, build(R.layout.widget_classic_row, 72)),
+            Face(180f, 110f, build(R.layout.widget_classic_full, fullHeightDp)),
         )
     }
 

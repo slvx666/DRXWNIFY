@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -270,6 +271,21 @@ fun PrivacySettings(
                 )
             )
         )
+        Spacer(modifier = Modifier.height(16.dp))
+        // The same switches as in Together → Friends → Privacy.
+        Text(
+            stringResource(R.string.friends_title),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
+        )
+        androidx.compose.material3.Surface(
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            com.metrolist.music.ui.screens.friends.FriendsPrivacyItems(Modifier.padding(16.dp))
+        }
         Spacer(modifier = Modifier.height(16.dp))
     }
 

@@ -147,6 +147,12 @@ fun SpectrumCard(
             if (v != null) {
                 SpectrogramImage(v, Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(8.dp)).clickable { fullScreen = true })
                 Text(
+                    text = stringResource(R.string.spectrum_legend),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Text(
                     stringResource(R.string.spectrum_tap_to_open),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -206,8 +212,17 @@ private fun VerdictText(v: SpectrumCheck.Verdict) {
     if (equivalent != null) {
         Text(
             text = if (equivalent >= 1411) stringResource(R.string.spectrum_full_band, v.cutoffHz / 1000.0)
-            else stringResource(R.string.spectrum_equivalent, equivalent, v.cutoffHz / 1000.0),
-            style = MaterialTheme.typography.bodyMedium,
+            else stringResource(R.string.spectrum_equivalent, equivalent, v.realCutoffHz / 1000.0),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+    }
+    v.shelfHz?.let { hz ->
+        Text(
+            text = stringResource(R.string.spectrum_shelf, hz / 1000.0, (v.shelfShare * 100).toInt()),
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFFFF6B7D),
             modifier = Modifier.padding(top = 2.dp),
         )
     }
@@ -280,9 +295,18 @@ private fun FrequencyOverlay(v: SpectrumCheck.Verdict, modifier: Modifier, label
             val y = yOf(hz)
             if (!open) { trace.moveTo(x, y); open = true } else trace.lineTo(x, y)
         }
-        drawPath(trace, Color(0xFF4DD0E1).copy(alpha = 0.85f), style = Stroke(width = 1.5f))
         drawLine(expectedColor.copy(alpha = 0.8f), Offset(0f, yOf(v.expectedHz.toFloat())), Offset(size.width, yOf(v.expectedHz.toFloat())), strokeWidth = 2f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 8f)))
         drawLine(cutColor, Offset(0f, yOf(v.cutoffHz.toFloat())), Offset(size.width, yOf(v.cutoffHz.toFloat())), strokeWidth = 2.5f)
+        // The former encoder ceiling, when one was found.
+        v.shelfHz?.let { hz ->
+            drawLine(
+                Color(0xFFFF3D57),
+                Offset(0f, yOf(hz.toFloat())),
+                Offset(size.width, yOf(hz.toFloat())),
+                strokeWidth = 3f,
+                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4f, 6f)),
+            )
+        }
     }
 }
 

@@ -5,6 +5,12 @@
 
 package com.metrolist.music.ui.screens.playlist
 
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material3.CircularProgressIndicator
+import com.metrolist.music.ui.component.coverSource
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
@@ -250,6 +256,16 @@ fun LocalPlaylistScreen(
     val downloadUtil = LocalDownloadUtil.current
     var downloadState by remember {
         mutableIntStateOf(Download.STATE_STOPPED)
+    }
+
+    // The download / send / delete bar of the album screens, fed by this screen's own selection.
+    val selectionBar = com.metrolist.music.ui.component.rememberTrackSelection()
+    LaunchedEffect(inSelectMode) { if (inSelectMode) selectionBar.start() else selectionBar.stop() }
+    LaunchedEffect(selectionBar.active) { if (!selectionBar.active && inSelectMode) onExitSelectionMode() }
+    LaunchedEffect(selection.toList(), songs) {
+        val ids = selection.mapNotNull { mapId -> songs.find { it.map.id == mapId }?.song?.id }
+        selectionBar.keys.clear()
+        selectionBar.keys.addAll(ids)
     }
 
     val editable: Boolean = playlist?.playlist?.isEditable == true
@@ -815,9 +831,8 @@ fun LocalPlaylistScreen(
             },
             actions = {
                 if (inSelectMode) {
-                    Checkbox(
-                        checked = selection.size == songs.size && selection.isNotEmpty(),
-                        onCheckedChange = {
+                    TextButton(
+                        onClick = {
                             if (selection.size == songs.size) {
                                 selection.clear()
                             } else {
@@ -825,7 +840,9 @@ fun LocalPlaylistScreen(
                                 selection.addAll(songs.map { it.map.id })
                             }
                         },
-                    )
+                    ) {
+                        Text(stringResource(if (selection.size == songs.size && selection.isNotEmpty()) R.string.select_none else R.string.select_all_short))
+                    }
                     IconButton(
                         enabled = selection.isNotEmpty(),
                         onClick = {
@@ -868,8 +885,40 @@ fun LocalPlaylistScreen(
                             contentDescription = null,
                         )
                     }
+                    if (songs.isNotEmpty()) {
+                        IconButton(onClick = { inSelectMode = true }) {
+                            Icon(
+                                painter = painterResource(R.drawable.select_all),
+                                contentDescription = stringResource(R.string.select_tracks),
+                            )
+                        }
+                    }
                 }
             },
+        )
+
+        com.metrolist.music.ui.component.TrackSelectionBar(
+            selection = selectionBar,
+            onDownload = { ids ->
+                songs.filter { it.song.id in ids }.forEach { song ->
+                    DownloadService.sendAddDownload(
+                        context,
+                        ExoDownloadService::class.java,
+                        DownloadRequest
+                            .Builder(song.song.id, song.song.id.toUri())
+                            .setCustomCacheKey(song.song.id)
+                            .setData(song.song.song.title.toByteArray())
+                            .build(),
+                        false,
+                    )
+                }
+                onExitSelectionMode()
+            },
+            onShare = { ids -> com.metrolist.music.ui.component.SelectedTracks.share(context, downloadUtil) { ids } },
+            onDelete = { ids -> com.metrolist.music.ui.component.SelectedTracks.delete(context, downloadUtil) { ids } },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)),
         )
 
         SnackbarHost(
@@ -1017,9 +1066,11 @@ fun LocalPlaylistHeader(
         }
     }
 
+    var downloadedIds by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(songs) {
         if (songs.isEmpty()) return@LaunchedEffect
         downloadUtil.visibleDownloads.collect { downloads ->
+            downloadedIds = songs.map { it.song.id }.filter { downloads[it]?.state == Download.STATE_COMPLETED }
             downloadState =
                 if (songs.all { downloads[it.song.id]?.state == Download.STATE_COMPLETED }) {
                     Download.STATE_COMPLETED
@@ -1112,11 +1163,22 @@ fun LocalPlaylistHeader(
                                 ),
                         shape = RoundedCornerShape(3.dp),
                     ) {
+                        val coverViewer = com.metrolist.music.ui.component.rememberCoverViewerState()
+                        val coverUrl = overrideThumbnail.value ?: playlist.thumbnails[0]
+                        coverViewer.Content()
                         AsyncImage(
-                            model = overrideThumbnail.value ?: playlist.thumbnails[0],
+                            model = coverUrl,
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .coverSource(coverViewer, 3.dp)
+                                .pointerInput(coverUrl) {
+                                    detectTapGestures(
+                                        onTap = { coverViewer.open(coverUrl, playlist.playlist.name) },
+                                        onLongPress = { coverViewer.showActions(coverUrl, playlist.playlist.name) },
+                                    )
+                                },
                         )
                     }
                     if (editable) {
@@ -1349,30 +1411,47 @@ fun LocalPlaylistHeader(
                 }
             }
 
-            // Everything downloaded: send all the files at once.
-            if (downloadState == Download.STATE_COMPLETED && songs.isNotEmpty()) {
-                val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
-                Surface(
-                    onClick = {
-                        val appContext = context.applicationContext
-                        scope.launch {
-                            com.metrolist.music.utils.shareDownloadedFiles(
-                                appContext,
-                                downloadUtil.downloadExporter,
-                                songs.map { it.song.id },
-                            )
-                        }
-                    },
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.size(48.dp),
-                ) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(
-                            painter = painterResource(R.drawable.share),
-                            contentDescription = stringResource(R.string.send_files),
-                            modifier = Modifier.size(24.dp),
+            // Download what is missing; once something is downloaded the button splits into
+            // "send" / "delete" (as on albums).
+            if (songs.isNotEmpty()) {
+                val downloadRest: () -> Unit = {
+                    songs.filter { it.song.id !in downloadedIds }.forEach { song ->
+                        DownloadService.sendAddDownload(
+                            context,
+                            ExoDownloadService::class.java,
+                            DownloadRequest
+                                .Builder(song.song.id, song.song.id.toUri())
+                                .setCustomCacheKey(song.song.id)
+                                .setData(song.song.song.title.toByteArray())
+                                .build(),
+                            false,
                         )
+                    }
+                }
+                com.metrolist.music.ui.component.DownloadOrShare(
+                    downloaded = downloadedIds.size,
+                    total = songs.size,
+                    downloadedIds = { downloadedIds },
+                    onDownloadRest = downloadRest,
+                    compact = true,
+                ) {
+                    Surface(
+                        onClick = downloadRest,
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            if (downloadState == Download.STATE_DOWNLOADING) {
+                                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+                            } else {
+                                Icon(
+                                    painter = painterResource(R.drawable.download),
+                                    contentDescription = stringResource(R.string.action_download),
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }

@@ -41,6 +41,7 @@ class VkAudioProvider(
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(14, TimeUnit.SECONDS)
         .callTimeout(15, TimeUnit.SECONDS)
+        .dns(com.metrolist.music.utils.FallbackDns)
         .build()
 
     override fun isReady(): Boolean = !token().isNullOrBlank()
@@ -519,6 +520,7 @@ class VkAudioProvider(
             val http = OkHttpClient.Builder()
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(10, TimeUnit.SECONDS)
+                .dns(com.metrolist.music.utils.FallbackDns)
                 .build()
             val body = FormBody.Builder()
                 .add("q", "test")

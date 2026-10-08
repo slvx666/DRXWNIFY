@@ -60,12 +60,14 @@ class PlaylistImportService : Service() {
                 runCatching {
                     PlaylistImporter.run(this@PlaylistImportService, database) { p ->
                         val manager = getSystemService(NotificationManager::class.java)
-                        val text = if (p.finished) {
-                            getString(R.string.import_done, p.found, p.total)
-                        } else {
-                            getString(R.string.import_running, p.found, p.total)
+                        val deep = p.deep?.takeIf { !p.finished && it.second > 0 }
+                        val text = when {
+                            p.finished -> getString(R.string.import_done, p.found, p.total)
+                            deep != null -> getString(R.string.import_deep_pass, deep.first, deep.second)
+                            else -> getString(R.string.import_running, p.found, p.total)
                         }
-                        manager.notify(NOTIFICATION_ID, notification("${p.name}: $text", p.done, p.total, p.finished))
+                        val (done, total) = deep ?: (p.done to p.total)
+                        manager.notify(NOTIFICATION_ID, notification("${p.name}: $text", done, total, p.finished))
                     }
                 }.onFailure { Timber.e(it, "PlaylistImportService: import failed") }
                 ServiceCompat.stopForeground(this@PlaylistImportService, ServiceCompat.STOP_FOREGROUND_DETACH)

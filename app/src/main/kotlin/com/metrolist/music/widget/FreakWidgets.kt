@@ -45,19 +45,15 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * Five odd widgets, each drawn whole as a picture (so they can look like anything) and redrawn every
+ * Four odd widgets, each drawn whole as a picture (so they can look like anything) and redrawn every
  * second while music plays, which is their animation:
- *  - [FreakKind.PET]: a Game Boy pixel pet that dances to the music, sleeps when it stops and gets
- *    hungry on days without listening. Tap: play / pause.
  *  - [FreakKind.TV]: a haunted CRT showing the cover through VHS glitches. Tap: next "channel".
  *  - [FreakKind.RECEIPT]: a till receipt of today's listening. Tap: open the app.
  *  - [FreakKind.CYBER]: a cyberpunk neural-jack HUD — neon signal bars, bandwidth, upload. Tap: rewind
  *    (previous track).
- *  - [FreakKind.PAPER]: a toilet roll unrolling with the track, the title printed on the sheets.
- *    Tap: roll back (previous track).
  *  - [FreakKind.SHOES]: clown shoes sneaking along as the track goes, no background. Tap: play / pause.
  */
-enum class FreakKind { PET, TV, RECEIPT, CYBER, PAPER, SHOES }
+enum class FreakKind { TV, RECEIPT, CYBER, SHOES }
 
 abstract class FreakWidget(private val kind: FreakKind) : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
@@ -79,11 +75,9 @@ abstract class FreakWidget(private val kind: FreakKind) : AppWidgetProvider() {
     }
 }
 
-class FreakPetWidget : FreakWidget(FreakKind.PET)
 class FreakTvWidget : FreakWidget(FreakKind.TV)
 class FreakReceiptWidget : FreakWidget(FreakKind.RECEIPT)
 class FreakCyberWidget : FreakWidget(FreakKind.CYBER)
-class FreakPaperWidget : FreakWidget(FreakKind.PAPER)
 class FreakShoesWidget : FreakWidget(FreakKind.SHOES)
 
 /** What the widgets draw from. */
@@ -107,11 +101,9 @@ object FreakWidgets {
         private set
 
     private fun provider(kind: FreakKind): Class<out AppWidgetProvider> = when (kind) {
-        FreakKind.PET -> FreakPetWidget::class.java
         FreakKind.TV -> FreakTvWidget::class.java
         FreakKind.RECEIPT -> FreakReceiptWidget::class.java
         FreakKind.CYBER -> FreakCyberWidget::class.java
-        FreakKind.PAPER -> FreakPaperWidget::class.java
         FreakKind.SHOES -> FreakShoesWidget::class.java
     }
 
@@ -139,11 +131,9 @@ object FreakWidgets {
             val (w, h) = sizePx(context, manager.getAppWidgetOptions(id), kind)
             val bitmap = runCatching {
                 when (kind) {
-                    FreakKind.PET -> drawPet(context, w, h, s, stats, frame)
                     FreakKind.TV -> drawTv(context, w, h, s, frame)
                     FreakKind.RECEIPT -> drawReceipt(context, w, h, s, stats)
                     FreakKind.CYBER -> drawCyber(w, h, s, frame)
-                    FreakKind.PAPER -> drawPaper(context, w, h, s)
                     FreakKind.SHOES -> drawShoes(w, h, s, frame)
                 }
             }.getOrNull() ?: return@forEach
@@ -158,7 +148,7 @@ object FreakWidgets {
     private fun sizePx(context: Context, options: Bundle, kind: FreakKind): Pair<Int, Int> {
         val density = context.resources.displayMetrics.density
         val defaultW = if (kind == FreakKind.TV || kind == FreakKind.CYBER || kind == FreakKind.SHOES) 180 else 110
-        val defaultH = if (kind == FreakKind.RECEIPT || kind == FreakKind.PAPER) 180 else 110
+        val defaultH = if (kind == FreakKind.RECEIPT) 180 else 110
         val wDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 } ?: defaultW
         val hDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: defaultH
         // Kept modest: a widget's pictures share a small budget, and this is redrawn every second.
@@ -167,10 +157,8 @@ object FreakWidgets {
     }
 
     private fun tapIntent(context: Context, kind: FreakKind): PendingIntent = when (kind) {
-        FreakKind.PET -> broadcast(context, 21, MusicWidgetReceiver.ACTION_PLAY_PAUSE)
         FreakKind.TV -> broadcast(context, 22, MusicWidgetReceiver.ACTION_NEXT)
         FreakKind.CYBER -> broadcast(context, 26, MusicWidgetReceiver.ACTION_PREVIOUS)
-        FreakKind.PAPER -> broadcast(context, 27, MusicWidgetReceiver.ACTION_PREVIOUS)
         FreakKind.SHOES -> broadcast(context, 30, MusicWidgetReceiver.ACTION_PLAY_PAUSE)
         FreakKind.RECEIPT -> PendingIntent.getActivity(
             context, 25, Intent(context, MainActivity::class.java),
@@ -184,110 +172,6 @@ object FreakWidgets {
     )
 
     private fun ru(context: Context) = context.resources.configuration.locales[0].language == "ru"
-
-    // ── 1. Pixel pet ─────────────────────────────────────────────────────────────────────────────
-
-    private fun drawPet(context: Context, w: Int, h: Int, s: FreakState, stats: WidgetStats.Snapshot, frame: Long): Bitmap {
-        val darkest = Color.rgb(15, 56, 15)
-        val dark = Color.rgb(48, 98, 48)
-        val light = Color.rgb(139, 172, 15)
-        val lightest = Color.rgb(155, 188, 15)
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val c = Canvas(bmp)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        // The console around the screen.
-        p.color = Color.rgb(200, 196, 190)
-        c.drawRoundRect(RectF(0f, 0f, w.toFloat(), h.toFloat()), w * 0.09f, w * 0.09f, p)
-        p.color = Color.rgb(90, 88, 110)
-        val bezel = RectF(w * 0.06f, h * 0.06f, w * 0.94f, h * 0.78f)
-        c.drawRoundRect(bezel, w * 0.05f, w * 0.05f, p)
-        val screen = RectF(bezel.left + w * 0.07f, bezel.top + h * 0.06f, bezel.right - w * 0.07f, bezel.bottom - h * 0.06f)
-        p.color = lightest
-        c.drawRect(screen, p)
-        // Battery LED: lit while music plays.
-        p.color = if (s.isPlaying) Color.rgb(230, 40, 60) else Color.rgb(90, 40, 50)
-        c.drawCircle(bezel.left + w * 0.035f, bezel.top + h * 0.2f, w * 0.015f, p)
-
-        val minutes = stats.secondsToday / 60
-        val sleeping = !s.isPlaying
-        val hungry = minutes < 5 && !s.isPlaying
-        val ecstatic = minutes >= 120
-        val beat = s.isPlaying && frame % 2 == 0L
-
-        // The pet on a 20x20 grid.
-        val grid = 20
-        val cell = min(screen.width(), screen.height() * 0.8f) / grid
-        val ox = screen.centerX() - cell * grid / 2
-        val oy = screen.top + cell * 0.5f
-        fun px(x: Int, y: Int, color: Int) {
-            p.color = color
-            c.drawRect(ox + x * cell, oy + y * cell, ox + (x + 1) * cell, oy + (y + 1) * cell, p)
-        }
-        val lift = if (beat) -1 else 0
-        // Body: a blob.
-        for (y in 0 until grid) for (x in 0 until grid) {
-            val dx = x - 9.5f
-            val dy = (y - (10 + lift)) * 1.15f
-            if (dx * dx + dy * dy <= 30f) px(x, y, light)
-            if (dx * dx + dy * dy in 24f..30f) px(x, y, darkest)
-        }
-        // Antenna with a bobble that blinks to the beat.
-        px(10, 3 + lift, darkest); px(10, 2 + lift, darkest)
-        px(10, 1 + lift, if (beat) darkest else dark); px(11, 1 + lift, if (beat) darkest else dark)
-        // Eyes.
-        val ey = 9 + lift
-        when {
-            sleeping -> { px(7, ey, darkest); px(8, ey, darkest); px(11, ey, darkest); px(12, ey, darkest) }
-            ecstatic -> for (x in 6..13) { px(x, ey - 1, darkest); px(x, ey, if (x == 9 || x == 10) dark else darkest) }
-            else -> { px(7, ey - 1, darkest); px(7, ey, darkest); px(12, ey - 1, darkest); px(12, ey, darkest) }
-        }
-        // Mouth.
-        val my = 12 + lift
-        when {
-            hungry -> { px(8, my + 1, darkest); px(9, my, darkest); px(10, my, darkest); px(11, my + 1, darkest) }
-            s.isPlaying -> { px(8, my, darkest); px(9, my + 1, darkest); px(10, my + 1, darkest); px(11, my, darkest) }
-            else -> { px(9, my, darkest); px(10, my, darkest) }
-        }
-        // Arms up and down with the beat, legs stepping.
-        if (s.isPlaying) {
-            val up = if (beat) -2 else 1
-            px(3, 10 + up, darkest); px(4, 10 + up + 1, darkest); px(16, 10 - up, darkest); px(15, 10 - up + 1, darkest)
-        }
-        val step = if (beat) 1 else 0
-        px(8 - step, 16, darkest); px(8 - step, 17, darkest); px(11 + step, 16, darkest); px(11 + step, 17, darkest)
-        // Notes or Z's around it.
-        val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = darkest; typeface = Typeface.MONOSPACE; isFakeBoldText = true; textSize = cell * 2.4f }
-        if (sleeping && !hungry) {
-            c.drawText(if (frame % 2 == 0L) "z" else "Z", ox + cell * 15, oy + cell * 4, text)
-            c.drawText("z", ox + cell * 17, oy + cell * 2, text)
-        } else if (s.isPlaying) {
-            c.drawText("♪", ox + cell * (if (beat) 1 else 2), oy + cell * 5, text)
-            c.drawText("♫", ox + cell * (if (beat) 16 else 15), oy + cell * 4, text)
-        } else if (hungry) {
-            p.color = dark
-            c.drawRect(ox + cell * 14, oy + cell * 6, ox + cell * 15, oy + cell * 8, p) // a tear
-        }
-        // Status line and the "fed" bar under the screen.
-        val r = ru(context)
-        val status = when {
-            hungry -> if (r) "ГОЛОДЕН. ВКЛЮЧИ МУЗЫКУ" else "HUNGRY. PLAY MUSIC"
-            sleeping -> if (r) "СПИТ" else "SLEEPING"
-            ecstatic -> if (r) "В ЭКСТАЗЕ: ${s.artist.uppercase()}" else "ECSTATIC: ${s.artist.uppercase()}"
-            else -> if (r) "ТАНЦУЕТ: ${s.artist.uppercase()}" else "DANCING: ${s.artist.uppercase()}"
-        }
-        text.textSize = screen.height() * 0.085f
-        text.isFakeBoldText = true
-        c.drawText(ellipsize(status, text, screen.width() - cell * 2), screen.left + cell, screen.bottom - cell * 0.6f, text)
-        val fed = (minutes / 60f).coerceIn(0f, 1f)
-        p.color = Color.rgb(60, 58, 80)
-        val bar = RectF(w * 0.12f, h * 0.84f, w * 0.88f, h * 0.9f)
-        c.drawRoundRect(bar, h * 0.03f, h * 0.03f, p)
-        p.color = Color.rgb(230, 40, 60)
-        c.drawRoundRect(RectF(bar.left, bar.top, bar.left + bar.width() * fed, bar.bottom), h * 0.03f, h * 0.03f, p)
-        val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(60, 58, 80); textSize = h * 0.055f; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-        c.drawText((if (r) "ДРАУНИК · СЫТ НА " else "DROWNY · FED ") + "${(fed * 100).toInt()}%", w / 2f, h * 0.97f, label)
-        return bmp
-    }
 
     // ── 2. Haunted CRT ───────────────────────────────────────────────────────────────────────────
 
@@ -561,74 +445,6 @@ object FreakWidgets {
         p.color = Color.argb(35, 0, 0, 0)
         var line = 0f
         while (line < h) { c.drawRect(0f, line, w.toFloat(), line + 1.5f, p); line += 4f }
-        return bmp
-    }
-
-    // ── Toilet paper ─────────────────────────────────────────────────────────────────────────────
-
-    private fun drawPaper(context: Context, w: Int, h: Int, s: FreakState): Bitmap {
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val c = Canvas(bmp)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        val r = ru(context)
-        // Bathroom tiles.
-        p.color = Color.rgb(196, 226, 232)
-        c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
-        p.color = Color.rgb(170, 206, 214); p.strokeWidth = maxOf(2f, w / 160f)
-        val tile = w / 4f
-        var t = tile
-        while (t < w) { c.drawLine(t, 0f, t, h.toFloat(), p); t += tile }
-        t = tile
-        while (t < h) { c.drawLine(0f, t, w.toFloat(), t, p); t += tile }
-        // The holder bar and the roll seen from the front.
-        val rollTop = h * 0.08f
-        val rollH = h * 0.2f
-        val rollLeft = w * 0.18f
-        val rollRight = w * 0.82f
-        p.color = Color.rgb(150, 150, 158)
-        c.drawRoundRect(RectF(w * 0.08f, rollTop + rollH * 0.4f, w * 0.92f, rollTop + rollH * 0.6f), h * 0.02f, h * 0.02f, p)
-        val empty = !s.live
-        val thickness = if (empty) 0.35f else 1f - s.progress * 0.55f
-        val roll = RectF(rollLeft, rollTop + rollH * (1 - thickness) / 2, rollRight, rollTop + rollH * (1 + thickness) / 2)
-        p.shader = LinearGradient(0f, roll.top, 0f, roll.bottom,
-            intArrayOf(if (empty) Color.rgb(170, 130, 90) else Color.rgb(250, 250, 248), if (empty) Color.rgb(200, 160, 110) else Color.WHITE, if (empty) Color.rgb(150, 110, 70) else Color.rgb(220, 220, 216)),
-            null, Shader.TileMode.CLAMP)
-        c.drawRoundRect(roll, roll.height() / 2, roll.height() / 2, p)
-        p.shader = null
-        if (empty) {
-            val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(90, 60, 40); textSize = h * 0.06f; typeface = Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
-            c.drawText(if (r) "ВСЁ, КОНЧИЛАСЬ" else "ALL GONE", w / 2f, h * 0.55f, label)
-            return bmp
-        }
-        // The sheet hanging down: longer the further the track has played.
-        val sheetLeft = rollLeft + w * 0.04f
-        val sheetRight = rollRight - w * 0.04f
-        val sheetTop = roll.centerY()
-        val sheetBottom = sheetTop + (h * 0.92f - sheetTop) * (0.25f + 0.75f * s.progress)
-        val sheet = Path().apply {
-            moveTo(sheetLeft, sheetTop); lineTo(sheetRight, sheetTop); lineTo(sheetRight, sheetBottom)
-            // A ragged, torn edge.
-            val teeth = 9
-            for (i in 1..teeth) lineTo(sheetRight - (sheetRight - sheetLeft) * i / teeth, sheetBottom + if (i % 2 == 0) 0f else h * 0.015f)
-            close()
-        }
-        p.color = Color.argb(60, 0, 0, 0)
-        c.save(); c.translate(w * 0.012f, h * 0.008f); c.drawPath(sheet, p); c.restore()
-        p.color = Color.rgb(252, 252, 250)
-        c.drawPath(sheet, p)
-        // Perforation between sheets, and the track printed on them.
-        val sheetH = h * 0.2f
-        val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(200, 200, 196); strokeWidth = maxOf(1.5f, h / 300f); pathEffect = android.graphics.DashPathEffect(floatArrayOf(w / 50f, w / 70f), 0f) }
-        val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(120, 120, 140); textSize = h * 0.05f; textAlign = Paint.Align.CENTER; typeface = Typeface.create(Typeface.SERIF, Typeface.ITALIC) }
-        val lines = listOf(s.title, s.artist, "♪ ♪ ♪", if (r) "мягкая, трёхслойная" else "soft, three-ply")
-        var y = sheetTop
-        var i = 0
-        while (y + sheetH * 0.5f < sheetBottom) {
-            c.drawText(ellipsize(lines[i % lines.size], ink, sheetRight - sheetLeft - w * 0.06f), (sheetLeft + sheetRight) / 2, y + sheetH * 0.55f, ink)
-            y += sheetH
-            if (y < sheetBottom) c.drawLine(sheetLeft, y, sheetRight, y, dash)
-            i++
-        }
         return bmp
     }
 

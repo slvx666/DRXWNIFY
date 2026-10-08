@@ -41,8 +41,11 @@ import java.util.concurrent.TimeUnit
  * ```
  */
 object RemoteConfig {
-    /** Where the config lives. Filled in once the new GitHub account exists (several hosts). */
-    val BUILT_IN_URLS: List<String> = emptyList()
+    /** Where the config lives: the site, then the same file in the GitHub repository. */
+    val BUILT_IN_URLS: List<String> = listOf(
+        "https://drxwnify.pages.dev/config.json",
+        "https://raw.githubusercontent.com/slvx666/DRXWNIFY/master/website/config.json",
+    )
 
     val UrlOverrideKey = stringPreferencesKey("remoteConfigUrl")
     private val CachedKey = stringPreferencesKey("remoteConfigCache")

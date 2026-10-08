@@ -76,7 +76,7 @@ object ResolverPreferences {
      * matches that are equally exact, the best-sounding one plays. SPEED: the first good match plays.
      */
     @Volatile
-    var pickMode: com.metrolist.music.constants.SourcePickMode = com.metrolist.music.constants.SourcePickMode.ACCURACY
+    var pickMode: com.metrolist.music.constants.SourcePickMode = com.metrolist.music.constants.SourcePickMode.QUALITY
 
     /** Provider ranking used to choose between matches, best first. */
     @Volatile

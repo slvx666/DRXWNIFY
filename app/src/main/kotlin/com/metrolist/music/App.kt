@@ -143,7 +143,7 @@ class App :
                         prefs[com.metrolist.music.constants.VkLikesToAccountKey] ?: true
                     pickMode = prefs[com.metrolist.music.constants.SourcePickModeKey]
                         ?.let { runCatching { com.metrolist.music.constants.SourcePickMode.valueOf(it) }.getOrNull() }
-                        ?: com.metrolist.music.constants.SourcePickMode.ACCURACY
+                        ?: com.metrolist.music.constants.SourcePickMode.QUALITY
                     order = com.metrolist.music.resolver.AudioProviderId.parseOrder(
                         prefs[com.metrolist.music.constants.AudioSourceOrderKey],
                     )

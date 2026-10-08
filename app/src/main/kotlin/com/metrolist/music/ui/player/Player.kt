@@ -1562,6 +1562,31 @@ fun BottomSheetPlayer(
                     }
                 }
 
+                SliderStyle.WAVEFORM -> {
+                    val sliderColors = PlayerSliderColors.getSliderColors(textButtonColor, playerBackground, useDarkTheme)
+                    com.metrolist.music.ui.component.WaveformSeekBar(
+                        mediaId = mediaMetadata?.id,
+                        database = LocalDatabase.current,
+                        position = sliderPosition ?: effectivePosition,
+                        duration = if (duration == C.TIME_UNSET) 0L else duration,
+                        enabled = !isListenTogetherGuest,
+                        activeColor = sliderColors.activeTrackColor,
+                        inactiveColor = sliderColors.inactiveTrackColor,
+                        onSeekPreview = { sliderPosition = it },
+                        onSeek = {
+                            if (isCasting) {
+                                castHandler?.seekTo(it)
+                                lastManualSeekTime = System.currentTimeMillis()
+                            } else {
+                                playerConnection.player.seekTo(it)
+                            }
+                            position = it
+                            sliderPosition = null
+                        },
+                        modifier = Modifier.padding(horizontal = PlayerHorizontalPadding),
+                    )
+                }
+
                 SliderStyle.SLIM -> {
                     Slider(
                         value = (sliderPosition ?: effectivePosition).toFloat(),

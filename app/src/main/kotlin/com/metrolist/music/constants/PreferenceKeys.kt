@@ -79,6 +79,9 @@ enum class SliderStyle {
     DEFAULT,
     WAVY,
     SLIM,
+
+    /** Loudness bars along the track, like AIMP's. */
+    WAVEFORM,
 }
 
 const val SYSTEM_DEFAULT = "SYSTEM_DEFAULT"
@@ -280,7 +283,12 @@ val AudioSourceLosslessKey = booleanPreferencesKey("audioSourceLossless")
 /** What a downloaded file is made into (see DownloadFormat). */
 val DownloadFormatKey = stringPreferencesKey("downloadFormat")
 
-enum class SourcePickMode { ACCURACY, SPEED }
+/**
+ * How the audio source is chosen. ACCURACY: the most exact match, quality only breaks near-ties (least
+ * risk of a remix or another version). QUALITY: among close matches the best-sounding wins. SPEED: the
+ * first good match plays.
+ */
+enum class SourcePickMode { QUALITY, ACCURACY, SPEED }
 
 /** BEST: as the source gives it (MP3/AAC/FLAC copied, Opus to AAC 256). The others force one format. */
 enum class DownloadFormat { BEST, MP3_320, M4A_256 }

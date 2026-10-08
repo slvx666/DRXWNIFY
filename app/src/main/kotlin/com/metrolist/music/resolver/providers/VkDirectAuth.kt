@@ -26,8 +26,11 @@ object VkDirectAuth {
     sealed interface Result {
         data class Success(val token: String, val userId: String?) : Result
 
-        /** VK sent a confirmation code (SMS or the authenticator app); repeat with [code]. */
-        data class NeedCode(val viaApp: Boolean, val phoneMask: String?) : Result
+        /**
+         * VK wants a confirmation code (SMS or the authenticator app); repeat with [code]. VK does NOT
+         * send the SMS by itself: it goes out only after [requestSms] with [validationSid].
+         */
+        data class NeedCode(val viaApp: Boolean, val phoneMask: String?, val validationSid: String? = null) : Result
 
         /** VK wants a captcha solved; repeat with [captchaSid] and the text from [imageUrl]. */
         data class NeedCaptcha(val captchaSid: String, val imageUrl: String) : Result
@@ -47,7 +50,38 @@ object VkDirectAuth {
         OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
+            .dns(com.metrolist.music.utils.FallbackDns)
             .build()
+    }
+
+    /**
+     * Asks VK to send the login code by SMS (also instead of the authenticator app). Null when VK
+     * accepted, else what it answered.
+     */
+    suspend fun requestSms(validationSid: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = FormBody.Builder()
+                .add("sid", validationSid)
+                .add("api_id", VkAudioProvider.OAUTH_CLIENT_ID)
+                .add("client_id", VkAudioProvider.OAUTH_CLIENT_ID)
+                .add("client_secret", CLIENT_SECRET)
+                .add("v", VkAudioProvider.API_VERSION)
+                .add("lang", "ru")
+                .add("device_id", deviceId)
+                .build()
+            val request = Request.Builder()
+                .url("https://api.vk.com/method/auth.validatePhone")
+                .header("User-Agent", VkAudioProvider.CLIENT_USER_AGENT)
+                .post(body)
+                .build()
+            http.newCall(request).execute().use { response ->
+                val json = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
+                    ?: return@use "Unexpected response from VK"
+                val error = json.optJSONObject("error")
+                timber.log.Timber.tag("VkAuth").i("validatePhone: %s", error?.optString("error_msg") ?: "sent")
+                error?.optString("error_msg")?.takeIf { it.isNotBlank() }
+            }
+        }.getOrElse { it.message ?: it.javaClass.simpleName }
     }
 
     suspend fun login(
@@ -86,7 +120,15 @@ object VkDirectAuth {
                 val text = response.body?.string().orEmpty()
                 parse(text)
             }
-        }.getOrElse { Result.Error(it.message ?: it.javaClass.simpleName) }
+        }.getOrElse { e ->
+            Result.Error(
+                if (e is java.net.UnknownHostException) {
+                    "Нет связи с VK (не удалось найти oauth.vk.com). Проверь интернет или VPN и попробуй ещё раз."
+                } else {
+                    e.message ?: e.javaClass.simpleName
+                },
+            )
+        }
     }
 
     internal fun parse(text: String): Result {
@@ -105,6 +147,7 @@ object VkDirectAuth {
             "need_validation" -> Result.NeedCode(
                 viaApp = json.optString("validation_type") == "2fa_app",
                 phoneMask = json.optString("phone_mask").takeIf { it.isNotBlank() },
+                validationSid = json.optString("validation_sid").takeIf { it.isNotBlank() },
             )
             "need_captcha" -> Result.NeedCaptcha(
                 captchaSid = json.optString("captcha_sid"),

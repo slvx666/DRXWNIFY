@@ -13,6 +13,7 @@ import com.metrolist.music.catalog.Catalog
 import com.metrolist.music.constants.MetadataSource
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.PlaylistEntity
+import com.metrolist.music.utils.FuzzyTrackMatch
 import com.metrolist.music.utils.PlaylistImportParser
 import com.metrolist.spotify.SpotifyMapper
 import com.metrolist.spotify.models.SpotifyTrack
@@ -51,6 +52,8 @@ object PlaylistImporter {
         val notFound: List<String>,
         val playlistId: String?,
         val finished: Boolean,
+        /** The second, slower pass over what the first one missed: (checked, of how many); null before it. */
+        val deep: Pair<Int, Int>? = null,
     )
 
     private val _progress = MutableStateFlow<Progress?>(null)
@@ -159,8 +162,12 @@ object PlaylistImporter {
         var index = job.optInt("index")
         var found = job.optInt("found")
         val notFound = job.optJSONArray("notFound")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty().toMutableList()
+        // The lines the first pass missed, for the second one.
+        val retry = job.optJSONArray("retry")?.let { a -> (0 until a.length()).map { entryFromJson(a.getJSONObject(it)) } }.orEmpty().toMutableList()
+        var deepIndex = job.optInt("deepIndex", -1)
         fun publish(finished: Boolean) {
-            val p = Progress(name, entries.size, index, found, notFound.toList(), playlistId, finished)
+            val deep = if (deepIndex >= 0) deepIndex.coerceAtMost(retry.size) to retry.size else null
+            val p = Progress(name, entries.size, index, found, notFound.toList(), playlistId, finished, deep)
             _progress.value = p
             onProgress(p)
         }
@@ -173,18 +180,99 @@ object PlaylistImporter {
                 batch.map { entry -> async { gate.withPermit { lookupWithRetry(entry) } } }.awaitAll()
             }
             val tracks = results.filterNotNull()
-            batch.forEachIndexed { i, entry -> if (results[i] == null) notFound += entry.label }
+            batch.forEachIndexed { i, entry ->
+                if (results[i] == null) {
+                    notFound += entry.label
+                    retry += entry
+                }
+            }
             addTracks(database, mapper, playlistId, tracks, added)
             found += tracks.size
             index += batch.size
             if (cancelled) return
             job.put("index", index).put("found", found).put("notFound", JSONArray(notFound))
+                .put("retry", JSONArray(retry.map(::entryToJson)))
             file.writeText(job.toString())
             publish(false)
         }
         if (cancelled) return
+
+        // Second pass: what the quick strict search missed gets a slower, wider one — more ways to
+        // write the query, both catalogs, similarity instead of exact words. One line at a time
+        // (with a short pause) so a long list does not run into the catalog's rate limit.
+        if (deepIndex < 0) deepIndex = 0
+        publish(false)
+        while (deepIndex < retry.size && !cancelled) {
+            val entry = retry[deepIndex]
+            val track = runCatching { kotlinx.coroutines.withTimeout(DEEP_TIMEOUT_MS) { deepLookup(entry) } }
+                .onFailure { Timber.w(it, "PlaylistImporter: deep lookup %s", entry.label) }
+                .getOrNull()
+            if (track != null) {
+                val before = added.size
+                addTracks(database, mapper, playlistId, listOf(track), added)
+                if (added.size > before) found++
+                notFound.remove(entry.label)
+            }
+            deepIndex++
+            if (cancelled) return
+            job.put("deepIndex", deepIndex).put("found", found).put("notFound", JSONArray(notFound))
+            file.writeText(job.toString())
+            publish(false)
+            delay(DEEP_PAUSE_MS)
+        }
+        if (cancelled) return
         publish(true)
         file.delete()
+    }
+
+    private fun entryToJson(e: PlaylistImportParser.Entry) =
+        JSONObject().put("a", e.artist ?: "").put("t", e.title).put("d", e.durationSec ?: 0)
+
+    private fun entryFromJson(o: JSONObject) =
+        PlaylistImportParser.Entry(o.optString("a").takeIf { it.isNotBlank() }, o.getString("t"), o.optInt("d").takeIf { it > 0 })
+
+    private fun candidates(tracks: Collection<SpotifyTrack>) =
+        tracks.map { t -> FuzzyTrackMatch.Candidate(t.id, t.name, t.artists.map { it.name }, t.durationMs / 1000) }
+
+    /**
+     * The wide search for one line: several spellings of the query (guests moved out of the title,
+     * year and track number dropped, title alone, artist alone for typos) in the library's catalog
+     * and then the other one, the closest track by [FuzzyTrackMatch].
+     */
+    private suspend fun deepLookup(entry: PlaylistImportParser.Entry): SpotifyTrack? {
+        val titles = FuzzyTrackMatch.titleVariants(entry.title)
+        val core = titles.last()
+        val artist = entry.artist?.trim().orEmpty()
+        val queries = buildList {
+            if (artist.isNotEmpty()) {
+                add("$artist $core")
+                titles.dropLast(1).lastOrNull()?.let { add("$artist $it") }
+                add("$core $artist")
+            }
+            add(core)
+            if (artist.isNotEmpty()) add(artist)
+        }.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val primary = Catalog.source ?: MetadataSource.SPOTIFY
+        val catalogs = buildList {
+            add(primary)
+            MetadataSource.entries.filter { it != primary }.forEach { other ->
+                if (runCatching { Catalog.ensureSearchable(other) }.getOrDefault(false)) add(other)
+            }
+        }
+        for (catalog in catalogs) {
+            val pool = LinkedHashMap<String, SpotifyTrack>()
+            for (query in queries) {
+                val limit = if (query == artist) 30 else 15
+                val items = runCatching { Catalog.searchIn(catalog, query, listOf("track"), limit).getOrThrow().tracks?.items.orEmpty() }
+                    .getOrElse { delay(1_500L); emptyList() }
+                items.forEach { pool.putIfAbsent(it.id, it) }
+                // A near-exact hit ends the search; a weaker one waits for what the other spellings bring.
+                val best = FuzzyTrackMatch.best(entry.artist, entry.title, entry.durationSec, candidates(pool.values))
+                if (best != null && best.titleScore >= 0.97 && best.artistScore >= 0.97) return pool[best.id]
+            }
+            FuzzyTrackMatch.best(entry.artist, entry.title, entry.durationSec, candidates(pool.values))?.let { return pool[it.id] }
+        }
+        return null
     }
 
     private suspend fun addTracks(
@@ -293,4 +381,6 @@ object PlaylistImporter {
     private const val LOOKUP_TIMEOUT_MS = 12_000L
     private const val SEARCH_LIMIT = 8
     private const val MAX_LINK_TRACKS = 5000
+    private const val DEEP_TIMEOUT_MS = 45_000L
+    private const val DEEP_PAUSE_MS = 250L
 }

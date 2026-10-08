@@ -33,7 +33,7 @@ class ParallelAudioResolver(
     private val clock: () -> Long = System::currentTimeMillis,
     /** Quality mode: exact matches are compared by sound quality, and all sources get a chance. */
     private val preferQuality: () -> Boolean = {
-        ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.ACCURACY
+        ResolverPreferences.pickMode != com.metrolist.music.constants.SourcePickMode.SPEED
     },
 ) {
     data class Outcome(
@@ -183,14 +183,17 @@ class ParallelAudioResolver(
 
         /** The order for the current setting: best quality among exact matches, or the user's order. */
         fun inPickOrder(matches: Collection<ProviderMatch>, rank: (AudioProviderId) -> Int): List<ProviderMatch> =
-            if (ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.ACCURACY) {
+            if (ResolverPreferences.pickMode != com.metrolist.music.constants.SourcePickMode.SPEED) {
                 byQuality(matches, rank)
             } else {
                 preferred(matches, rank)
             }
 
         /** Exact matches differ by at most this much; among them the better-sounding one wins. */
-        const val QUALITY_CONFIDENCE_MARGIN = 0.05
+        const val QUALITY_CONFIDENCE_MARGIN = 0.12
+
+        /** "Accuracy": only near-identical matches are compared by quality. */
+        const val ACCURACY_CONFIDENCE_MARGIN = 0.05
 
         /** Quality mode: how long the other sources may take once an exact match is in hand. */
         const val QUALITY_DEADLINE_MS = 4_500L
@@ -203,7 +206,8 @@ class ParallelAudioResolver(
         fun byQuality(matches: Collection<ProviderMatch>, rank: (AudioProviderId) -> Int): List<ProviderMatch> {
             if (matches.isEmpty()) return emptyList()
             val best = matches.maxOf { it.confidence }
-            val (exact, rest) = matches.partition { it.confidence >= best - QUALITY_CONFIDENCE_MARGIN }
+            val margin = if (ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.QUALITY) QUALITY_CONFIDENCE_MARGIN else ACCURACY_CONFIDENCE_MARGIN
+            val (exact, rest) = matches.partition { it.confidence >= best - margin }
             return exact.sortedWith(compareByDescending<ProviderMatch> { it.expectedKbps }.thenBy { rank(it.provider) }) +
                 rest.sortedByDescending { it.confidence }
         }

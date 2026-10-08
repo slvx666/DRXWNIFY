@@ -448,6 +448,9 @@ object AudioFallbackEngine {
         return storedCandidates(query).firstOrNull()
     }
 
+    /** Forgets the remembered "nothing found" answers, so a retry really searches again. */
+    fun forgetMisses() = misses.evictAll()
+
     /** Pins [match] as the audio for [mediaId]; `null` forgets every stored match (automatic again). */
     suspend fun setManualChoice(mediaId: String, dbSong: Song?, match: ProviderMatch?) = withContext(Dispatchers.IO) {
         val query = queryFor(mediaId, dbSong) ?: return@withContext
@@ -588,6 +591,20 @@ object AudioFallbackEngine {
     }
 
     /**
+     * A catalog item queued without a saved row (a quick queue item) only knows its title and artist
+     * while the app runs: after a restart — an update, Android closing the app — the restored queue had
+     * nothing to search with, and every track "couldn't be found". The catalog is asked again.
+     */
+    private suspend fun recoverQuery(mediaId: String): AudioQuery? {
+        val catalogId = FallbackIds.catalogIdOf(mediaId) ?: return null
+        val track = runCatching { com.metrolist.music.catalog.Catalog.getTrack(catalogId).getOrNull() }.getOrNull()
+            ?: return null
+        SpotifyMetadataRegistry.register(mediaId, track)
+        AudioDiagnostics.info("metadata for $mediaId recovered from the catalog")
+        return AudioQuery.from(track)
+    }
+
+    /**
      * A playable plan for [mediaId]: remembered match → alternates → fresh race, skipping providers in
      * [failed] and uploads in [excludedTrackIds] (e.g. an age-restricted YouTube video — another upload
      * of the same song on YouTube is still allowed).
@@ -598,7 +615,7 @@ object AudioFallbackEngine {
         failed: Set<AudioProviderId> = emptySet(),
         excludedTrackIds: Set<String> = emptySet(),
     ): StreamPlan? = withContext(Dispatchers.IO) {
-        val base = queryFor(mediaId, dbSong) ?: run {
+        val base = queryFor(mediaId, dbSong) ?: recoverQuery(mediaId) ?: run {
             AudioDiagnostics.warn("no metadata to find audio for $mediaId")
             AudioDiagnostics.recordFailure(mediaId, AudioDiagnostics.FailureKind.NO_METADATA)
             return@withContext null
@@ -609,7 +626,7 @@ object AudioFallbackEngine {
 
         // Quality mode: what was chosen before it existed is compared with every source once.
         val catalogId = query.catalogId
-        if (catalogId != null && ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.ACCURACY &&
+        if (catalogId != null && ResolverPreferences.pickMode != com.metrolist.music.constants.SourcePickMode.SPEED &&
             !wasQualityChecked(catalogId) && storedCandidates(query).none { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }
         ) {
             runCatching { resolve(query, failed, forceRace = true) }

@@ -315,6 +315,14 @@ class SpotifyMapperSelectMatchTest {
     }
 
     @Test
+    fun `featured guests credited after the artist still match`() {
+        val r = select("Tears on Lambo Leather (feat. Orthodox & Adam Easterling)", "The Callous Daoboys", 200, listOf(
+            cand("RIGHT", "Tears on Lambo Leather (feat. Orthodox & Adam Easterling)", "The Callous Daoboys, Orthodox, Adam Easterling", 201),
+        ))
+        assertEquals("RIGHT", matchedId(r))
+    }
+
+    @Test
     fun `duo credited with an ampersand still matches`() {
         val r = select("The Sound of Silence", "Simon & Garfunkel", 185, listOf(
             cand("RIGHT", "The Sound of Silence", "Simon & Garfunkel", 185),

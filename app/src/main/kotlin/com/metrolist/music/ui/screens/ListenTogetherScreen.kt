@@ -109,6 +109,8 @@ import androidx.compose.material3.IconButton as MaterialIconButton
 fun ListenTogetherScreen(
     navController: NavController,
     showTopBar: Boolean = false,
+    /** Inside "Together" (TogetherScreen), which has the top bar and the tabs. */
+    embedded: Boolean = false,
 ) {
     val context = LocalContext.current
     val listenTogetherManager = LocalListenTogetherManager.current
@@ -127,7 +129,7 @@ fun ListenTogetherScreen(
     val pendingSuggestions by listenTogetherManager.pendingSuggestions.collectAsState()
 
     val (listenTogetherInTopBar) = rememberPreference(ListenTogetherInTopBarKey, defaultValue = true)
-    val shouldShowTopBar = showTopBar || listenTogetherInTopBar
+    val shouldShowTopBar = !embedded && (showTopBar || listenTogetherInTopBar)
 
     var savedUsername by rememberPreference(ListenTogetherUsernameKey, "")
     var roomCodeInput by rememberSaveable { mutableStateOf("") }
@@ -144,9 +146,15 @@ fun ListenTogetherScreen(
     val invalidRoomCodeText = stringResource(R.string.invalid_room_code)
     val joinRequestDeniedText = stringResource(R.string.join_request_denied)
 
-    LaunchedEffect(savedUsername) {
-        if (usernameInput.isBlank() && savedUsername.isNotBlank()) {
-            usernameInput = savedUsername
+    val friendsName = com.metrolist.music.friends.FriendsHub.profile.collectAsState().value?.name.orEmpty()
+    LaunchedEffect(savedUsername, friendsName) {
+        when {
+            usernameInput.isBlank() && savedUsername.isNotBlank() -> usernameInput = savedUsername
+            // No name of its own yet: the one from Friends.
+            usernameInput.isBlank() && friendsName.isNotBlank() -> {
+                usernameInput = friendsName
+                savedUsername = friendsName
+            }
         }
     }
 
@@ -245,7 +253,7 @@ fun ListenTogetherScreen(
             PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
-                top = windowInsets.asPaddingValues().calculateTopPadding() + 16.dp,
+                top = if (embedded) 16.dp else windowInsets.asPaddingValues().calculateTopPadding() + 16.dp,
                 bottom = windowInsets.asPaddingValues().calculateBottomPadding() + 16.dp + AppBarHeight,
             ),
         verticalArrangement = Arrangement.spacedBy(16.dp),

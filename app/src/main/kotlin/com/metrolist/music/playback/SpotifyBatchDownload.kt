@@ -132,6 +132,10 @@ object SpotifyBatchDownload {
         val resolved = AtomicInteger(0)
         val skipped = AtomicInteger(0)
         val enqueuedIds = ConcurrentHashMap.newKeySet<String>()
+        // When each id was (re)queued: a FAILED state older than that is a previous attempt's,
+        // waiting for the download service to restart it — not a failure of this run. Counting those
+        // made the error count start in the thousands and melt away as the queue was worked through.
+        val enqueuedAt = ConcurrentHashMap<String, Long>()
         cancelled.remove(sourceId)
         fun isCancelled() = sourceId in cancelled
 
@@ -178,6 +182,8 @@ object SpotifyBatchDownload {
                                         // track's bytes are done, which can be immediate.
                                         DownloadExporter.rememberPlaylistFolder(context, listOf(metadata.id), folderName)
                                     }
+                                    enqueuedAt[metadata.id] = System.currentTimeMillis()
+                                    DownloadExportState.clearFailure(metadata.id)
                                     enqueue(context, metadata.id, metadata.title)
                                     enqueuedIds.add(metadata.id)
                                     trackOfMedia[metadata.id] = track.id
@@ -201,14 +207,15 @@ object SpotifyBatchDownload {
 
             // Stage 2/3 — DOWNLOADING / FORMATTING: watch the enqueued ids until they settle.
             val queued = enqueuedIds.size
-            if (queued > 0) {
+            /** False when cancelled. */
+            suspend fun monitor(): Boolean {
                 var ticks = 0
                 while (ticks++ < MAX_MONITOR_TICKS) {
                     if (isCancelled()) {
                         removeAll(context, enqueuedIds)
-                        return null
+                        return false
                     }
-                    val counts = countStates(enqueuedIds, downloads.value)
+                    val counts = countStates(enqueuedIds, downloads.value, enqueuedAt)
                     val (downloading, formatting) = counts.downloading to counts.formatting
                     val (completed, failed) = counts.completed to counts.failed
                     val phase = when {
@@ -226,10 +233,35 @@ object SpotifyBatchDownload {
                     if (completed + failed >= queued && formatting == 0 && downloading == 0) break
                     delay(500)
                 }
+                return true
+            }
+            if (queued > 0) {
+                if (!monitor()) return null
+                // One more go for what failed: in a crowd of 1700 downloads a source times out, a
+                // Soulseek search gets no answers, a YouTube upload turns out age-restricted — the
+                // same track usually downloads fine on a second, unhurried try (as it did by hand).
+                val retry = enqueuedIds.filter { id ->
+                    id in DownloadExportState.failed.value ||
+                        downloads.value[id]?.let { isFreshFailure(it, enqueuedAt[id]) } == true
+                }
+                if (retry.isNotEmpty() && !isCancelled()) {
+                    retry.forEach { id ->
+                        runCatching { DownloadService.sendRemoveDownload(context, ExoDownloadService::class.java, id, false) }
+                    }
+                    delay(RETRY_PAUSE_MS)
+                    com.metrolist.music.resolver.AudioFallbackEngine.forgetMisses()
+                    retry.forEach { id ->
+                        enqueuedAt[id] = System.currentTimeMillis()
+                        DownloadExportState.clearFailure(id)
+                        enqueue(context, id, downloads.value[id]?.request?.data?.let { String(it) } ?: id)
+                    }
+                    Timber.i("SpotifyBatchDownload: retrying %d failed track(s)", retry.size)
+                    if (!monitor()) return null
+                }
             }
 
-            val counts = countStates(enqueuedIds, downloads.value)
-            recordOutcomes(context, enqueuedIds, trackOfMedia, downloads.value)
+            val counts = countStates(enqueuedIds, downloads.value, enqueuedAt)
+            recordOutcomes(context, enqueuedIds, trackOfMedia, downloads.value, enqueuedAt)
             return Progress(
                 sourceId, label, Phase.DONE,
                 current = already + counts.completed, total = total,
@@ -296,6 +328,7 @@ object SpotifyBatchDownload {
         mediaIds: Set<String>,
         trackOfMedia: Map<String, String>,
         map: Map<String, Download>,
+        enqueuedAt: Map<String, Long>,
     ) {
         val exported = DownloadExportState.exported.value
         val exportFailed = DownloadExportState.failed.value
@@ -305,14 +338,18 @@ object SpotifyBatchDownload {
             when {
                 mediaId in exported -> done += trackId
                 mediaId in exportFailed -> DownloadIssues.set(context, trackId, DownloadIssues.Reason.SAVE_FAILED)
-                map[mediaId]?.state == Download.STATE_FAILED ->
+                map[mediaId]?.let { isFreshFailure(it, enqueuedAt[mediaId]) } == true ->
                     DownloadIssues.set(context, trackId, DownloadIssues.Reason.DOWNLOAD_FAILED)
             }
         }
         DownloadIssues.clear(context, done)
     }
 
-    private fun countStates(ids: Set<String>, map: Map<String, Download>): Counts {
+    /** FAILED in this run: the failure happened after the id was queued again. */
+    private fun isFreshFailure(download: Download, queuedAt: Long?): Boolean =
+        download.state == Download.STATE_FAILED && (queuedAt == null || download.updateTimeMs >= queuedAt)
+
+    private fun countStates(ids: Set<String>, map: Map<String, Download>, enqueuedAt: Map<String, Long>): Counts {
         val exported = DownloadExportState.exported.value
         val exportFailed = DownloadExportState.failed.value
         val exporting = DownloadExportState.exporting.value
@@ -325,7 +362,7 @@ object SpotifyBatchDownload {
                 id in exported -> completed++
                 id in exportFailed -> failed++
                 id in exporting -> formatting++
-                map[id]?.state == Download.STATE_FAILED -> failed++
+                map[id]?.let { isFreshFailure(it, enqueuedAt[id]) } == true -> failed++
                 // Bytes are cached; the file is still being assembled/tagged.
                 map[id]?.state == Download.STATE_COMPLETED -> formatting++
                 else -> downloading++
@@ -351,6 +388,8 @@ object SpotifyBatchDownload {
             }
         }
     }
+
+    private const val RETRY_PAUSE_MS = 3_000L
 
     /** How many tracks to resolve concurrently (across all batches). */
     private const val PARALLELISM = 6

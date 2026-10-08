@@ -73,6 +73,8 @@ object DownloadExportState {
     }
     fun markExported(songIds: Set<String>) { _exported.value = _exported.value + songIds }
     fun markFailed(songId: String) { _failed.value = _failed.value + songId }
+    /** A new attempt starts: an earlier failed export no longer counts against it. */
+    fun clearFailure(songId: String) { _failed.value = _failed.value - songId }
     fun forget(songId: String) {
         _exported.value = _exported.value - songId
         _failed.value = _failed.value - songId
@@ -333,6 +335,9 @@ class DownloadExporter @Inject constructor(
                 .filterNot { it.substringBefore(HINT_SEPARATOR) == songId }.toSet()
         }
         DownloadExportState.markExported(songId)
+        // The loudness bars are worked out now, while nobody waits, and kept: when the track is
+        // played they are there at once (as AIMP does with its files).
+        if (uri != null) com.metrolist.music.ui.component.Waveforms.precompute(context, songId, uri)
     }
 
     private suspend fun markPending(songId: String) {

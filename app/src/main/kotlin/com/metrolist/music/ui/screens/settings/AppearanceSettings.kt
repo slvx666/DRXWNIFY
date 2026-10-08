@@ -975,6 +975,38 @@ fun AppearanceSettings(
                         )
                     }
                 }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .border(
+                                1.dp,
+                                if (sliderStyle == SliderStyle.WAVEFORM) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outlineVariant
+                                },
+                                RoundedCornerShape(16.dp),
+                            ).clickable {
+                                onSliderStyleChange(SliderStyle.WAVEFORM)
+                                onSquigglySliderChange(false)
+                                showSliderOptionDialog = false
+                            }.padding(12.dp),
+                ) {
+                    com.metrolist.music.ui.component.WaveformPreview(
+                        activeColor = MaterialTheme.colorScheme.primary,
+                        inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    )
+                    Text(
+                        text = stringResource(R.string.slider_waveform),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -1274,6 +1306,10 @@ fun AppearanceSettings(
 
                                     SliderStyle.SLIM -> {
                                         stringResource(R.string.slim)
+                                    }
+
+                                    SliderStyle.WAVEFORM -> {
+                                        stringResource(R.string.slider_waveform)
                                     }
                                 },
                             )

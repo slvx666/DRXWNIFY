@@ -41,9 +41,10 @@ class YouTubeTrackResolver(
         // Accumulate every candidate seen across queries so a final loose pass (when enabled) can
         // consider the whole union, not just the last query's results.
         val seen = LinkedHashMap<String, SpotifyMapper.Candidate>()
+        val videosSeen = mutableListOf<SongItem>()
 
         for ((index, query) in queries.withIndex()) {
-            val batch = fetchCandidates(query, includeVideos = index == 0).filter { it.id !in excludedIds }
+            val batch = fetchCandidates(query, includeVideos = index == 0, videosOut = videosSeen).filter { it.id !in excludedIds }
             for (c in batch) seen.putIfAbsent(c.id, c)
 
             when (val result = SpotifyMapper.selectBestMatch(
@@ -90,12 +91,55 @@ class YouTubeTrackResolver(
             }
         }
 
+        officialClip(track, tokens, excludedIds, videosSeen)?.let { return it }
+
         Timber.w("Resolver NO_MATCH for '${track.name}' by $primaryArtist (${queries.size} queries tried)")
         return ResolveResult.NoMatch
     }
 
+    /**
+     * Last resort: the artist's official music video. Some releases are on YouTube only as a clip,
+     * which the length gate refuses (an intro or outro makes it 40+ s longer) — the clip downloader
+     * found the video while playback said "not found". The clip has the same recording, so it beats
+     * nothing; it is taken only when YouTube itself labels it official (or the title says so), the
+     * title and artist match and it is not shorter than the track.
+     */
+    private fun officialClip(
+        track: SpotifyTrack,
+        tokens: List<String>,
+        excludedIds: Set<String>,
+        videos: List<SongItem>,
+    ): ResolveResult.Matched? {
+        val trackSec = track.durationMs / 1000
+        val clip = videos.filter { v ->
+            v.id !in excludedIds &&
+                (v.musicVideoType == "MUSIC_VIDEO_TYPE_OMV" || OFFICIAL_CLIP.containsMatchIn(v.title)) &&
+                SpotifyMapper.titlePlausiblyMatches(v.title, track.name) &&
+                !SpotifyMapper.isForeignRecording(track.name, v.title) &&
+                SpotifyMapper.artistPlausiblyMatches(v.title, v.artists.firstOrNull()?.name.orEmpty(), tokens) &&
+                (trackSec <= 0 || v.duration == null || v.duration!! in (trackSec - 10)..(trackSec + CLIP_EXTRA_S))
+        }.minByOrNull { v -> v.duration?.let { kotlin.math.abs(it - trackSec) } ?: Int.MAX_VALUE } ?: return null
+        Timber.w("Resolver took the official clip for '${track.name}' -> ${clip.id}")
+        return ResolveResult.Matched(
+            source = AudioSource.YouTube(clip.id),
+            confidence = 0.4,
+            title = clip.title,
+            artist = clip.artists.firstOrNull()?.name.orEmpty(),
+            thumbnailUrl = clip.thumbnail,
+        )
+    }
+
+    private companion object {
+        val OFFICIAL_CLIP = Regex("official\\s+(music\\s+)?video|официальн\\w*\\s+(клип|видео)", RegexOption.IGNORE_CASE)
+        const val CLIP_EXTRA_S = 180
+    }
+
     /** Fetches song (and optionally video) candidates for one query, anonymously, de-duplicated. */
-    private suspend fun fetchCandidates(query: String, includeVideos: Boolean): List<SpotifyMapper.Candidate> {
+    private suspend fun fetchCandidates(
+        query: String,
+        includeVideos: Boolean,
+        videosOut: MutableList<SongItem>,
+    ): List<SpotifyMapper.Candidate> {
         val songs = YouTube.search(query, YouTube.SearchFilter.FILTER_SONG, incognito = true)
             .getOrNull()?.items?.filterIsInstance<SongItem>().orEmpty()
         val videos = if (includeVideos) {
@@ -104,6 +148,7 @@ class YouTubeTrackResolver(
         } else {
             emptyList()
         }
+        videosOut += videos
         return (songs + videos)
             .distinctBy { it.id }
             .map { it.toCandidate() }

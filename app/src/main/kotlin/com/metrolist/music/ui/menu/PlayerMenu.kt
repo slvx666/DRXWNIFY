@@ -635,7 +635,11 @@ fun PlayerMenu(
                         )
                     }
                     IconButton(
-                        onClick = { playerConnection.service.setTrackLiked(mediaMetadata, !headerLiked) },
+                        onClick = {
+                            // The heart flips now; the account is told in the background.
+                            headerCatalogId?.let { com.metrolist.music.playback.SpotifyLikeCache.setLiked(it, !headerLiked) }
+                            playerConnection.service.setTrackLiked(mediaMetadata, !headerLiked)
+                        },
                     ) {
                         Icon(
                             painter = painterResource(
@@ -727,7 +731,10 @@ fun PlayerMenu(
                                         onClick = {
                                             if (spotifyTrack != null || mediaMetadata.id.isSpotifyId()) {
                                                 val appContext = context.applicationContext
-                                                coroutineScope.launch(Dispatchers.IO) {
+                                                Toast.makeText(appContext, appContext.getString(R.string.spotify_download_started, 1), Toast.LENGTH_SHORT).show()
+                                                // Not the menu's scope: the menu closes on tap, which cancelled
+                                                // the lookup before anything was queued.
+                                                MenuBackground.launch {
                                                     val trackToResolve = spotifyTrack ?: runCatching {
                                                         val sid = mediaMetadata.id.stripSpotifyPrefix()
                                                         com.metrolist.music.catalog.Catalog.getTrack(sid).getOrNull()
@@ -792,6 +799,7 @@ fun PlayerMenu(
                                         )
                                     },
                                     onClick = {
+                                        headerCatalogId?.let { com.metrolist.music.playback.SpotifyLikeCache.setLiked(it, !headerLiked) }
                                         playerConnection.service.setTrackLiked(mediaMetadata, !headerLiked)
                                         onDismiss()
                                     },
@@ -2628,3 +2636,6 @@ fun ListenTogetherDialog(
         }
     }
 }
+
+/** Work started from a menu that must outlive it (the menu closes as soon as an item is tapped). */
+private val MenuBackground = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
