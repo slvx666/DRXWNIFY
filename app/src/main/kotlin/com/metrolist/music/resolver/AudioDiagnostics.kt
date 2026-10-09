@@ -20,7 +20,7 @@ import java.util.Locale
  * which release builds keep (`adb logcat -s MeldAudio`).
  */
 object AudioDiagnostics {
-    const val TAG = "MeldAudio"
+    const val TAG = "DrxwAudio"
     private const val MAX_LINES = 600
 
     private val _lines = MutableStateFlow<List<String>>(emptyList())

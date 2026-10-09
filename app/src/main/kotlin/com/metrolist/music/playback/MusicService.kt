@@ -3092,7 +3092,7 @@ class MusicService :
      * Detects a corrupt-container source error that no amount of retrying will fix
      * (e.g. MatroskaExtractor's recurring `ArrayIndexOutOfBoundsException` on a
      * partial WebM stream). The only sensible response is to skip the track —
-     * see github.com/FrancescoGrazioso/Meld/issues/94. Suppresses the crash
+     * see github.com/FrancescoGrazioso/Drxwnify/issues/94. Suppresses the crash
      * report since this is an upstream Media3 bug, not our own.
      */
     private fun isMalformedContainerError(error: PlaybackException): Boolean {
@@ -5754,7 +5754,7 @@ class MusicService :
         private const val MIN_GAIN_MB = -1500 // Minimum gain in millibels (-15 dB)
 
         private const val TAG = "MusicService"
-        private const val PRECACHE_TAG = "MeldPreCache"
+        private const val PRECACHE_TAG = "DrxwPreCache"
 
         @Volatile
         var isRunning = false

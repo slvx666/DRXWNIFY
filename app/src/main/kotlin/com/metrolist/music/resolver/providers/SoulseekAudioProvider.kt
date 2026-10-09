@@ -22,7 +22,7 @@ import java.security.MessageDigest
  * (label releases, lossless), but every file comes from someone's computer. Last-resort source:
  *  - needs a Soulseek account (free; the first login with a new name creates it);
  *  - slow: the whole file is downloaded from the peer before it plays (seconds to minutes), and peers can
- *    be offline, refuse, or queue us — Meld shares nothing and can't accept incoming connections;
+ *    be offline, refuse, or queue us — Drxwnify shares nothing and can't accept incoming connections;
  *  - costs traffic/battery, hence the optional Wi-Fi-only mode.
  */
 class SoulseekAudioProvider(

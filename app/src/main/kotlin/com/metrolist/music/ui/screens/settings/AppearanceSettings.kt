@@ -160,8 +160,8 @@ fun AppearanceSettings(
         coroutineScope.launch {
             val result =
                 snackbarHostState.showSnackbar(
-                    message = "Icon updated, restart to apply",
-                    actionLabel = "Restart",
+                    message = activity.getString(R.string.icon_updated_restart),
+                    actionLabel = activity.getString(R.string.restart_action),
                 )
             if (result == SnackbarResult.ActionPerformed) {
                 val packageManager = activity.packageManager

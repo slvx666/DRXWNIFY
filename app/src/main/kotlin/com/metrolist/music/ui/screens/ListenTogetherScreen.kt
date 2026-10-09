@@ -644,7 +644,7 @@ private fun ConnectionStatusCard(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                     ) {
-                        Text("Reconnect", fontWeight = FontWeight.SemiBold)
+                        Text(androidx.compose.ui.res.stringResource(R.string.lt_reconnect), fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

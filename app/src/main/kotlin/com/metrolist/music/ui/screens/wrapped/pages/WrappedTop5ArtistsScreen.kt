@@ -100,7 +100,7 @@ fun WrappedTop5ArtistsScreen(topArtists: List<Artist>, isVisible: Boolean) {
                             Spacer(modifier = Modifier.width(16.dp))
                             AsyncImage(
                                 model = artist.artist.thumbnailUrl,
-                                contentDescription = "Artist image",
+                                contentDescription = null,
                                 modifier = Modifier
                                     .size(64.dp)
                                     .clip(CircleShape),

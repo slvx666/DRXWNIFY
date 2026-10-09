@@ -12,7 +12,7 @@ import com.metrolist.spotify.models.SpotifyTrack
  * concrete, playable audio source with a confidence score — or reports [ResolveResult.NoMatch]
  * when no candidate clears the matching gates.
  *
- * The layer deliberately hides the internal search mechanics from the rest of Meld: callers get a
+ * The layer deliberately hides the internal search mechanics from the rest of Drxwnify: callers get a
  * source + confidence, never YouTube search internals. It is designed as a cascade so additional
  * sources (a future SoundCloud fallback, a manual override, …) can be composed without touching the
  * player, cache, or download pipeline — all of which remain keyed on the resolved audio source's id.

@@ -100,7 +100,7 @@ fun WrappedTop5SongsScreen(topSongs: List<SongWithStats>, isVisible: Boolean) {
                             Spacer(modifier = Modifier.width(16.dp))
                             AsyncImage(
                                 model = song.thumbnailUrl,
-                                contentDescription = "Album art",
+                                contentDescription = null,
                                 modifier = Modifier
                                     .size(64.dp)
                                     .clip(RoundedCornerShape(3.dp)),

@@ -222,7 +222,7 @@ fun ImportPlaylistScreen(navController: NavController, targetPlaylistId: String?
                 value = text,
                 onValueChange = { text = it },
                 label = { Text(stringResource(R.string.import_paste)) },
-                placeholder = { Text("Artist - Title\nhttps://open.spotify.com/playlist/…") },
+                placeholder = { Text(androidx.compose.ui.res.stringResource(R.string.import_paste_placeholder)) },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp),
             )
             Text(

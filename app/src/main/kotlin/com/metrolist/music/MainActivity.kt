@@ -409,14 +409,11 @@ class MainActivity : ComponentActivity() {
         // Initialize Listen Together manager
         listenTogetherManager.initialize()
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            val locale =
-                dataStore[AppLanguageKey]
-                    ?.takeUnless { it == SYSTEM_DEFAULT }
-                    ?.let { Locale.forLanguageTag(it) }
-                    ?: Locale.getDefault()
-            setAppLocale(this, locale)
-        }
+        // Russian unless English was chosen (Settings → Content → App language).
+        com.metrolist.music.utils.AppLanguage.apply(
+            this,
+            com.metrolist.music.utils.AppLanguage.resolve(dataStore[AppLanguageKey]),
+        )
 
         lifecycleScope.launch {
             dataStore.data

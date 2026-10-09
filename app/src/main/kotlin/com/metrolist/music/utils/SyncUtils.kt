@@ -1218,7 +1218,7 @@ class SyncUtils @Inject constructor(
      *  3. In a single Room transaction:
      *     a. Insert/update each resolved track with `liked = true`.
      *     b. Unlike local songs whose mapped `spotifyId` is no longer present
-     *        in the remote set. To avoid wiping unmapped likes (Meld-only or
+     *        in the remote set. To avoid wiping unmapped likes (Drxwnify-only or
      *        not-yet-resolved tracks), the unlike branch only fires for songs
      *        with an existing [SpotifyMatchEntity] for their YouTube id.
      */

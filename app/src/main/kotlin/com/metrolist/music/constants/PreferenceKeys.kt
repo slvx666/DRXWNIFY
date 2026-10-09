@@ -150,7 +150,7 @@ val PreCacheTracksKey = intPreferencesKey("preCacheTracks")
 val PreCacheOnlyWifiKey = booleanPreferencesKey("preCacheOnlyWifi")
 
 // User-selected SAF tree Uri for exporting completed downloads. Empty = export to
-// MediaStore (Music/Meld) instead.
+// MediaStore (Music/Drxwnify) instead.
 val DownloadFolderUriKey = stringPreferencesKey("downloadFolderUri")
 
 // Set of songIds already exported to the user's folder, so a repeated STATE_COMPLETED

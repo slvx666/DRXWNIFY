@@ -1915,7 +1915,7 @@ fun ListenTogetherDialog(
                                 onClick = { listenTogetherManager.forceReconnect() },
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Text("Reconnect", fontWeight = FontWeight.SemiBold)
+                                Text(androidx.compose.ui.res.stringResource(R.string.lt_reconnect), fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }

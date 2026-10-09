@@ -836,7 +836,7 @@ fun OriginalLyrics(
                 if (isLyricsProviderShown) {
                     item {
                         Text(
-                            text = "Lyrics from ${lyricsEntity?.provider}",
+                            text = androidx.compose.ui.res.stringResource(R.string.lyrics_from_provider, lyricsEntity?.provider.orEmpty()),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                             fontWeight = FontWeight.Medium,

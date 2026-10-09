@@ -320,13 +320,12 @@ fun ContentSettings(
             onSelect = {
                 onAppLanguageChange(it)
                 showAppLanguageDialog = false
+                com.metrolist.music.utils.AppLanguage.change(context, it)
             },
             title = stringResource(R.string.app_language),
-            current = appLanguage,
-            values = (listOf(SYSTEM_DEFAULT) + LanguageCodeToName.keys.toList()),
-            valueText = {
-                LanguageCodeToName.getOrElse(it) { stringResource(R.string.system_default) }
-            }
+            current = com.metrolist.music.utils.AppLanguage.resolve(appLanguage),
+            values = com.metrolist.music.utils.AppLanguage.CHOICES,
+            valueText = { com.metrolist.music.utils.AppLanguage.label(it) },
         )
     }
 
@@ -840,31 +839,14 @@ fun ContentSettings(
         Material3SettingsGroup(
             title = stringResource(R.string.app_language),
             items = listOf(
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.language),
-                        title = { Text(stringResource(R.string.app_language)) },
-                        onClick = {
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_APP_LOCALE_SETTINGS,
-                                    "package:${context.packageName}".toUri()
-                                )
-                            )
-                        }
-                    )
-                } else {
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.language),
-                        title = { Text(stringResource(R.string.app_language)) },
-                        description = {
-                            Text(
-                                LanguageCodeToName.getOrElse(appLanguage) { stringResource(R.string.system_default) }
-                            )
-                        },
-                        onClick = { showAppLanguageDialog = true }
-                    )
-                }
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.language),
+                    title = { Text(stringResource(R.string.app_language)) },
+                    description = {
+                        Text(com.metrolist.music.utils.AppLanguage.label(com.metrolist.music.utils.AppLanguage.resolve(appLanguage)))
+                    },
+                    onClick = { showAppLanguageDialog = true },
+                )
             )
         )
 

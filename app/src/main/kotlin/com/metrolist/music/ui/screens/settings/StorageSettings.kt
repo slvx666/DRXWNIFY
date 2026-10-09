@@ -622,7 +622,7 @@ fun StorageSettings(
 
 /**
  * Derives a human-readable folder name from a SAF tree Uri without depending on
- * androidx.documentfile. A tree Uri's document id looks like "primary:Music/Meld";
+ * androidx.documentfile. A tree Uri's document id looks like "primary:Music/Drxwnify";
  * we show the segment after the last '/' or ':'.
  */
 private fun folderDisplayName(uriString: String): String? {

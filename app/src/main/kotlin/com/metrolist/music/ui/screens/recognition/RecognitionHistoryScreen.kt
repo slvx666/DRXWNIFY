@@ -192,7 +192,7 @@ fun RecognitionHistoryScreen(navController: NavController) {
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "No recognition history",
+                        text = androidx.compose.ui.res.stringResource(R.string.recognition_history_empty),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

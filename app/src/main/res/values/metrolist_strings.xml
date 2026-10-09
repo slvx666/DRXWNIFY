@@ -1656,4 +1656,17 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="friends_view_as_others">How others see me</string>
     <string name="spectrum_shelf_weak">A possible trace of a former ceiling at %1$.1f kHz (in %2$d%% of the track): a weak sign, not counted.</string>
     <string name="changelog_1_5_1">### Added\n+ Previews of every widget in the widget list\n+ \"How others see me\" in the Friends profile\n### Fixed\n• Your own profile no longer shows up as an empty friend after signing in with a key\n• The shared VK works without your own account\n• Widgets no longer lose the playing track\n• The spectrogram is more careful: a clean 320 is no longer called blown up\n### Removed\n• The old Meld debug icon</string>
+    <string name="lt_reconnect">Reconnect</string>
+    <string name="romanization_all">All</string>
+    <string name="recognition_history_empty">No recognition history</string>
+    <string name="icon_updated_restart">Icon updated, restart to apply</string>
+    <string name="import_paste_placeholder">Artist - Title\nhttps://open.spotify.com/playlist/…</string>
+    <string name="lt_joined_room">Joined room: %s</string>
+    <string name="lt_join_rejected">Join rejected: %s</string>
+    <string name="lt_wants_to_join">%s wants to join</string>
+    <string name="lt_kicked">Kicked: %s</string>
+    <string name="lt_connection_error">Connection error: %s</string>
+    <string name="lt_error">Error: %s</string>
+    <string name="changelog_1_5_2">### Added\n+ App language: Russian (default) or English — Settings → Content\n+ Every button and caption left in English is translated into Russian\n### Fixed\n• The update no longer hangs at \"100 %\" — the installer opens by itself</string>
+    <string name="restart_action">Restart</string>
 </resources>

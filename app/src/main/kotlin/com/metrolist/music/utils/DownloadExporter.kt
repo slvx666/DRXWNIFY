@@ -91,7 +91,7 @@ object DownloadExportState {
  * gets *a* file.
  *
  * The file is written either into a user-selected SAF tree ([DownloadFolderUriKey]) or,
- * when none is set, into MediaStore under Music/Meld (API 29+).
+ * when none is set, into MediaStore under Music/Drxwnify (API 29+).
  */
 @Singleton
 class DownloadExporter @Inject constructor(
@@ -234,7 +234,7 @@ class DownloadExporter @Inject constructor(
         return moved
     }
 
-    /** Whether [uri] was written into [folder] (a SAF tree uri, or "" for Music/Meld via MediaStore). */
+    /** Whether [uri] was written into [folder] (a SAF tree uri, or "" for Music/Drxwnify via MediaStore). */
     private fun isInFolder(uri: Uri, folder: String): Boolean =
         if (folder.isEmpty()) {
             uri.authority == MediaStore.AUTHORITY

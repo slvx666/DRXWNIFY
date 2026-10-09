@@ -130,7 +130,7 @@ fun RomanizationSettings(
         Spacer(modifier = Modifier.height(8.dp))
 
         checkboxesList += Material3SettingsItem(
-            title = { Text("Play all") },
+            title = { Text(androidx.compose.ui.res.stringResource(R.string.romanization_all)) },
             trailingContent = {
                 TriStateCheckbox(
                     state = parentState,

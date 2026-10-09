@@ -344,7 +344,7 @@ object Catalog {
                 }
         }.also { invalidateCaches() }
 
-    /** Yandex playlists are read-only in Meld (no reorder/rename/remove through this API). */
+    /** Yandex playlists are read-only in Drxwnify (no reorder/rename/remove through this API). */
     fun isEditablePlaylist(id: String): Boolean = !isYandexId(id)
 
     // ── Collections (selected source only) ───────────────────────────────────────────────────────

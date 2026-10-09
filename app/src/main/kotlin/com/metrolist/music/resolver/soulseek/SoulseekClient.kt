@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.random.Random
 
 /**
- * Minimal Soulseek client: log in, search, download one file. Meld never shares files and never listens
+ * Minimal Soulseek client: log in, search, download one file. Drxwnify never shares files and never listens
  * for incoming connections (phones sit behind NAT): every peer connection is outgoing — directly to the
  * peer's address, or "pierced" when the server relays a peer's connection request to us.
  *

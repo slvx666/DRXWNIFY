@@ -27,7 +27,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * Plays an (unencrypted) HLS *media* playlist as ONE continuous progressive stream. Meld's player and
+ * Plays an (unencrypted) HLS *media* playlist as ONE continuous progressive stream. Drxwnify's player and
  * download pipeline are progressive-only (they swap the uri inside a ResolvingDataSource, which cannot
  * switch the media source type), and SoundCloud serves most tracks as HLS only.
  *
@@ -241,7 +241,7 @@ class HlsConcatDataSource(
         }
         // The real bitrate, from the audio itself (VK doesn't say it).
         MeasuredAudio.analyze(audio)?.let { MeasuredAudio.record(playlistUrl, it) }
-        timber.log.Timber.tag("MeldHls").i(
+        timber.log.Timber.tag("DrxwHls").i(
             "whole: %d segments (%d encrypted), %d bytes joined → %d bytes audio, starts %02x %02x",
             playlist.segments.size, playlist.keys.count { it != null }, joined.size, audio.size,
             audio.getOrNull(0) ?: 0, audio.getOrNull(1) ?: 0,

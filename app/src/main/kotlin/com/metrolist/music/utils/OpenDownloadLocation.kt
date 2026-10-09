@@ -39,7 +39,7 @@ suspend fun openDownloadLocation(
     val folder = withContext(Dispatchers.IO) { folderUriOf(context, uri) }
 
     withContext(Dispatchers.Main) {
-        // A folder of our own tree is handed over with a grant; a Music/Meld folder is opened
+        // A folder of our own tree is handed over with a grant; a Music/Drxwnify folder is opened
         // without one — the file manager can read it by itself, and asking to grant a uri we don't
         // hold is what the system refused (which fell back to "share").
         val opened = folder != null && startViewing(context, folder, grant = hasAccessTo(context, folder))
@@ -212,7 +212,7 @@ private fun startViewing(context: Context, uri: Uri, grant: Boolean): Boolean {
  *  - a SAF document (the user picked a download folder): its parent document id is the same id
  *    without the last path segment;
  *  - a MediaStore item (no folder picked): the path it reports is turned into an
- *    ExternalStorageProvider document, which is what DocumentsUI shows as "Music/Meld/…".
+ *    ExternalStorageProvider document, which is what DocumentsUI shows as "Music/Drxwnify/…".
  */
 private fun folderUriOf(context: Context, fileUri: Uri): Uri? = runCatching {
     when {

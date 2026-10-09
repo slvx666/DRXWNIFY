@@ -33,8 +33,8 @@ android {
         applicationId = applicationIdOverride ?: "com.meld.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 35
-        versionName = "1.5.1"
+        versionCode = 36
+        versionName = "1.5.2"
         resValue("string", "app_name", appNameOverride ?: "Drxwnify")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -199,6 +199,9 @@ android {
 
     androidResources {
         generateLocaleConfig = true
+        // The app speaks Russian (default) and English only: the other translations inherited from
+        // Metrolist covered a fraction of the screens.
+        localeFilters += listOf("en", "ru")
     }
 
     packaging {
