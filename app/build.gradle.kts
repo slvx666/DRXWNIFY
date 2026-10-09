@@ -30,13 +30,13 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        // Own id since 1.6.0 (was the inherited "com.meld.app"; build that one with
-        // METROLIST_APPLICATION_ID=com.meld.app). See utils/AppMigration.
+        // 2.0.0 moves to its own id "com.drxwnify.app" (see utils/AppMigration); 1.5.x stays on the
+        // inherited one.
         applicationId = applicationIdOverride ?: "com.drxwnify.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 38
-        versionName = "1.6.0"
+        versionCode = 40
+        versionName = "2.0.0"
         resValue("string", "app_name", appNameOverride ?: "Drxwnify")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

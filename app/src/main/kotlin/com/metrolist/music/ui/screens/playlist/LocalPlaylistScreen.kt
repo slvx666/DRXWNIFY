@@ -996,7 +996,8 @@ fun LocalPlaylistHeader(
             ActivityResultContracts.PickVisualMedia(),
         ) { uri ->
             uri?.let { sourceUri ->
-                val destFile = java.io.File(context.cacheDir, "playlist_cover_crop_${System.currentTimeMillis()}.jpg")
+                // Kept in files/, not the cache: a cleared cache used to take the cover with it.
+                val destFile = com.metrolist.music.utils.PlaylistCovers.newFile(context)
                 val destUri = FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", destFile)
                 pendingCropDestUri = destUri
 

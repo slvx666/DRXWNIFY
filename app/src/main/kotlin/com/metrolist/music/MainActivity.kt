@@ -409,6 +409,9 @@ class MainActivity : ComponentActivity() {
         // Initialize Listen Together manager
         listenTogetherManager.initialize()
 
+        // Own playlist covers: moved out of the cache, and re-pointed after a restore.
+        lifecycleScope.launch { com.metrolist.music.utils.PlaylistCovers.relink(applicationContext, database) }
+
         // Russian unless English was chosen (Settings → Content → App language).
         com.metrolist.music.utils.AppLanguage.apply(
             this,
@@ -556,6 +559,13 @@ class MainActivity : ComponentActivity() {
         val selectedThemeColor = Color(selectedThemeColorInt)
 
         val showChangelog = rememberSaveable { mutableStateOf(false) }
+        // Start-up windows come one after another: the welcome, then the release notes, then the rest.
+        val startupWelcomeDone = remember {
+            mutableStateOf(
+                getSharedPreferences("welcome", MODE_PRIVATE).getLong("seen_install_stamp", -1L) ==
+                    runCatching { packageManager.getPackageInfo(packageName, 0).lastUpdateTime }.getOrDefault(0L),
+            )
+        }
 
         var themeColor by rememberSaveable(stateSaver = ColorSaver) {
             mutableStateOf(selectedThemeColor)
@@ -973,12 +983,22 @@ class MainActivity : ComponentActivity() {
                     LocalListenTogetherManager provides listenTogetherManager,
                     LocalChangelogState provides showChangelog,
                 ) {
-                    if (showChangelog.value && !introVisible) {
+                    if (showChangelog.value && !introVisible && startupWelcomeDone.value) {
                         ChangelogScreen(onDismiss = { showChangelog.value = false })
                     }
-                    if (!introVisible && !showChangelog.value) {
+                    if (!introVisible && !showChangelog.value && startupWelcomeDone.value) {
                         com.metrolist.music.ui.component.AppUpdateOffer()
                         com.metrolist.music.ui.component.MigrationRestoreOffer()
+                        // The old app id: at every start, how to move to 2.0.0 (see AppMigration).
+                        var showMigrationNotice by remember {
+                            mutableStateOf(com.metrolist.music.utils.AppMigration.isOldApp(this@MainActivity))
+                        }
+                        if (showMigrationNotice) {
+                            com.metrolist.music.ui.screens.settings.MigrationNoticeSheet(
+                                onOpenBackup = { navController.navigate("settings/backup_restore") },
+                                onDismiss = { showMigrationNotice = false },
+                            )
+                        }
                     }
 
                     if (appComposed) {
@@ -1457,6 +1477,7 @@ class MainActivity : ComponentActivity() {
                         yandexTokenForWelcome.isNotEmpty() || spotifyTokenForWelcome.isNotEmpty()
                     fun markWelcomeSeen() {
                         welcomeSeenFor = installStamp
+                        startupWelcomeDone.value = true
                         welcomePrefs.edit().putLong("seen_install_stamp", installStamp).apply()
                     }
                     var introHoldingForWelcome by remember { mutableStateOf(false) }

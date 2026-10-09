@@ -239,15 +239,26 @@ fun MusicSourcesSettings(
                 AudioProviderId.LOSSLESS -> lossless
             }
             val extra = when {
-                id == AudioProviderId.VK && vkToken.isEmpty() && sharedVk != null ->
-                    "\n" + stringResource(R.string.vk_shared_in_use, sharedVk.dailyTracks)
-                id == AudioProviderId.VK && vkToken.isEmpty() -> "\n" + stringResource(R.string.vk_login_required)
+                id == AudioProviderId.VK && vkToken.isEmpty() && sharedVk == null -> "\n" + stringResource(R.string.vk_login_required)
                 id == AudioProviderId.SOULSEEK && !slskReady -> "\n" + stringResource(R.string.soulseek_login_required)
                 id == AudioProviderId.LOSSLESS && losslessMirrorCount == 0 -> "\n" + stringResource(R.string.lossless_no_mirrors)
                 else -> ""
             }
             PreferenceEntry(
-                title = { Text("${index + 1}. ${stringResource(title)}") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${index + 1}. ${stringResource(title)}")
+                        // VK: the source with the most music and the best quality.
+                        if (id == AudioProviderId.VK) {
+                            Icon(
+                                painterResource(R.drawable.crown),
+                                contentDescription = null,
+                                tint = androidx.compose.ui.graphics.Color(0xFFF5C542),
+                                modifier = Modifier.padding(start = 6.dp).size(18.dp),
+                            )
+                        }
+                    }
+                },
                 description = stringResource(description) + extra,
                 icon = {
                     Icon(
@@ -263,14 +274,6 @@ fun MusicSourcesSettings(
                         }
                         IconButton(onClick = { move(id, 1) }, onLongClick = {}) {
                             Icon(painterResource(R.drawable.arrow_downward), contentDescription = stringResource(R.string.move_down))
-                        }
-                        // VK without an account: the row itself offers the login, so it can't be
-                        // mistaken for a separate setting.
-                        if (id == AudioProviderId.VK && vkToken.isEmpty()) {
-                            OutlinedButton(onClick = { navController.navigate("settings/vk/login") }) {
-                                Text(stringResource(R.string.action_login))
-                            }
-                            return@Row
                         }
                         Switch(
                             // Soulseek can't work without an account: locked until it is set.
@@ -292,6 +295,20 @@ fun MusicSourcesSettings(
                     }
                 },
             )
+            if (id == AudioProviderId.VK && vkToken.isEmpty()) {
+                // Own account not linked: the login in a row of its own (with the demo explained),
+                // so the source row keeps its text readable.
+                PreferenceEntry(
+                    title = { Text(stringResource(R.string.vk_login_own)) },
+                    description = sharedVk?.let { stringResource(R.string.vk_shared_in_use, it.dailyTracks) },
+                    icon = { Spacer(Modifier.size(24.dp)) },
+                    trailingContent = {
+                        OutlinedButton(onClick = { navController.navigate("settings/vk/login") }) {
+                            Text(stringResource(R.string.action_login))
+                        }
+                    },
+                )
+            }
             if (id == AudioProviderId.VK && vkToken.isNotEmpty()) {
                 // Where hearts on VK tracks go: the user's VK music, or the app's "Local" only.
                 PreferenceEntry(

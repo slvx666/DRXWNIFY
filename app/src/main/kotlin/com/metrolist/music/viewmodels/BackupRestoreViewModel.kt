@@ -94,6 +94,11 @@ class BackupRestoreViewModel @Inject constructor(
                         outputStream.putNextEntry(ZipEntry(PREFS_PREFIX + file.name))
                         file.inputStream().use { it.copyTo(outputStream) }
                     }
+                    // The pictures of the user's own playlist covers.
+                    com.metrolist.music.utils.PlaylistCovers.allFiles(context).forEach { file ->
+                        outputStream.putNextEntry(ZipEntry(COVERS_PREFIX + file.name))
+                        file.inputStream().use { it.copyTo(outputStream) }
+                    }
                 }
             }
         }.onSuccess {
@@ -135,7 +140,11 @@ class BackupRestoreViewModel @Inject constructor(
                                 }
                                 Timber.tag("RESTORE").i("DB overwrite complete")
                             }
-                            else -> if (entry.name.startsWith(PREFS_PREFIX) && !entry.name.contains("..")) {
+                            else -> if (entry.name.startsWith(COVERS_PREFIX) && !entry.name.contains("..")) {
+                                foundAny = true
+                                val file = java.io.File(com.metrolist.music.utils.PlaylistCovers.dir(context), entry.name.removePrefix(COVERS_PREFIX))
+                                file.outputStream().use { inputStream.copyTo(it) }
+                            } else if (entry.name.startsWith(PREFS_PREFIX) && !entry.name.contains("..")) {
                                 foundAny = true
                                 val name = entry.name.removePrefix(PREFS_PREFIX)
                                 val dir = java.io.File(context.applicationInfo.dataDir, "shared_prefs").apply { mkdirs() }
@@ -485,6 +494,9 @@ class BackupRestoreViewModel @Inject constructor(
 
         /** The app's own SharedPreferences files inside a backup. */
         const val PREFS_PREFIX = "shared_prefs/"
+
+        /** Own playlist cover pictures inside a backup. */
+        const val COVERS_PREFIX = "covers/"
 
         /** SharedPreferences worth carrying over (not the WebView's or libraries' caches). */
         fun sharedPrefsFiles(context: Context): List<java.io.File> =

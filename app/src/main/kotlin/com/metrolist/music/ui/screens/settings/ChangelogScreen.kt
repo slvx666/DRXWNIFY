@@ -146,12 +146,84 @@ fun ChangelogScreen(
     }
 }
 
+/**
+ * Shown at every start of the last version under the old app id: the app moves to its own id
+ * (2.0.0 is a new app to Android), so the data has to go over through a backup file. Same look as
+ * the release notes, with the way to the backup screen.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun MigrationNoticeSheet(onOpenBackup: () -> Unit, onDismiss: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle() },
+    ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(bottom = 96.dp),
+            ) {
+                item {
+                    Text(
+                        text = stringResource(R.string.migration_notice_title),
+                        style = MaterialTheme.typography.displaySmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                item {
+                    val density = LocalDensity.current
+                    val stroke = remember(density) { Stroke(width = with(density) { 3.dp.toPx() }, cap = StrokeCap.Round) }
+                    LinearWavyProgressIndicator(
+                        progress = { 1f },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = Color.Transparent,
+                        stroke = stroke,
+                        trackStroke = stroke,
+                        amplitude = { 1f },
+                    )
+                }
+                item {
+                    ReleaseItem(
+                        ReleaseInfo(
+                            tagName = BuildConfig.VERSION_NAME,
+                            versionName = BuildConfig.VERSION_NAME,
+                            description = context.getString(R.string.migration_notice_body),
+                            releaseDate = "",
+                            assets = emptyList(),
+                        ),
+                    )
+                }
+            }
+            ExtendedFloatingActionButton(
+                onClick = {
+                    onDismiss()
+                    onOpenBackup()
+                },
+                icon = { Icon(painterResource(R.drawable.backup), contentDescription = null, modifier = Modifier.size(24.dp)) },
+                text = { Text(stringResource(R.string.migration_notice_button)) },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+            )
+        }
+    }
+}
+
 /** Release notes bundled with the app, newest first. */
 private fun localReleases(context: android.content.Context): List<ReleaseInfo> = listOf(
     ReleaseInfo(
-        tagName = "1.6.0",
-        versionName = "1.6.0",
-        description = context.getString(com.metrolist.music.R.string.changelog_1_6_0),
+        tagName = "2.0.0",
+        versionName = "2.0.0",
+        description = context.getString(com.metrolist.music.R.string.changelog_2_0_0),
         releaseDate = "2026-10-09",
         assets = emptyList(),
     ),

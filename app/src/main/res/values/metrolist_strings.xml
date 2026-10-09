@@ -1166,7 +1166,7 @@
     <string name="audio_source_soundcloud">SoundCloud</string>
     <string name="audio_source_soundcloud_description">Underground, remixes and rare releases. Many label releases there are DRM-protected and can\'t be played by third-party apps — those are skipped automatically.</string>
     <string name="audio_source_vk">VK Music</string>
-    <string name="audio_source_vk_description">Good coverage of Russian-language music and part of the underground. Requires a VK login.</string>
+    <string name="audio_source_vk_description">The most music, Russian-language and underground especially, and the best quality: up to 320 kbps.</string>
     <string name="audio_source_qobuz">Qobuz</string>
     <string name="audio_source_qobuz_description">A high-quality source, especially valuable for lossless / Hi-Res audio. Works through community servers, so availability varies.</string>
     <string name="audio_sources_all_disabled">All audio sources are off — tracks can\'t be played.</string>
@@ -1652,7 +1652,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="friends_avatar_crop">Profile picture</string>
     <string name="spectrum_legend">Green dashes: what the file\'s format and bitrate promise (MP3 320 → ~20 kHz, Opus even at 128 → ~20 kHz, FLAC → 22 kHz). Solid red: where the sound really ends. Red dots: a former encoder ceiling.</string>
     <string name="source_pick_quality">Quality: among close matches the best sound plays (FLAC, 320); now and then another version of the track may slip in</string>
-    <string name="vk_shared_in_use">Works through the shared VK account: up to %d tracks a day. Connect your own VK for no limit.</string>
+    <string name="vk_shared_in_use">Demo mode: a shared VK account for everyone, to try music from VK without your own account. Up to %d tracks a day: this protects it from VK\'s anti-fraud system so the shared account doesn\'t get banned. Link your own VK for no limit.</string>
     <string name="friends_view_as_others">How others see me</string>
     <string name="spectrum_shelf_weak">A possible trace of a former ceiling at %1$.1f kHz (in %2$d%% of the track): a weak sign, not counted.</string>
     <string name="changelog_1_5_1">### Added\n+ Previews of every widget in the widget list\n+ \"How others see me\" in the Friends profile\n### Fixed\n• Your own profile no longer shows up as an empty friend after signing in with a key\n• The shared VK works without your own account\n• Widgets no longer lose the playing track\n• The spectrogram is more careful: a clean 320 is no longer called blown up\n### Removed\n• The old Meld debug icon</string>
@@ -1675,6 +1675,14 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="migration_restore_text">If you used Drxwnify before, pick the Drxwnify-перенос-….backup file in Download/Drxwnify: your accounts, likes, playlists, settings and friends come back, and the downloaded music plays from the folder without downloading again.</string>
     <string name="migration_restore_pick">Pick the file</string>
     <string name="migration_restore_skip">Start fresh</string>
-    <string name="changelog_1_5_3">### Added\n+ Moving to the new app: on update all data is saved to a file in Download/Drxwnify\n+ The backup now also keeps friends, the VK login and the other settings\n### Fixed\n• Tracks are found again after a restart (the \"no metadata\" error)</string>
+    <string name="changelog_1_5_3">### Added\n+ Getting ready for Drxwnify 2.0.0: every start explains how to save your data with a backup\n+ The backup now also keeps friends, the VK login and the other settings\n+ The shared VK demo account and its daily limit are clearly labelled\n### Fixed\n• Tracks are found again after a restart (the \"no metadata\" error)\n• The app never deletes files from the music folder by itself any more</string>
     <string name="changelog_1_6_0">### Changed\n• Drxwnify is now its own app with its own id. Data comes over from the file the old app saved; the downloaded music plays straight from the folder\n### Fixed\n• Tracks are found again after a restart (the \"no metadata\" error)\n• The app never deletes files from the music folder by itself any more</string>
+    <string name="migration_notice_title">Important: moving</string>
+    <string name="migration_notice_body">### Why\n• To avoid possible legal problems, Drxwnify moves to its own system id: from 2.0.0 it is a separate app.\n• To Android that is a new app, and this version\'s data won\'t get there by itself. A backup carries it over, in one file.\n### How to move\n• Here: \"Backup\" (the button below) → \"Create backup\"\n• In Drxwnify 2.0.0: Settings → Backup → \"Restore from backup\": your accounts, likes, playlists, settings and friends come back, the downloaded music stays\n• Then remove this version: it won\'t be updated any more</string>
+    <string name="migration_notice_button">Backup</string>
+    <string name="vk_shared_demo_short">Now: the shared demo account (up to %d tracks a day). Link your own VK to listen without a limit</string>
+    <string name="vk_login_own">Your own VK account</string>
+    <string name="changelog_2_0_0">### Changed\n• Drxwnify is now a separate app with its own system id (because of possible legal problems with the old one). Data comes over with a backup from the previous version: Settings → Backup → \"Restore from backup\". Downloaded music plays straight from the folder\n### Fixed\n• Tracks are found again after a restart\n• The app never deletes files from the music folder by itself</string>
+    <string name="migration_update_available">%s is out: it moves you to the new Drxwnify app. Tap to save your data and install</string>
+    <string name="migration_update_needed">This version is no longer updated: move to the new Drxwnify 2.0.0 app (tap to open)</string>
 </resources>

@@ -237,8 +237,16 @@ fun SettingsScreen(
                         title = { Text(stringResource(R.string.app_update_title)) },
                         description = {
                             val current = com.metrolist.music.utils.AppUpdater.currentVersion
+                            // The old app id never gets a newer version of itself: every check leads to the move.
+                            val oldApp = com.metrolist.music.utils.AppMigration.isOldApp(context)
                             Text(
                                 text = when (val st = updateState) {
+                                    is com.metrolist.music.utils.AppUpdater.State.Available ->
+                                        if (oldApp) stringResource(R.string.migration_update_available, st.version)
+                                        else stringResource(R.string.app_update_available, st.version)
+                                    is com.metrolist.music.utils.AppUpdater.State.UpToDate ->
+                                        if (oldApp) stringResource(R.string.migration_update_needed)
+                                        else stringResource(R.string.app_update_up_to_date, current)
                                     com.metrolist.music.utils.AppUpdater.State.Idle ->
                                         stringResource(R.string.app_update_current, current)
                                     com.metrolist.music.utils.AppUpdater.State.Checking ->
@@ -264,6 +272,9 @@ fun SettingsScreen(
                                     com.metrolist.music.utils.AppUpdater.openReleases(context)
                                     updateScope.launch { com.metrolist.music.utils.AppUpdater.check() }
                                 }
+                                is com.metrolist.music.utils.AppUpdater.State.UpToDate ->
+                                    if (com.metrolist.music.utils.AppMigration.isOldApp(context)) com.metrolist.music.utils.AppUpdater.openReleases(context)
+                                    else updateScope.launch { com.metrolist.music.utils.AppUpdater.check() }
                                 is com.metrolist.music.utils.AppUpdater.State.Downloading,
                                 com.metrolist.music.utils.AppUpdater.State.Checking -> Unit
                                 else -> updateScope.launch { com.metrolist.music.utils.AppUpdater.check() }

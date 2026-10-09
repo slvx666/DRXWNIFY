@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui.screens.settings.integrations
 
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentType
@@ -276,6 +277,14 @@ fun VkLoginScreen(navController: NavController) {
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
+            com.metrolist.music.utils.RemoteConfig.config.collectAsState().value.vkShared?.let { shared ->
+                Text(
+                    text = stringResource(R.string.vk_shared_in_use, shared.dailyTracks),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
             Text(
                 text = stringResource(R.string.vk_password_note) + "\n" + stringResource(R.string.vk_privacy_note),
                 style = MaterialTheme.typography.bodySmall,

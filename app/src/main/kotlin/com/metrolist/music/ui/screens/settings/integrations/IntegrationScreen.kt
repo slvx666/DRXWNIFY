@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui.screens.settings.integrations
 
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -125,7 +126,16 @@ fun IntegrationScreen(
                 IntegrationCardItem(
                     icon = painterResource(R.drawable.vk_music),
                     title = { Text(stringResource(R.string.vk_music)) },
-                    description = { Text(stringResource(R.string.integration_vk_description)) },
+                    description = {
+                        val shared = com.metrolist.music.utils.RemoteConfig.config.collectAsState().value.vkShared
+                        Text(
+                            if (vkToken.isEmpty() && shared != null) {
+                                stringResource(R.string.vk_shared_demo_short, shared.dailyTracks)
+                            } else {
+                                stringResource(R.string.integration_vk_description)
+                            },
+                        )
+                    },
                     trailingContent = if (vkToken.isNotEmpty()) connected else null,
                     onClick = {
                         if (vkToken.isNotEmpty()) showVkLogout = true else navController.navigate("settings/vk/login")
