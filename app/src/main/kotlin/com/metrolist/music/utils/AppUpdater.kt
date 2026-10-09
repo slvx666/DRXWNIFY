@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -102,6 +103,21 @@ object AppUpdater {
      * Downloads the APK of [available] and opens the system installer. Returns false when the user
      * must be sent to the releases page instead (no APK in the release, download failed).
      */
+    private val installScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main)
+
+    /**
+     * Starts [downloadAndInstall] on the updater's own scope. The update dialog closes on tap, and
+     * when the download ran on the dialog's scope it was cancelled right after the last byte: the
+     * installer never opened and the status stayed at "100 %".
+     */
+    fun startDownloadAndInstall(context: Context, available: State.Available) {
+        val app = context.applicationContext
+        installScope.launch {
+            val ok = runCatching { downloadAndInstall(app, available) }.getOrDefault(false)
+            if (!ok) openUpdatePage(app, available)
+        }
+    }
+
     suspend fun downloadAndInstall(context: Context, available: State.Available): Boolean {
         val url = available.apkUrl ?: return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {

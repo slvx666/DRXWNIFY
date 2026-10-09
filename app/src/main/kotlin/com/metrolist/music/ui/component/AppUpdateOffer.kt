@@ -65,7 +65,7 @@ fun AppUpdateDialog(available: AppUpdater.State.Available, onDismiss: () -> Unit
             if (available.apkUrl != null) {
                 TextButton(onClick = {
                     onDismiss()
-                    scope.launch { if (!AppUpdater.downloadAndInstall(context, available)) AppUpdater.openUpdatePage(context, available) }
+                    AppUpdater.startDownloadAndInstall(context, available)
                 }) { Text(stringResource(R.string.app_update_install_now)) }
             } else {
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.app_update_later)) }
