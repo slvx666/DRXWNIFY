@@ -110,6 +110,11 @@ object SpectrumCheck {
         val shelfHz: Int? = null,
         /** Share of loud frames that show that step, 0..1. */
         val shelfShare: Float = 0f,
+        /**
+         * The step is strong enough to count: it decides the real bitrate. A weak one (rare, or the
+         * MP3 format's own 16 kHz band edge) is only mentioned.
+         */
+        val shelfStrong: Boolean = false,
         /** The top the audio really had, Hz: the former ceiling when there is one, else [cutoffHz]. */
         val realCutoffHz: Int = cutoffHz,
     ) {
@@ -130,6 +135,10 @@ object SpectrumCheck {
     private const val SHELF_MIN_SHARE = 0.12f
     private const val SHELF_MIN_WINDOWS = 8
     private const val SHELF_MIN_DEPTH_DB = 12.0
+
+    /** Share of the track a former ceiling must hold through to decide the verdict. */
+    private const val SHELF_STRONG_SHARE = 0.35f
+    private const val SHELF_STRONG_MP3_EDGE = 0.6f
     private const val LOUDNESS_SAMPLE_US = 350_000L
     private const val SHELF_FROM_HZ = 11_000
     private const val SHELF_TO_HZ = 21_000
@@ -430,7 +439,11 @@ object SpectrumCheck {
         val shelfHz = shelf?.hz
         val shelfShare = shelf?.share ?: 0f
         // A step well under where the content (and the format) reaches = the file once stopped there.
-        val shelfMatters = shelfHz != null && shelfHz < max(median, expected) - 700 && shelfHz < 20_300
+        val shelfCandidate = shelfHz != null && shelfHz < max(median, expected) - 700 && shelfHz < 20_300
+        // MP3 changes how it codes everything above 16.0 kHz (its last band, "sfb21"): a genuine 320
+        // can show a faint step there too. A step at that spot must hold through most of the track.
+        val atMp3BandEdge = codec?.uppercase() == "MP3" && shelfHz != null && shelfHz in 15_700..16_400
+        val shelfMatters = shelfCandidate && shelfShare >= (if (atMp3BandEdge) SHELF_STRONG_MP3_EDGE else SHELF_STRONG_SHARE)
         val realCutoff = if (shelfMatters) min(shelfHz!!, median) else median
         // A cut right under nyquist is the resampler of a genuine file, not a lossy encoder.
         val fullBand = !shelfMatters && median >= min(20_700, nyquist - 600)
@@ -511,8 +524,9 @@ object SpectrumCheck {
             seconds = decoded.segments.sumOf { it.size } / sampleRate,
             loudFrames = loud.size,
             fromFile = fromFile,
-            shelfHz = shelfHz.takeIf { shelfMatters },
-            shelfShare = if (shelfMatters) shelfShare else 0f,
+            shelfHz = shelfHz.takeIf { shelfCandidate },
+            shelfShare = if (shelfCandidate) shelfShare else 0f,
+            shelfStrong = shelfMatters,
             realCutoffHz = realCutoff,
         )
     }

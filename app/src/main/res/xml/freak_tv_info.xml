@@ -8,7 +8,8 @@
     android:targetCellHeight="2"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_freak"
-    android:previewLayout="@layout/widget_freak"
+    android:previewImage="@drawable/widget_preview_tv"
+    android:previewLayout="@layout/widget_preview_tv"
     android:description="@string/freak_tv_desc"
     android:widgetCategory="home_screen"
     android:resizeMode="horizontal|vertical" />

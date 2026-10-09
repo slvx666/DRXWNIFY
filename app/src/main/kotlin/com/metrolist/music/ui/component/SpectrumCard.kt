@@ -220,9 +220,13 @@ private fun VerdictText(v: SpectrumCheck.Verdict) {
     }
     v.shelfHz?.let { hz ->
         Text(
-            text = stringResource(R.string.spectrum_shelf, hz / 1000.0, (v.shelfShare * 100).toInt()),
+            text = stringResource(
+                if (v.shelfStrong) R.string.spectrum_shelf else R.string.spectrum_shelf_weak,
+                hz / 1000.0,
+                (v.shelfShare * 100).toInt(),
+            ),
             style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFFFF6B7D),
+            color = if (v.shelfStrong) Color(0xFFFF6B7D) else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp),
         )
     }
@@ -298,7 +302,7 @@ private fun FrequencyOverlay(v: SpectrumCheck.Verdict, modifier: Modifier, label
         drawLine(expectedColor.copy(alpha = 0.8f), Offset(0f, yOf(v.expectedHz.toFloat())), Offset(size.width, yOf(v.expectedHz.toFloat())), strokeWidth = 2f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 8f)))
         drawLine(cutColor, Offset(0f, yOf(v.cutoffHz.toFloat())), Offset(size.width, yOf(v.cutoffHz.toFloat())), strokeWidth = 2.5f)
         // The former encoder ceiling, when one was found.
-        v.shelfHz?.let { hz ->
+        v.shelfHz?.takeIf { v.shelfStrong }?.let { hz ->
             drawLine(
                 Color(0xFFFF3D57),
                 Offset(0f, yOf(hz.toFloat())),

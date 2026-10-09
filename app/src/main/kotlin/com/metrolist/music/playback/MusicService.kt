@@ -5149,13 +5149,19 @@ class MusicService :
         // A queued catalog track may have no saved row yet: the player's own item still knows it
         // (the widget used to say "nothing is playing" while its progress bar ran).
         val itemMeta = player.currentMediaItem?.mediaMetadata
+        // The app's own metadata travels in the item's tag; the platform fields can be empty.
+        val appMeta = player.currentMetadata
         widgetRenderRequests.trySend(
             WidgetUiState(
-                title = song?.title ?: itemMeta?.title?.toString()?.takeIf { it.isNotBlank() } ?: getString(R.string.no_song_playing),
+                title = song?.title
+                    ?: appMeta?.title?.takeIf { it.isNotBlank() }
+                    ?: itemMeta?.title?.toString()?.takeIf { it.isNotBlank() }
+                    ?: getString(R.string.no_song_playing),
                 artist = songData?.artists?.joinToString(", ") { it.name }
+                    ?: appMeta?.artists?.joinToString(", ") { it.name }?.takeIf { it.isNotBlank() }
                     ?: itemMeta?.artist?.toString()?.takeIf { it.isNotBlank() }
                     ?: getString(R.string.tap_to_open),
-                artworkUri = song?.thumbnailUrl ?: itemMeta?.artworkUri?.toString(),
+                artworkUri = song?.thumbnailUrl ?: appMeta?.thumbnailUrl ?: itemMeta?.artworkUri?.toString(),
                 isPlaying = isPlaying,
                 isLiked = isCurrentFavorite(),
                 duration = if (player.duration != C.TIME_UNSET) player.duration else 0,

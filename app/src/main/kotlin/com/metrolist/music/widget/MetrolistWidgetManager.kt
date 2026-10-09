@@ -542,6 +542,67 @@ class MetrolistWidgetManager @Inject constructor(
         )
     }
 
+    /**
+     * Debug helper: draws every widget as it looks with a track playing, on a transparent
+     * background, into [dir] — the pictures used as the widget picker previews.
+     */
+    fun renderPreviews(dir: java.io.File, cover: Bitmap) {
+        dir.mkdirs()
+        val density = context.resources.displayMetrics.density
+        val face = MeldFace(
+            title = "Lift Your Head",
+            artist = "Holy Fawn",
+            cover = getRoundedCornerBitmap(cover, DEFAULT_CORNER_RADIUS),
+            isPlaying = true,
+            isLiked = true,
+            progress = 450,
+            quality = "320 kbps · MP3 · VK",
+            rawCover = cover,
+            seed = 42,
+        )
+        fun save(name: String, bitmap: Bitmap) {
+            java.io.FileOutputStream(java.io.File(dir, "$name.png")).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        fun renderViews(views: RemoteViews, wDp: Int, hDp: Int): Bitmap {
+            val parent = android.widget.FrameLayout(context)
+            val view = views.apply(context, parent)
+            val w = (wDp * density).toInt()
+            val h = (hDp * density).toInt()
+            view.measure(
+                android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(h, android.view.View.MeasureSpec.EXACTLY),
+            )
+            view.layout(0, 0, w, h)
+            val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            view.draw(Canvas(out))
+            return out
+        }
+        val options = Bundle().apply {
+            putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 320)
+            putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 160)
+        }
+        val classic = classicFaces(face, options)
+        save("preview_classic", renderViews(classic.last().views, 320, 160))
+        save("preview_classic_row", renderViews(classic.first().views, 380, 106))
+        save("preview_radio", renderViews(radioFaces(face).last().views, 320, 160))
+        val state = FreakState("Lift Your Head", "Holy Fawn", cover, isPlaying = true, isLiked = true, progress = 0.45f, live = true, quality = "320 kbps · MP3 · VK")
+        fun px(dp: Int) = (dp * minOf(density, 2.2f)).toInt()
+        save("preview_tv", FreakWidgets.drawFor(context, FreakKind.TV, px(220), px(160), state))
+        val receipt = WidgetStats.Snapshot(
+            secondsToday = 695L * 60,
+            tracksToday = 28,
+            recent = listOf(
+                "Holy Fawn - Lift Your Head", "Holy Fawn - Death Is a Relief", "Holy Fawn - Hexsewn",
+                "Planning for Burial - Somewhere", "Greet Death - Same Thing", "Iress - The Remainder",
+                "Nothing - A.C.D.", "Show Me a Dinosaur - Unsaid I", "Life on Venus - Feel",
+                "Slow Crush - Thirst", "Lantlôs - Melting Sun", "Holy Fawn - Blood Memory",
+            ),
+        )
+        save("preview_receipt", FreakWidgets.drawFor(context, FreakKind.RECEIPT, px(180), px(300), state, receipt))
+        save("preview_cyber", FreakWidgets.drawFor(context, FreakKind.CYBER, px(260), px(180), state))
+        save("preview_shoes", FreakWidgets.drawFor(context, FreakKind.SHOES, px(220), px(140), state))
+    }
+
     private fun radioFaces(face: MeldFace): List<Face> {
         val lcdSource = face.quality?.toString()?.uppercase() ?: "DRXWNIFY"
         fun build(layout: Int) = RemoteViews(context.packageName, layout).apply {

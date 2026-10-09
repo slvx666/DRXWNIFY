@@ -1652,4 +1652,8 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="friends_avatar_crop">Profile picture</string>
     <string name="spectrum_legend">Green dashes: what the file\'s format and bitrate promise (MP3 320 → ~20 kHz, Opus even at 128 → ~20 kHz, FLAC → 22 kHz). Solid red: where the sound really ends. Red dots: a former encoder ceiling.</string>
     <string name="source_pick_quality">Quality: among close matches the best sound plays (FLAC, 320); now and then another version of the track may slip in</string>
+    <string name="vk_shared_in_use">Works through the shared VK account: up to %d tracks a day. Connect your own VK for no limit.</string>
+    <string name="friends_view_as_others">How others see me</string>
+    <string name="spectrum_shelf_weak">A possible trace of a former ceiling at %1$.1f kHz (in %2$d%% of the track): a weak sign, not counted.</string>
+    <string name="changelog_1_5_1">### Added\n+ Previews of every widget in the widget list\n+ \"How others see me\" in the Friends profile\n### Fixed\n• Your own profile no longer shows up as an empty friend after signing in with a key\n• The shared VK works without your own account\n• Widgets no longer lose the playing track\n• The spectrogram is more careful: a clean 320 is no longer called blown up\n### Removed\n• The old Meld debug icon</string>
 </resources>

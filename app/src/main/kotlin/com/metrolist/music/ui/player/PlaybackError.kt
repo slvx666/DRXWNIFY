@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui.player
 
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -68,7 +69,9 @@ fun PlaybackError(
     val rawRestricted = listOf("age", "LOGIN_REQUIRED", "AGE_CHECK_REQUIRED", "AGE_VERIFICATION_REQUIRED", "CONTENT_CHECK_REQUIRED", "country")
         .any { rawMessage.contains(it, ignoreCase = true) } || error.errorCode == PlaybackException.ERROR_CODE_REMOTE_ERROR
     val someSourcesOff = AudioProviderId.entries.any { !ResolverPreferences.isEnabled(it) }
-    val canConnectVk = vkEnabled && vkToken.isEmpty()
+    // With the shared account VK is already searched: no "connect" nudge then.
+    val canConnectVk = vkEnabled && vkToken.isEmpty() &&
+        com.metrolist.music.utils.RemoteConfig.config.collectAsState().value.vkShared == null
 
     // A way to fix it, best first: connect VK (large catalog) → enable disabled sources → YouTube login.
     fun withFix(base: Explanation, restricted: Boolean): Explanation = when {

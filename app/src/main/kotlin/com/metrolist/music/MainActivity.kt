@@ -384,6 +384,17 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Debug builds only: `--ez drxw_render_previews true` draws the widget picker previews.
+        if (BuildConfig.DEBUG && intent?.getBooleanExtra("drxw_render_previews", false) == true) {
+            lifecycleScope.launch(Dispatchers.Default) {
+                val cover = java.io.File(getExternalFilesDir(null), "preview_cover.png").takeIf { it.exists() }
+                    ?.let { android.graphics.BitmapFactory.decodeFile(it.absolutePath) }
+                    ?: android.graphics.BitmapFactory.decodeResource(resources, R.drawable.developer_avatar)
+                com.metrolist.music.widget.MetrolistWidgetManager(applicationContext, database)
+                    .renderPreviews(java.io.File(getExternalFilesDir(null), "previews"), cover)
+                android.util.Log.i("DrxwPreviews", "done")
+            }
+        }
         // A playlist import the system cut short goes on (it is resumable, see PlaylistImporter).
         if (com.metrolist.music.playback.PlaylistImporter.isRunning(this)) {
             runCatching {

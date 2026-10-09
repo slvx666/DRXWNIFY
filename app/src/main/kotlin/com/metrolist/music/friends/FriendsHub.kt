@@ -198,6 +198,7 @@ object FriendsHub {
             p.edit().putString("privacy", privacyToJson(open).toString()).apply()
             scope.launch { delay(5_000L); publishProfile(); publishLibrary() }
         }
+        dropSelfFromFriends()
         ensureDeveloperFriend()
         // What friends see is refreshed now and then, never more than every few hours.
         if (secretKey != null) scope.launch {
@@ -219,6 +220,18 @@ object FriendsHub {
      * Everyone starts with the developer among their friends — once: removed, it stays removed. Added
      * quietly (no request): what the developer shares is public anyway.
      */
+    /**
+     * A profile is never its own friend. It happened when the developer key was imported on a phone
+     * that had the developer among its friends: that row then showed an empty "friend" — the phone
+     * doesn't listen to itself.
+     */
+    private fun dropSelfFromFriends() {
+        val me = _profile.value?.pubkey ?: return
+        if (_friends.value.none { it.pubkey == me }) return
+        _friends.value = _friends.value.filterNot { it.pubkey == me }
+        saveFriends()
+    }
+
     private fun ensureDeveloperFriend() {
         val p = prefs ?: return
         val me = _profile.value ?: return
@@ -249,6 +262,7 @@ object FriendsHub {
             prefs?.edit()?.putBoolean("devPublic", true)?.apply()
             setPrivacy(Privacy(Audience.EVERYONE, Audience.EVERYONE, Audience.EVERYONE, Audience.EVERYONE, discoverable = true, listenAlong = true))
         }
+        dropSelfFromFriends()
         ensureDeveloperFriend()
         restartLive()
         scope.launch { publishProfile(); publishLibrary() }
@@ -385,7 +399,8 @@ object FriendsHub {
     @Synchronized
     private fun openLive() {
         val me = _profile.value?.pubkey ?: return
-        val friendKeys = (_friends.value.map { it.pubkey } + DEVELOPER_PUBKEY).distinct().filter { it != me }
+        // Friends, the developer, and this profile itself (its public side, for "how others see me").
+        val friendKeys = (_friends.value.map { it.pubkey } + DEVELOPER_PUBKEY + me).distinct()
         if (friendKeys.isNotEmpty()) {
             val dValues = JSONArray().put(D_PREFIX + F_PROFILE)
             DATA_FIELDS.forEach { dValues.put(D_PREFIX + it); dValues.put("$D_PREFIX$it:$me") }
@@ -434,7 +449,7 @@ object FriendsHub {
             return
         }
         // Friends, and the developer's public profile which everyone sees.
-        if (_friends.value.none { it.pubkey == author } && author != DEVELOPER_PUBKEY) return
+        if (_friends.value.none { it.pubkey == author } && author != DEVELOPER_PUBKEY && author != me) return
         synchronized(this) {
             val current = _data.value[author] ?: FriendData()
             if ((current.stamps[field] ?: 0L) > event.createdAt) return

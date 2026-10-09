@@ -195,9 +195,11 @@ fun MusicSourcesSettings(
         var vkToken by rememberPreference(VkAccessTokenKey, "")
         val (vkLikesToAccount, setVkLikesToAccount) =
             rememberPreference(com.metrolist.music.constants.VkLikesToAccountKey, true)
+        // The shared VK account (from the remote config) stands in for a missing own one.
+        val sharedVk = com.metrolist.music.utils.RemoteConfig.config.collectAsState().value.vkShared
         // Sources that need an account stay switched off (and locked) until the account is set.
         fun needsAccount(id: AudioProviderId) = when (id) {
-            AudioProviderId.VK -> vkToken.isEmpty()
+            AudioProviderId.VK -> vkToken.isEmpty() && sharedVk == null
             AudioProviderId.SOULSEEK -> !slskReady
             AudioProviderId.LOSSLESS -> losslessMirrorCount == 0
             else -> false
@@ -237,6 +239,8 @@ fun MusicSourcesSettings(
                 AudioProviderId.LOSSLESS -> lossless
             }
             val extra = when {
+                id == AudioProviderId.VK && vkToken.isEmpty() && sharedVk != null ->
+                    "\n" + stringResource(R.string.vk_shared_in_use, sharedVk.dailyTracks)
                 id == AudioProviderId.VK && vkToken.isEmpty() -> "\n" + stringResource(R.string.vk_login_required)
                 id == AudioProviderId.SOULSEEK && !slskReady -> "\n" + stringResource(R.string.soulseek_login_required)
                 id == AudioProviderId.LOSSLESS && losslessMirrorCount == 0 -> "\n" + stringResource(R.string.lossless_no_mirrors)

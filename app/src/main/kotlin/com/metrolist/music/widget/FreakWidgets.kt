@@ -145,6 +145,18 @@ object FreakWidgets {
         }
     }
 
+    /** One face drawn at [w]×[h] px for [state], outside any widget (the picker previews). */
+    fun drawFor(context: Context, kind: FreakKind, w: Int, h: Int, state: FreakState, statsOverride: WidgetStats.Snapshot? = null): Bitmap {
+        val stats = statsOverride ?: WidgetStats.snapshot(context)
+        val frame = 7L
+        return when (kind) {
+            FreakKind.TV -> drawTv(context, w, h, state, frame)
+            FreakKind.RECEIPT -> drawReceipt(context, w, h, state, stats)
+            FreakKind.CYBER -> drawCyber(w, h, state, frame)
+            FreakKind.SHOES -> drawShoes(w, h, state, frame)
+        }
+    }
+
     private fun sizePx(context: Context, options: Bundle, kind: FreakKind): Pair<Int, Int> {
         val density = context.resources.displayMetrics.density
         val defaultW = if (kind == FreakKind.TV || kind == FreakKind.CYBER || kind == FreakKind.SHOES) 180 else 110

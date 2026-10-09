@@ -326,6 +326,10 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
                             Text(stringResource(R.string.friends_invite_link))
                         }
                     }
+                    OutlinedButton(
+                        onClick = { navController.navigate("friend/${me.pubkey}") },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    ) { Text(stringResource(R.string.friends_view_as_others)) }
                     Row {
                         TextButton(onClick = { showBackup = true }) { Text(stringResource(R.string.friends_backup_key)) }
                         TextButton(onClick = { showRestore = true }) { Text(stringResource(R.string.friends_use_other_key)) }
@@ -365,7 +369,7 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
             }
         }
         item { AddFriendRow() }
-        val others = friends
+        val others = friends.filter { it.pubkey != me.pubkey }
         item {
             Text(stringResource(R.string.friends_list_title, others.size), style = MaterialTheme.typography.titleMedium)
         }
@@ -636,7 +640,7 @@ fun FriendScreen(navController: NavController, pubkey: String) {
                         }
                     }
                 }
-                if (friend == null) {
+                if (friend == null && pubkey != FriendsHub.profile.value?.pubkey) {
                     Spacer(Modifier.height(8.dp))
                     Button(
                         onClick = {
