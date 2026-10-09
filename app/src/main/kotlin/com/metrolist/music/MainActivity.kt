@@ -978,6 +978,7 @@ class MainActivity : ComponentActivity() {
                     }
                     if (!introVisible && !showChangelog.value) {
                         com.metrolist.music.ui.component.AppUpdateOffer()
+                        com.metrolist.music.ui.component.MigrationRestoreOffer()
                     }
 
                     if (appComposed) {

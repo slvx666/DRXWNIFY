@@ -1,10 +1,26 @@
 [
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.drxwnify.app",
+      "sha256_cert_fingerprints": [
+        "CE:A9:28:42:E6:42:59:52:93:69:C3:0F:3F:2A:47:F1:52:22:CD:FD:A0:79:14:8F:32:87:9D:B0:75:4A:AE:AE"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "com.meld.app",
-      "sha256_cert_fingerprints": ["CE:A9:28:42:E6:42:59:52:93:69:C3:0F:3F:2A:47:F1:52:22:CD:FD:A0:79:14:8F:32:87:9D:B0:75:4A:AE:AE"]
+      "sha256_cert_fingerprints": [
+        "CE:A9:28:42:E6:42:59:52:93:69:C3:0F:3F:2A:47:F1:52:22:CD:FD:A0:79:14:8F:32:87:9D:B0:75:4A:AE:AE"
+      ]
     }
   }
 ]

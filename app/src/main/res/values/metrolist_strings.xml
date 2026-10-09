@@ -1669,4 +1669,12 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="lt_error">Error: %s</string>
     <string name="changelog_1_5_2">### Added\n+ App language: Russian (default) or English — Settings → Content\n+ Every button and caption left in English is translated into Russian\n### Fixed\n• The update no longer hangs at \"100 %\" — the installer opens by itself</string>
     <string name="restart_action">Restart</string>
+    <string name="migration_update_note">This moves you to the new Drxwnify app (it has its own id in the system). Before installing, all data — accounts, likes, playlists, settings, friends — is saved to a file in Download/Drxwnify. After installing, open the new app and pick that file. Then the old one can be removed.</string>
+    <string name="migration_backup_saved">Data saved to Download/Drxwnify; pick that file in the new app</string>
+    <string name="migration_restore_title">Bring your data over?</string>
+    <string name="migration_restore_text">If you used Drxwnify before, pick the Drxwnify-перенос-….backup file in Download/Drxwnify: your accounts, likes, playlists, settings and friends come back, and the downloaded music plays from the folder without downloading again.</string>
+    <string name="migration_restore_pick">Pick the file</string>
+    <string name="migration_restore_skip">Start fresh</string>
+    <string name="changelog_1_5_3">### Added\n+ Moving to the new app: on update all data is saved to a file in Download/Drxwnify\n+ The backup now also keeps friends, the VK login and the other settings\n### Fixed\n• Tracks are found again after a restart (the \"no metadata\" error)</string>
+    <string name="changelog_1_6_0">### Changed\n• Drxwnify is now its own app with its own id. Data comes over from the file the old app saved; the downloaded music plays straight from the folder\n### Fixed\n• Tracks are found again after a restart (the \"no metadata\" error)\n• The app never deletes files from the music folder by itself any more</string>
 </resources>

@@ -112,6 +112,24 @@ constructor(
                     }
                     if (state != null) put(id, download.withState(state))
                 }
+                // Files in the music folder the download manager has no record of: brought over from
+                // a backup (another install of the app). They are downloaded tracks all the same and
+                // play from the file (see MusicService.exportedFileFor).
+                for (id in exported) {
+                    if (id in raw || id in exporting) continue
+                    put(
+                        id,
+                        Download(
+                            androidx.media3.exoplayer.offline.DownloadRequest.Builder(id, id.toUri()).build(),
+                            Download.STATE_COMPLETED,
+                            0L,
+                            0L,
+                            androidx.media3.common.C.LENGTH_UNSET.toLong(),
+                            Download.STOP_REASON_NONE,
+                            Download.FAILURE_REASON_NONE,
+                        ),
+                    )
+                }
             }
         }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
@@ -363,11 +381,9 @@ constructor(
             kotlinx.coroutines.delay(EXPORT_CATCH_UP_DELAY_MS)
             val exported = DownloadExportState.exported.value
             val known = downloads.value
-            val orphaned = exported.filter { it !in known && it !in DownloadExportState.exporting.value }
-            if (orphaned.isNotEmpty()) {
-                Timber.tag(TAG).i("Deleting %d file(s) left behind by removed downloads", orphaned.size)
-                orphaned.forEach { downloadExporter.deleteExported(it) }
-            }
+            // Files without a download record are NOT deleted any more: removing a download deletes
+            // its file itself, and a file without a record is one restored from a backup — deleting
+            // those wiped a moved user's whole music folder.
             val missing = known.values
                 .filter { it.state == Download.STATE_COMPLETED && it.request.id !in exported }
                 .map { it.request.id }
@@ -460,12 +476,13 @@ constructor(
                     .filterValues { it.state == Download.STATE_COMPLETED }
                     .keys
                 val claimed = database.downloadedSongIdsBlocking()
-                val stale = claimed.filterNot { it in completed }.toMutableSet()
+                val stale = mutableSetOf<String>()
 
-                // Check completed downloads: if neither cache nor exported file exists, it's stale.
+                // A downloaded song is stale when neither its cached bytes nor its file are there.
+                // (A song without a download record but with its file — restored from a backup —
+                // stays downloaded.)
                 for (id in claimed) {
-                    if (id in stale) continue
-                    val hasCachedBytes = playerCache.isCached(id, 0, 1) || downloadCache.isCached(id, 0, 1)
+                    val hasCachedBytes = id in completed && (playerCache.isCached(id, 0, 1) || downloadCache.isCached(id, 0, 1))
                     if (!hasCachedBytes) {
                         val exportedUri = downloadExporter.exportedUri(id)
                         val exportedExists = exportedUri?.let { uri ->
@@ -475,7 +492,11 @@ constructor(
                                 } else {
                                     appContext.contentResolver.openInputStream(uri)?.use { true } ?: false
                                 }
-                            }.getOrDefault(false)
+                            }.getOrElse { e ->
+                                // Not allowed to read it (music permission not granted yet): unknown,
+                                // so the file is kept rather than forgotten.
+                                e is SecurityException
+                            }
                         } ?: false
 
                         if (!exportedExists) {

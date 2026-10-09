@@ -300,6 +300,9 @@ class MusicService :
     lateinit var widgetManager: MetrolistWidgetManager
 
     @Inject
+    lateinit var downloadExporter: com.metrolist.music.utils.DownloadExporter
+
+    @Inject
     lateinit var listenTogetherManager: com.metrolist.music.listentogether.ListenTogetherManager
 
     private lateinit var audioManager: AudioManager
@@ -2545,6 +2548,18 @@ class MusicService :
         }
     }
 
+    // Every queue item's metadata, for the audio search (see QueueMetadata): a restored queue's
+    // catalog tracks have nothing else to be found by.
+    override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+        if (timeline.isEmpty) return
+        val window = Timeline.Window()
+        val items = ArrayList<com.metrolist.music.models.MediaMetadata>(timeline.windowCount)
+        for (i in 0 until timeline.windowCount) {
+            timeline.getWindow(i, window).mediaItem.metadata?.let(items::add)
+        }
+        com.metrolist.music.resolver.QueueMetadata.register(items)
+    }
+
     override fun onMediaItemTransition(
         mediaItem: MediaItem?,
         reason: Int,
@@ -4328,6 +4343,24 @@ class MusicService :
         return alias
     }
 
+    /** mediaId → its readable file in the music folder ("" = none / unreadable); asked once per track. */
+    private val exportedFiles = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /**
+     * The track's file in the music folder, for a downloaded track whose bytes aren't in the download
+     * cache — one restored from a backup (another install of the app). Null when there is none or it
+     * can't be read (no music permission).
+     */
+    private fun exportedFileFor(mediaId: String): android.net.Uri? {
+        if (mediaId !in com.metrolist.music.utils.DownloadExportState.exported.value) return null
+        val cached = exportedFiles[mediaId]
+        if (cached != null) return cached.takeIf { it.isNotEmpty() }?.toUri()
+        val uri = runCatching { runBlocking(Dispatchers.IO) { downloadExporter.exportedUri(mediaId) } }.getOrNull()
+        val readable = uri != null && runCatching { contentResolver.openFileDescriptor(uri, "r")?.close() != null }.getOrDefault(false)
+        exportedFiles[mediaId] = if (readable) uri.toString() else ""
+        return uri.takeIf { readable }
+    }
+
     private fun createDataSourceFactory(): DataSource.Factory {
         return ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
             val mediaId = stripQobuzCacheKeyPrefix(dataSpec.key ?: error("No media id"))
@@ -4363,6 +4396,9 @@ class MusicService :
                 downloadedAlias(mediaId)?.takeIf { alias ->
                     downloadCache.isCached(alias, dataSpec.position, if (dataSpec.length >= 0) dataSpec.length else 1)
                 }?.let { alias -> return@Factory dataSpec.buildUpon().setKey(alias).build() }
+                // Downloaded, but only the file is here (restored from a backup): play the file.
+                (exportedFileFor(mediaId) ?: downloadedAlias(mediaId)?.let(::exportedFileFor))
+                    ?.let { file -> return@Factory dataSpec.withUri(file) }
             }
 
             // A fallback id ("mfb:" / legacy "qbzfb:") is a catalog track whose audio comes from a

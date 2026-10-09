@@ -56,7 +56,7 @@
       var fallback = encodeURIComponent(location.origin + "/");
       // Chrome on Android: an intent link opens the app (or the site when it is not installed).
       open.href = /android/i.test(navigator.userAgent)
-        ? "intent://" + tail + "#Intent;scheme=drxwnify;package=com.meld.app;S.browser_fallback_url=" + fallback + ";end"
+        ? "intent://" + tail + "#Intent;scheme=drxwnify;package=com.drxwnify.app;S.browser_fallback_url=" + fallback + ";end"
         : "drxwnify://" + tail;
     })();
   </script>

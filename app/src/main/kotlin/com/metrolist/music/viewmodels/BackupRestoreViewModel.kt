@@ -88,6 +88,12 @@ class BackupRestoreViewModel @Inject constructor(
                         outputStream.putNextEntry(ZipEntry(InternalDatabase.DB_NAME))
                         inputStream.copyTo(outputStream)
                     }
+                    // Everything else the app keeps: the friends profile (its key and friends), the VK
+                    // login, widget stats, the shared-VK counter… — so a restore really is "as it was".
+                    sharedPrefsFiles(context).forEach { file ->
+                        outputStream.putNextEntry(ZipEntry(PREFS_PREFIX + file.name))
+                        file.inputStream().use { it.copyTo(outputStream) }
+                    }
                 }
             }
         }.onSuccess {
@@ -129,7 +135,12 @@ class BackupRestoreViewModel @Inject constructor(
                                 }
                                 Timber.tag("RESTORE").i("DB overwrite complete")
                             }
-                            else -> {
+                            else -> if (entry.name.startsWith(PREFS_PREFIX) && !entry.name.contains("..")) {
+                                foundAny = true
+                                val name = entry.name.removePrefix(PREFS_PREFIX)
+                                val dir = java.io.File(context.applicationInfo.dataDir, "shared_prefs").apply { mkdirs() }
+                                java.io.File(dir, name).outputStream().use { inputStream.copyTo(it) }
+                            } else {
                                 Timber.tag("RESTORE").i("Skipping unexpected entry: ${entry.name}")
                             }
                         }
@@ -471,5 +482,15 @@ class BackupRestoreViewModel @Inject constructor(
 
     companion object {
         const val SETTINGS_FILENAME = "settings.preferences_pb"
+
+        /** The app's own SharedPreferences files inside a backup. */
+        const val PREFS_PREFIX = "shared_prefs/"
+
+        /** SharedPreferences worth carrying over (not the WebView's or libraries' caches). */
+        fun sharedPrefsFiles(context: Context): List<java.io.File> =
+            java.io.File(context.applicationInfo.dataDir, "shared_prefs")
+                .listFiles { f -> f.isFile && f.name.endsWith(".xml") && !f.name.startsWith("WebView") && !f.name.startsWith("com.google") }
+                ?.toList()
+                .orEmpty()
     }
 }

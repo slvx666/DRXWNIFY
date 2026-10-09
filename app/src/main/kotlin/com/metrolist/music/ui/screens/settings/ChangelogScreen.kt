@@ -149,6 +149,20 @@ fun ChangelogScreen(
 /** Release notes bundled with the app, newest first. */
 private fun localReleases(context: android.content.Context): List<ReleaseInfo> = listOf(
     ReleaseInfo(
+        tagName = "1.6.0",
+        versionName = "1.6.0",
+        description = context.getString(com.metrolist.music.R.string.changelog_1_6_0),
+        releaseDate = "2026-10-09",
+        assets = emptyList(),
+    ),
+    ReleaseInfo(
+        tagName = "1.5.3",
+        versionName = "1.5.3",
+        description = context.getString(com.metrolist.music.R.string.changelog_1_5_3),
+        releaseDate = "2026-10-09",
+        assets = emptyList(),
+    ),
+    ReleaseInfo(
         tagName = "1.5.2",
         versionName = "1.5.2",
         description = context.getString(com.metrolist.music.R.string.changelog_1_5_2),

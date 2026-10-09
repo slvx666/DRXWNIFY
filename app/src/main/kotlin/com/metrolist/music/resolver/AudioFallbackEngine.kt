@@ -577,9 +577,9 @@ object AudioFallbackEngine {
                 )
             }
         }
-        val song = dbSong ?: return null
+        val song = dbSong ?: return QueueMetadata.queryFor(mediaId)
         val artists = song.artists.map { it.name }.filter { it.isNotBlank() }
-        if (song.song.title.isBlank() || artists.isEmpty()) return null
+        if (song.song.title.isBlank() || artists.isEmpty()) return QueueMetadata.queryFor(mediaId)
         return AudioQuery(
             catalogId = catalogId,
             title = song.song.title,
