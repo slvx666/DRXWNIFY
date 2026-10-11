@@ -124,6 +124,8 @@ fun SpotifyLikedSongsScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val allLoaded by viewModel.allLoaded.collectAsState()
+    val incomplete by viewModel.incomplete.collectAsState()
+    val localOnlyCount by viewModel.localOnlyCount.collectAsState()
     val error by viewModel.error.collectAsState()
 
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
@@ -383,18 +385,93 @@ fun SpotifyLikedSongsScreen(
                             }
                         }
 
-                        if (!allLoaded && downloadProgress == null) {
+                        if (incomplete && downloadProgress == null) {
+                            // The list stopped part-way: say so instead of showing a part as all.
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = stringResource(R.string.liked_list_incomplete, tracks.size, total),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                androidx.compose.material3.TextButton(onClick = viewModel::resume) {
+                                    Text(stringResource(R.string.liked_list_resume))
+                                }
+                            }
+                        } else if (!allLoaded && downloadProgress == null) {
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = stringResource(R.string.download_list_loading, tracks.size, total),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            val loadedShare by androidx.compose.animation.core.animateFloatAsState(
+                                targetValue = if (total > 0) (tracks.size.toFloat() / total).coerceIn(0f, 1f) else 0f,
+                                label = "likedLoaded",
+                            )
+                            androidx.compose.material3.LinearProgressIndicator(
+                                progress = { loadedShare },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         } else {
                             com.metrolist.music.ui.component.BatchDownloadProgress(
                                 progress = downloadProgress,
                                 downloaded = downloadedCount,
                                 total = tracks.size,
+                            )
+                        }
+                        if (downloadedCount < tracks.size) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = stringResource(R.string.batch_download_vpn_hint),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (localOnlyCount > 0) {
+                item(key = "local_only") {
+                    // Hearts with a plus (tracks the account doesn't have) live in their own list:
+                    // say where, so they don't look lost.
+                    androidx.compose.material3.Surface(
+                        onClick = { navController.navigate("auto_playlist/local_liked") },
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        ) {
+                            Icon(
+                                painterResource(R.drawable.favorite_local),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Spacer(modifier = Modifier.size(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = pluralStringResource(R.plurals.liked_local_only_title, localOnlyCount, localOnlyCount),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Text(
+                                    text = stringResource(R.string.liked_local_only_note, com.metrolist.music.ui.component.catalogServiceName()),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Icon(
+                                painterResource(R.drawable.navigate_next),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -438,7 +515,11 @@ fun SpotifyLikedSongsScreen(
                                 androidx.compose.material3.FilterChip(
                                     selected = downloadFilter == index,
                                     onClick = { downloadFilter = index },
-                                    label = { Text("$label · $count") },
+                                    label = {
+                                        // While the list is still arriving: "loaded/total", not a number that looks final.
+                                        val countText = if (index == 0 && !allLoaded && total > count) "$count/$total" else "$count"
+                                        Text("$label · $countText")
+                                    },
                                 )
                             }
                         }
@@ -612,6 +693,7 @@ fun SpotifyLikedSongsScreen(
         com.metrolist.music.ui.component.TrackSelectionBar(
             selection = selection,
             onDownload = { keys -> downloadPicked(sortedTracks.filter { it.id in keys }); selection.stop() },
+            songIdsForPlaylist = { keys -> com.metrolist.music.ui.component.SelectedTracks.songIdsOf(database, mapper, sortedTracks.filter { it.id in keys }) },
             onShare = { keys ->
                 val picked = sortedTracks.filter { it.id in keys }
                 com.metrolist.music.ui.component.SelectedTracks.share(context, downloadUtil) {

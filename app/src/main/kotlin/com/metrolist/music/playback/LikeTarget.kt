@@ -56,8 +56,31 @@ object LikeTarget {
         return vkTrackIdOf(mediaId) != null && VkMusic.isReady && VkMusic.likesToAccount
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    fun syncsToAccount(database: MusicDatabase, mediaId: String?): Boolean = syncsToAccount(mediaId)
+    /**
+     * [syncsToAccount] that also asks the database: a plain YouTube video with no catalog track
+     * behind it (found by a YouTube search) is kept in the app alone too. It used to get the usual
+     * heart and then sat in no list at all: not on the account, not among "Saved in the app".
+     */
+    fun syncsToAccount(database: MusicDatabase, mediaId: String?): Boolean {
+        if (!syncsToAccount(mediaId)) return false
+        if (mediaId.isNullOrBlank() || SourceSearch.isSourceTrack(mediaId) || !isPlainVideoId(mediaId)) return true
+        return catalogId(database, mediaId) != null
+    }
+
+    /** The ids among [mediaIds] that a heart keeps in the app alone: [syncsToAccount] for a whole list at once. */
+    fun localOnlyAmong(database: MusicDatabase, mediaIds: List<String>): Set<String> {
+        val local = mediaIds.filterTo(HashSet()) { !syncsToAccount(it) }
+        val videos = mediaIds.filter { it !in local && isPlainVideoId(it) && catalogIdFast(it) == null }
+        val matched = videos.chunked(400).flatMapTo(HashSet()) { chunk ->
+            runCatching { database.getSpotifyMatchesByYouTubeIds(chunk) }.getOrElse { emptyList() }.map { it.youtubeId }
+        }
+        videos.filterTo(local) { it !in matched }
+        return local
+    }
+
+    /** A YouTube video id (11 chars of [A-Za-z0-9_-]), not a source/catalog/local-file id. */
+    private fun isPlainVideoId(mediaId: String): Boolean =
+        mediaId.length == 11 && mediaId.all { it.isLetterOrDigit() || it == '_' || it == '-' }
 
     fun icon(liked: Boolean, syncs: Boolean): Int = when {
         syncs && liked -> R.drawable.favorite
@@ -69,9 +92,14 @@ object LikeTarget {
 
 /** Whether the heart for [mediaId] is the usual one (see [LikeTarget]); false = the heart with a plus. */
 @Composable
-@Suppress("UNUSED_PARAMETER")
-fun rememberLikeSyncs(database: MusicDatabase, mediaId: String?, catalogId: String? = null): Boolean =
-    LikeTarget.syncsToAccount(mediaId)
+fun rememberLikeSyncs(database: MusicDatabase, mediaId: String?, catalogId: String? = null): Boolean {
+    val fast = LikeTarget.syncsToAccount(mediaId)
+    if (catalogId != null || !fast) return fast
+    val syncs by produceState(fast, mediaId) {
+        value = withContext(Dispatchers.IO) { LikeTarget.syncsToAccount(database, mediaId) }
+    }
+    return syncs
+}
 
 /**
  * The one answer to "is this track liked", shared by every heart (full player, mini player, menus):

@@ -513,6 +513,7 @@ fun VkPlaylistScreen(
     com.metrolist.music.ui.component.TrackSelectionBar(
         selection = selection,
         onDownload = { keys -> downloadTracks(tracks.filter { it.trackId in keys }); selection.stop() },
+        songIdsForPlaylist = { keys -> com.metrolist.music.ui.component.SelectedTracks.songIdsOf(database, tracks.filter { it.trackId in keys }) },
         onShare = { keys ->
             val picked = tracks.filter { it.trackId in keys }
             com.metrolist.music.ui.component.SelectedTracks.share(context, downloadUtil) { picked.map { SourceSearch.mediaIdOf(it) } }

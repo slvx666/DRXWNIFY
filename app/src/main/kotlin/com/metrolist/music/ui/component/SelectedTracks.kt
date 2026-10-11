@@ -48,6 +48,35 @@ object SelectedTracks {
         }
     }
 
+    /** Writes the song rows of catalog [tracks] (as their menu would) and returns their song ids. */
+    suspend fun songIdsOf(
+        database: MusicDatabase,
+        mapper: com.metrolist.music.playback.SpotifyYouTubeMapper,
+        tracks: List<SpotifyTrack>,
+    ): List<String> = withContext(Dispatchers.IO) {
+        insertSongs(database, tracks.map { mapper.quickMetadata(it) })
+    }
+
+    /** The same for tracks found by the source search (VK and the like). */
+    suspend fun songIdsOf(
+        database: MusicDatabase,
+        matches: List<com.metrolist.music.resolver.ProviderMatch>,
+    ): List<String> = withContext(Dispatchers.IO) {
+        com.metrolist.music.resolver.SourceSearch.remember(matches)
+        insertSongs(
+            database,
+            matches.map { match ->
+                com.metrolist.music.resolver.SourceSearch.mediaItemOf(match)
+                com.metrolist.music.resolver.SourceSearch.metadataOf(match)
+            },
+        )
+    }
+
+    private suspend fun insertSongs(database: MusicDatabase, songs: List<com.metrolist.music.models.MediaMetadata>): List<String> {
+        database.withTransaction { songs.forEach { insert(it) } }
+        return songs.map { it.id }.distinct()
+    }
+
     /** The download ids of catalog [tracks]: their fallback id and their matched YouTube video. */
     suspend fun mediaIdsOf(database: MusicDatabase, tracks: List<SpotifyTrack>): List<String> {
         val youtube = tracks.chunked(400).flatMap { chunk ->

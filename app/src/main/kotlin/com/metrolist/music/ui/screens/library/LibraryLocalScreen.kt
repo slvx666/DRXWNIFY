@@ -103,7 +103,7 @@ fun LibraryLocalScreen(
             item(key = "spotify_liked") {
                 LocalRow(
                     icon = R.drawable.favorite,
-                    title = stringResource(R.string.spotify_liked_songs),
+                    title = com.metrolist.music.ui.component.catalogLikedSongsTitle(),
                     count = spotifyLiked.size.takeIf { it > 0 },
                     onClick = { navController.navigate("spotify_liked_songs") },
                 )

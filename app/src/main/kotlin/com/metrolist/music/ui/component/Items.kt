@@ -815,20 +815,20 @@ fun PlaylistListItem(
             thumbnails = playlist.thumbnails,
             size = thumbnailSize,
             placeHolder = {
-                val painter = when (playlist.playlist.name) {
+                val catalogLiked = playlist.playlist.id == CATALOG_LIKED_ID
+                val (catalogIcon, catalogTint) = catalogServiceIcon()
+                val painter = if (catalogLiked) catalogIcon else when (playlist.playlist.name) {
                     stringResource(R.string.liked) -> R.drawable.favorite_border
                     stringResource(R.string.offline) -> R.drawable.offline
                     stringResource(R.string.cached_playlist) -> R.drawable.cached
                     stringResource(R.string.uploaded_playlist) -> R.drawable.backup
-                    stringResource(R.string.spotify_liked_songs) -> R.drawable.spotify
                     else -> if (autoPlaylist) R.drawable.trending_up else R.drawable.queue_music
                 }
                 Icon(
                     painter = painterResource(painter),
                     contentDescription = null,
-                    tint = if (playlist.playlist.name == stringResource(R.string.spotify_liked_songs)) {
-                        // Use Spotify brand green for the icon
-                        androidx.compose.ui.graphics.Color(0xFF1DB954)
+                    tint = if (catalogLiked) {
+                        catalogTint
                     } else {
                         LocalContentColor.current.copy(alpha = 0.8f)
                     },
@@ -920,12 +920,13 @@ fun PlaylistGridItem(
             thumbnails = playlist.thumbnails,
             size = width,
             placeHolder = {
-                val painter = when (playlist.playlist.name) {
+                val catalogLiked = playlist.playlist.id == CATALOG_LIKED_ID
+                val (catalogIcon, catalogTint) = catalogServiceIcon()
+                val painter = if (catalogLiked) catalogIcon else when (playlist.playlist.name) {
                     stringResource(R.string.liked) -> R.drawable.favorite_border
                     stringResource(R.string.offline) -> R.drawable.offline
                     stringResource(R.string.cached_playlist) -> R.drawable.cached
                     stringResource(R.string.uploaded_playlist) -> R.drawable.backup
-                    stringResource(R.string.spotify_liked_songs) -> R.drawable.spotify
                     else -> if (autoPlaylist) R.drawable.trending_up else R.drawable.queue_music
                 }
                 Box(
@@ -935,8 +936,8 @@ fun PlaylistGridItem(
                     Icon(
                         painter = painterResource(painter),
                         contentDescription = null,
-                        tint = if (playlist.playlist.name == stringResource(R.string.spotify_liked_songs)) {
-                            androidx.compose.ui.graphics.Color(0xFF1DB954)
+                        tint = if (catalogLiked) {
+                            catalogTint
                         } else {
                             LocalContentColor.current.copy(alpha = 0.8f)
                         },

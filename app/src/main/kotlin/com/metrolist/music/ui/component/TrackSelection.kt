@@ -132,7 +132,10 @@ private val SELECTION_BAR_SPACE = 110.dp
 
 /** Breathing room so the last row isn't tucked under the mini player's edge. */ val END_OF_LIST_GAP = 16.dp
 
-/** Download / send / delete for the ticked tracks, floating at the bottom of the list. */
+/**
+ * Download / send / add to a playlist / delete for the ticked tracks, floating at the bottom of the
+ * list. [songIdsForPlaylist] turns ticked keys into song ids, writing their song rows first.
+ */
 @Composable
 fun TrackSelectionBar(
     selection: TrackSelection,
@@ -140,8 +143,12 @@ fun TrackSelectionBar(
     onShare: (List<String>) -> Unit,
     onDelete: (List<String>) -> Unit,
     modifier: Modifier = Modifier,
+    songIdsForPlaylist: (suspend (List<String>) -> List<String>)? = null,
 ) {
     var confirmDelete by remember { mutableStateOf<List<String>?>(null) }
+    var playlistKeys by remember { mutableStateOf<List<String>?>(null) }
+    // A new picker per request: the dialog remembers the ids it was opened with.
+    var playlistRequest by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     AnimatedVisibility(
         visible = selection.active,
         enter = slideInVertically(tween(280)) { it / 2 } + fadeIn(tween(220)) +
@@ -191,9 +198,25 @@ fun TrackSelectionBar(
                 Row(horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     SelectionAction(R.drawable.download, R.string.action_download, enabled) { onDownload(selection.keys.toList()) }
                     SelectionAction(R.drawable.share, R.string.send_files, enabled) { onShare(selection.keys.toList()) }
+                    if (songIdsForPlaylist != null) {
+                        SelectionAction(R.drawable.playlist_add, R.string.selection_to_playlist, enabled) {
+                            playlistRequest++
+                            playlistKeys = selection.keys.toList()
+                        }
+                    }
                     SelectionAction(R.drawable.delete, R.string.remove_downloads, enabled) { confirmDelete = selection.keys.toList() }
                 }
             }
+        }
+    }
+
+    if (songIdsForPlaylist != null && playlistRequest > 0) {
+        androidx.compose.runtime.key(playlistRequest) {
+            com.metrolist.music.ui.menu.AddToPlaylistDialog(
+                isVisible = playlistKeys != null,
+                onGetSong = { songIdsForPlaylist(playlistKeys.orEmpty()) },
+                onDismiss = { playlistKeys = null },
+            )
         }
     }
 

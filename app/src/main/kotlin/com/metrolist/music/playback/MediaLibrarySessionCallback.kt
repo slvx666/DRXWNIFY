@@ -240,7 +240,7 @@ constructor(
                                     )
                                     AndroidAutoSection.SPOTIFY_LIKED -> browsableMediaItem(
                                         "${MusicService.SPOTIFY_PLAYLIST}/liked_songs",
-                                        context.getString(R.string.spotify_liked_songs),
+                                        context.getString(com.metrolist.music.ui.component.catalogLikedSongsTitleRes()),
                                         null,
                                         drawableUri(R.drawable.favorite),
                                         MediaMetadata.MEDIA_TYPE_PLAYLIST,

@@ -1717,5 +1717,17 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="friends_verified_set">Marked: drxwnslvt\'s reviews are open for this profile</string>
     <string name="friends_unverified">Mark removed</string>
     <string name="changelog_2_0_1">### Search and playback\n• A track is no longer marked “not found” because the internet or VPN dropped during the search — it is searched again once the network is back\n• SoundCloud: on a weak network tracks no longer lose their length and seeking, and don\'t start over after a dropped connection\n### Track version\n• Picking another version now says what happened: “Switching to VK…”, then “Now playing the VK version”; if the chosen source is unavailable right now, the app says so\n### Quality check\n• The spectrum analysis is more accurate and no longer finds “ceilings” that aren\'t on the picture\n• The full spectrogram is kept with the track and opens right in the app: zoom, share, save to the gallery or render again\n### Downloads\n• If the app lost access to the chosen download folder, it offers to pick it again when downloading; until then music is saved to Music/Drxwnify\n### Other\n• The audio search log is shared as a .txt file\n• A new section may appear in the Library. Not for everyone.</string>
-    <string name="spectrum_how_to_read">How to read it: bottom to top are frequencies from bass to 22 kHz, brighter is louder. Look where the sound ends at the top. A genuine MP3 320 reaches ~20 kHz, FLAC 22. A flat edge through the whole track at 16 kHz means it was made from 128 kbps, at 19 kHz from ~192–256. Sound above the edge vanishing only in quiet parts is normal.</string>
+    <string name="spectrum_how_to_read">Look for a flat horizontal line at 14–18 kHz through the whole track — that is the file\'s original ceiling, everything above it is upscaled. 16 kHz = was 128 kbps, 19 kHz = 192–256. A genuine 320 reaches ~20 kHz with no such line.</string>
+    <string name="selection_to_playlist">To playlist</string>
+    <string name="yandex_liked_songs">Yandex Music Liked</string>
+    <string name="catalog_playlists_load_error">Couldn\'t load %1$s playlists. This may be temporary.</string>
+    <string name="liked_list_incomplete">Loaded %1$d of %2$d: the network didn\'t answer. The rest isn\'t lost.</string>
+    <string name="liked_list_resume">Continue</string>
+    <string name="batch_download_vpn_hint">Turn on a VPN for a big download: without it many tracks may not be found, even with a VK account.</string>
+    <plurals name="liked_local_only_title">
+        <item quantity="one">%d more track saved in the app only</item>
+        <item quantity="other">%d more tracks saved in the app only</item>
+    </plurals>
+    <string name="liked_local_only_note">Not on %1$s, so they won\'t sync. Tap to open.</string>
+    <string name="changelog_2_0_2">### Added\n+ “To playlist” button when selecting tracks\n### Fixed\n• Liked songs open at once, without downloading the whole list again\n• The “All” count no longer lies on a weak network; the rest can be loaded\n• Likes of tracks from a YouTube search are no longer lost — they are in “Saved in the app”\n• With Yandex Music the library no longer says “Spotify”\n• Friends: you now appear in the developer\'s list\n• Hint: turn on a VPN for a big download</string>
 </resources>

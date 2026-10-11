@@ -617,7 +617,7 @@ fun LibraryMixScreen(
 
                     if (isSpotifyActive && spotifyLikedSongsTotal > 0) {
                         item(key = "spotify_liked_songs") {
-                            val likedSongsName = stringResource(R.string.spotify_liked_songs)
+                            val likedSongsName = com.metrolist.music.ui.component.catalogLikedSongsTitle()
                             PlaylistListItem(
                                 playlist = Playlist(
                                     playlist = PlaylistEntity(
@@ -1083,7 +1083,7 @@ fun LibraryMixScreen(
 
                     if (isSpotifyActive && spotifyLikedSongsTotal > 0) {
                         item(key = "spotify_liked_songs") {
-                            val likedSongsName = stringResource(R.string.spotify_liked_songs)
+                            val likedSongsName = com.metrolist.music.ui.component.catalogLikedSongsTitle()
                             PlaylistGridItem(
                                 playlist = Playlist(
                                     playlist = PlaylistEntity(

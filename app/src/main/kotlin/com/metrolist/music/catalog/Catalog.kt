@@ -248,10 +248,12 @@ object Catalog {
         if (isYandexId(id)) YandexMusic.playlistTracks(id, limit, offset) else Spotify.playlistTracks(id, limit, offset)
 
     suspend fun saveTrack(id: String): Result<Unit> =
-        if (isYandexId(id)) YandexMusic.setTrackLiked(id, true) else Spotify.saveTrack(id)
+        (if (isYandexId(id)) YandexMusic.setTrackLiked(id, true) else Spotify.saveTrack(id))
+            .onSuccess { LikedSongsCache.markStale() }
 
     suspend fun removeTrack(id: String): Result<Unit> =
-        if (isYandexId(id)) YandexMusic.setTrackLiked(id, false) else Spotify.removeTrack(id)
+        (if (isYandexId(id)) YandexMusic.setTrackLiked(id, false) else Spotify.removeTrack(id))
+            .onSuccess { LikedSongsCache.remove(id) }
 
     // Spotify albums are saved/checked through "Your Library" (the web player's GQL operations). The
     // public REST /me/albums endpoints reject the web-player token, which is why the old "+" always failed.
@@ -358,6 +360,7 @@ object Catalog {
 
     fun invalidateCaches() {
         LibraryCache.markStale()
+        LikedSongsCache.markStale()
         yandexLibrary.clear()
         spotifyLibraryPages.clear()
     }

@@ -565,13 +565,13 @@ fun LibraryPlaylistsScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Icon(
-                                        painterResource(R.drawable.spotify),
+                                        painterResource(com.metrolist.music.ui.component.catalogServiceIcon().first),
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onErrorContainer,
                                     )
                                     Spacer(modifier = Modifier.padding(horizontal = 8.dp))
                                     Text(
-                                        text = stringResource(R.string.spotify_playlists_load_error),
+                                        text = stringResource(R.string.catalog_playlists_load_error, com.metrolist.music.ui.component.catalogServiceName()),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onErrorContainer,
                                         modifier = Modifier.weight(1f),
@@ -592,7 +592,7 @@ fun LibraryPlaylistsScreen(
                     // Spotify Liked Songs as a special playlist entry
                     if (isSpotifyActive && spotifyLikedSongsTotal > 0) {
                         item(key = "spotify_liked_songs") {
-                            val likedSongsName = stringResource(R.string.spotify_liked_songs)
+                            val likedSongsName = com.metrolist.music.ui.component.catalogLikedSongsTitle()
                             PlaylistListItem(
                                 playlist = Playlist(
                                     playlist = PlaylistEntity(
@@ -791,13 +791,13 @@ fun LibraryPlaylistsScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Icon(
-                                        painterResource(R.drawable.spotify),
+                                        painterResource(com.metrolist.music.ui.component.catalogServiceIcon().first),
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onErrorContainer,
                                     )
                                     Spacer(modifier = Modifier.padding(horizontal = 8.dp))
                                     Text(
-                                        text = stringResource(R.string.spotify_playlists_load_error),
+                                        text = stringResource(R.string.catalog_playlists_load_error, com.metrolist.music.ui.component.catalogServiceName()),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onErrorContainer,
                                         modifier = Modifier.weight(1f),
@@ -818,7 +818,7 @@ fun LibraryPlaylistsScreen(
                     // Spotify Liked Songs as a special playlist entry (grid)
                     if (isSpotifyActive && spotifyLikedSongsTotal > 0) {
                         item(key = "spotify_liked_songs") {
-                            val likedSongsName = stringResource(R.string.spotify_liked_songs)
+                            val likedSongsName = com.metrolist.music.ui.component.catalogLikedSongsTitle()
                             PlaylistGridItem(
                                 playlist = Playlist(
                                     playlist = PlaylistEntity(

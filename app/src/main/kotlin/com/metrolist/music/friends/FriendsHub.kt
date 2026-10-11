@@ -286,11 +286,34 @@ object FriendsHub {
     private fun ensureDeveloperFriend() {
         val p = prefs ?: return
         val me = _profile.value ?: return
-        if (me.isDeveloper || p.getBoolean("devAdded", false)) return
-        p.edit().putBoolean("devAdded", true).apply()
-        if (_friends.value.none { it.pubkey == DEVELOPER_PUBKEY }) {
-            _friends.value = _friends.value + Friend(DEVELOPER_PUBKEY, DEVELOPER_NAME, System.currentTimeMillis())
-            saveFriends()
+        if (me.isDeveloper) return
+        if (!p.getBoolean("devAdded", false)) {
+            p.edit().putBoolean("devAdded", true).apply()
+            if (_friends.value.none { it.pubkey == DEVELOPER_PUBKEY }) {
+                _friends.value = _friends.value + Friend(DEVELOPER_PUBKEY, DEVELOPER_NAME, System.currentTimeMillis())
+                saveFriends()
+            }
+        }
+        sayHelloToDeveloper()
+    }
+
+    /**
+     * The quiet add above sent the developer nothing, and adding someone already among the friends
+     * does nothing: nobody could ever appear in the developer's list. So, once per profile, the
+     * developer gets the request a normal add sends (while still among this profile's friends).
+     */
+    private fun sayHelloToDeveloper() {
+        val p = prefs ?: return
+        val me = _profile.value ?: return
+        if (me.isDeveloper || p.getString("devHelloFor", null) == me.pubkey) return
+        if (_friends.value.none { it.pubkey == DEVELOPER_PUBKEY }) return
+        scope.launch {
+            // Give the relays a moment to connect after start.
+            delay(10_000L)
+            if (_profile.value?.pubkey != me.pubkey || _friends.value.none { it.pubkey == DEVELOPER_PUBKEY }) return@launch
+            publishTo(DEVELOPER_PUBKEY, F_HELLO, JSONObject().put("name", _profile.value?.name.orEmpty()).toString())
+            publishLibrary(onlyFor = DEVELOPER_PUBKEY)
+            p.edit().putString("devHelloFor", me.pubkey).apply()
         }
     }
 

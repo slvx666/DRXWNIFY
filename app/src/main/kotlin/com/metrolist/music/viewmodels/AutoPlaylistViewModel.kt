@@ -72,7 +72,8 @@ constructor(
                     // Liked only inside the app: tracks the account (or VK) can't take.
                     "local_liked" -> database.likedSongs(sortType, descending)
                         .map { songs ->
-                            songs.filter { !com.metrolist.music.playback.LikeTarget.syncsToAccount(database, it.id) }
+                            val localIds = com.metrolist.music.playback.LikeTarget.localOnlyAmong(database, songs.map { it.id })
+                            songs.filter { it.id in localIds }
                                 .filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs)
                         }
                         .flowOn(Dispatchers.IO)

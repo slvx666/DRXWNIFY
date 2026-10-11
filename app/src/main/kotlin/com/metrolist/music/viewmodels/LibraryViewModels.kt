@@ -322,7 +322,8 @@ constructor(
     /** Songs liked only inside the app (see LikeTarget), for the "Local" section. */
     val localLikedPreview = database.likedSongs(SongSortType.CREATE_DATE, true)
         .map { songs ->
-            val local = songs.filter { !com.metrolist.music.playback.LikeTarget.syncsToAccount(database, it.id) }
+            val localIds = com.metrolist.music.playback.LikeTarget.localOnlyAmong(database, songs.map { it.id })
+            val local = songs.filter { it.id in localIds }
             AutoPlaylistPreview(local.size, local.take(4).mapNotNull { it.song.thumbnailUrl })
         }
         .flowOn(kotlinx.coroutines.Dispatchers.IO)
