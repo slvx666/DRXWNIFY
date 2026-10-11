@@ -1530,8 +1530,8 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="selection_done">Done</string>
     <string name="nothing_selected_downloaded">None of the selected tracks is downloaded</string>
     <string name="spectrum_title">Is the quality real?</string>
-    <string name="spectrum_hint">Checks the spectrum of what has already played or downloaded: a file made from a lower-quality one stops at a lower frequency than its format promises.</string>
-    <string name="spectrum_run">Check</string>
+    <string name="spectrum_hint">Shows the spectrum of what has already played or been downloaded.</string>
+    <string name="spectrum_run">Show</string>
     <string name="spectrum_not_cached">Nothing of this track is on the phone yet — play it for a while or download it, then check again.</string>
     <string name="spectrum_verdict_real">Looks genuine · %d%% chance it is inflated</string>
     <string name="spectrum_verdict_doubt">Doubtful · %d%% chance it is inflated</string>
@@ -1717,4 +1717,5 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="friends_verified_set">Marked: drxwnslvt\'s reviews are open for this profile</string>
     <string name="friends_unverified">Mark removed</string>
     <string name="changelog_2_0_1">### Search and playback\n• A track is no longer marked “not found” because the internet or VPN dropped during the search — it is searched again once the network is back\n• SoundCloud: on a weak network tracks no longer lose their length and seeking, and don\'t start over after a dropped connection\n### Track version\n• Picking another version now says what happened: “Switching to VK…”, then “Now playing the VK version”; if the chosen source is unavailable right now, the app says so\n### Quality check\n• The spectrum analysis is more accurate and no longer finds “ceilings” that aren\'t on the picture\n• The full spectrogram is kept with the track and opens right in the app: zoom, share, save to the gallery or render again\n### Downloads\n• If the app lost access to the chosen download folder, it offers to pick it again when downloading; until then music is saved to Music/Drxwnify\n### Other\n• The audio search log is shared as a .txt file\n• A new section may appear in the Library. Not for everyone.</string>
+    <string name="spectrum_how_to_read">How to read it: bottom to top are frequencies from bass to 22 kHz, brighter is louder. Look where the sound ends at the top. A genuine MP3 320 reaches ~20 kHz, FLAC 22. A flat edge through the whole track at 16 kHz means it was made from 128 kbps, at 19 kHz from ~192–256. Sound above the edge vanishing only in quiet parts is normal.</string>
 </resources>

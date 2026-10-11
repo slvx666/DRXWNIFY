@@ -189,9 +189,9 @@ object SpectrumCheck {
         val source = openSource(context, ids, caches, exportedUri) ?: return@withContext null
         try {
             val decoded = decodeSegments(context, source) ?: return@withContext null
-            val shelf = runCatching { scanShelves(context, source) }
-                .onFailure { Timber.w(it, "SpectrumCheck: ceiling scan failed") }
-                .getOrNull()
+            // The automatic verdict is gone (it misjudged too often): only the picture is shown, so the
+            // slow whole-track ceiling scan isn't needed.
+            val shelf: Shelf? = null
             val fromFile = source is Source.Content
             val fileKbps = decoded.bitrateKbps?.takeIf { fromFile }
             val verdict = measure(decoded, codec, fileKbps ?: kbps, fromFile, shelf)

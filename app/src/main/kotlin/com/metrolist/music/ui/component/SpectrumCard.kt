@@ -154,19 +154,13 @@ fun SpectrumCard(
             if (v != null) {
                 SpectrogramImage(v, Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(8.dp)).clickable { fullScreen = true })
                 Text(
-                    text = stringResource(R.string.spectrum_legend),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                Text(
                     stringResource(R.string.spectrum_tap_to_open),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),
                 )
                 Spacer(Modifier.height(8.dp))
-                VerdictText(v)
+                HowToRead()
             } else {
                 Text(
                     text = stringResource(if (failed) R.string.spectrum_not_cached else R.string.spectrum_hint),
@@ -284,64 +278,16 @@ private fun FullSpectrogramViewer(file: java.io.File, title: String, onRedo: () 
     }
 }
 
+/** What to look at on the picture — the user judges, the app no longer does. */
 @Composable
-private fun VerdictText(v: SpectrumCheck.Verdict) {
-    val color = when {
-        v.upscaledPercent >= 60 -> MaterialTheme.colorScheme.error
-        v.upscaledPercent >= 30 -> Color(0xFFE0A030)
-        else -> Color(0xFF4CAF50)
-    }
+private fun HowToRead(color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Text(
-        text = stringResource(
-            when (v.kind) {
-                SpectrumCheck.Kind.FULL_BAND -> R.string.spectrum_kind_full
-                SpectrumCheck.Kind.MIXED -> R.string.spectrum_kind_mixed
-                SpectrumCheck.Kind.TRANSCODED -> R.string.spectrum_kind_transcoded
-                SpectrumCheck.Kind.GENUINE -> R.string.spectrum_kind_genuine
-            },
-            v.upscaledPercent,
-        ),
+        text = stringResource(R.string.spectrum_how_to_read),
+        style = MaterialTheme.typography.bodySmall,
         color = color,
-        style = MaterialTheme.typography.bodyMedium,
-        fontWeight = FontWeight.SemiBold,
-    )
-    val equivalent = v.equivalentKbps
-    if (equivalent != null) {
-        Text(
-            text = if (equivalent >= 1411) stringResource(R.string.spectrum_full_band, v.cutoffHz / 1000.0)
-            else stringResource(R.string.spectrum_equivalent, equivalent, v.realCutoffHz / 1000.0),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 2.dp),
-        )
-    }
-    v.shelfHz?.let { hz ->
-        Text(
-            text = stringResource(
-                if (v.shelfStrong) R.string.spectrum_shelf else R.string.spectrum_shelf_weak,
-                hz / 1000.0,
-                (v.shelfShare * 100).toInt(),
-            ),
-            style = MaterialTheme.typography.bodySmall,
-            color = if (v.shelfStrong) Color(0xFFFF6B7D) else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 2.dp),
-        )
-    }
-    Text(
-        text = stringResource(
-            R.string.spectrum_distribution,
-            v.lowCutoffHz / 1000.0, v.cutoffHz / 1000.0, v.maxCutoffHz / 1000.0, (v.lowShare * 100).toInt(),
-        ),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Text(
-        text = stringResource(R.string.spectrum_expected, v.expectedHz / 1000.0, v.claimedKbps?.toString() ?: "?") +
-            (if (v.fromFile) " · " + stringResource(R.string.spectrum_from_file) else ""),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
+
 
 @Composable
 private fun SpectrogramImage(v: SpectrumCheck.Verdict, modifier: Modifier) {
@@ -366,8 +312,6 @@ private fun SpectrogramImage(v: SpectrumCheck.Verdict, modifier: Modifier) {
  */
 @Composable
 private fun FrequencyOverlay(v: SpectrumCheck.Verdict, modifier: Modifier, labels: Boolean) {
-    val cutColor = MaterialTheme.colorScheme.error
-    val expectedColor = Color(0xFF4CAF50)
     Canvas(modifier) {
         val nyquist = v.sampleRate / 2f
         fun yOf(hz: Float) = size.height * (1 - hz / nyquist)
@@ -386,27 +330,6 @@ private fun FrequencyOverlay(v: SpectrumCheck.Verdict, modifier: Modifier, label
         v.segmentStarts.drop(1).forEach { col ->
             val x = size.width * col / v.imageWidth
             drawLine(Color.White.copy(alpha = 0.35f), Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.5f)
-        }
-        val trace = Path()
-        var open = false
-        v.frameCutoffs.forEachIndexed { i, hz ->
-            if (hz.isNaN() || (i in v.segmentStarts)) { open = false }
-            if (hz.isNaN()) return@forEachIndexed
-            val x = size.width * (i + 0.5f) / v.imageWidth
-            val y = yOf(hz)
-            if (!open) { trace.moveTo(x, y); open = true } else trace.lineTo(x, y)
-        }
-        drawLine(expectedColor.copy(alpha = 0.8f), Offset(0f, yOf(v.expectedHz.toFloat())), Offset(size.width, yOf(v.expectedHz.toFloat())), strokeWidth = 2f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 8f)))
-        drawLine(cutColor, Offset(0f, yOf(v.cutoffHz.toFloat())), Offset(size.width, yOf(v.cutoffHz.toFloat())), strokeWidth = 2.5f)
-        // The former encoder ceiling, when one was found.
-        v.shelfHz?.takeIf { v.shelfStrong }?.let { hz ->
-            drawLine(
-                Color(0xFFFF3D57),
-                Offset(0f, yOf(hz.toFloat())),
-                Offset(size.width, yOf(hz.toFloat())),
-                strokeWidth = 3f,
-                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4f, 6f)),
-            )
         }
     }
 }
@@ -458,56 +381,9 @@ private fun SpectrumFullScreen(v: SpectrumCheck.Verdict, onDismiss: () -> Unit) 
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                Text(stringResource(R.string.spectrum_profile), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium)
-                ProfileGraph(v, Modifier.fillMaxWidth().height(140.dp).padding(top = 4.dp))
-                Spacer(Modifier.height(8.dp))
-                VerdictText(v)
-                Text(
-                    stringResource(R.string.spectrum_how, v.seconds, v.loudFrames),
-                    color = Color.White.copy(alpha = 0.6f),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
+                HowToRead(color = Color.White.copy(alpha = 0.75f))
             }
         }
     }
 }
 
-/**
- * White: the typical level per frequency. Orange: the share of moments whose cut is at least that
- * high — an encoder's cut is where it falls from ~100 % to ~0 %.
- */
-@Composable
-private fun ProfileGraph(v: SpectrumCheck.Verdict, modifier: Modifier) {
-    val cutColor = MaterialTheme.colorScheme.error
-    Canvas(modifier.background(Color(0xFF111018))) {
-        val points = v.profileDb.size
-        val max = v.profileDb.max()
-        val min = max - 100f
-        fun x(i: Int) = size.width * i / (points - 1)
-        val level = Path()
-        val occ = Path()
-        for (i in 0 until points) {
-            val y = size.height * (1 - ((v.profileDb[i] - min) / (max - min)).coerceIn(0f, 1f))
-            val yo = size.height * (1 - v.occupancy[i].coerceIn(0f, 1f))
-            if (i == 0) { level.moveTo(x(i), y); occ.moveTo(x(i), yo) } else { level.lineTo(x(i), y); occ.lineTo(x(i), yo) }
-        }
-        drawPath(occ, Color(0xFFF98C2F), style = Stroke(width = 2f))
-        drawPath(level, Color.White, style = Stroke(width = 2f))
-        val nyquist = v.sampleRate / 2f
-        val cx = size.width * v.cutoffHz / nyquist
-        drawLine(cutColor, Offset(cx, 0f), Offset(cx, size.height), strokeWidth = 2f)
-        val paint = android.graphics.Paint().apply {
-            color = android.graphics.Color.argb(170, 255, 255, 255)
-            textSize = 10.dp.toPx()
-            isAntiAlias = true
-        }
-        var khz = 5
-        while (khz * 1000 < nyquist) {
-            val gx = size.width * khz * 1000 / nyquist
-            drawLine(Color.White.copy(alpha = 0.15f), Offset(gx, 0f), Offset(gx, size.height), strokeWidth = 1f)
-            drawContext.canvas.nativeCanvas.drawText("$khz", gx + 3.dp.toPx(), size.height - 4.dp.toPx(), paint)
-            khz += 5
-        }
-    }
-}

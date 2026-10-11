@@ -129,7 +129,7 @@ object NightReviews {
                 year = o.optInt("y").takeIf { it > 0 },
                 rating = o.optDouble("r", 0.0).takeUnless { it.isNaN() } ?: 0.0,
                 genres = o.optJSONArray("g")?.let { g -> (0 until g.length()).map { g.optString(it) }.filter { it.isNotBlank() } }.orEmpty(),
-                country = o.optString("c"),
+                country = Countries.normalize(o.optString("c")),
                 label = o.optString("l").takeUnless { it == "[no label]" }.orEmpty(),
                 popularity = o.optInt("pop"),
                 coverUrl = o.optString("img").takeIf { it.isNotBlank() }?.let { if (it.startsWith("http")) it else BASE + it },

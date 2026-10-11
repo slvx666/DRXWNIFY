@@ -94,7 +94,7 @@ fun ReviewsScreen(navController: NavController) {
                 IconButton(onClick = navController::navigateUp) { Icon(painterResource(R.drawable.arrow_back), null) }
             },
         )
-        ReviewsContent(navController)
+        ReviewsContent(navController, underTopBar = true)
     }
 }
 
@@ -104,7 +104,12 @@ fun ReviewsScreen(navController: NavController) {
  * looks the album up in the app's catalog. [header] sits on top (the library's chip row).
  */
 @Composable
-fun ReviewsContent(navController: NavController, header: (@Composable () -> Unit)? = null) {
+fun ReviewsContent(
+    navController: NavController,
+    header: (@Composable () -> Unit)? = null,
+    /** Shown under a top bar that already sits below the status bar: no inset on top of it. */
+    underTopBar: Boolean = false,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state by NightReviews.state.collectAsState()
@@ -165,7 +170,13 @@ fun ReviewsContent(navController: NavController, header: (@Composable () -> Unit
     val listState = rememberLazyListState()
     LazyColumn(
         state = listState,
-        contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
+        contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues().let { insets ->
+            if (!underTopBar) {
+                insets
+            } else {
+                androidx.compose.foundation.layout.PaddingValues(bottom = insets.calculateBottomPadding())
+            }
+        },
         modifier = Modifier.fillMaxSize(),
     ) {
         header?.let { item(key = "header") { it() } }
@@ -221,9 +232,10 @@ fun ReviewsContent(navController: NavController, header: (@Composable () -> Unit
                 )
                 FilterChipMenu(
                     title = stringResource(R.string.reviews_filter_country),
-                    value = country,
+                    value = country?.let(com.metrolist.music.reviews.Countries::displayName),
                     options = all.map { it.country }.filter { it.isNotBlank() }.groupingBy { it }.eachCount().entries
-                        .sortedByDescending { it.value }.map { "${it.key} · ${it.value}" to it.key },
+                        .sortedByDescending { it.value }
+                        .map { "${com.metrolist.music.reviews.Countries.displayName(it.key)} · ${it.value}" to it.key },
                     onPick = { country = it },
                 )
                 FilterChipMenu(
