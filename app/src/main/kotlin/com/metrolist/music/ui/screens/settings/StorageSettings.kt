@@ -55,6 +55,7 @@ import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.DownloadFolderUriKey
+import com.metrolist.music.utils.DownloadExportState
 import com.metrolist.music.constants.EnableSongCacheKey
 import com.metrolist.music.constants.MaxImageCacheSizeKey
 import com.metrolist.music.constants.MaxSongCacheSizeKey
@@ -126,9 +127,12 @@ fun StorageSettings(
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or
                         Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
                 )
-                if (uri.toString() != downloadFolderUri) {
-                    onDownloadFolderUriChange(uri.toString())
-                    // Everything already downloaded moves along, so the new folder has it all.
+                if (uri.toString() != downloadFolderUri) onDownloadFolderUriChange(uri.toString())
+                DownloadExportState.folderAccessLost.value = false
+                downloadUtil.writeMissingFilesInBackground()
+                run {
+                    // Everything already downloaded moves along, so the folder has it all (also
+                    // when the same folder was granted again: files written meanwhile move in).
                     val appContext = context.applicationContext
                     downloadUtil.downloadExporter.moveAllToCurrentFolderInBackground(
                         onStart = { total ->

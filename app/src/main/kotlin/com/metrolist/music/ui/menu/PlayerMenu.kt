@@ -399,6 +399,7 @@ fun PlayerMenu(
         com.metrolist.music.ui.dialog.TrackVersionDialog(
             mediaMetadata = mediaMetadata,
             onDismiss = { showVersionDialog = false },
+            onApplied = onDismiss,
         )
     }
 

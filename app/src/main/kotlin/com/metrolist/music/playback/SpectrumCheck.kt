@@ -132,17 +132,25 @@ object SpectrumCheck {
     /** Former-ceiling search: ± this much on each side of an edge, the stretch length, the share it needs. */
     private const val SHELF_HALF_HZ = 65
     private const val SHELF_WINDOW_SECONDS = 4
-    private const val SHELF_MIN_SHARE = 0.12f
+    private const val SHELF_MIN_SHARE = 0.4f
     private const val SHELF_MIN_WINDOWS = 8
     private const val SHELF_MIN_DEPTH_DB = 12.0
 
-    /** Share of the track a former ceiling must hold through to decide the verdict. */
-    private const val SHELF_STRONG_SHARE = 0.35f
-    private const val SHELF_STRONG_MP3_EDGE = 0.6f
+    /**
+     * How much quieter the band over a former ceiling stays than the band under it (0.3–2 kHz each
+     * side), median over the loud stretches. Real ceilings measured 28–80 dB on the user's files;
+     * MP3's own 16 kHz band edge, which only empties quiet passages, 5–19 dB.
+     */
+    private const val SHELF_MIN_STEP_DB = 24.0
+
+    /** Share of the track's loud stretches a former ceiling must hold through to decide the verdict. */
+    private const val SHELF_STRONG_SHARE = 0.5f
+    private const val SHELF_STRONG_MP3_EDGE = 0.65f
     private const val LOUDNESS_SAMPLE_US = 350_000L
     private const val SHELF_FROM_HZ = 11_000
     private const val SHELF_TO_HZ = 21_000
     private const val MAX_BYTES = 48L shl 20
+    private const val FULL_DIR = "spectrograms"
     private const val SPECTROGRAM_ROWS = 384
     const val PROFILE_POINTS = 512
 
@@ -442,7 +450,8 @@ object SpectrumCheck {
         val shelfCandidate = shelfHz != null && shelfHz < max(median, expected) - 700 && shelfHz < 20_300
         // MP3 changes how it codes everything above 16.0 kHz (its last band, "sfb21"): a genuine 320
         // can show a faint step there too. A step at that spot must hold through most of the track.
-        val atMp3BandEdge = codec?.uppercase() == "MP3" && shelfHz != null && shelfHz in 15_700..16_400
+        val atMp3BandEdge = codec?.uppercase().orEmpty().let { "MP3" in it || "MPEG" in it } &&
+            shelfHz != null && shelfHz in 15_500..16_500
         val shelfMatters = shelfCandidate && shelfShare >= (if (atMp3BandEdge) SHELF_STRONG_MP3_EDGE else SHELF_STRONG_SHARE)
         val realCutoff = if (shelfMatters) min(shelfHz!!, median) else median
         // A cut right under nyquist is the resampler of a genuine file, not a lossy encoder.
@@ -524,8 +533,10 @@ object SpectrumCheck {
             seconds = decoded.segments.sumOf { it.size } / sampleRate,
             loudFrames = loud.size,
             fromFile = fromFile,
-            shelfHz = shelfHz.takeIf { shelfCandidate },
-            shelfShare = if (shelfCandidate) shelfShare else 0f,
+            // Only a ceiling that decides the verdict is shown: the weak mentions were the
+            // "invisible 16 kHz ceilings" — nothing on the picture backed them.
+            shelfHz = shelfHz.takeIf { shelfMatters },
+            shelfShare = if (shelfMatters) shelfShare else 0f,
             shelfStrong = shelfMatters,
             realCutoffHz = realCutoff,
         )
@@ -566,8 +577,12 @@ object SpectrumCheck {
         val im = DoubleArray(FFT_SIZE)
         val sum = DoubleArray(bins)
         var frames = 0
-        val counts = IntArray(bins)
-        var used = 0
+        // Per 4 s stretch: its loudness, its averaged spectrum and the edges found in it. Only the
+        // louder half of the track decides: MP3 empties everything above 16 kHz in quiet passages
+        // (its last band gets no bits), which looked like a former ceiling in a genuine file.
+        val windowLoudness = mutableListOf<Double>()
+        val windowSpectra = mutableListOf<FloatArray>()
+        val windowEdges = mutableListOf<IntArray>()
         var limits: IntArray? = null // from, to, half
 
         fun limitsFor(rate: Int): IntArray {
@@ -583,6 +598,7 @@ object SpectrumCheck {
                 val l = limits ?: limitsFor(sampleRate).also { limits = it }
                 val (from, to, half, floorFrom, around) = l.toList()
                 val avg = DoubleArray(bins) { sum[it] / frames }
+                val edges = mutableListOf<Int>()
                 val floor = avg.copyOfRange(floorFrom, bins).sorted()[(bins - floorFrom) / 20]
                 val prefix = DoubleArray(bins + 1)
                 for (b in 0 until bins) prefix[b + 1] = prefix[b] + avg[b]
@@ -616,9 +632,12 @@ object SpectrumCheck {
                         // One count per edge: the strongest bin within ±3.
                         var isPeak = true
                         for (d in max(0, i - 3)..min(n - 1, i + 3)) if (step[d] > step[i]) { isPeak = false; break }
-                        if (isPeak) counts[c]++
+                        if (isPeak) edges += c
                     }
-                    used++
+                    val hzPerBin = sampleRate.toDouble() / FFT_SIZE
+                    windowLoudness += (avg.copyOfRange((1000 / hzPerBin).toInt(), (8000 / hzPerBin).toInt()).average())
+                    windowSpectra += FloatArray(bins) { avg[it].toFloat() }
+                    windowEdges += edges.toIntArray()
                 }
             }
             java.util.Arrays.fill(sum, 0.0)
@@ -717,20 +736,40 @@ object SpectrumCheck {
             extractor.release()
         }
         closeWindow()
-        if (used < SHELF_MIN_WINDOWS) return null
+        if (windowLoudness.size < SHELF_MIN_WINDOWS) return null
         val l = limits ?: return null
         val from = l[0]
         val to = l[1]
         val hzPerBin = sampleRate.toDouble() / FFT_SIZE
+        val loudFrom = windowLoudness.sorted()[windowLoudness.size / 2]
+        val loud = windowLoudness.indices.filter { windowLoudness[it] >= loudFrom }
+        val used = loud.size
+        val counts = IntArray(bins)
+        loud.forEach { w -> windowEdges[w].forEach { counts[it]++ } }
         // Counts merged over ±2 bins (the edge wobbles by a bin), then the lowest frequency that
-        // comes back in enough stretches.
+        // comes back in enough loud stretches AND leaves a deep, plainly visible step there.
         val merged = IntArray(bins) { c -> if (c < from || c > to) 0 else (max(from, c - 2)..min(to, c + 2)).sumOf { counts[it] } }
-        for (c in from..to) {
+        val near = max(1, (300 / hzPerBin).toInt())
+        val far = max(near + 1, (2000 / hzPerBin).toInt())
+        var c = from
+        while (c <= to) {
             val share = merged[c].toFloat() / used
-            if (merged[c] < 3 || share < SHELF_MIN_SHARE) continue
+            if (merged[c] < 3 || share < SHELF_MIN_SHARE) {
+                c++
+                continue
+            }
             var peak = c
             for (d in c..min(to, c + 6)) if (merged[d] > merged[peak]) peak = d
-            return Shelf((peak * hzPerBin).toInt(), merged[peak].toFloat() / used, used)
+            val steps = loud.map { w ->
+                val s = windowSpectra[w]
+                val under = (max(0, peak - far) until peak - near).map { s[it].toDouble() }.average()
+                val over = (peak + near until min(bins, peak + far)).map { s[it].toDouble() }.average()
+                under - over
+            }.sorted()
+            if (steps[steps.size / 2] >= SHELF_MIN_STEP_DB) {
+                return Shelf((peak * hzPerBin).toInt(), merged[peak].toFloat() / used, used)
+            }
+            c = peak + 7
         }
         return null
     }
@@ -738,9 +777,20 @@ object SpectrumCheck {
     // ── The full spectrogram, as an image file ──────────────────────────────────────────────────
 
     /**
-     * Renders the spectrogram of the WHOLE track (like Spek) into a PNG in Pictures/Drxwnify and
-     * returns its uri. Streams through the audio once, one FFT per image column, so memory stays
-     * flat whatever the length.
+     * The full spectrogram already made for the track known under any of [mediaIds], or null. It is
+     * kept with the track (app storage), so opening it again is instant instead of another render
+     * and another copy in the gallery.
+     */
+    fun savedFull(context: Context, mediaIds: List<String>): File? =
+        mediaIds.filter { it.isNotBlank() }.map { fullFile(context, it) }.firstOrNull { it.length() > 0 }
+
+    private fun fullFile(context: Context, mediaId: String): File =
+        File(File(context.filesDir, FULL_DIR).also { it.mkdirs() }, mediaId.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".png")
+
+    /**
+     * Renders the spectrogram of the WHOLE track (like Spek) into a PNG kept with the track (see
+     * [savedFull]) and returns the file. Streams through the audio once, one FFT per image column, so
+     * memory stays flat whatever the length.
      */
     suspend fun renderFull(
         context: Context,
@@ -749,13 +799,17 @@ object SpectrumCheck {
         exportedUri: Uri?,
         title: String,
         subtitle: String,
-    ): Uri? = withContext(Dispatchers.IO) {
-        val source = openSource(context, mediaIds.filter { it.isNotBlank() }.distinct(), caches, exportedUri) ?: return@withContext null
+    ): File? = withContext(Dispatchers.IO) {
+        val ids = mediaIds.filter { it.isNotBlank() }.distinct()
+        val source = openSource(context, ids, caches, exportedUri) ?: return@withContext null
         try {
             val columns = FULL_WIDTH
             val image = decodeWhole(context, source, columns) ?: return@withContext null
             val bitmap = drawFull(image, title, subtitle)
-            saveImage(context, bitmap, "${sanitize(title)} — spectrogram.png").also { bitmap.recycle() }
+            val file = fullFile(context, ids.first())
+            file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+            file
         } catch (t: Throwable) {
             Timber.w(t, "Full spectrogram failed")
             null
@@ -1077,22 +1131,31 @@ object SpectrumCheck {
         return bitmap
     }
 
-    private fun saveImage(context: Context, bitmap: Bitmap, name: String): Uri {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, name)
-                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Drxwnify")
+    /** A copy of a kept full spectrogram in the gallery (Pictures/Drxwnify), when the user asks for one. */
+    suspend fun saveToGallery(context: Context, file: File, title: String): Uri? = withContext(Dispatchers.IO) {
+        runCatching {
+            val name = "${sanitize(title)} — spectrogram.png"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Drxwnify")
+                }
+                val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: error("MediaStore refused")
+                context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
+                uri
+            } else {
+                val dir = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), "Drxwnify").also { it.mkdirs() }
+                val copy = File(dir, name)
+                file.copyTo(copy, overwrite = true)
+                androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", copy)
             }
-            val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: error("MediaStore refused")
-            context.contentResolver.openOutputStream(uri)?.use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-            return uri
-        }
-        val dir = File(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES), "Drxwnify").also { it.mkdirs() }
-        val file = File(dir, name)
-        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        return androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", file)
+        }.onFailure { Timber.w(it, "Saving the spectrogram failed") }.getOrNull()
     }
+
+    /** A uri other apps may read, for sharing a kept full spectrogram. */
+    fun shareUri(context: Context, file: File): Uri =
+        androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", file)
 
     private fun sanitize(name: String): String =
         name.map { if (it in "/\\:*?\"<>|" || it.code < 0x20) '_' else it }.joinToString("").trim().trimStart('.').ifEmpty { "track" }

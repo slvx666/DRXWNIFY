@@ -67,24 +67,51 @@ fun LibraryScreen(navController: NavController) {
     val vkOpen = showVk && vkToken.isNotEmpty()
     if (vkOpen) androidx.activity.compose.BackHandler { showVk = false }
 
+    // "drxwnslvt's": his album reviews, for the profiles he marked.
+    val reviewsAccess by com.metrolist.music.friends.FriendsHub.reviewsAccess.collectAsState()
+    var showReviews by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(resetRequested) {
+        if (resetRequested) showReviews = false
+    }
+    val openReviews: (() -> Unit)? = if (reviewsAccess) ({ showReviews = true }) else null
+    val reviewsOpen = showReviews && reviewsAccess
+    if (reviewsOpen) androidx.activity.compose.BackHandler { showReviews = false }
+
     // Same row proportions everywhere in the library, so the sections don't look like different apps.
     androidx.compose.runtime.CompositionLocalProvider(
         com.metrolist.music.ui.component.LocalListItemSizes provides
             com.metrolist.music.ui.component.LibraryListItemSizes,
     ) {
         AnimatedContent(
-            targetState = vkOpen,
+            targetState = when {
+                reviewsOpen -> "reviews"
+                vkOpen -> "vk"
+                else -> "library"
+            },
             transitionSpec = { librarySectionTransition() },
             label = "librarySection",
             modifier = Modifier.fillMaxSize(),
-        ) { vk ->
-            when {
-                vk -> com.metrolist.music.ui.screens.vk.VkLibraryScreen(
+        ) { section ->
+            when (section) {
+                "vk" -> com.metrolist.music.ui.screens.vk.VkLibraryScreen(
                     navController = navController,
                     onClose = { showVk = false },
                 )
+                "reviews" -> com.metrolist.music.ui.screens.reviews.ReviewsContent(
+                    navController = navController,
+                    header = {
+                        LibraryChips(
+                            selected = SpotifyLibraryViewModel.Filter.ALL,
+                            localSelected = false,
+                            onSelect = { showReviews = false },
+                            onClear = { showReviews = false },
+                            onLocal = { showReviews = false },
+                            reviewsSelected = true,
+                        )
+                    },
+                )
                 // One library, account or not: without one it lists what is saved in the app.
-                else -> AccountLibrary(navController, resetRequested, openVk)
+                else -> AccountLibrary(navController, resetRequested, openVk, openReviews)
             }
         }
     }
@@ -92,7 +119,7 @@ fun LibraryScreen(navController: NavController) {
 
 /** The library of the connected Spotify / Yandex Music account, with "Local" one chip away. */
 @Composable
-private fun AccountLibrary(navController: NavController, resetRequested: Boolean, openVk: (() -> Unit)?) {
+private fun AccountLibrary(navController: NavController, resetRequested: Boolean, openVk: (() -> Unit)?, openReviews: (() -> Unit)?) {
     var showLocal by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(resetRequested) {
         if (resetRequested) showLocal = false
@@ -119,7 +146,7 @@ private fun AccountLibrary(navController: NavController, resetRequested: Boolean
                 },
             )
         } else {
-            SpotifyLibraryScreen(navController, onLocalSelected = { showLocal = true }, onVkSelected = openVk)
+            SpotifyLibraryScreen(navController, onLocalSelected = { showLocal = true }, onVkSelected = openVk, onReviewsSelected = openReviews)
         }
     }
 }

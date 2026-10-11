@@ -90,6 +90,14 @@ fun SpectrumCard(
     var failed by remember(key) { mutableStateOf(false) }
     var rendering by remember(key) { mutableStateOf(false) }
     var fullScreen by remember { mutableStateOf(false) }
+    // The full spectrogram made before for this track: opened at once, not rendered and saved again.
+    var fullFile by remember(key) { mutableStateOf<java.io.File?>(null) }
+    var showFull by remember { mutableStateOf(false) }
+    LaunchedEffect(key) {
+        fullFile = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            SpectrumCheck.savedFull(context.applicationContext, mediaIds)
+        }
+    }
 
     suspend fun exportedUri(): android.net.Uri? =
         mediaIds.firstNotNullOfOrNull { downloadUtil.downloadExporter.exportedUri(it) }
@@ -112,26 +120,25 @@ fun SpectrumCard(
     }
 
     fun renderFull() {
+        if (fullFile != null) {
+            showFull = true
+            return
+        }
         rendering = true
         scope.launch {
-            val uri = SpectrumCheck.renderFull(
+            val file = SpectrumCheck.renderFull(
                 context.applicationContext, mediaIds,
                 listOf(downloadUtil.downloadCache, downloadUtil.playerCache), exportedUri(),
                 title = title,
                 subtitle = listOfNotNull(codec, kbps?.let { "$it kbps" }).joinToString(" · "),
             )
             rendering = false
-            if (uri == null) {
+            if (file == null) {
                 Toast.makeText(context, R.string.spectrum_not_cached, Toast.LENGTH_LONG).show()
                 return@launch
             }
-            Toast.makeText(context, R.string.spectrum_full_saved, Toast.LENGTH_SHORT).show()
-            runCatching {
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW).setDataAndType(uri, "image/png")
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            }
+            fullFile = file
+            showFull = true
         }
     }
 
@@ -177,7 +184,7 @@ fun SpectrumCard(
                 }
                 OutlinedButton(enabled = !rendering, onClick = ::renderFull) {
                     if (rendering) CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                    else Text(stringResource(R.string.spectrum_full))
+                    else Text(stringResource(if (fullFile != null) R.string.spectrum_full_open else R.string.spectrum_full))
                 }
             }
         }
@@ -185,6 +192,96 @@ fun SpectrumCard(
 
     val v = verdict
     if (fullScreen && v != null) SpectrumFullScreen(v, onDismiss = { fullScreen = false })
+    val file = fullFile
+    if (showFull && file != null) {
+        FullSpectrogramViewer(
+            file = file,
+            title = title,
+            onRedo = {
+                showFull = false
+                file.delete()
+                fullFile = null
+                renderFull()
+            },
+            onDismiss = { showFull = false },
+        )
+    }
+}
+
+/** The kept full spectrogram, in the app: pinch to zoom, share it or put a copy in the gallery. */
+@Composable
+private fun FullSpectrogramViewer(file: java.io.File, title: String, onRedo: () -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val bitmap = remember(file) {
+        runCatching { android.graphics.BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() }.getOrNull()
+    }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(color = Color(0xFF07060F), modifier = Modifier.fillMaxSize()) {
+            Column(Modifier.statusBarsPadding().navigationBarsPadding().padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.spectrum_full),
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = {
+                        runCatching {
+                            val uri = SpectrumCheck.shareUri(context, file)
+                            context.startActivity(
+                                Intent.createChooser(
+                                    Intent(Intent.ACTION_SEND).setType("image/png").putExtra(Intent.EXTRA_STREAM, uri)
+                                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                                    null,
+                                ),
+                            )
+                        }
+                    }) { Icon(painterResource(R.drawable.share), stringResource(R.string.share), tint = Color.White) }
+                    IconButton(onClick = {
+                        scope.launch {
+                            val saved = SpectrumCheck.saveToGallery(context.applicationContext, file, title)
+                            Toast.makeText(context, if (saved != null) R.string.spectrum_full_saved else R.string.error_unknown, Toast.LENGTH_SHORT).show()
+                        }
+                    }) { Icon(painterResource(R.drawable.download), stringResource(R.string.spectrum_save_gallery), tint = Color.White) }
+                    IconButton(onClick = onDismiss) { Icon(painterResource(R.drawable.close), null, tint = Color.White) }
+                }
+                var scale by remember { mutableFloatStateOf(1f) }
+                var offset by remember { mutableStateOf(Offset.Zero) }
+                val state = rememberTransformableState { zoom, pan, _ ->
+                    scale = (scale * zoom).coerceIn(1f, 8f)
+                    offset = if (scale == 1f) Offset.Zero else offset + pan
+                }
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black)
+                        .transformable(state),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap,
+                            null,
+                            contentScale = ContentScale.Fit,
+                            filterQuality = FilterQuality.High,
+                            modifier = Modifier.fillMaxSize().graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                                translationX = offset.x
+                                translationY = offset.y
+                            },
+                        )
+                    }
+                }
+                OutlinedButton(onClick = onRedo, modifier = Modifier.padding(top = 8.dp)) {
+                    Text(stringResource(R.string.spectrum_full_redo), color = Color.White)
+                }
+            }
+        }
+    }
 }
 
 @Composable

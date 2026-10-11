@@ -379,18 +379,31 @@ constructor(
     private fun exportMissingFiles() {
         scope.launch {
             kotlinx.coroutines.delay(EXPORT_CATCH_UP_DELAY_MS)
-            val exported = DownloadExportState.exported.value
-            val known = downloads.value
-            // Files without a download record are NOT deleted any more: removing a download deletes
-            // its file itself, and a file without a record is one restored from a backup — deleting
-            // those wiped a moved user's whole music folder.
-            val missing = known.values
-                .filter { it.state == Download.STATE_COMPLETED && it.request.id !in exported }
-                .map { it.request.id }
-            if (missing.isEmpty()) return@launch
-            Timber.tag(TAG).i("Writing the files of %d download(s) that have none", missing.size)
-            missing.forEach { downloadExporter.export(it) }
+            writeMissingFiles()
         }
+    }
+
+    /** Writes the files of finished downloads that have none (e.g. after the folder was granted again). */
+    fun writeMissingFilesInBackground() {
+        scope.launch {
+            // The newly chosen folder must be the saved one first.
+            kotlinx.coroutines.delay(700)
+            writeMissingFiles()
+        }
+    }
+
+    private suspend fun writeMissingFiles() {
+        val exported = DownloadExportState.exported.value
+        val known = downloads.value
+        // Files without a download record are NOT deleted any more: removing a download deletes
+        // its file itself, and a file without a record is one restored from a backup — deleting
+        // those wiped a moved user's whole music folder.
+        val missing = known.values
+            .filter { it.state == Download.STATE_COMPLETED && it.request.id !in exported }
+            .map { it.request.id }
+        if (missing.isEmpty()) return
+        Timber.tag(TAG).i("Writing the files of %d download(s) that have none", missing.size)
+        missing.forEach { downloadExporter.export(it) }
     }
 
     /**

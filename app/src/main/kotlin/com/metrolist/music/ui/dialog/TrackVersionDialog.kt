@@ -30,7 +30,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +51,7 @@ import com.metrolist.music.resolver.AudioFallbackEngine
 import com.metrolist.music.resolver.AudioProviderId
 import com.metrolist.music.resolver.FallbackIds
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -64,12 +64,13 @@ import kotlinx.coroutines.withContext
 fun TrackVersionDialog(
     mediaMetadata: MediaMetadata,
     onDismiss: () -> Unit,
+    /** A version was picked: the menu that opened the dialog closes too, so the change is seen. */
+    onApplied: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
     val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
-    val scope = rememberCoroutineScope()
     val mediaId = mediaMetadata.id
 
     var loading by remember { mutableStateOf(true) }
@@ -153,14 +154,12 @@ fun TrackVersionDialog(
                             candidate = candidate.copy(bitrateKbps = measured),
                             isCurrent = key == currentKey,
                             onClick = {
-                                onDismiss()
                                 // Picking the current one again still applies it: it retries a source
                                 // that failed before (its failure is forgotten) and restarts the track.
                                 val t = target ?: return@VersionRow
-                                scope.launch {
-                                    applyVersion(database, playerConnection, downloadUtil, mediaMetadata, t, candidate.match)
-                                    Toast.makeText(context, R.string.track_version_changed, Toast.LENGTH_SHORT).show()
-                                }
+                                switchVersion(context, database, playerConnection, downloadUtil, mediaMetadata, t, candidate.match)
+                                onDismiss()
+                                onApplied()
                             },
                         )
                     }
@@ -175,17 +174,64 @@ fun TrackVersionDialog(
             // Back to what the app picks by itself: always possible after a hand-picked version.
             if (target?.manual == true) {
                 TextButton(onClick = {
-                    onDismiss()
                     val t = target ?: return@TextButton
-                    scope.launch {
-                        applyVersion(database, playerConnection, downloadUtil, mediaMetadata, t, null)
-                        Toast.makeText(context, R.string.track_version_changed, Toast.LENGTH_SHORT).show()
-                    }
+                    switchVersion(context, database, playerConnection, downloadUtil, mediaMetadata, t, null)
+                    onDismiss()
+                    onApplied()
                 }) { Text(stringResource(R.string.track_version_auto)) }
             }
         },
     )
 }
+
+/**
+ * Outlives the dialog: the switch used to run in the dialog's own scope, which is cancelled the
+ * moment the dialog closes — on a slow network the change stopped half way and "nothing happened".
+ */
+private val VersionScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main.immediate)
+
+/**
+ * Applies the picked version and says what came of it: the switch keeps the playback position, so
+ * without a word it looked as if nothing had changed — and a source that couldn't serve the track
+ * fell back silently.
+ */
+private fun switchVersion(
+    context: android.content.Context,
+    database: com.metrolist.music.db.MusicDatabase,
+    playerConnection: com.metrolist.music.playback.PlayerConnection,
+    downloadUtil: com.metrolist.music.playback.DownloadUtil,
+    mediaMetadata: MediaMetadata,
+    target: VersionTarget,
+    match: com.metrolist.music.resolver.ProviderMatch?,
+) {
+    val appContext = context.applicationContext
+    VersionScope.launch {
+        val label = match?.let { com.metrolist.music.ui.component.providerLabel(it.provider) }
+        val confirmable = match != null && match.provider != AudioProviderId.YOUTUBE
+        Toast.makeText(
+            appContext,
+            if (confirmable) appContext.getString(R.string.track_version_switching, label) else appContext.getString(R.string.track_version_changed),
+            Toast.LENGTH_SHORT,
+        ).show()
+        val playingId = applyVersion(database, playerConnection, downloadUtil, mediaMetadata, target, match)
+        if (!confirmable || match == null) return@launch
+        // Wait for the new audio to actually play (or for its source to give up).
+        val served = kotlinx.coroutines.withTimeoutOrNull(VERSION_CONFIRM_TIMEOUT_MS) {
+            kotlinx.coroutines.flow.merge(
+                com.metrolist.music.resolver.NowServing.version
+                    .servedBy(playingId, match.provider),
+                AudioFallbackEngine.manualPinFailures
+                    .let { flow -> kotlinx.coroutines.flow.flow { flow.collect { if (it.first == playingId) emit(false) } } },
+            ).first()
+        }
+        if (served == true) {
+            Toast.makeText(appContext, appContext.getString(R.string.track_version_now_playing, label), Toast.LENGTH_SHORT).show()
+        }
+        // false: the service already said the version is unavailable right now.
+    }
+}
+
+private const val VERSION_CONFIRM_TIMEOUT_MS = 30_000L
 
 @Composable
 private fun VersionRow(
@@ -323,13 +369,17 @@ private suspend fun applyVersion(
     mediaMetadata: MediaMetadata,
     target: VersionTarget,
     match: com.metrolist.music.resolver.ProviderMatch?,
-) {
+): String {
     val mediaId = mediaMetadata.id
     val catalogId = target.catalogId
     if (catalogId == null) {
-        if (FallbackIds.isFallbackId(mediaId)) playerConnection.service.setAudioSource(mediaId, match)
-        else if (match != null && match.trackId != mediaId) replaceInQueue(playerConnection, mediaId, mediaMetadata.copy(id = match.trackId))
-        return
+        if (FallbackIds.isFallbackId(mediaId)) {
+            playerConnection.service.setAudioSource(mediaId, match)
+        } else if (match != null && match.trackId != mediaId) {
+            replaceInQueue(playerConnection, mediaId, mediaMetadata.copy(id = match.trackId))
+            return match.trackId
+        }
+        return mediaId
     }
     val fallbackId = FallbackIds.of(catalogId)
     val newId: String = withContext(Dispatchers.IO) {
@@ -368,6 +418,7 @@ private suspend fun applyVersion(
         replaceInQueue(playerConnection, mediaId, mediaMetadata.copy(id = newId))
     }
     if (downloaded != null) downloadUtil.redownload(downloaded, newId, mediaMetadata.title)
+    return newId
 }
 
 private fun replaceInQueue(
@@ -386,4 +437,12 @@ private fun replaceInQueue(
         player.prepare()
         if (wasPlaying) player.play()
     }
+}
+
+/** True once [mediaId] plays from [provider] (checked now and on every change). */
+private fun kotlinx.coroutines.flow.StateFlow<Int>.servedBy(
+    mediaId: String,
+    provider: AudioProviderId,
+): kotlinx.coroutines.flow.Flow<Boolean> = kotlinx.coroutines.flow.flow {
+    collect { if (com.metrolist.music.resolver.NowServing.of(mediaId) == provider) emit(true) }
 }

@@ -169,10 +169,17 @@ private fun DeveloperBadge() {
 }
 
 @Composable
-private fun NameLine(pubkey: String, name: String, style: androidx.compose.ui.text.TextStyle, modifier: Modifier = Modifier) {
+private fun NameLine(
+    pubkey: String,
+    name: String,
+    style: androidx.compose.ui.text.TextStyle,
+    modifier: Modifier = Modifier,
+    /** The developer's mark on this profile (shown on the developer's phone only). */
+    verified: Boolean = false,
+) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
         Text(name, style = style, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        if (FriendsHub.isDeveloper(pubkey)) DeveloperBadge()
+        if (FriendsHub.isDeveloper(pubkey) || verified) DeveloperBadge()
     }
 }
 
@@ -565,6 +572,8 @@ private fun AddFriendRow() {
 @Composable
 private fun FriendRow(pubkey: String, name: String, avatar: String?, now: FriendsHub.NowPlaying?, onClick: () -> Unit) {
     val context = LocalContext.current
+    val verifiedSet by FriendsHub.verified.collectAsState()
+    val myProfile by FriendsHub.profile.collectAsState()
     Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.clickable(onClick = onClick)) {
         Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box {
@@ -580,7 +589,7 @@ private fun FriendRow(pubkey: String, name: String, avatar: String?, now: Friend
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                NameLine(pubkey, name, MaterialTheme.typography.bodyLarge)
+                NameLine(pubkey, name, MaterialTheme.typography.bodyLarge, verified = myProfile?.isDeveloper == true && pubkey in verifiedSet)
                 val line = when {
                     now == null -> stringResource(R.string.friends_nothing_shared)
                     now.playing -> "▶ ${now.track.artist} — ${now.track.title}"
@@ -602,6 +611,10 @@ fun FriendScreen(navController: NavController, pubkey: String) {
     val friends by FriendsHub.friends.collectAsState()
     val all by FriendsHub.data.collectAsState()
     val listeningTo by FriendsHub.listeningTo.collectAsState()
+    val reviewsAccess by FriendsHub.reviewsAccess.collectAsState()
+    val verifiedSet by FriendsHub.verified.collectAsState()
+    val myProfile by FriendsHub.profile.collectAsState()
+    val iAmDeveloper = myProfile?.isDeveloper == true
     val friend = friends.firstOrNull { it.pubkey == pubkey }
     val d = all[pubkey]
     val name = displayName(pubkey, d?.name ?: friend?.name?.ifBlank { null })
@@ -634,9 +647,30 @@ fun FriendScreen(navController: NavController, pubkey: String) {
                     FriendAvatar(pubkey, name, d?.avatar, 72.dp)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
-                        NameLine(pubkey, name, MaterialTheme.typography.headlineSmall)
+                        NameLine(pubkey, name, MaterialTheme.typography.headlineSmall, verified = iAmDeveloper && pubkey in verifiedSet)
                         if (FriendsHub.isDeveloper(pubkey)) {
                             Text(stringResource(R.string.friends_developer), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    // drxwnslvt's album reviews, for the profiles he marked.
+                    if (FriendsHub.isDeveloper(pubkey) && reviewsAccess) {
+                        IconButton(onClick = { navController.navigate("drxw_reviews") }) {
+                            Icon(painterResource(R.drawable.album), contentDescription = stringResource(R.string.reviews_title), modifier = Modifier.size(28.dp))
+                        }
+                    }
+                    // The developer's own mark, seen by nobody else.
+                    if (iAmDeveloper && !FriendsHub.isDeveloper(pubkey)) {
+                        val marked = pubkey in verifiedSet
+                        IconButton(onClick = {
+                            FriendsHub.setVerified(pubkey, !marked)
+                            Toast.makeText(context, if (marked) R.string.friends_unverified else R.string.friends_verified_set, Toast.LENGTH_SHORT).show()
+                        }) {
+                            Icon(
+                                painterResource(R.drawable.verified),
+                                contentDescription = stringResource(R.string.friends_verify),
+                                tint = if (marked) Color(0xFFE0283A) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                                modifier = Modifier.size(28.dp),
+                            )
                         }
                     }
                 }

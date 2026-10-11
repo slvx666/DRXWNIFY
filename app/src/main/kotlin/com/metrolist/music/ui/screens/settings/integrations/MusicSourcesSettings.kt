@@ -530,11 +530,25 @@ fun AudioSearchLogScreen(navController: NavController) {
             actions = {
                 TextButton(onClick = { AudioDiagnostics.clear() }) { Text(stringResource(R.string.audio_search_log_clear)) }
                 TextButton(onClick = {
-                    val send = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, AudioDiagnostics.asText())
+                    // As a .txt file: a long log pasted as a message gets cut or split by messengers.
+                    runCatching {
+                        val stamp = java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.US).format(java.util.Date())
+                        val dir = java.io.File(context.cacheDir, "logs").apply { mkdirs() }
+                        dir.listFiles()?.forEach { it.delete() }
+                        val file = java.io.File(dir, "drxwnify-log-$stamp.txt")
+                        val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+                        file.writeText(
+                            "Drxwnify $version · ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE}\n\n" +
+                                AudioDiagnostics.asText(),
+                        )
+                        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", file)
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(send, null))
                     }
-                    runCatching { context.startActivity(Intent.createChooser(send, null)) }
                 }) { Text(stringResource(R.string.audio_search_log_share)) }
             },
         )

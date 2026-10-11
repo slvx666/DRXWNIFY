@@ -19,7 +19,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.metrolist.music.R
+import androidx.datastore.preferences.core.edit
 import com.metrolist.music.utils.AppUpdater
+import com.metrolist.music.utils.dataStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -137,6 +139,76 @@ fun MigrationRestoreOffer() {
                 com.metrolist.music.utils.AppMigration.markOffered(context)
                 show = false
             }) { Text(stringResource(R.string.migration_restore_skip)) }
+        },
+    )
+}
+
+/**
+ * Shown when a download can't be written to the chosen folder (a folder brought over from the old
+ * app id: Android granted it to that app only). One tap opens the system picker right at that
+ * folder; "keep" leaves the downloads in Music/Drxwnify and doesn't ask again for this folder.
+ */
+@Composable
+fun DownloadFolderAccessPrompt() {
+    val context = LocalContext.current
+    val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
+    val lost by com.metrolist.music.utils.DownloadExportState.folderAccessLost.collectAsState()
+    val scope = rememberCoroutineScope()
+    val folder by com.metrolist.music.utils.rememberPreference(com.metrolist.music.constants.DownloadFolderUriKey, "")
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        }.onFailure { return@rememberLauncherForActivityResult }
+        scope.launch {
+            context.dataStore.edit { it[com.metrolist.music.constants.DownloadFolderUriKey] = uri.toString() }
+            com.metrolist.music.utils.DownloadExportState.folderAccessLost.value = false
+            downloadUtil.writeMissingFilesInBackground()
+            val appContext = context.applicationContext
+            downloadUtil.downloadExporter.moveAllToCurrentFolderInBackground(
+                onStart = { total ->
+                    android.widget.Toast.makeText(appContext, appContext.getString(R.string.moving_downloads, total), android.widget.Toast.LENGTH_SHORT).show()
+                },
+                onDone = { moved ->
+                    android.widget.Toast.makeText(appContext, appContext.getString(R.string.moved_downloads, moved), android.widget.Toast.LENGTH_LONG).show()
+                },
+            )
+        }
+    }
+    if (!lost || folder.isEmpty()) return
+    val folderName = remember(folder) {
+        runCatching {
+            android.net.Uri.decode(android.provider.DocumentsContract.getTreeDocumentId(android.net.Uri.parse(folder)))
+                .substringAfter(':')
+        }.getOrDefault("")
+    }
+    AlertDialog(
+        onDismissRequest = { com.metrolist.music.utils.DownloadExportState.folderAccessLost.value = false },
+        title = { Text(stringResource(R.string.download_folder_access_title)) },
+        text = { Text(stringResource(R.string.download_folder_access_text, folderName)) },
+        confirmButton = {
+            TextButton(onClick = {
+                com.metrolist.music.utils.DownloadExportState.folderAccessLost.value = false
+                val initial = runCatching {
+                    val tree = android.net.Uri.parse(folder)
+                    android.provider.DocumentsContract.buildDocumentUriUsingTree(
+                        tree,
+                        android.provider.DocumentsContract.getTreeDocumentId(tree),
+                    )
+                }.getOrNull()
+                runCatching { pick.launch(initial) }
+            }) { Text(stringResource(R.string.download_folder_access_pick)) }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                com.metrolist.music.utils.DownloadExportState.folderAccessLost.value = false
+                downloadUtil.downloadExporter.declineFolder(folder)
+            }) { Text(stringResource(R.string.download_folder_access_keep)) }
         },
     )
 }

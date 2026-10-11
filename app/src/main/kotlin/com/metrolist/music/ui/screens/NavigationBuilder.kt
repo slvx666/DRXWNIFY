@@ -328,6 +328,9 @@ fun NavGraphBuilder.navigationBuilder(
     composable("friends") {
         TogetherScreen(navController, showBack = true, initialTab = TAB_FRIENDS)
     }
+    composable("drxw_reviews") {
+        com.metrolist.music.ui.screens.reviews.ReviewsScreen(navController)
+    }
     composable("friends/privacy") {
         com.metrolist.music.ui.screens.friends.FriendsPrivacyScreen(navController)
     }

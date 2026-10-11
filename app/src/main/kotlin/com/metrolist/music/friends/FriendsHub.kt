@@ -139,6 +139,12 @@ object FriendsHub {
     private const val F_PLAYLISTS = "playlists"
     private const val F_STATS = "stats"
     private const val F_HELLO = "hello"
+
+    /**
+     * The developer's mark on a profile ("verified"): sent encrypted to that one person only. It
+     * opens drxwnslvt's album reviews for them; nobody sees the mark itself but the developer.
+     */
+    private const val F_VERIFIED = "verified"
     private val DATA_FIELDS = listOf(F_NOW, F_HISTORY, F_PLAYLISTS, F_STATS)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -163,6 +169,18 @@ object FriendsHub {
 
     private val _listeningTo = MutableStateFlow<String?>(null)
     val listeningTo: StateFlow<String?> = _listeningTo
+
+    /** Developer side: the profiles he marked. */
+    private val _verified = MutableStateFlow<Set<String>>(emptySet())
+    val verified: StateFlow<Set<String>> = _verified
+
+    /** This profile was marked by the developer (or is the developer): drxwnslvt's reviews are open. */
+    private val _reviewsAccess = MutableStateFlow(false)
+    val reviewsAccess: StateFlow<Boolean> = _reviewsAccess
+
+    private fun refreshAccess() {
+        _reviewsAccess.value = _profile.value?.isDeveloper == true || prefs?.getBoolean("iAmVerified", false) == true
+    }
 
     @Volatile
     private var secretKey: ByteArray? = null
@@ -200,12 +218,45 @@ object FriendsHub {
         }
         dropSelfFromFriends()
         ensureDeveloperFriend()
+        _verified.value = p.getStringSet("verifiedSet", emptySet()).orEmpty()
+        refreshAccess()
         // What friends see is refreshed now and then, never more than every few hours.
         if (secretKey != null) scope.launch {
             delay(20_000L)
             publishLibraryIfStale(LIBRARY_REFRESH_MS)
         }
+        // The developer's mark is looked up once per start, so the library shows the reviews
+        // without the Friends screen having been opened.
+        if (secretKey != null) scope.launch {
+            delay(8_000L)
+            checkVerification()
+        }
     }
+
+    private fun checkVerification() {
+        val me = _profile.value ?: return
+        if (me.isDeveloper) return
+        val filter = JSONObject()
+            .put("kinds", JSONArray().put(Nostr.KIND_APP_DATA))
+            .put("authors", JSONArray().put(DEVELOPER_PUBKEY))
+            .put("#d", JSONArray().put("$D_PREFIX$F_VERIFIED:${me.pubkey}"))
+        val id = RelayPool.subscribe(listOf(filter), ::onEvent)
+        scope.launch {
+            delay(25_000L)
+            RelayPool.close(id)
+        }
+    }
+
+    /** Developer only: marks (or unmarks) [pubkey] — it opens the reviews for that profile. */
+    fun setVerified(pubkey: String, on: Boolean) {
+        if (_profile.value?.isDeveloper != true) return
+        val updated = if (on) _verified.value + pubkey else _verified.value - pubkey
+        _verified.value = updated
+        prefs?.edit()?.putStringSet("verifiedSet", updated)?.apply()
+        scope.launch { publishTo(pubkey, F_VERIFIED, if (on) JSONObject().put("v", 1).toString() else "") }
+    }
+
+    fun isVerified(pubkey: String) = pubkey in _verified.value
 
     // ── Profile ──────────────────────────────────────────────────────────────────────────────────
 
@@ -266,6 +317,7 @@ object FriendsHub {
         ensureDeveloperFriend()
         restartLive()
         scope.launch { publishProfile(); publishLibrary() }
+        checkVerification()
         return true
     }
 
@@ -297,9 +349,13 @@ object FriendsHub {
     fun backupKey(): String? = secretKey?.let { Nostr.bech32Encode("nsec", it) }
 
     private fun saveKey(sk: ByteArray, name: String) {
+        val pub = Secp256k1.publicKey(sk).toHex()
+        // Another profile: its mark has to be looked up again.
+        if (pub != _profile.value?.pubkey) prefs?.edit()?.remove("iAmVerified")?.apply()
         secretKey = sk
         prefs?.edit()?.putString("sk", sk.toHex())?.putString("name", name)?.apply()
-        _profile.value = Profile(Secp256k1.publicKey(sk).toHex(), name, prefs?.getString("avatar", null))
+        _profile.value = Profile(pub, name, prefs?.getString("avatar", null))
+        refreshAccess()
     }
 
     fun setPrivacy(privacy: Privacy) {
@@ -404,6 +460,8 @@ object FriendsHub {
         if (friendKeys.isNotEmpty()) {
             val dValues = JSONArray().put(D_PREFIX + F_PROFILE)
             DATA_FIELDS.forEach { dValues.put(D_PREFIX + it); dValues.put("$D_PREFIX$it:$me") }
+            dValues.put("$D_PREFIX$F_VERIFIED:$me")
+            if (_profile.value?.isDeveloper == true) _friends.value.forEach { dValues.put("$D_PREFIX$F_VERIFIED:${it.pubkey}") }
             val filter = JSONObject()
                 .put("kinds", JSONArray().put(Nostr.KIND_APP_DATA))
                 .put("authors", JSONArray(friendKeys))
@@ -431,6 +489,10 @@ object FriendsHub {
         val parts = d.removePrefix(D_PREFIX).split(':')
         val field = parts[0]
         val personal = parts.getOrNull(1)
+        if (field == F_VERIFIED && personal != null) {
+            onVerification(event, me, sk, personal)
+            return
+        }
         if (personal != null && personal != me) return
         val content = if (personal != null && event.content.isNotEmpty()) {
             Nostr.decrypt(sk, event.pubkey, event.content) ?: return
@@ -475,6 +537,36 @@ object FriendsHub {
                 }
             }
             if (field == F_NOW && _listeningTo.value == author) updated.now?.let { ListenAlong.follow(it) }
+        }
+    }
+
+    private val verificationStamps = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun onVerification(event: NostrEvent, me: String, sk: ByteArray, target: String) {
+        // Only the newest word on a profile counts (a mark, then its removal).
+        val key = "${event.pubkey}:$target"
+        if ((verificationStamps[key] ?: 0L) > event.createdAt) return
+        verificationStamps[key] = event.createdAt
+        when {
+            // To me, from the developer: the reviews open (or close again).
+            event.pubkey == DEVELOPER_PUBKEY && target == me -> {
+                val on = event.content.isNotEmpty() &&
+                    Nostr.decrypt(sk, DEVELOPER_PUBKEY, event.content)
+                        ?.let { runCatching { JSONObject(it).optInt("v") == 1 }.getOrDefault(false) } == true
+                prefs?.edit()?.putBoolean("iAmVerified", on)?.apply()
+                refreshAccess()
+            }
+            // The developer's own marks, read back on another phone with his key.
+            event.pubkey == me && _profile.value?.isDeveloper == true -> {
+                val on = event.content.isNotEmpty() &&
+                    Nostr.decrypt(sk, target, event.content)
+                        ?.let { runCatching { JSONObject(it).optInt("v") == 1 }.getOrDefault(false) } == true
+                val updated = if (on) _verified.value + target else _verified.value - target
+                if (updated != _verified.value) {
+                    _verified.value = updated
+                    prefs?.edit()?.putStringSet("verifiedSet", updated)?.apply()
+                }
+            }
         }
     }
 

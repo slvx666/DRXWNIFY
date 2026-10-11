@@ -84,6 +84,7 @@ import com.metrolist.spotify.models.SpotifyLibraryEntry
 import java.net.URLEncoder
 
 private val SpotifyGreen = Color(0xFF1ED760)
+private const val REVIEWS_CHIP = "drxwnslvt's"
 private val LibraryGridKey = booleanPreferencesKey("spotify_library_grid")
 
 /**
@@ -97,6 +98,7 @@ fun SpotifyLibraryScreen(
     navController: NavController,
     onLocalSelected: () -> Unit,
     onVkSelected: (() -> Unit)? = null,
+    onReviewsSelected: (() -> Unit)? = null,
     viewModel: SpotifyLibraryViewModel = hiltViewModel(),
 ) {
     val entries by viewModel.entries.collectAsState()
@@ -175,6 +177,7 @@ fun SpotifyLibraryScreen(
                 onCreatePlaylist = { showCreatePlaylistDialog = true },
                 onImportPlaylist = { navController.navigate("import_playlist") },
                 onVk = onVkSelected,
+                onReviews = onReviewsSelected,
             )
         }
         item(key = "sort", span = { GridItemSpan(maxLineSpan) }) {
@@ -243,6 +246,9 @@ fun LibraryChips(
     vkSelected: Boolean = false,
     /** Shows the "VK" chip (the account's VK playlists); null while VK isn't connected. */
     onVk: (() -> Unit)? = null,
+    reviewsSelected: Boolean = false,
+    /** Shows the "drxwnslvt's" chip (his album reviews); null for profiles he hasn't marked. */
+    onReviews: (() -> Unit)? = null,
 ) {
     val labels = listOf(
         Filter.PLAYLISTS to stringResource(R.string.filter_playlists),
@@ -251,6 +257,7 @@ fun LibraryChips(
     )
     val localLabel = stringResource(R.string.filter_local)
     val state = when {
+        reviewsSelected -> "reviews"
         vkSelected -> "vk"
         localSelected -> "local"
         else -> selected.name
@@ -276,10 +283,13 @@ fun LibraryChips(
                 labels.first { it.first == Filter.PLAYLISTS }.let { (f, label) ->
                     Chip(label, selected = false) { onSelect(f) }
                 }
+                onReviews?.let { Chip(REVIEWS_CHIP, selected = false, onClick = it) }
                 onVk?.let { Chip("VK", selected = false, onClick = it) }
             } else {
                 CloseChip(onClick = onClear)
-                if (current == "vk") {
+                if (current == "reviews") {
+                    Chip(REVIEWS_CHIP, selected = true, onClick = onClear)
+                } else if (current == "vk") {
                     Chip("VK", selected = true, onClick = onClear)
                 } else if (current == "local") {
                     Chip(localLabel, selected = true, onClick = onClear)

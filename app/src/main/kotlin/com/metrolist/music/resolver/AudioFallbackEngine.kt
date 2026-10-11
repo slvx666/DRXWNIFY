@@ -51,8 +51,12 @@ object AudioFallbackEngine {
     /** A remembered winner is reused without racing again for this long. */
     private const val SELECTION_TTL_MS = 3L * 24 * 60 * 60 * 1000
 
-    /** Recent "no provider has it" results, so re-opening a list doesn't re-search unplayable tracks. */
-    private const val MISS_TTL_MS = 10L * 60 * 1000
+    /**
+     * Recent "no provider has it" results, so re-opening a list doesn't re-search unplayable tracks.
+     * Kept short: providers report a dropped connection as "no match", and a long-remembered miss
+     * made a track unplayable for minutes after the network came back.
+     */
+    private const val MISS_TTL_MS = 90L * 1000
 
     private lateinit var appContext: Context
     private lateinit var database: MusicDatabase
@@ -71,7 +75,33 @@ object AudioFallbackEngine {
     fun init(context: Context, database: MusicDatabase) {
         appContext = context.applicationContext
         this.database = database
+        // A new network (VPN back up, Wi-Fi ↔ mobile) may well find what the previous one couldn't.
+        runCatching {
+            appContext.getSystemService(android.net.ConnectivityManager::class.java)
+                ?.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: android.net.Network) = forgetMisses()
+                })
+        }
     }
+
+    private val probeClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
+    /**
+     * Whether the internet answers at all. Providers turn network errors into "no match", so an
+     * empty race is only trusted (and remembered) when it is.
+     */
+    private fun networkLooksUp(): Boolean = NETWORK_PROBES.any { url ->
+        runCatching {
+            probeClient.newCall(okhttp3.Request.Builder().url(url).head().build()).execute().use { it.code < 500 }
+        }.getOrDefault(false)
+    }
+
+    private val NETWORK_PROBES = listOf("https://www.gstatic.com/generate_204", "https://ya.ru/")
 
     private val providers: Map<AudioProviderId, AudioProvider> by lazy {
         listOf(
@@ -197,7 +227,11 @@ object AudioFallbackEngine {
                     outcome.report.joinToString("\n  "),
             )
             if (winner == null) {
-                misses.put(missKey, System.currentTimeMillis())
+                if (networkLooksUp()) {
+                    misses.put(missKey, System.currentTimeMillis())
+                } else {
+                    AudioDiagnostics.warn("the internet doesn't answer (VPN / weak signal?) — ${query.label()} will be searched again")
+                }
                 // A stored alternate is better than nothing when the live race found no match
                 // (e.g. a provider is temporarily down).
                 return@withContext storedCandidates(query).firstOrNull { it.usableFor(query, exclude) }

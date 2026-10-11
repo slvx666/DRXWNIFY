@@ -79,6 +79,13 @@ object DownloadExportState {
         _exported.value = _exported.value - songId
         _failed.value = _failed.value - songId
     }
+
+    /**
+     * The chosen download folder can't be written: Android grants a folder to one app, and a
+     * folder brought over from another install (the move to the new app id) isn't granted to this
+     * one. Files go to Music/Drxwnify meanwhile, and the app asks for the folder again.
+     */
+    val folderAccessLost = kotlinx.coroutines.flow.MutableStateFlow(false)
 }
 
 /**
@@ -188,6 +195,9 @@ class DownloadExporter @Inject constructor(
      * offered for sharing.
      */
     suspend fun deleteExported(songId: String) {
+        // A file still being written would be left behind (its uri isn't saved yet), and a retried
+        // download then wrote a second copy next to it.
+        inFlight[songId]?.let { running -> runCatching { running.await() } }
         withContext(Dispatchers.IO) {
             exportedUri(songId)?.let { uri ->
                 runCatching {
@@ -209,6 +219,8 @@ class DownloadExporter @Inject constructor(
      */
     suspend fun moveAllToCurrentFolder(onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): Int {
         val folder = context.dataStore.get(DownloadFolderUriKey, "")
+        // The files would only be written to Music/Drxwnify again (and the old ones deleted).
+        if (!canWriteFolder(folder)) return 0
         val ids = DownloadExportState.exported.value.filter { id ->
             exportedUri(id)?.let { !isInFolder(it, folder) } ?: false
         }
@@ -233,6 +245,19 @@ class DownloadExporter @Inject constructor(
         Timber.i("DownloadExporter: moved %d of %d file(s) to the new folder", moved, ids.size)
         return moved
     }
+
+    /** Whether this app may still write into the chosen [folder] ("" = Music/Drxwnify, always). */
+    fun canWriteFolder(folder: String): Boolean =
+        folder.isEmpty() || context.contentResolver.persistedUriPermissions.any {
+            it.isWritePermission && it.uri.toString() == folder
+        }
+
+    /** The user chose to keep saving to Music/Drxwnify instead of granting [folder] again. */
+    fun declineFolder(folder: String) {
+        folderPrefs.edit().putString(KEY_DECLINED_FOLDER, folder).apply()
+    }
+
+    private val folderPrefs by lazy { context.getSharedPreferences("download_folder", Context.MODE_PRIVATE) }
 
     /** Whether [uri] was written into [folder] (a SAF tree uri, or "" for Music/Drxwnify via MediaStore). */
     private fun isInFolder(uri: Uri, folder: String): Boolean =
@@ -549,7 +574,19 @@ class DownloadExporter @Inject constructor(
             }
 
             // 4) Write the result into the destination folder (SAF / MediaStore) — unchanged writer.
-            val downloadFolderUri = context.dataStore.get(DownloadFolderUriKey, "")
+            val downloadFolderUri = context.dataStore.get(DownloadFolderUriKey, "").let { folder ->
+                if (canWriteFolder(folder)) {
+                    folder
+                } else {
+                    // Without the folder's grant every file used to fail; it is written to
+                    // Music/Drxwnify instead and moves over once the folder is chosen again.
+                    if (folderPrefs.getString(KEY_DECLINED_FOLDER, null) != folder) {
+                        DownloadExportState.folderAccessLost.value = true
+                    }
+                    android.util.Log.w("DrxwnifyExport", "no write access to $folder, writing to Music/Drxwnify")
+                    ""
+                }
+            }
             val fileName = "$baseName.$finalExt"
             // Creating the destination entry is serialized so two parallel exports can't pick
             // the same file name; the actual copy below runs concurrently.
@@ -974,3 +1011,5 @@ class DownloadExporter @Inject constructor(
         private const val COVER_JPEG_QUALITY = 85
     }
 }
+
+private const val KEY_DECLINED_FOLDER = "declined"

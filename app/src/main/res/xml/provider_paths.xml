@@ -3,6 +3,9 @@
     <files-path
         name="covers"
         path="playlist_covers/" />
+    <files-path
+        name="spectrograms"
+        path="spectrograms/" />
     <external-path
         name="external_files"
         path="." />

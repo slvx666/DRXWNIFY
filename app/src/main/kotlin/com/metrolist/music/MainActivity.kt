@@ -989,6 +989,7 @@ class MainActivity : ComponentActivity() {
                     if (!introVisible && !showChangelog.value && startupWelcomeDone.value) {
                         com.metrolist.music.ui.component.AppUpdateOffer()
                         com.metrolist.music.ui.component.MigrationRestoreOffer()
+                        com.metrolist.music.ui.component.DownloadFolderAccessPrompt()
                         // The old app id: at every start, how to move to 2.0.0 (see AppMigration).
                         var showMigrationNotice by remember {
                             mutableStateOf(com.metrolist.music.utils.AppMigration.isOldApp(this@MainActivity))

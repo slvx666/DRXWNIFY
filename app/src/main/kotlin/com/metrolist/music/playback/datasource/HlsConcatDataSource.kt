@@ -418,7 +418,13 @@ class HlsConcatDataSource(
 
         val initUrl = playlist.initUrl
         if (initUrl != null) {
-            val config = runCatching { Fmp4AdtsTransmuxer.parseInit(fetchBytes(initUrl, null)) }.getOrNull()
+            // The init segment decides everything: fetched once without a retry, a single dropped
+            // request on a weak network/VPN sent the track down the raw fMP4 path — no duration, no
+            // seeking, and the player started the track over after the next hiccup. A fetch that
+            // keeps failing is an error (the player retries the open), not a reason to degrade.
+            val init = retrying { fetchBytes(initUrl, null) }
+                ?: throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
+            val config = runCatching { Fmp4AdtsTransmuxer.parseInit(init) }.getOrNull()
             if (config != null) {
                 val sizes = parallelMap(playlist.segments) { url -> adtsSizeOf(url) }
                 if (sizes != null) return Layout(playlist.segments, sizes, config)

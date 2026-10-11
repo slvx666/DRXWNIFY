@@ -4357,7 +4357,9 @@ class MusicService :
         if (cached != null) return cached.takeIf { it.isNotEmpty() }?.toUri()
         val uri = runCatching { runBlocking(Dispatchers.IO) { downloadExporter.exportedUri(mediaId) } }.getOrNull()
         val readable = uri != null && runCatching { contentResolver.openFileDescriptor(uri, "r")?.close() != null }.getOrDefault(false)
-        exportedFiles[mediaId] = if (readable) uri.toString() else ""
+        // Only a readable file is remembered: an unreadable one (folder access lost) plays from the
+        // cache / network, and plays from the file again as soon as the folder is granted.
+        if (readable) exportedFiles[mediaId] = uri.toString()
         return uri.takeIf { readable }
     }
 
