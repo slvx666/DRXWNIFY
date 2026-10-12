@@ -41,7 +41,14 @@ object AppUpdater {
         data object Idle : State
         data object Checking : State
         data class UpToDate(val latest: String) : State
-        data class Available(val version: String, val apkUrl: String?, val apkName: String?, val pageUrl: String? = null) : State
+        data class Available(
+            val version: String,
+            val apkUrl: String?,
+            val apkName: String?,
+            val pageUrl: String? = null,
+            /** What changed (the release notes), shown in the update offer. */
+            val notes: String? = null,
+        ) : State
         data class Downloading(val version: String, val progress: Float) : State
         data class Failed(val message: String) : State
     }
@@ -90,7 +97,11 @@ object AppUpdater {
                         }
                     }
                     if (version.isNotBlank() && Updater.isUpdateAvailable(currentVersion, version)) {
-                        State.Available(version, apkUrl, apkName, json.optString("html_url").takeIf { it.isNotBlank() })
+                        State.Available(
+                            version, apkUrl, apkName,
+                            json.optString("html_url").takeIf { it.isNotBlank() },
+                            json.optString("body").trim().takeIf { it.isNotBlank() }?.take(MAX_NOTES),
+                        )
                     } else {
                         State.UpToDate(version.ifBlank { currentVersion })
                     }
@@ -121,7 +132,9 @@ object AppUpdater {
     suspend fun downloadAndInstall(context: Context, available: State.Available): Boolean {
         val url = available.apkUrl ?: return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
-            // The system asks once to allow installing apps from this app; the next tap installs.
+            // The system asks once to allow installing apps from this app; coming back with it
+            // allowed, the update goes on by itself (see [resumeAfterPermission]).
+            waitingForPermission = available
             runCatching {
                 context.startActivity(
                     Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${context.packageName}".toUri())
@@ -187,13 +200,38 @@ object AppUpdater {
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
 
-    /** True once per new version: the launch offer to open its page is not repeated. */
+    /** An update waiting for "install unknown apps" to be allowed. */
+    @Volatile
+    private var waitingForPermission: State.Available? = null
+
+    /** Back in the app after allowing installs: the update that asked for it goes on. */
+    fun resumeAfterPermission(context: Context) {
+        val pending = waitingForPermission ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) return
+        waitingForPermission = null
+        startDownloadAndInstall(context, pending)
+    }
+
+    /**
+     * Whether the launch offer is shown: at every start while an update is out, unless "Later" was
+     * tapped for this version in the last [SNOOZE_MS] (it used to be offered once, ever).
+     */
     fun shouldOffer(context: Context, version: String): Boolean {
         val prefs = context.getSharedPreferences("app_update", Context.MODE_PRIVATE)
-        if (prefs.getString("offered", null) == version) return false
-        prefs.edit().putString("offered", version).apply()
-        return true
+        val snoozed = prefs.getString("snoozedVersion", null) == version &&
+            System.currentTimeMillis() < prefs.getLong("snoozedUntil", 0L)
+        return !snoozed
     }
+
+    fun snooze(context: Context, version: String) {
+        context.getSharedPreferences("app_update", Context.MODE_PRIVATE).edit()
+            .putString("snoozedVersion", version)
+            .putLong("snoozedUntil", System.currentTimeMillis() + SNOOZE_MS)
+            .apply()
+    }
+
+    private const val SNOOZE_MS = 12 * 60 * 60_000L
+    private const val MAX_NOTES = 1_500
 
     fun openReleases(context: Context) {
         runCatching {

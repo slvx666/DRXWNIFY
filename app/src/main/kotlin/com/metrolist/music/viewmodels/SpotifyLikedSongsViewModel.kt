@@ -83,11 +83,26 @@ constructor(
     /** Offset of the first page not loaded yet, where [resume] goes on from. */
     private var nextOffset = 0
 
-    init {
-        loadLikedSongs()
+    /** When each track was liked (kept with the list for the profile's portrait). */
+    private val addedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun noteAdded(items: List<SpotifySavedTrack>) = items.forEach { saved ->
+        com.metrolist.music.portrait.PortraitBuilder.parseTime(saved.addedAt)?.let { addedAt[saved.track.id] = it }
     }
 
     private val account: String get() = Catalog.source?.name ?: "none"
+
+    init {
+        // Opened again in this run: the list is on the first frame. Otherwise the screen was drawn
+        // twice in a row while opening — empty, then with the whole list — and the second one stuttered.
+        LikedSongsCache.peek(account)?.takeIf { it.tracks.isNotEmpty() }?.let { cached ->
+            _tracks.value = cached.tracks
+            _total.value = cached.total
+            _allLoaded.value = true
+            _isLoading.value = false
+        }
+        loadLikedSongs()
+    }
 
     fun refresh() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -127,6 +142,7 @@ constructor(
     private suspend fun updateFromFirstPage(cached: LikedSongsCache.Cached): Boolean {
         // No network: the kept list is all there is; asked again on the next opening.
         val page = Catalog.likedSongs(limit = PAGE_SIZE, offset = 0).getOrNull() ?: return true
+        noteAdded(page.items)
         val first = page.items.map { it.track }.filter { !it.isLocal }
         val firstIds = first.map { it.id }
         val keptIds = cached.tracks.map { it.id }
@@ -140,7 +156,7 @@ constructor(
                 val updated = first.take(added) + cached.tracks
                 _tracks.value = updated
                 _total.value = page.total
-                LikedSongsCache.put(account, updated, page.total)
+                LikedSongsCache.put(account, updated, page.total, LikedSongsCache.addedAt(account) + addedAt)
                 true
             }
             else -> false
@@ -202,6 +218,7 @@ constructor(
         var complete = true
         // Liked songs of the connected account(s): Spotify, Yandex Music, or both merged without duplicates.
         pageWithRetries(offset = 0).onSuccess { paging ->
+            noteAdded(paging.items)
             val firstPage = paging.items
                 .map { it.track }
                 .filter { !it.isLocal }
@@ -246,6 +263,7 @@ constructor(
                     if (emit) _tracks.value = allTracks.toList()
                     return false
                 }
+                noteAdded(page.items)
                 allTracks.addAll(page.items.map { it.track }.filter { !it.isLocal })
                 nextOffset += PAGE_SIZE
             }
@@ -254,7 +272,7 @@ constructor(
         Timber.d("SpotifyLikedSongs: Loaded ${allTracks.size} tracks (total=$total)")
         _tracks.value = allTracks.toList()
         _total.value = total
-        LikedSongsCache.put(account, allTracks.toList(), total)
+        LikedSongsCache.put(account, allTracks.toList(), total, addedAt.toMap().takeIf { it.isNotEmpty() })
         return true
     }
 

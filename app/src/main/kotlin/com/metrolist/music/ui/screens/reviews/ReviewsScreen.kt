@@ -77,7 +77,6 @@ import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
 
-private val CardsKey = booleanPreferencesKey("reviews_cards")
 private val SortKey = stringPreferencesKey("reviews_sort")
 private val DescKey = booleanPreferencesKey("reviews_desc")
 
@@ -115,7 +114,8 @@ fun ReviewsContent(
     val state by NightReviews.state.collectAsState()
     LaunchedEffect(Unit) { NightReviews.refresh(context) }
 
-    var cards by rememberPreference(CardsKey, false)
+    // Always opens as the compact list; the big cards are for this visit only.
+    var cards by rememberSaveable { mutableStateOf(false) }
     var sortName by rememberPreference(SortKey, ReviewSort.POSTED.name)
     var descending by rememberPreference(DescKey, true)
     val sort = runCatching { ReviewSort.valueOf(sortName) }.getOrDefault(ReviewSort.POSTED)

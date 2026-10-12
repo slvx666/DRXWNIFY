@@ -3253,6 +3253,12 @@ class MusicService :
             reportException(error)
         }
 
+        // No source has the track at all: on to the next one (or stop at the end of the queue).
+        if (isNoAudioSource(error)) {
+            if (player.hasNextMediaItem()) skipOnError() else stopOnError()
+            return
+        }
+
         // Check if this song has failed too many times
         if (mediaId != null && hasExceededRetryLimit(mediaId)) {
             Timber.tag(TAG).w("Song $mediaId has exceeded retry limit, skipping")
@@ -4139,6 +4145,7 @@ class MusicService :
                 fallbackServing[mediaId] = FallbackServing(plan.provider, plan.trackId)
                 com.metrolist.music.resolver.NowServing.set(mediaId, plan.provider)
                 val stream = plan.stream
+                AudioFallbackEngine.rememberBitrate(plan.provider, plan.trackId, stream.bitrate)
                 val streamFormat = FormatEntity(
                     id = mediaId,
                     itag = -1,
@@ -4158,6 +4165,7 @@ class MusicService :
                         // A measurement of a version that was swapped out meanwhile (VK 63 kbps still
                         // finishing after Bandcamp was picked) must not overwrite the new one's quality.
                         if (fallbackServing[mediaId]?.trackId != plan.trackId) return@whenMeasured
+                        AudioFallbackEngine.rememberBitrate(plan.provider, plan.trackId, measured.bitrate)
                         if (RecommendedTracks.tooLow(mediaId, measured.bitrate)) {
                             scope.launch { rejectLowRecommendation(mediaId, plan.provider) }
                         }
@@ -4203,6 +4211,7 @@ class MusicService :
                 }
                 fallbackServing[mediaId] = FallbackServing(AudioProviderId.YOUTUBE, plan.videoId)
                 com.metrolist.music.resolver.NowServing.set(mediaId, AudioProviderId.YOUTUBE)
+                AudioFallbackEngine.rememberBitrate(AudioProviderId.YOUTUBE, plan.videoId, data.format.bitrate)
                 database.query {
                     upsert(
                         FormatEntity(
@@ -4408,11 +4417,7 @@ class MusicService :
             // through the audio fallback engine, which also switches provider when one fails.
             if (FallbackIds.isFallbackId(mediaId)) {
                 return@Factory resolveFallbackDataSpec(dataSpec, mediaId, shouldBypassCache, youtubeRescue = false)
-                    ?: throw offlineOr(mediaId, null) ?: DataSourceException(
-                        getString(R.string.error_no_audio_source),
-                        null,
-                        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
-                    )
+                    ?: throw offlineOr(mediaId, null) ?: NoAudioSourceException(getString(R.string.error_no_audio_source))
             }
 
             // A YouTube id that an earlier open already had to rescue from another provider (YouTube
@@ -4756,6 +4761,7 @@ class MusicService :
                 }
             run {
                 val format = nonNullPlayback.format
+                AudioFallbackEngine.rememberBitrate(AudioProviderId.YOUTUBE, mediaId, format.bitrate)
                 val loudnessDb = nonNullPlayback.audioConfig?.loudnessDb
                 val perceptualLoudnessDb = nonNullPlayback.audioConfig?.perceptualLoudnessDb
 
@@ -4798,6 +4804,13 @@ class MusicService :
         }
     }
 
+    /** Thrown when no audio source has the track: not retried (see [createMediaSourceFactory]). */
+    private class NoAudioSourceException(message: String) :
+        DataSourceException(message, null, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND)
+
+    private fun isNoAudioSource(error: Throwable?): Boolean =
+        generateSequence(error) { it.cause }.take(8).any { it is NoAudioSourceException }
+
     private fun createMediaSourceFactory() =
         DefaultMediaSourceFactory(
             createDataSourceFactory(),
@@ -4806,6 +4819,13 @@ class MusicService :
             DefaultExtractorsFactory()
                 .setAdtsExtractorFlags(androidx.media3.extractor.ts.AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
                 .setMp3ExtractorFlags(androidx.media3.extractor.mp3.Mp3Extractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING),
+        ).setLoadErrorHandlingPolicy(
+            // "No source has this track" is final: retrying it every few seconds (it went on for over
+            // a minute) searched every provider again each time and kept the player stuck on it.
+            object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+                override fun getRetryDelayMsFor(info: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long =
+                    if (isNoAudioSource(info.exception)) androidx.media3.common.C.TIME_UNSET else super.getRetryDelayMsFor(info)
+            },
         )
 
     private fun createRenderersFactory(
@@ -4841,9 +4861,14 @@ class MusicService :
         val mediaItem = eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem
         val historyDurationMs = dataStore[HistoryDuration]?.times(1000f) ?: 30000f
 
-        if (playbackStats.totalPlayTimeMs >= historyDurationMs &&
+        // Only a real listen goes into the history (and so into "recently played" and the portrait).
+        val trackDurationMs = (mediaItem.metadata?.duration ?: 0) * 1000L
+        val listened = com.metrolist.music.portrait.Listening.counts(playbackStats.totalPlayTimeMs, trackDurationMs)
+        if (playbackStats.totalPlayTimeMs >= historyDurationMs && listened &&
             !dataStore.get(PauseListenHistoryKey, false)
         ) {
+            // A play from the endless radio counts less in the profile's portrait than a chosen one.
+            if (RecommendedTracks.isRecommended(mediaItem.mediaId)) com.metrolist.music.portrait.RadioPlays.mark(mediaItem.mediaId)
             database.query {
                 incrementTotalPlayTime(mediaItem.mediaId, playbackStats.totalPlayTimeMs)
                 try {

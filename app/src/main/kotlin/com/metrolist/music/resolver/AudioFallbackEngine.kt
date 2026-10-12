@@ -351,6 +351,23 @@ object AudioFallbackEngine {
     /** One recording offered by "change track version", with its audio bitrate when it could be read. */
     data class VersionCandidate(val match: ProviderMatch, val bitrateKbps: Int?)
 
+    private val bitratePrefs by lazy { appContext.getSharedPreferences("version_bitrates", Context.MODE_PRIVATE) }
+
+    /**
+     * The real bitrate of a version ([provider] + its [trackId]) as it played or was measured. The
+     * version dialog asked YouTube separately and often got no formats back, so a version heard
+     * from start to end still said "? kbps".
+     */
+    fun rememberBitrate(provider: AudioProviderId, trackId: String, bitrateBps: Int) {
+        if (bitrateBps <= 0 || trackId.isBlank() || !::appContext.isInitialized) return
+        runCatching { bitratePrefs.edit().putInt("${provider.name}:$trackId", bitrateBps / 1000).apply() }
+    }
+
+    fun knownBitrate(provider: AudioProviderId, trackId: String): Int? {
+        if (!::appContext.isInitialized) return null
+        return runCatching { bitratePrefs.getInt("${provider.name}:$trackId", 0) }.getOrNull()?.takeIf { it > 0 }
+    }
+
     /**
      * Recordings of [mediaId] to choose from: several YouTube uploads plus every other source's best
      * match, each with its bitrate. Closest match first, then the highest bitrate. Soulseek is left
@@ -387,12 +404,24 @@ object AudioFallbackEngine {
      */
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     suspend fun measureVersion(mediaId: String, dbSong: Song?, match: ProviderMatch): Int? = withContext(Dispatchers.IO) {
-        if (match.provider == AudioProviderId.YOUTUBE) return@withContext null
+        knownBitrate(match.provider, match.trackId)?.let { return@withContext it }
+        if (match.provider == AudioProviderId.YOUTUBE) {
+            return@withContext kotlinx.coroutines.withTimeoutOrNull(VERSION_MEASURE_TIMEOUT_MS) {
+                com.metrolist.music.utils.YTPlayerUtils.playerResponseForPlayback(
+                    match.trackId,
+                    audioQuality = com.metrolist.music.constants.AudioQuality.HIGH,
+                    connectivityManager = appContext.getSystemService(android.net.ConnectivityManager::class.java),
+                ).getOrNull()?.format?.bitrate
+            }?.also { rememberBitrate(match.provider, match.trackId, it) }?.div(1000)
+        }
         val query = queryFor(mediaId, dbSong) ?: return@withContext null
         val provider = providers[match.provider] ?: return@withContext null
         kotlinx.coroutines.withTimeoutOrNull(VERSION_MEASURE_TIMEOUT_MS) {
             val stream = runCatching { provider.stream(query, match) }.getOrNull() ?: return@withTimeoutOrNull null
-            if (stream.bitrate > 0) return@withTimeoutOrNull stream.bitrate / 1000
+            if (stream.bitrate > 0) {
+                rememberBitrate(match.provider, match.trackId, stream.bitrate)
+                return@withTimeoutOrNull stream.bitrate / 1000
+            }
             runInterruptible {
                 val source = com.metrolist.music.playback.datasource.HlsConcatDataSource.Factory(
                     androidx.media3.datasource.DefaultHttpDataSource.Factory(),
@@ -407,7 +436,8 @@ object AudioFallbackEngine {
                         if (read < 0) break
                         out.write(buffer, 0, read)
                     }
-                    com.metrolist.music.playback.datasource.MeasuredAudio.analyze(out.toByteArray())?.bitrate?.div(1000)
+                    com.metrolist.music.playback.datasource.MeasuredAudio.analyze(out.toByteArray())?.bitrate
+                        ?.also { rememberBitrate(match.provider, match.trackId, it) }?.div(1000)
                 }.also { runCatching { source.close() } }.getOrNull()
             }
         }
@@ -441,12 +471,12 @@ object AudioFallbackEngine {
         return kotlinx.coroutines.coroutineScope {
             ranked.map { m ->
                 async {
-                    val bitrate = runCatching {
+                    val bitrate = knownBitrate(AudioProviderId.YOUTUBE, m.id)?.let { it * 1000 } ?: runCatching {
                         kotlinx.coroutines.withTimeoutOrNull(VERSION_BITRATE_TIMEOUT_MS) {
                             com.metrolist.music.utils.YTPlayerUtils.playerResponseForMetadata(m.id).getOrNull()
                                 ?.streamingData?.adaptiveFormats?.filter { it.isAudio }?.maxOfOrNull { it.bitrate }
                         }
-                    }.getOrNull()
+                    }.getOrNull()?.also { rememberBitrate(AudioProviderId.YOUTUBE, m.id, it) }
                     val item = byId[m.id]
                     VersionCandidate(
                         ProviderMatch(

@@ -98,6 +98,7 @@ fun TrackVersionDialog(
             } else {
                 null
             }
+            candidates = sameRecordingOnce(candidates, currentKey)
         }
         loading = false
     }
@@ -233,6 +234,34 @@ private fun switchVersion(
 
 private const val VERSION_CONFIRM_TIMEOUT_MS = 30_000L
 
+/**
+ * One row per recording: YouTube Music often has the same one under two ids (the album and a single,
+ * two regions) with the same title, artist and length — two rows that looked exactly alike. The one
+ * playing now is the one kept.
+ */
+private fun sameRecordingOnce(
+    list: List<AudioFallbackEngine.VersionCandidate>,
+    keepKey: String?,
+): List<AudioFallbackEngine.VersionCandidate> {
+    fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+    val out = mutableListOf<AudioFallbackEngine.VersionCandidate>()
+    for (candidate in list) {
+        val m = candidate.match
+        val same = out.indexOfFirst { o ->
+            o.match.provider == m.provider &&
+                norm(o.match.title) == norm(m.title) &&
+                norm(o.match.artist) == norm(m.artist) &&
+                kotlin.math.abs((o.match.durationMs ?: -1L) - (m.durationMs ?: -1L)) <= 2_000L
+        }
+        when {
+            same < 0 -> out += candidate
+            "${m.provider}:${m.trackId}" == keepKey -> out[same] = candidate.copy(bitrateKbps = candidate.bitrateKbps ?: out[same].bitrateKbps)
+            out[same].bitrateKbps == null && candidate.bitrateKbps != null -> out[same] = out[same].copy(bitrateKbps = candidate.bitrateKbps)
+        }
+    }
+    return out
+}
+
 @Composable
 private fun VersionRow(
     candidate: AudioFallbackEngine.VersionCandidate,
@@ -257,7 +286,9 @@ private fun VersionRow(
                 overflow = TextOverflow.Ellipsis,
             )
             val percent = (match.confidence.coerceAtMost(1.0) * 100).toInt()
-            val info = stringResource(R.string.track_version_info, providerLabel(match.provider), percent) +
+            // The length tells versions apart (a live take, a radio edit) when the names are the same.
+            val length = match.durationMs?.takeIf { it > 0 }?.let { ms -> " · %d:%02d".format(ms / 60_000, ms / 1000 % 60) }.orEmpty()
+            val info = stringResource(R.string.track_version_info, providerLabel(match.provider), percent) + length +
                 if (isCurrent) " · " + stringResource(R.string.track_version_current) else ""
             Text(
                 text = info,

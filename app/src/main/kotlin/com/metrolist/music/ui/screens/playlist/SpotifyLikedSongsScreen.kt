@@ -194,7 +194,7 @@ fun SpotifyLikedSongsScreen(
 
     // Downloaded / not downloaded filter, plus why a track didn't download last time.
     val downloadedIds = com.metrolist.music.ui.component.rememberDownloadedIds(tracks)
-    LaunchedEffect(Unit) { com.metrolist.music.playback.DownloadIssues.ensureLoaded(context) }
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { com.metrolist.music.playback.DownloadIssues.ensureLoaded(context) } }
     val downloadIssues by com.metrolist.music.playback.DownloadIssues.issues.collectAsState()
     var downloadFilter by rememberSaveable { mutableStateOf(0) } // 0 all, 1 downloaded, 2 not downloaded
     val shownTracks = remember(sortedTracks, downloadedIds, downloadFilter) {
@@ -281,7 +281,7 @@ fun SpotifyLikedSongsScreen(
                         .padding(16.dp),
                 ) {
                     Text(
-                        text = stringResource(R.string.spotify_liked_songs),
+                        text = com.metrolist.music.ui.component.catalogLikedSongsTitle(),
                         style = MaterialTheme.typography.headlineSmall,
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -291,7 +291,7 @@ fun SpotifyLikedSongsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
-                    val downloadedCount = com.metrolist.music.ui.component.rememberDownloadedCount(tracks)
+                    val downloadedCount = downloadedIds.size
                     if (!isLoading && tracks.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {

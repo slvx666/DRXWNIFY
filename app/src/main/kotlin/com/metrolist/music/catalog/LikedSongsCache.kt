@@ -20,7 +20,12 @@ object LikedSongsCache {
     const val FRESH_MS = 10 * 60_000L
 
     @Serializable
-    private data class Snapshot(val total: Int, val tracks: List<SpotifyTrack>)
+    private data class Snapshot(
+        val total: Int,
+        val tracks: List<SpotifyTrack>,
+        /** Track id → when it was liked (ms), for the portrait's "new likes" and its calendar. */
+        val added: Map<String, Long> = emptyMap(),
+    )
 
     class Cached(val tracks: List<SpotifyTrack>, val total: Int, val ageMs: Long)
 
@@ -50,11 +55,26 @@ object LikedSongsCache {
         return Cached(entry.snapshot.tracks, entry.snapshot.total, System.currentTimeMillis() - entry.at)
     }
 
+    /** The list in memory, without touching the disk: safe on the main thread. */
+    fun peek(account: String): Cached? {
+        val entry = memory?.takeIf { it.account == account } ?: return null
+        return Cached(entry.snapshot.tracks, entry.snapshot.total, System.currentTimeMillis() - entry.at)
+    }
+
     @Synchronized
-    fun put(account: String, tracks: List<SpotifyTrack>, total: Int) {
-        val snapshot = Snapshot(total, tracks)
+    fun put(account: String, tracks: List<SpotifyTrack>, total: Int, added: Map<String, Long>? = null) {
+        // Dates not given this time (a partial update) are kept from the list before.
+        val known = added ?: memory?.takeIf { it.account == account }?.snapshot?.added.orEmpty()
+        val snapshot = Snapshot(total, tracks, known)
         memory = Entry(account, System.currentTimeMillis(), snapshot)
         runCatching { fileOf(account)?.writeText(json.encodeToString(Snapshot.serializer(), snapshot)) }
+    }
+
+    /** When each kept track was liked, as far as known. */
+    @Synchronized
+    fun addedAt(account: String): Map<String, Long> {
+        get(account)
+        return memory?.takeIf { it.account == account }?.snapshot?.added.orEmpty()
     }
 
     /** The account said nothing changed: the list counts as fresh again. */

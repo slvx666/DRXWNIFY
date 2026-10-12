@@ -16,7 +16,15 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,7 +39,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -82,7 +89,7 @@ import kotlinx.coroutines.launch
 
 /** Keeps friends' updates flowing while the screen is shown. */
 @Composable
-private fun LiveWhileShown() {
+internal fun LiveWhileShown() {
     DisposableEffect(Unit) {
         FriendsHub.startLive()
         onDispose { FriendsHub.stopLive() }
@@ -107,7 +114,7 @@ private fun copy(context: Context, text: String) {
 }
 
 /** The name a profile is shown with: the developer always as drxwnslvt. */
-private fun displayName(pubkey: String, name: String?): String = when {
+internal fun displayName(pubkey: String, name: String?): String = when {
     FriendsHub.isDeveloper(pubkey) -> FriendsHub.DEVELOPER_NAME
     !name.isNullOrBlank() -> name
     else -> shortKey(pubkey)
@@ -117,6 +124,21 @@ private fun displayName(pubkey: String, name: String?): String = when {
  * A round profile picture: the developer's from "About", a friend's own one (sent with their
  * profile), else their initial on a colour of their key.
  */
+/** Friends' avatars (base64 JPEG in their profile), decoded once per run. */
+private object AvatarCache {
+    private val cache = android.util.LruCache<Int, androidx.compose.ui.graphics.ImageBitmap>(64)
+
+    fun get(avatar: String) = cache.get(avatar.hashCode())
+
+    fun decode(avatar: String): androidx.compose.ui.graphics.ImageBitmap? {
+        get(avatar)?.let { return it }
+        return runCatching {
+            val bytes = android.util.Base64.decode(avatar, android.util.Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        }.getOrNull()?.also { cache.put(avatar.hashCode(), it) }
+    }
+}
+
 @Composable
 fun FriendAvatar(pubkey: String, name: String, avatar: String?, size: Dp, modifier: Modifier = Modifier) {
     val shape = CircleShape
@@ -129,16 +151,14 @@ fun FriendAvatar(pubkey: String, name: String, avatar: String?, size: Dp, modifi
         )
         return
     }
-    val bitmap = remember(avatar) {
-        avatar?.let {
-            runCatching {
-                val bytes = android.util.Base64.decode(it, android.util.Base64.DEFAULT)
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-            }.getOrNull()
+    // Decoded off the main thread and kept: decoding every avatar while the tab opened made it stutter.
+    val bitmap by androidx.compose.runtime.produceState(avatar?.let { AvatarCache.get(it) }, avatar) {
+        if (value == null && avatar != null) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { AvatarCache.decode(avatar) }
         }
     }
-    if (bitmap != null) {
-        Image(bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier.size(size).clip(shape))
+    bitmap?.let { decoded ->
+        Image(decoded, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier.size(size).clip(shape))
         return
     }
     val hue = (pubkey.take(6).toLongOrNull(16) ?: 0L) % 360
@@ -205,13 +225,25 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
     val profile by FriendsHub.profile.collectAsState()
     val friends by FriendsHub.friends.collectAsState()
     val data by FriendsHub.data.collectAsState()
+    val pinned by FriendsHub.pinned.collectAsState()
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val requests by FriendsHub.requests.collectAsState()
     val listeningTo by FriendsHub.listeningTo.collectAsState()
     val invite by FriendsHub.invite.collectAsState()
     var showBackup by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var showRestore by remember { mutableStateOf(false) }
+    var showAdd by remember { mutableStateOf(false) }
+    var showHow by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // The header first; the rest a couple of frames later, after the opening animation got going:
+    // composing everything in the first frame made the tab stutter while it slid in.
+    var restReady by rememberSaveable { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        repeat(3) { androidx.compose.runtime.withFrameNanos { } }
+        restReady = true
+    }
 
     // Pick → crop and zoom to a square (the editor used for playlist covers) → set.
     fun setAvatarFrom(uri: android.net.Uri) {
@@ -269,124 +301,256 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
 
     LazyColumn(
         contentPadding = PaddingValues(
-            start = 16.dp, end = 16.dp, top = topPadding,
+            top = topPadding,
             bottom = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateBottomPadding() + 16.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
         val me = profile
         if (me == null) {
-            invite?.let { inv -> item { InviteWaitingCard(inv) } }
-            item { CreateProfileCard() }
+            invite?.let { inv -> item { Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { InviteWaitingCard(inv) } } }
+            item { Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) { CreateProfileCard() } }
             return@LazyColumn
         }
-        item {
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
-                Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box {
-                            FriendAvatar(
-                                me.pubkey, me.name, me.avatar, 64.dp,
-                                Modifier.clickable {
-                                    pickAvatar.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                },
+
+        // Me: avatar, name, how others see me, and the two things done most — invite and add.
+        item(key = "me") {
+            Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box {
+                        FriendAvatar(
+                            me.pubkey, me.name, me.avatar, 60.dp,
+                            Modifier.clickable {
+                                pickAvatar.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            },
+                        )
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.align(Alignment.BottomEnd).size(20.dp),
+                        ) {
+                            Icon(painterResource(R.drawable.edit), null, modifier = Modifier.padding(4.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { navController.navigate("friend/${me.pubkey}") }
+                            .padding(vertical = 4.dp),
+                    ) {
+                        NameLine(me.pubkey, displayName(me.pubkey, me.name.ifBlank { stringResource(R.string.friends_no_name) }), MaterialTheme.typography.titleLarge)
+                        Text(
+                            stringResource(R.string.friends_view_as_others) + "  ›",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Box {
+                        IconButton(onClick = { showMenu = true }) { Icon(painterResource(R.drawable.more_vert), stringResource(R.string.friends_more)) }
+                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.friends_name)) },
+                                leadingIcon = { Icon(painterResource(R.drawable.edit), null) },
+                                onClick = { showMenu = false; showRename = true },
                             )
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.align(Alignment.BottomEnd).size(22.dp),
-                            ) {
-                                Icon(painterResource(R.drawable.edit), null, modifier = Modifier.padding(4.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                            if (me.avatar != null) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.friends_avatar_remove)) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.delete), null) },
+                                    onClick = { showMenu = false; FriendsHub.setAvatar(null) },
+                                )
                             }
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            NameLine(me.pubkey, displayName(me.pubkey, me.name.ifBlank { stringResource(R.string.friends_no_name) }), MaterialTheme.typography.titleLarge)
-                            if (me.isDeveloper) {
-                                Text(stringResource(R.string.friends_developer_public), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                        IconButton(onClick = { showRename = true }) { Icon(painterResource(R.drawable.edit), stringResource(R.string.friends_name)) }
-                        IconButton(onClick = { navController.navigate("friends/privacy") }) {
-                            Icon(painterResource(R.drawable.lock), stringResource(R.string.friends_privacy))
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.friends_copy_code)) },
+                                leadingIcon = { Icon(painterResource(R.drawable.content_copy), null) },
+                                onClick = { showMenu = false; copy(context, me.code) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.friends_privacy)) },
+                                leadingIcon = { Icon(painterResource(R.drawable.lock), null) },
+                                onClick = { showMenu = false; navController.navigate("friends/privacy") },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.friends_backup_key)) },
+                                leadingIcon = { Icon(painterResource(R.drawable.backup), null) },
+                                onClick = { showMenu = false; showBackup = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.friends_use_other_key)) },
+                                leadingIcon = { Icon(painterResource(R.drawable.restore), null) },
+                                onClick = { showMenu = false; showRestore = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.friends_how_it_works_title)) },
+                                leadingIcon = { Icon(painterResource(R.drawable.info), null) },
+                                onClick = { showMenu = false; showHow = true },
+                            )
                         }
                     }
-                    if (me.avatar != null) {
-                        TextButton(onClick = { FriendsHub.setAvatar(null) }) { Text(stringResource(R.string.friends_avatar_remove)) }
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(stringResource(R.string.friends_my_code), style = MaterialTheme.typography.labelMedium)
-                    Text(me.code, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { copy(context, me.code) }) { Text(stringResource(R.string.friends_copy_code)) }
-                        Button(onClick = {
+                }
+                if (me.isDeveloper) {
+                    Text(
+                        stringResource(R.string.friends_developer_public),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(end = 12.dp)) {
+                    Button(
+                        onClick = {
                             val link = FriendsHub.inviteLink() ?: me.code
                             val text = context.getString(R.string.friends_share_text, link)
                             context.startActivity(
                                 Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), null),
                             )
-                        }) {
-                            Icon(painterResource(R.drawable.link), null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(stringResource(R.string.friends_invite_link))
-                        }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(painterResource(R.drawable.link), null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.friends_invite_short), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    OutlinedButton(
-                        onClick = { navController.navigate("friend/${me.pubkey}") },
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    ) { Text(stringResource(R.string.friends_view_as_others)) }
-                    Row {
-                        TextButton(onClick = { showBackup = true }) { Text(stringResource(R.string.friends_backup_key)) }
-                        TextButton(onClick = { showRestore = true }) { Text(stringResource(R.string.friends_use_other_key)) }
+                    FilledTonalButton(onClick = { showAdd = true }, modifier = Modifier.weight(1f)) {
+                        Icon(painterResource(R.drawable.person_add), null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.friends_add_by_code_short), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
         }
+
+        if (!restReady) return@LazyColumn
         listeningTo?.let { pub ->
-            item {
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            item(key = "listening_with") {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(painterResource(R.drawable.graphic_eq), null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(10.dp))
                         val name = displayName(pub, friends.firstOrNull { it.pubkey == pub }?.name ?: data[pub]?.name)
-                        Text(stringResource(R.string.friends_listening_with, name), modifier = Modifier.weight(1f))
+                        Text(stringResource(R.string.friends_listening_with, name), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         TextButton(onClick = FriendsHub::stopListenAlong) { Text(stringResource(R.string.friends_stop)) }
                     }
                 }
             }
         }
+
         if (requests.isNotEmpty()) {
-            item { Text(stringResource(R.string.friends_requests), style = MaterialTheme.typography.titleMedium) }
+            item(key = "req_title") { SectionTitle(stringResource(R.string.friends_requests), requests.size) }
             requests.forEach { request ->
                 item(key = "req_${request.pubkey}") {
-                    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            val name = displayName(request.pubkey, request.name)
-                            FriendAvatar(request.pubkey, name, data[request.pubkey]?.avatar, 40.dp)
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
-                                NameLine(request.pubkey, name, MaterialTheme.typography.bodyLarge)
-                                Text(stringResource(R.string.friends_wants_to_add), style = MaterialTheme.typography.bodySmall)
-                            }
-                            TextButton(onClick = { FriendsHub.dismissRequest(request.pubkey) }) { Text(stringResource(R.string.friends_decline)) }
-                            Button(onClick = { FriendsHub.addFriend(request.pubkey, request.name) }) { Text(stringResource(R.string.friends_accept)) }
+                    val name = displayName(request.pubkey, request.name)
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        FriendAvatar(request.pubkey, name, data[request.pubkey]?.avatar, 44.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            NameLine(request.pubkey, name, MaterialTheme.typography.bodyLarge)
+                            Text(
+                                stringResource(R.string.friends_wants_to_add),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        IconButton(onClick = { FriendsHub.dismissRequest(request.pubkey) }) {
+                            Icon(painterResource(R.drawable.close), stringResource(R.string.friends_decline))
+                        }
+                        FilledTonalIconButton(onClick = { FriendsHub.addFriend(request.pubkey, request.name) }) {
+                            Icon(painterResource(R.drawable.check), stringResource(R.string.friends_accept))
                         }
                     }
                 }
             }
         }
-        item { AddFriendRow() }
-        val others = friends.filter { it.pubkey != me.pubkey }
-        item {
-            Text(stringResource(R.string.friends_list_title, others.size), style = MaterialTheme.typography.titleMedium)
+
+        // Pinned friends first (in the order they were pinned), then the rest as before.
+        val others = friends.filter { it.pubkey != me.pubkey }.let { list ->
+            val byKey = list.associateBy { it.pubkey }
+            pinned.mapNotNull { byKey[it] } + list.filter { it.pubkey !in pinned }
         }
+
+        // Who is playing something right now, as a row of covers: the liveliest part of the tab.
+        val playingNow = others.filter { data[it.pubkey]?.now?.playing == true }
+        if (playingNow.isNotEmpty()) {
+            item(key = "now_title") { SectionTitle(stringResource(R.string.friends_now_listening), null) }
+            item(key = "now_row") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(playingNow, key = { "now_${it.pubkey}" }) { friend ->
+                        val d = data[friend.pubkey]
+                        val now = d?.now ?: return@items
+                        val name = displayName(friend.pubkey, d.name ?: friend.name)
+                        Column(
+                            Modifier
+                                .width(124.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { navController.navigate("friend/${friend.pubkey}") },
+                        ) {
+                            Box {
+                                AsyncImage(
+                                    now.track.cover,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(124.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                )
+                                FriendAvatar(
+                                    friend.pubkey, name, d.avatar, 32.dp,
+                                    Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(6.dp)
+                                        .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                                )
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                "${now.track.title} · ${now.track.artist}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        item(key = "friends_title") { SectionTitle(stringResource(R.string.friends_title), others.size) }
         if (others.isEmpty()) {
-            item {
-                Text(
-                    stringResource(R.string.friends_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            item(key = "friends_empty") {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 24.dp),
+                ) {
+                    Icon(
+                        painterResource(R.drawable.group),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(40.dp),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        stringResource(R.string.friends_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
             }
         }
         others.forEach { friend ->
@@ -397,16 +561,16 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
                     name = displayName(friend.pubkey, d?.name ?: friend.name),
                     avatar = d?.avatar,
                     now = d?.now,
+                    pinned = friend.pubkey in pinned,
                     onClick = { navController.navigate("friend/${friend.pubkey}") },
+                    onLongClick = {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        val nowPinned = FriendsHub.togglePinned(friend.pubkey)
+                        Toast.makeText(context, if (nowPinned) R.string.friends_pinned else R.string.friends_unpinned, Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.animateItem(),
                 )
             }
-        }
-        item {
-            Text(
-                stringResource(R.string.friends_how_it_works),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 
@@ -456,6 +620,18 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
                 }
             },
             dismissButton = { TextButton(onClick = { showRename = false }) { Text(stringResource(android.R.string.cancel)) } },
+        )
+    }
+    if (showAdd) {
+        AddFriendDialog(onDismiss = { showAdd = false })
+    }
+    if (showHow) {
+        AlertDialog(
+            onDismissRequest = { showHow = false },
+            icon = { Icon(painterResource(R.drawable.info), null) },
+            title = { Text(stringResource(R.string.friends_how_it_works_title)) },
+            text = { Text(stringResource(R.string.friends_how_it_works), style = MaterialTheme.typography.bodyMedium) },
+            confirmButton = { TextButton(onClick = { showHow = false }) { Text(stringResource(android.R.string.ok)) } },
         )
     }
     if (showRestore) {
@@ -542,61 +718,191 @@ private fun CreateProfileCard() {
     }
 }
 
+/** A section heading of the Friends tab, with a count. */
 @Composable
-private fun AddFriendRow() {
-    val context = LocalContext.current
-    var code by rememberSaveable { mutableStateOf("") }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = code,
-            onValueChange = { code = it },
-            label = { Text(stringResource(R.string.friends_add_hint)) },
-            singleLine = true,
-            modifier = Modifier.weight(1f),
-        )
-        Button(enabled = code.isNotBlank(), onClick = {
-            val pub = FriendsHub.parseCode(code)
-            when {
-                pub == null -> Toast.makeText(context, R.string.friends_bad_code, Toast.LENGTH_SHORT).show()
-                pub == FriendsHub.profile.value?.pubkey -> Toast.makeText(context, R.string.friends_own_code, Toast.LENGTH_SHORT).show()
-                else -> {
-                    FriendsHub.addFriend(pub)
-                    code = ""
-                    Toast.makeText(context, R.string.friends_added, Toast.LENGTH_SHORT).show()
-                }
+private fun SectionTitle(title: String, count: Int?) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp),
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (count != null && count > 0) {
+            Spacer(Modifier.width(8.dp))
+            Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                Text(
+                    count.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp),
+                )
             }
-        }) { Text(stringResource(R.string.friends_add)) }
+        }
     }
 }
 
+/** Add a friend by their code / invite link, or find them by name (if they allowed it). */
 @Composable
-private fun FriendRow(pubkey: String, name: String, avatar: String?, now: FriendsHub.NowPlaying?, onClick: () -> Unit) {
+private fun AddFriendDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val friends by FriendsHub.friends.collectAsState()
+    var text by rememberSaveable { mutableStateOf("") }
+    var searching by remember { mutableStateOf(false) }
+    var results by remember { mutableStateOf<List<FriendsHub.Found>?>(null) }
+    val code = FriendsHub.parseCode(text)
+
+    fun add(pub: String, name: String = "") {
+        when {
+            pub == FriendsHub.profile.value?.pubkey -> Toast.makeText(context, R.string.friends_own_code, Toast.LENGTH_SHORT).show()
+            else -> {
+                FriendsHub.addFriend(pub, name)
+                Toast.makeText(context, R.string.friends_added, Toast.LENGTH_SHORT).show()
+                onDismiss()
+            }
+        }
+    }
+
+    fun search() {
+        if (text.trim().length < 2) return
+        searching = true
+        results = null
+        scope.launch {
+            results = runCatching { FriendsHub.searchByName(text) }.getOrDefault(emptyList())
+            searching = false
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(painterResource(R.drawable.person_add), null) },
+        title = { Text(stringResource(R.string.friends_add_title)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.friends_add_by_code_hint), style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it; results = null },
+                    placeholder = { Text(stringResource(R.string.friends_add_field)) },
+                    singleLine = true,
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            val clip = (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip
+                            clip?.getItemAt(0)?.coerceToText(context)?.toString()?.trim()?.let { text = it; results = null }
+                        }) { Icon(painterResource(R.drawable.content_paste), stringResource(R.string.friends_paste)) }
+                    },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { if (code == null) search() }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                when {
+                    searching -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 12.dp)) {
+                        androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text(stringResource(R.string.friends_searching), style = MaterialTheme.typography.bodySmall)
+                    }
+                    results?.isEmpty() == true -> Text(
+                        stringResource(R.string.friends_search_none),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    results != null -> Column(Modifier.padding(top = 8.dp)) {
+                        results.orEmpty().forEach { found ->
+                            val already = friends.any { it.pubkey == found.pubkey }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                FriendAvatar(found.pubkey, found.name, found.avatar, 36.dp)
+                                Spacer(Modifier.width(10.dp))
+                                Text(found.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (already) {
+                                    Text(stringResource(R.string.friends_already), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                } else {
+                                    TextButton(onClick = { add(found.pubkey, found.name) }) { Text(stringResource(R.string.friends_add)) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (code != null) {
+                TextButton(onClick = { add(code) }) { Text(stringResource(R.string.friends_add)) }
+            } else {
+                TextButton(enabled = text.trim().length >= 2 && !searching, onClick = { search() }) { Text(stringResource(R.string.friends_search)) }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } },
+    )
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun FriendRow(
+    pubkey: String,
+    name: String,
+    avatar: String?,
+    now: FriendsHub.NowPlaying?,
+    pinned: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     val verifiedSet by FriendsHub.verified.collectAsState()
     val myProfile by FriendsHub.profile.collectAsState()
-    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.clickable(onClick = onClick)) {
-        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box {
-                FriendAvatar(pubkey, name, avatar, 48.dp)
-                if (now?.track?.cover != null) {
-                    AsyncImage(
-                        model = now.track.cover,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.align(Alignment.BottomEnd).size(22.dp).clip(RoundedCornerShape(5.dp)),
-                    )
-                }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Box {
+            FriendAvatar(pubkey, name, avatar, 50.dp)
+            if (now?.playing == true) {
+                // A small "on air" dot on the avatar.
+                Box(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(14.dp)
+                        .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
             }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                NameLine(pubkey, name, MaterialTheme.typography.bodyLarge, verified = myProfile?.isDeveloper == true && pubkey in verifiedSet)
-                val line = when {
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            NameLine(pubkey, name, MaterialTheme.typography.bodyLarge, verified = myProfile?.isDeveloper == true && pubkey in verifiedSet)
+            val playing = now?.playing == true
+            Text(
+                when {
                     now == null -> stringResource(R.string.friends_nothing_shared)
-                    now.playing -> "▶ ${now.track.artist} — ${now.track.title}"
+                    playing -> "${now.track.artist} — ${now.track.title}"
                     else -> "${now.track.artist} — ${now.track.title} · ${ago(context, now.at)}"
-                }
-                Text(line, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = if (playing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (now?.track?.cover != null) {
+            Spacer(Modifier.width(10.dp))
+            AsyncImage(
+                model = now.track.cover,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)),
+            )
+        }
+        if (pinned) {
+            Icon(
+                painterResource(R.drawable.ic_push_pin),
+                contentDescription = stringResource(R.string.friends_pinned),
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 8.dp).size(18.dp),
+            )
         }
     }
 }
@@ -619,11 +925,36 @@ fun FriendScreen(navController: NavController, pubkey: String) {
     val d = all[pubkey]
     val name = displayName(pubkey, d?.name ?: friend?.name?.ifBlank { null })
     var confirmRemove by remember { mutableStateOf(false) }
-    var openPlaylist by rememberSaveable { mutableStateOf<String?>(null) }
+    var showAllHistory by rememberSaveable { mutableStateOf(false) }
+    // Own profile before the first daily build: build it now, so the portrait is there to see.
+    androidx.compose.runtime.LaunchedEffect(pubkey, myProfile?.pubkey) {
+        if (pubkey == myProfile?.pubkey && d?.portrait == null) FriendsHub.publishPortraitIfStale()
+    }
 
     fun play(tracks: List<FriendsHub.TrackRef>, index: Int) {
         val connection = playerConnection ?: return
         scope.launch { connection.playQueue(FriendPlayback.listQueue(tracks, index)) }
+    }
+
+    val menuState = com.metrolist.music.ui.component.LocalMenuState.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
+    /** The usual track menu for a friend's track (long press). */
+    fun openMenu(track: FriendsHub.TrackRef) = scope.launch {
+        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+        val (metadata, catalogTrack) = FriendPlayback.menuTarget(track) ?: run {
+            Toast.makeText(context, R.string.friends_track_menu_unavailable, Toast.LENGTH_SHORT).show()
+            return@launch
+        }
+        menuState.show {
+            com.metrolist.music.ui.menu.PlayerMenu(
+                mediaMetadata = metadata,
+                navController = navController,
+                isCurrentTrack = false,
+                spotifyTrack = catalogTrack,
+                onDismiss = menuState::dismiss,
+            )
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -673,6 +1004,11 @@ fun FriendScreen(navController: NavController, pubkey: String) {
                             )
                         }
                     }
+                }
+                // Three main genres of the last months, like roles in Discord.
+                d?.portrait?.tags?.takeIf { it.isNotEmpty() }?.let { tags ->
+                    Spacer(Modifier.height(10.dp))
+                    GenreTags(tags)
                 }
                 if (friend == null && pubkey != FriendsHub.profile.value?.pubkey) {
                     Spacer(Modifier.height(8.dp))
@@ -727,7 +1063,13 @@ fun FriendScreen(navController: NavController, pubkey: String) {
                     }
                 }
             }
-            d?.stats?.let { s ->
+            d?.portrait?.let { portrait ->
+                item(key = "portrait") {
+                    PortraitSection(portrait, onPlay = { list, i -> play(list, i) }, onMenu = { openMenu(it) })
+                }
+            }
+            // From a friend on an older version: the old weekly numbers.
+            if (d?.portrait == null) d?.stats?.let { s ->
                 item {
                     Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
                         Column(Modifier.fillMaxWidth().padding(14.dp)) {
@@ -744,28 +1086,45 @@ fun FriendScreen(navController: NavController, pubkey: String) {
                     }
                 }
             }
-            d?.playlists?.takeIf { it.isNotEmpty() }?.let { playlists ->
-                item { Text(stringResource(R.string.friends_playlists), style = MaterialTheme.typography.titleMedium) }
-                playlists.forEach { playlist ->
-                    item(key = "pl_${playlist.name}") {
-                        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            Column(Modifier.fillMaxWidth()) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                        .clickable { openPlaylist = if (openPlaylist == playlist.name) null else playlist.name }
-                                        .padding(12.dp),
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(playlist.name, fontWeight = FontWeight.SemiBold)
-                                        Text(stringResource(R.string.friends_tracks_count, playlist.total), style = MaterialTheme.typography.bodySmall)
-                                    }
-                                    IconButton(onClick = { play(playlist.tracks, 0) }) { Icon(painterResource(R.drawable.play), null) }
+            // The friend's liked tracks (the newest 500): a card here, the whole list as a playlist.
+            d?.likes?.takeIf { it.tracks.isNotEmpty() }?.let { likes ->
+                item(key = "likes") {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { navController.navigate("friend_likes/$pubkey") },
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    painterResource(R.drawable.favorite),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.friend_likes_title), fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        if (likes.total > likes.tracks.size) {
+                                            stringResource(R.string.friend_likes_shown, likes.tracks.size, likes.total)
+                                        } else {
+                                            stringResource(R.string.friends_tracks_count, likes.tracks.size)
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
                                 }
-                                if (openPlaylist == playlist.name) {
-                                    playlist.tracks.forEachIndexed { i, t ->
-                                        TrackRow(t, onClick = { play(playlist.tracks, i) })
-                                    }
+                                IconButton(onClick = { play(likes.tracks, 0) }) { Icon(painterResource(R.drawable.play), null) }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                likes.tracks.take(6).forEach { t ->
+                                    AsyncImage(
+                                        t.cover,
+                                        contentDescription = t.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.size(44.dp).clip(RoundedCornerShape(6.dp)),
+                                    )
                                 }
                             }
                         }
@@ -773,12 +1132,40 @@ fun FriendScreen(navController: NavController, pubkey: String) {
                 }
             }
             d?.history?.takeIf { it.isNotEmpty() }?.let { history ->
-                item { Text(stringResource(R.string.friends_history), style = MaterialTheme.typography.titleMedium) }
-                itemsIndexed(history, key = { i, t -> "h_${i}_${t.title}" }) { i, t ->
-                    TrackRow(t, onClick = { play(history, i) }, at = t.at.takeIf { it > 0 }?.let { ago(context, it) })
+                item(key = "history") {
+                    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Column(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 2.dp),
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.friends_history), fontWeight = FontWeight.SemiBold)
+                                    Text(stringResource(R.string.friends_tracks_count, history.size), style = MaterialTheme.typography.bodySmall)
+                                }
+                                IconButton(onClick = { play(history, 0) }) { Icon(painterResource(R.drawable.play), null) }
+                            }
+                            (if (showAllHistory) history else history.take(5)).forEachIndexed { i, t ->
+                                TrackRow(
+                                    t,
+                                    onClick = { play(history, i) },
+                                    onLongClick = { openMenu(t) },
+                                    at = t.at.takeIf { it > 0 }?.let { ago(context, it) },
+                                )
+                            }
+                            if (history.size > 5) {
+                                TextButton(onClick = { showAllHistory = !showAllHistory }, modifier = Modifier.padding(start = 4.dp)) {
+                                    Text(
+                                        if (showAllHistory) stringResource(R.string.friends_show_less)
+                                        else stringResource(R.string.friends_show_all, history.size),
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            if (d == null || (d.history == null && d.playlists == null && d.stats == null && d.now == null)) {
+            if (d == null || (d.history == null && d.likes == null && d.stats == null && d.portrait == null && d.now == null)) {
                 item {
                     Text(stringResource(R.string.friends_waiting_data), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -803,11 +1190,14 @@ fun FriendScreen(navController: NavController, pubkey: String) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun TrackRow(track: FriendsHub.TrackRef, onClick: () -> Unit, at: String? = null) {
+private fun TrackRow(track: FriendsHub.TrackRef, onClick: () -> Unit, onLongClick: (() -> Unit)? = null, at: String? = null) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         if (track.cover != null) {
             AsyncImage(track.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)))

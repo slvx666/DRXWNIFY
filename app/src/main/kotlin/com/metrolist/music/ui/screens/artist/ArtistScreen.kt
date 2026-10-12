@@ -364,7 +364,13 @@ fun ArtistScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     fontSize = 32.sp,
-                                    modifier = Modifier.padding(bottom = 16.dp),
+                                    modifier = Modifier.padding(bottom = 8.dp),
+                                )
+
+                                // Genres from Last.fm / MusicBrainz, the same tags as on friends' profiles.
+                                com.metrolist.music.ui.screens.friends.ArtistGenreTags(
+                                    artistName,
+                                    Modifier.padding(bottom = 12.dp),
                                 )
 
                                 // Buttons Row

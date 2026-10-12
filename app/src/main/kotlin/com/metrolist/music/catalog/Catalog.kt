@@ -82,6 +82,13 @@ object Catalog {
 
     fun init(dataStore: DataStore<Preferences>, scope: CoroutineScope, likedSongsTitle: String) {
         likedSongsName = likedSongsTitle
+        // Liked Songs read from disk into memory a little after start (not holding up the intro): the
+        // screen then opens with its list on the first frame.
+        scope.launch(Dispatchers.IO) {
+            stateLoaded.first { it }
+            kotlinx.coroutines.delay(4_000L)
+            source?.let { LikedSongsCache.get(it.name) }
+        }
         scope.launch(Dispatchers.IO) {
             dataStore.data
                 .map { prefs ->

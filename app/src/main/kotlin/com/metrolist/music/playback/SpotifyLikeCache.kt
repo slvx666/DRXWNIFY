@@ -117,9 +117,10 @@ object SpotifyLikeCache {
 
     /** Seed a batch of ids as liked without a network call (e.g. the Liked Songs list). */
     fun markLiked(spotifyIds: Collection<String>) {
-        val clean = spotifyIds.filter { it.isNotBlank() }
+        val current = _liked.value
+        val clean = spotifyIds.filter { it.isNotBlank() && it !in current }
         if (clean.isEmpty()) return
         synchronized(known) { known.addAll(clean) }
-        _liked.value = _liked.value + clean
+        _liked.value = current + clean
     }
 }

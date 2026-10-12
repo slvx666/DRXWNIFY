@@ -9,6 +9,11 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -35,20 +40,50 @@ fun AppUpdateOffer() {
     val context = LocalContext.current
     val state by AppUpdater.state.collectAsState()
     var offered by remember { mutableStateOf<AppUpdater.State.Available?>(null) }
+    var hideProgress by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(LAUNCH_DELAY_MS)
         AppUpdater.check()
     }
     LaunchedEffect(state) {
         val available = state as? AppUpdater.State.Available ?: return@LaunchedEffect
-        if (AppUpdater.shouldOffer(context, available.version)) offered = available
+        if (offered == null && AppUpdater.shouldOffer(context, available.version)) offered = available
+    }
+    // Back from the system screen that allows installing: the update carries on by itself.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) AppUpdater.resumeAfterPermission(context)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     offered?.let { available ->
         AppUpdateDialog(available, onDismiss = { offered = null })
     }
+    // The download, with its progress: 50+ MB used to go in silence until the installer opened.
+    val downloading = state as? AppUpdater.State.Downloading
+    if (downloading != null && !hideProgress) {
+        AlertDialog(
+            onDismissRequest = { hideProgress = true },
+            title = { Text(stringResource(R.string.app_update_offer_title, downloading.version)) },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    Text(stringResource(R.string.app_update_downloading, (downloading.progress * 100).toInt()))
+                    androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(12.dp))
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { downloading.progress },
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { hideProgress = true }) { Text(stringResource(R.string.app_update_hide)) } },
+        )
+    }
+    LaunchedEffect(downloading == null) { if (downloading == null) hideProgress = false }
 }
 
-/** "Version X is out": open its page (site / GitHub) or install it right away. */
+/** "Version X is out": what changed, and update right here (download + installer) or later. */
 @Composable
 fun AppUpdateDialog(available: AppUpdater.State.Available, onDismiss: () -> Unit) {
     val context = LocalContext.current
@@ -58,35 +93,56 @@ fun AppUpdateDialog(available: AppUpdater.State.Available, onDismiss: () -> Unit
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.app_update_offer_title, available.version)) },
         text = {
-            Text(
-                stringResource(R.string.app_update_offer_text, AppUpdater.currentVersion) +
-                    // The new version is a new app (its own id): the data goes over through a file.
-                    if (oldApp) "\n\n" + stringResource(R.string.migration_update_note) else "",
-            )
+            androidx.compose.foundation.layout.Column(
+                androidx.compose.ui.Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+            ) {
+                Text(
+                    stringResource(R.string.app_update_you_have, AppUpdater.currentVersion),
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                available.notes?.let { notes ->
+                    androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(10.dp))
+                    Text(
+                        notes.lines().joinToString("\n") { line ->
+                            // The notes are Markdown: headings shown as plain lines.
+                            line.trim().removePrefix("###").removePrefix("##").removePrefix("#").trim()
+                        },
+                        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                // The new version is a new app (its own id): the data goes over through a file.
+                if (oldApp) {
+                    androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.height(10.dp))
+                    Text(stringResource(R.string.migration_update_note))
+                }
+            }
         },
         confirmButton = {
             TextButton(onClick = {
                 onDismiss()
-                AppUpdater.openUpdatePage(context, available)
-            }) { Text(stringResource(R.string.app_update_open_page)) }
+                if (available.apkUrl == null) {
+                    AppUpdater.openUpdatePage(context, available)
+                    return@TextButton
+                }
+                if (oldApp) {
+                    // Everything saved first, so nothing is lost in the move.
+                    val file = com.metrolist.music.utils.AppMigration.createBackupFile(context)
+                    if (file != null) {
+                        backupModel.backup(context, file)
+                        android.widget.Toast.makeText(context, R.string.migration_backup_saved, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+                AppUpdater.startDownloadAndInstall(context, available)
+            }) { Text(stringResource(R.string.app_update_now)) }
         },
         dismissButton = {
-            if (available.apkUrl != null) {
-                TextButton(onClick = {
-                    onDismiss()
-                    if (oldApp) {
-                        // Everything saved first, so nothing is lost in the move.
-                        val file = com.metrolist.music.utils.AppMigration.createBackupFile(context)
-                        if (file != null) {
-                            backupModel.backup(context, file)
-                            android.widget.Toast.makeText(context, R.string.migration_backup_saved, android.widget.Toast.LENGTH_LONG).show()
-                        }
-                    }
-                    AppUpdater.startDownloadAndInstall(context, available)
-                }) { Text(stringResource(R.string.app_update_install_now)) }
-            } else {
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.app_update_later)) }
-            }
+            TextButton(onClick = {
+                AppUpdater.snooze(context, available.version)
+                onDismiss()
+            }) { Text(stringResource(R.string.app_update_later)) }
         },
     )
 }

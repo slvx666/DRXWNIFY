@@ -48,6 +48,28 @@ class VkAudioProvider(
 
     private class VkApiException(val code: Int, message: String) : Exception(message)
 
+    /**
+     * After VK's "Flood control" (error 9) on search, searching pauses: it was asked again for every
+     * track, every one failed in 50 ms, and the limit only dragged on. Playing VK tracks already
+     * found, albums and the rest keep working meanwhile.
+     */
+    @Volatile
+    private var searchPausedUntil = 0L
+
+    @Volatile
+    private var searchBackoffMs = 0L
+
+    private fun searchFlooded() {
+        searchBackoffMs = if (searchBackoffMs == 0L) FLOOD_PAUSE_FIRST_MS else (searchBackoffMs * 2).coerceAtMost(FLOOD_PAUSE_MAX_MS)
+        searchPausedUntil = System.currentTimeMillis() + searchBackoffMs
+        com.metrolist.music.resolver.AudioDiagnostics.warn("VK search paused for ${searchBackoffMs / 60_000} min after flood control")
+    }
+
+    private fun checkSearchPause() {
+        val left = searchPausedUntil - System.currentTimeMillis()
+        if (left > 0) throw VkApiException(FLOOD_CONTROL, "VK search paused (flood control), ${left / 60_000 + 1} min left")
+    }
+
     // VK allows ~3 API calls per second per token; queues resolve many tracks at once.
     private val throttle = kotlinx.coroutines.sync.Mutex()
     private var lastCallAtMs = 0L
@@ -86,8 +108,11 @@ class VkAudioProvider(
             if (!response.isSuccessful) return null
             val root = JSONObject(text ?: return null)
             root.optJSONObject("error")?.let { err ->
-                throw VkApiException(err.optInt("error_code"), "VK error ${err.optInt("error_code")}: ${err.optString("error_msg")}")
+                val code = err.optInt("error_code")
+                if (code == FLOOD_CONTROL && method == "audio.search") searchFlooded()
+                throw VkApiException(code, "VK error $code: ${err.optString("error_msg")}")
             }
+            if (method == "audio.search") searchBackoffMs = 0L
             return root
         }
     }
@@ -122,6 +147,7 @@ class VkAudioProvider(
 
     override suspend fun searchFree(text: String, limit: Int): List<ProviderMatch> {
         if (!isReady() || text.isBlank()) return emptyList()
+        if (System.currentTimeMillis() < searchPausedUntil) return emptyList()
         // Unlike the gated search this keeps tracks that came back without a stream URL: VK leaves
         // it out of search results for many accounts and hands it over on audio.getById instead,
         // which is exactly what stream() does. Dropping them here meant "VK found nothing at all".
@@ -187,6 +213,7 @@ class VkAudioProvider(
 
     override suspend fun search(query: AudioQuery): ProviderMatch? {
         if (!isReady()) return null
+        checkSearchPause()
         val text = ProviderGate.searchText(query)
         if (text.isBlank()) return null
         // Errors (bad token, API refused) propagate so the audio search log shows the real reason.
@@ -579,6 +606,9 @@ class VkAudioProvider(
         private const val MAX_MY_TRACKS = 5000
         private const val MIN_CALL_SPACING_MS = 350L
         private const val TOO_MANY_REQUESTS = 6
+        private const val FLOOD_CONTROL = 9
+        private const val FLOOD_PAUSE_FIRST_MS = 10 * 60_000L
+        private const val FLOOD_PAUSE_MAX_MS = 2 * 60 * 60_000L
 
         private val M3U8_TO_MP3 = Regex("/[0-9a-f]+(/audios)?/([0-9a-f]+)/index\\.m3u8")
 

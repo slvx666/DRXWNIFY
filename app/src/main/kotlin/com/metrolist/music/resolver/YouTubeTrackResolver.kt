@@ -74,7 +74,8 @@ class YouTubeTrackResolver(
         val nonLatinArtist = tokens.none { t -> t.any { it in 'a'..'z' || it in '0'..'9' } }
         val looseCandidates = seen.values.filter { c ->
             SpotifyMapper.titlePlausiblyMatches(c.title, track.name) &&
-                (nonLatinArtist || SpotifyMapper.artistPlausiblyMatches(c.title, c.artist, tokens))
+                (if (nonLatinArtist) SpotifyMapper.artistTransliterationMatches(c.title, c.artist, tokens)
+                else SpotifyMapper.artistPlausiblyMatches(c.title, c.artist, tokens))
         }
         if (loose && looseCandidates.isNotEmpty()) {
             val result = SpotifyMapper.selectBestMatch(
@@ -140,11 +141,9 @@ class YouTubeTrackResolver(
         includeVideos: Boolean,
         videosOut: MutableList<SongItem>,
     ): List<SpotifyMapper.Candidate> {
-        val songs = YouTube.search(query, YouTube.SearchFilter.FILTER_SONG, incognito = true)
-            .getOrNull()?.items?.filterIsInstance<SongItem>().orEmpty()
+        val songs = searchOnce(query, YouTube.SearchFilter.FILTER_SONG)
         val videos = if (includeVideos) {
-            YouTube.search(query, YouTube.SearchFilter.FILTER_VIDEO, incognito = true)
-                .getOrNull()?.items?.filterIsInstance<SongItem>().orEmpty()
+            runCatching { searchOnce(query, YouTube.SearchFilter.FILTER_VIDEO) }.getOrDefault(emptyList())
         } else {
             emptyList()
         }
@@ -152,6 +151,20 @@ class YouTubeTrackResolver(
         return (songs + videos)
             .distinctBy { it.id }
             .map { it.toCandidate() }
+    }
+
+    /**
+     * One search, asked again once if it failed. A failed request used to read as "no results", so
+     * a track that is on YouTube (Drudkh – "Solitude (Самітність)", first result) was reported as
+     * not found after a blip of the network; now a failure stays a failure (not remembered as a miss).
+     */
+    private suspend fun searchOnce(query: String, filter: YouTube.SearchFilter): List<SongItem> {
+        var result = YouTube.search(query, filter, incognito = true)
+        if (result.isFailure) {
+            kotlinx.coroutines.delay(400)
+            result = YouTube.search(query, filter, incognito = true)
+        }
+        return result.getOrThrow().items.filterIsInstance<SongItem>()
     }
 
     private fun toMatched(

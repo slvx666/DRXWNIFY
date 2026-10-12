@@ -35,9 +35,14 @@ data class NostrEvent(
     }
 
     /** The id matches the content and the signature the author. */
-    fun isValid(): Boolean = runCatching {
-        Nostr.idOf(pubkey, createdAt, kind, tags, content) == id &&
-            Secp256k1.verify(id.hexToBytes(), pubkey.hexToBytes(), sig.hexToBytes())
+    fun isValid(): Boolean = hasValidId() && hasValidSignature()
+
+    /** The id is the hash of the content: cheap, and enough to know an event already verified is the same one. */
+    fun hasValidId(): Boolean = runCatching { Nostr.idOf(pubkey, createdAt, kind, tags, content) == id }.getOrDefault(false)
+
+    /** The Schnorr signature: the expensive part (pure Kotlin big-number maths). */
+    fun hasValidSignature(): Boolean = runCatching {
+        Secp256k1.verify(id.hexToBytes(), pubkey.hexToBytes(), sig.hexToBytes())
     }.getOrDefault(false)
 
     companion object {

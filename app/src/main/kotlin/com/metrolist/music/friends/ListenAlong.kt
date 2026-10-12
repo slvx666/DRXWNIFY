@@ -128,12 +128,87 @@ object FriendPlayback {
 
     private fun isYouTubeId(id: String) = id.length == 11 && id.all { it.isLetterOrDigit() || it == '-' || it == '_' }
 
+    /**
+     * A friend's [track] as a catalog track built from what was shared (no lookup): it plays,
+     * downloads and goes into playlists like any other, its audio found when it is needed.
+     */
+    fun asCatalogTrack(track: FriendsHub.TrackRef): SpotifyTrack? {
+        val id = track.catalogId
+            ?.takeIf { it.isNotBlank() && !com.metrolist.music.resolver.SourceSearch.isSourceTrack(com.metrolist.music.resolver.FallbackIds.of(it)) }
+            ?: return null
+        return SpotifyTrack(
+            id = id,
+            name = track.title,
+            artists = track.artist.split(", ").filter { it.isNotBlank() }
+                .map { com.metrolist.spotify.models.SpotifySimpleArtist(name = it) },
+            album = track.cover?.let {
+                com.metrolist.spotify.models.SpotifySimpleAlbum(images = listOf(com.metrolist.spotify.models.SpotifyImage(url = it)))
+            },
+            durationMs = track.durationMs.toInt(),
+        )
+    }
+
+    /** What the track menu (long press) shows for a friend's [track]: its metadata and catalog track, if any. */
+    suspend fun menuTarget(track: FriendsHub.TrackRef): Pair<MediaMetadata, SpotifyTrack?>? {
+        // The real catalog track (with its artists' ids, for "go to artist" and the like); what the
+        // friend shared only has names. A short wait, else the shared version.
+        val db = database
+        val full = withTimeoutOrNull(MENU_LOOKUP_MS) { runCatching { catalogTrackOf(track) }.getOrNull() }
+        if (full != null && db != null) return SpotifyYouTubeMapper(db).quickMetadata(full) to full
+        val metadata = instantItem(track) ?: return null
+        return metadata to com.metrolist.music.playback.SpotifyMetadataRegistry.get(metadata.id)
+    }
+
+    private val enrichScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * A track playing from what a friend shared gets its real catalog entry behind the scenes, so
+     * the player's menu has the artists to go to (shared tracks carry names only).
+     */
+    private fun enrichLater(mediaId: String, track: FriendsHub.TrackRef) {
+        if (track.catalogId == null) return
+        enrichScope.launch {
+            val full = runCatching { catalogTrackOf(track) }.getOrNull() ?: return@launch
+            if (full.artists.any { !it.id.isNullOrBlank() }) {
+                com.metrolist.music.playback.SpotifyMetadataRegistry.register(mediaId, full)
+            }
+        }
+    }
+
+    /**
+     * Something the player can switch to at once for [track], from what the friend shared: the
+     * catalog id (its audio is found as it starts) or the YouTube video. No lookup, so a tap shows
+     * the track playing right away instead of after the catalog search.
+     */
+    private fun instantItem(track: FriendsHub.TrackRef): MediaMetadata? {
+        val db = database ?: return null
+        asCatalogTrack(track)?.let { catalogTrack ->
+            return SpotifyYouTubeMapper(db).quickMetadata(catalogTrack).also { enrichLater(it.id, track) }
+        }
+        val videoId = track.mediaId?.takeIf(::isYouTubeId) ?: return null
+        return MediaMetadata(
+            id = videoId,
+            title = track.title,
+            artists = listOf(MediaMetadata.Artist(id = null, name = track.artist)),
+            duration = (track.durationMs / 1000).toInt(),
+            thumbnailUrl = track.cover,
+        )
+    }
+
     private class RefsQueue(private val tracks: List<FriendsHub.TrackRef>, private val start: Int) : Queue {
-        override val preloadItem: MediaMetadata? = null
+        // The tapped track plays at once; the ones after it are looked up behind it.
+        override val preloadItem: MediaMetadata? = tracks.getOrNull(start)?.let { runCatching { instantItem(it) }.getOrNull() }
         private var offset = start
 
         override suspend fun getInitialStatus(): Queue.Status = withContext(Dispatchers.IO) {
-            Queue.Status(title = null, items = next(BATCH_FIRST), mediaItemIndex = 0)
+            val first = preloadItem
+            if (first == null) {
+                Queue.Status(title = null, items = next(BATCH_FIRST), mediaItemIndex = 0)
+            } else {
+                offset = start + 1
+                // Index 0 is the item already playing (the player keeps it and adds the rest around it).
+                Queue.Status(title = null, items = listOf(first.toMediaItem()) + next(BATCH_FIRST), mediaItemIndex = 0)
+            }
         }
 
         override fun hasNextPage(): Boolean = offset < tracks.size
@@ -143,13 +218,15 @@ object FriendPlayback {
         private suspend fun next(count: Int): List<MediaItem> {
             val out = mutableListOf<MediaItem>()
             while (offset < tracks.size && out.size < count) {
-                runCatching { itemFor(tracks[offset]) }.getOrNull()?.let(out::add)
+                // What the friend shared plays as is (instantly); a lookup only for what it can't describe.
+                runCatching { instantItem(tracks[offset])?.toMediaItem() ?: itemFor(tracks[offset]) }.getOrNull()?.let(out::add)
                 offset++
             }
             return out
         }
     }
 
+    private const val MENU_LOOKUP_MS = 4_000L
     private const val BATCH_FIRST = 3
     private const val BATCH = 8
 }

@@ -117,6 +117,9 @@ object FriendsHub {
 
     data class SharedPlaylist(val name: String, val total: Int, val tracks: List<TrackRef>)
 
+    /** A friend's liked tracks: the newest ones (up to [MAX_LIKES]) of [total]; [source] = the account's service. */
+    data class SharedLikes(val total: Int, val source: String?, val tracks: List<TrackRef>)
+
     data class Stats(val weekMinutes: Int, val weekPlays: Int, val likedCount: Int, val topArtists: List<Pair<String, Int>>)
 
     data class FriendData(
@@ -126,6 +129,8 @@ object FriendsHub {
         val history: List<TrackRef>? = null,
         val playlists: List<SharedPlaylist>? = null,
         val stats: Stats? = null,
+        val likes: SharedLikes? = null,
+        val portrait: com.metrolist.music.portrait.ProfilePortrait? = null,
         /** Newest event per field (created_at, s), so an older copy never replaces a newer one. */
         val stamps: Map<String, Long> = emptyMap(),
     )
@@ -140,12 +145,18 @@ object FriendsHub {
     private const val F_STATS = "stats"
     private const val F_HELLO = "hello"
 
+    /** Liked tracks of the account (or of the app without one), packed: see [packLikes]. */
+    private const val F_LIKES = "likes"
+
+    /** The musical portrait (periods, months, genre tags), rebuilt once a day: see [PortraitBuilder]. */
+    private const val F_PORTRAIT = "portrait"
+
     /**
      * The developer's mark on a profile ("verified"): sent encrypted to that one person only. It
      * opens drxwnslvt's album reviews for them; nobody sees the mark itself but the developer.
      */
     private const val F_VERIFIED = "verified"
-    private val DATA_FIELDS = listOf(F_NOW, F_HISTORY, F_PLAYLISTS, F_STATS)
+    private val DATA_FIELDS = listOf(F_NOW, F_HISTORY, F_PLAYLISTS, F_STATS, F_LIKES, F_PORTRAIT)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var prefs: SharedPreferences? = null
@@ -173,6 +184,19 @@ object FriendsHub {
     /** Developer side: the profiles he marked. */
     private val _verified = MutableStateFlow<Set<String>>(emptySet())
     val verified: StateFlow<Set<String>> = _verified
+
+    /** Friends pinned to the top of the list (long press), in the order they were pinned. On this phone only. */
+    private val _pinned = MutableStateFlow<List<String>>(emptyList())
+    val pinned: StateFlow<List<String>> = _pinned
+
+    /** Pins [pubkey] to the top of the friends list, or unpins it; returns whether it is pinned now. */
+    fun togglePinned(pubkey: String): Boolean {
+        val now = _pinned.value
+        val updated = if (pubkey in now) now - pubkey else now + pubkey
+        _pinned.value = updated
+        prefs?.edit()?.putString("pinned", JSONArray(updated).toString())?.apply()
+        return pubkey in updated
+    }
 
     /** This profile was marked by the developer (or is the developer): drxwnslvt's reviews are open. */
     private val _reviewsAccess = MutableStateFlow(false)
@@ -219,6 +243,15 @@ object FriendsHub {
         dropSelfFromFriends()
         ensureDeveloperFriend()
         _verified.value = p.getStringSet("verifiedSet", emptySet()).orEmpty()
+        // This profile's own portrait, as last built: on "how others see me" at once.
+        _profile.value?.pubkey?.let { me ->
+            p.getString("portraitPacked", null)?.let(com.metrolist.music.portrait.PortraitCodec::unpack)?.let { portrait ->
+                _data.value = _data.value + (me to (_data.value[me] ?: FriendData()).copy(portrait = portrait))
+            }
+        }
+        _pinned.value = runCatching {
+            JSONArray(p.getString("pinned", "[]")).let { a -> (0 until a.length()).map { a.getString(it) } }
+        }.getOrDefault(emptyList())
         refreshAccess()
         // What friends see is refreshed now and then, never more than every few hours.
         if (secretKey != null) scope.launch {
@@ -230,6 +263,89 @@ object FriendsHub {
         if (secretKey != null) scope.launch {
             delay(8_000L)
             checkVerification()
+        }
+        // The musical portrait: rebuilt and sent once a day, a minute after start.
+        if (secretKey != null) scope.launch {
+            delay(60_000L)
+            publishPortraitIfStale()
+        }
+        // Liked tracks of the friends whose likes are kept as a playlist: fetched at start, at most hourly.
+        if (secretKey != null) scope.launch {
+            delay(30_000L)
+            fetchFollowedLikes()
+        }
+    }
+
+    /** Builds this profile's portrait (shown on it at once) and sends it, at most once in [PORTRAIT_REFRESH_MS]. */
+    suspend fun publishPortraitIfStale(force: Boolean = false) = withContext(Dispatchers.IO) {
+        val db = database ?: return@withContext
+        val context = appContext ?: return@withContext
+        val me = _profile.value ?: return@withContext
+        val p = prefs ?: return@withContext
+        val sameVersion = p.getInt("portraitVersion", 0) == com.metrolist.music.portrait.PortraitBuilder.VERSION
+        if (!force && sameVersion && System.currentTimeMillis() - p.getLong("portraitAt", 0L) < PORTRAIT_REFRESH_MS) return@withContext
+        runCatching {
+            val portrait = com.metrolist.music.portrait.PortraitBuilder.build(context, db)
+            val packed = com.metrolist.music.portrait.PortraitCodec.pack(portrait)
+            p.edit().putLong("portraitAt", System.currentTimeMillis()).putString("portraitPacked", packed)
+                .putInt("portraitVersion", com.metrolist.music.portrait.PortraitBuilder.VERSION).apply()
+            synchronized(this@FriendsHub) {
+                val current = _data.value[me.pubkey] ?: FriendData()
+                _data.value = _data.value + (me.pubkey to current.copy(portrait = portrait))
+            }
+            val audience = _privacy.value.stats
+            if (audience != Audience.NOBODY) publishField(F_PORTRAIT, packed, audience, null)
+        }.onFailure { Timber.w(it, "FriendsHub: the portrait failed") }
+    }
+
+    data class Found(val pubkey: String, val name: String, val avatar: String?)
+
+    /**
+     * Drxwnify profiles whose name contains [query]: every profile publishes its name (for its
+     * friends), but only those who allowed it ("can be found by name") are shown.
+     */
+    suspend fun searchByName(query: String): List<Found> = withContext(Dispatchers.IO) {
+        val needle = query.trim().lowercase()
+        if (needle.length < 2) return@withContext emptyList()
+        val me = _profile.value?.pubkey
+        val found = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Found>>()
+        val filter = JSONObject()
+            .put("kinds", JSONArray().put(Nostr.KIND_APP_DATA))
+            .put("#d", JSONArray().put(D_PREFIX + F_PROFILE))
+            .put("#t", JSONArray().put("drxwnify"))
+            .put("limit", 500)
+        val id = RelayPool.subscribe(listOf(filter)) { event ->
+            val o = runCatching { JSONObject(event.content) }.getOrNull() ?: return@subscribe
+            val name = o.optString("name").trim()
+            val allowed = o.optBoolean("find", false) || event.pubkey == DEVELOPER_PUBKEY
+            if (!allowed || name.isBlank() || event.pubkey == me || needle !in name.lowercase()) return@subscribe
+            val previous = found[event.pubkey]
+            if (previous == null || previous.first < event.createdAt) {
+                found[event.pubkey] = event.createdAt to Found(event.pubkey, name, o.optString("pic").takeIf { it.isNotBlank() && it.length <= MAX_AVATAR_CHARS })
+            }
+        }
+        delay(SEARCH_WAIT_MS)
+        RelayPool.close(id)
+        found.values.map { it.second }
+            .sortedWith(compareBy<Found> { !it.name.lowercase().startsWith(needle) }.thenBy { it.name.length })
+            .take(20)
+    }
+
+    private fun fetchFollowedLikes() {
+        val me = _profile.value ?: return
+        val followed = FriendLikesSync.followed.value.keys.filter { key -> _friends.value.any { it.pubkey == key } }
+        if (followed.isEmpty()) return
+        val p = prefs ?: return
+        if (System.currentTimeMillis() - p.getLong("likesFetchAt", 0L) < LIKES_FETCH_MS) return
+        p.edit().putLong("likesFetchAt", System.currentTimeMillis()).apply()
+        val filter = JSONObject()
+            .put("kinds", JSONArray().put(Nostr.KIND_APP_DATA))
+            .put("authors", JSONArray(followed))
+            .put("#d", JSONArray().put(D_PREFIX + F_LIKES).put("$D_PREFIX$F_LIKES:${me.pubkey}"))
+        val id = RelayPool.subscribe(listOf(filter), ::onEvent)
+        scope.launch {
+            delay(30_000L)
+            RelayPool.close(id)
         }
     }
 
@@ -422,6 +538,9 @@ object FriendsHub {
         scope.launch {
             publishTo(pubkey, F_HELLO, JSONObject().put("name", me.name).toString())
             publishLibrary(onlyFor = pubkey)
+            prefs?.getString("portraitPacked", null)?.let { packed ->
+                if (_privacy.value.stats != Audience.NOBODY) publishField(F_PORTRAIT, packed, _privacy.value.stats, pubkey)
+            }
             lastNow?.let { publishNow(it) }
             restartLive()
         }
@@ -430,6 +549,7 @@ object FriendsHub {
     fun removeFriend(pubkey: String) {
         _friends.value = _friends.value.filterNot { it.pubkey == pubkey }
         saveFriends()
+        if (pubkey in _pinned.value) togglePinned(pubkey)
         if (_listeningTo.value == pubkey) stopListenAlong()
         scope.launch {
             (DATA_FIELDS + F_HELLO).forEach { publishTo(pubkey, it, "") }
@@ -475,6 +595,11 @@ object FriendsHub {
         openLive()
     }
 
+    /** Newest friends' event applied in this run (created_at, s), and for which friends the live view last asked. */
+    @Volatile
+    private var newestSeen = 0L
+    private var liveFriendKeys: Set<String> = emptySet()
+
     @Synchronized
     private fun openLive() {
         val me = _profile.value?.pubkey ?: return
@@ -489,6 +614,9 @@ object FriendsHub {
                 .put("kinds", JSONArray().put(Nostr.KIND_APP_DATA))
                 .put("authors", JSONArray(friendKeys))
                 .put("#d", dValues)
+            // Opened again in this run: what arrived before is still here, only newer events are asked for.
+            if (newestSeen > 0 && liveFriendKeys == friendKeys.toSet()) filter.put("since", newestSeen - 60)
+            liveFriendKeys = friendKeys.toSet()
             liveSubs += RelayPool.subscribe(listOf(filter), ::onEvent)
         }
         val toMe = JSONObject()
@@ -537,7 +665,9 @@ object FriendsHub {
         if (_friends.value.none { it.pubkey == author } && author != DEVELOPER_PUBKEY && author != me) return
         synchronized(this) {
             val current = _data.value[author] ?: FriendData()
-            if ((current.stamps[field] ?: 0L) > event.createdAt) return
+            // The same event again (another relay, another opening of the screen): nothing to redo.
+            if ((current.stamps[field] ?: 0L) >= event.createdAt) return
+            newestSeen = maxOf(newestSeen, event.createdAt)
             val stamps = current.stamps + (field to event.createdAt)
             val json = content.takeIf { it.isNotBlank() }?.let { runCatching { JSONObject(it) }.getOrNull() }
             val updated = when (field) {
@@ -549,6 +679,8 @@ object FriendsHub {
                 F_HISTORY -> current.copy(history = json?.optJSONArray("tracks")?.let(::refsFromJson))
                 F_PLAYLISTS -> current.copy(playlists = json?.optJSONArray("playlists")?.let(::playlistsFromJson))
                 F_STATS -> current.copy(stats = json?.let(::statsFromJson))
+                F_LIKES -> current.copy(likes = content.takeIf { it.isNotBlank() }?.let(::unpackLikes))
+                F_PORTRAIT -> current.copy(portrait = content.takeIf { it.isNotBlank() }?.let(com.metrolist.music.portrait.PortraitCodec::unpack))
                 else -> return
             }.copy(stamps = stamps)
             _data.value = _data.value + (author to updated)
@@ -560,6 +692,7 @@ object FriendsHub {
                 }
             }
             if (field == F_NOW && _listeningTo.value == author) updated.now?.let { ListenAlong.follow(it) }
+            if (field == F_LIKES) updated.likes?.let { FriendLikesSync.onLikes(author, it) }
         }
     }
 
@@ -630,7 +763,11 @@ object FriendsHub {
     private fun publishProfile() {
         val sk = secretKey ?: return
         val me = _profile.value ?: return
-        publishPublic(F_PROFILE, JSONObject().put("name", me.name).apply { me.avatar?.let { put("pic", it) } }.toString())
+        publishPublic(
+            F_PROFILE,
+            JSONObject().put("name", me.name).put("find", _privacy.value.discoverable)
+                .apply { me.avatar?.let { put("pic", it) } }.toString(),
+        )
         val metadata = if (_privacy.value.discoverable) {
             JSONObject().put("name", me.name).put("about", "Drxwnify").toString()
         } else {
@@ -692,6 +829,7 @@ object FriendsHub {
         runCatching {
             if (privacy.history != Audience.NOBODY) {
                 val history = db.events().first()
+                    .filter { com.metrolist.music.portrait.Listening.counts(it.event.playTime, it.song.song.duration * 1000L) }
                     .distinctBy { it.song.id }
                     .take(MAX_HISTORY)
                     .map { e -> refOf(db, e.song, e.event.timestamp.toInstant(ZoneOffset.UTC).toEpochMilli()) }
@@ -708,6 +846,7 @@ object FriendsHub {
                 }
                 publishField(F_PLAYLISTS, JSONObject().put("playlists", playlistsToJson(playlists)).toString(), privacy.playlists, onlyFor)
             }
+            if (privacy.playlists != Audience.NOBODY) publishLikes(db, privacy.playlists, onlyFor)
             if (privacy.stats != Audience.NOBODY) {
                 val weekAgo = LocalDateTime.now().minusDays(7)
                 val weekEvents = db.events().first().filter { it.event.timestamp.isAfter(weekAgo) }
@@ -724,6 +863,130 @@ object FriendsHub {
             if (onlyFor == null) prefs?.edit()?.putLong("libraryAt", System.currentTimeMillis())?.apply()
         }.onFailure { Timber.w(it, "FriendsHub: publishing the library failed") }
     }
+
+    /**
+     * The liked tracks, sent again only when they changed (or every few days, so relays keep them):
+     * at up to 500 tracks it is the largest field, encrypted once per friend.
+     */
+    private suspend fun publishLikes(db: MusicDatabase, audience: Audience, onlyFor: String?) {
+        val likes = runCatching { myLikes(db) }.getOrNull() ?: return
+        val content = packLikesFitting(likes)
+        val hash = content.hashCode()
+        val p = prefs
+        val fresh = p != null && p.getInt("likesHash", 0) == hash &&
+            System.currentTimeMillis() - p.getLong("likesAt", 0L) < LIKES_REPUBLISH_MS
+        if (onlyFor == null && fresh) return
+        publishField(F_LIKES, content, audience, onlyFor)
+        if (onlyFor == null) p?.edit()?.putInt("likesHash", hash)?.putLong("likesAt", System.currentTimeMillis())?.apply()
+    }
+
+    /** The newest liked tracks of the connected account; without one, the hearts in the app. */
+    private suspend fun myLikes(db: MusicDatabase): SharedLikes? {
+        val source = com.metrolist.music.catalog.Catalog.source
+        if (source != null) {
+            val cached = com.metrolist.music.catalog.LikedSongsCache.get(source.name)?.takeIf { it.tracks.isNotEmpty() }
+            val (tracks, total) = if (cached != null) {
+                cached.tracks.take(MAX_LIKES) to cached.total
+            } else {
+                val out = mutableListOf<com.metrolist.spotify.models.SpotifyTrack>()
+                var total = 0
+                var offset = 0
+                while (out.size < MAX_LIKES) {
+                    val page = com.metrolist.music.catalog.Catalog.likedSongs(limit = 50, offset = offset).getOrNull() ?: break
+                    total = page.total
+                    out += page.items.map { it.track }.filter { !it.isLocal }
+                    offset += 50
+                    if (page.items.isEmpty() || offset >= page.total) break
+                }
+                out.take(MAX_LIKES) to total
+            }
+            if (tracks.isEmpty()) return null
+            return SharedLikes(maxOf(total, tracks.size), source.name, tracks.map(::refOfCatalog))
+        }
+        val liked = db.likedSongs(com.metrolist.music.constants.SongSortType.CREATE_DATE, true).first()
+        if (liked.isEmpty()) return null
+        return SharedLikes(liked.size, null, liked.take(MAX_LIKES).map { refOf(db, it, 0) })
+    }
+
+    private fun refOfCatalog(track: com.metrolist.spotify.models.SpotifyTrack): TrackRef {
+        // A medium cover (~300 px): enough for a list, and far shorter to send than the largest one.
+        val cover = track.album?.images?.let { images ->
+            images.filter { (it.width ?: 0) in 200..400 }.minByOrNull { it.width ?: 0 }?.url
+        } ?: com.metrolist.spotify.SpotifyMapper.getTrackThumbnail(track)
+        return TrackRef(
+            title = track.name.take(120),
+            artist = track.artists.joinToString { it.name }.take(120),
+            catalogId = track.id.takeIf { it.isNotBlank() },
+            mediaId = null,
+            cover = cover?.takeIf { it.startsWith("http") },
+            durationMs = track.durationMs.toLong(),
+        )
+    }
+
+    /** [packLikes] with as many of the newest tracks as fit in one relay event. */
+    private fun packLikesFitting(likes: SharedLikes): String {
+        var count = likes.tracks.size
+        while (true) {
+            val packed = packLikes(likes.copy(tracks = likes.tracks.take(count)))
+            if (packed.length <= MAX_LIKES_PACKED || count <= 50) return packed
+            count = count * 4 / 5
+        }
+    }
+
+    /**
+     * Rows of [title, artist, catalog id, seconds, cover prefix index, cover rest, media id] with the
+     * covers' common beginnings listed once, gzipped: 500 tracks fit in one event (~40 KB).
+     */
+    private fun packLikes(likes: SharedLikes): String {
+        val prefixes = mutableListOf<String>()
+        val prefixIndex = HashMap<String, Int>()
+        val rows = JSONArray()
+        likes.tracks.forEach { t ->
+            val cover = t.cover
+            val cut = cover?.lastIndexOf('/') ?: -1
+            val (index, rest) = if (cover != null && cut > 0) {
+                val prefix = cover.substring(0, cut + 1)
+                prefixIndex.getOrPut(prefix) { prefixes += prefix; prefixes.size - 1 } to cover.substring(cut + 1)
+            } else {
+                -1 to ""
+            }
+            rows.put(
+                JSONArray().put(t.title).put(t.artist).put(t.catalogId.orEmpty()).put((t.durationMs / 1000).toInt())
+                    .put(index).put(rest).put(t.mediaId.orEmpty()),
+            )
+        }
+        val json = JSONObject().put("v", 1).put("total", likes.total).put("src", likes.source.orEmpty())
+            .put("p", JSONArray(prefixes)).put("t", rows).toString()
+        val bytes = java.io.ByteArrayOutputStream().also { out ->
+            java.util.zip.GZIPOutputStream(out).use { it.write(json.toByteArray(Charsets.UTF_8)) }
+        }.toByteArray()
+        return LIKES_PACKED_PREFIX + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+    }
+
+    private fun unpackLikes(content: String): SharedLikes? = runCatching {
+        val text = if (content.startsWith(LIKES_PACKED_PREFIX)) {
+            val bytes = android.util.Base64.decode(content.removePrefix(LIKES_PACKED_PREFIX), android.util.Base64.NO_WRAP)
+            java.util.zip.GZIPInputStream(bytes.inputStream()).use { it.readBytes() }.toString(Charsets.UTF_8)
+        } else {
+            content
+        }
+        val o = JSONObject(text)
+        val prefixes = o.optJSONArray("p")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty()
+        val rows = o.optJSONArray("t") ?: JSONArray()
+        val tracks = (0 until rows.length()).mapNotNull { i ->
+            val r = rows.optJSONArray(i) ?: return@mapNotNull null
+            val index = r.optInt(4, -1)
+            TrackRef(
+                title = r.optString(0),
+                artist = r.optString(1),
+                catalogId = r.optString(2).takeIf { it.isNotBlank() },
+                mediaId = r.optString(6).takeIf { it.isNotBlank() },
+                cover = prefixes.getOrNull(index)?.let { it + r.optString(5) },
+                durationMs = r.optInt(3) * 1000L,
+            )
+        }
+        SharedLikes(o.optInt("total", tracks.size), o.optString("src").takeIf { it.isNotBlank() }, tracks)
+    }.getOrNull()
 
     private suspend fun refOf(db: MusicDatabase, song: com.metrolist.music.db.entities.Song, at: Long, withCover: Boolean = true): TrackRef {
         val catalogId = runCatching {
@@ -822,6 +1085,14 @@ object FriendsHub {
     private const val NOW_DEBOUNCE_MS = 1_500L
     private const val LIBRARY_REFRESH_MS = 6 * 60 * 60_000L
     private const val MAX_HISTORY = 50
+    const val MAX_LIKES = 500
+    /** Packed likes above this many characters lose their oldest tracks (encryption adds a third). */
+    private const val MAX_LIKES_PACKED = 45_000
+    private const val LIKES_PACKED_PREFIX = "gz1:"
+    private const val LIKES_REPUBLISH_MS = 3L * 24 * 60 * 60_000
+    private const val LIKES_FETCH_MS = 60 * 60_000L
+    private const val PORTRAIT_REFRESH_MS = 20 * 60 * 60_000L
+    private const val SEARCH_WAIT_MS = 4_000L
     private const val MAX_PLAYLISTS = 10
     private const val MAX_PLAYLIST_TRACKS = 50
     private const val MAX_FRIENDS_ENCRYPTED = 40

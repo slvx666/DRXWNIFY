@@ -323,6 +323,54 @@ object SpotifyMapper {
 
     private fun stripArticle(name: String): String = name.removePrefix("the ").trim()
 
+    /**
+     * For an artist written without Latin letters: the candidate's artist (or its title) must be the
+     * same name, at least transliterated ("Skameyka Zapasnih" for "Скамейка Запасных", "Kino" for
+     * "Кино"). Any upload with a similar title used to pass, which played "Stuff – Пошел нахуй" for
+     * "ХАРК! – Пошёл нахуй".
+     */
+    fun artistTransliterationMatches(candidateTitle: String, candidateArtist: String, tokens: List<String>): Boolean {
+        if (tokens.isEmpty()) return true
+        if (artistPlausiblyMatches(candidateTitle, candidateArtist, tokens)) return true
+        val artistKey = latinKey(candidateArtist)
+        val titleKey = latinKey(candidateTitle)
+        return tokens.any { token ->
+            val key = latinKey(token)
+            key.length >= 3 && (
+                key == artistKey ||
+                    (key.length >= 4 && (key in titleKey || (artistKey.length >= 4 && (key in artistKey || artistKey in key)))) ||
+                    bigramDice(key, artistKey) >= 0.75
+                )
+        }
+    }
+
+    private val CYRILLIC_TO_LATIN = mapOf(
+        'а' to "a", 'б' to "b", 'в' to "v", 'г' to "g", 'д' to "d", 'е' to "e", 'ё' to "e", 'ж' to "zh",
+        'з' to "z", 'и' to "i", 'й' to "i", 'к' to "k", 'л' to "l", 'м' to "m", 'н' to "n", 'о' to "o",
+        'п' to "p", 'р' to "r", 'с' to "s", 'т' to "t", 'у' to "u", 'ф' to "f", 'х' to "h", 'ц' to "ts",
+        'ч' to "ch", 'ш' to "sh", 'щ' to "sh", 'ъ' to "", 'ы' to "i", 'ь' to "", 'э' to "e", 'ю' to "iu",
+        'я' to "ia", 'і' to "i", 'ї' to "i", 'є' to "e", 'ґ' to "g", 'ѣ' to "e", 'ў' to "u",
+    )
+
+    /** A name reduced to how it sounds in Latin letters, so a transliteration compares equal. */
+    private fun latinKey(text: String): String {
+        val latin = buildString {
+            text.lowercase().forEach { ch -> append(CYRILLIC_TO_LATIN[ch] ?: ch.toString()) }
+        }
+        return latin
+            .replace("kh", "h").replace("sch", "sh").replace("ck", "k").replace("x", "ks")
+            .replace('y', 'i').replace('j', 'i').replace('w', 'v').replace('q', 'k')
+            .filter { it in 'a'..'z' || it in '0'..'9' }
+    }
+
+    private fun bigramDice(a: String, b: String): Double {
+        if (a.length < 2 || b.length < 2) return if (a == b) 1.0 else 0.0
+        val x = a.windowed(2).groupingBy { it }.eachCount()
+        val y = b.windowed(2).groupingBy { it }.eachCount()
+        val common = x.entries.sumOf { (k, n) -> minOf(n, y[k] ?: 0) }
+        return 2.0 * common / (a.length - 1 + b.length - 1)
+    }
+
     private fun anyTokenHasLatin(tokens: List<String>): Boolean =
         tokens.any { t -> t.any { it in 'a'..'z' || it in '0'..'9' } }
 
@@ -387,7 +435,8 @@ object SpotifyMapper {
 
         var pool = titleOk.filter { artistPlausiblyMatches(it.title, it.artist, tokens) }
         if (pool.isEmpty()) {
-            pool = if (!anyTokenHasLatin(tokens)) titleOk
+            // Only a transliteration of a non-Latin artist may stand in for the name itself.
+            pool = if (!anyTokenHasLatin(tokens)) titleOk.filter { artistTransliterationMatches(it.title, it.artist, tokens) }
             else return if (loose) loosePick(titleOk, ::durationOff) else MatchResult.NoMatch
         }
 

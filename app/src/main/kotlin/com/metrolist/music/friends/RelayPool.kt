@@ -62,6 +62,12 @@ internal object RelayPool {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?) = size > 4_000
         },
     )
+    /** Ids of events whose signature was already checked. */
+    private val verified = java.util.Collections.newSetFromMap(
+        object : java.util.LinkedHashMap<String, Boolean>(512, 0.75f, false) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?) = size > 4_000
+        },
+    )
     @Volatile private var lastUse = System.currentTimeMillis()
     private var idleJob: Job? = null
 
@@ -148,7 +154,14 @@ internal object RelayPool {
         val sub = subscriptions[subId] ?: return
         val event = message.optJSONObject(2)?.let(NostrEvent::fromJson) ?: return
         synchronized(seen) { if (!seen.add(subId + event.id)) return }
-        if (!event.isValid()) return
+        // Every relay sends the same events, and again on each new subscription (each opening of
+        // the Friends screen): the signature is checked once per event, then the id hash suffices.
+        if (!event.hasValidId()) return
+        val known = synchronized(verified) { event.id in verified }
+        if (!known) {
+            if (!event.hasValidSignature()) return
+            synchronized(verified) { verified.add(event.id) }
+        }
         lastUse = System.currentTimeMillis()
         runCatching { sub.onEvent(event) }.onFailure { Timber.w(it, "Relay event handler failed") }
     }

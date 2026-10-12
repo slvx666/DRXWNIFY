@@ -342,6 +342,13 @@ fun NavGraphBuilder.navigationBuilder(
     }
 
     composable(
+        "friend_likes/{pubkey}",
+        arguments = listOf(androidx.navigation.navArgument("pubkey") { type = androidx.navigation.NavType.StringType }),
+    ) { entry ->
+        com.metrolist.music.ui.screens.friends.FriendLikesScreen(navController, entry.arguments?.getString("pubkey").orEmpty())
+    }
+
+    composable(
         "import_playlist?target={target}",
         arguments = listOf(
             androidx.navigation.navArgument("target") {
