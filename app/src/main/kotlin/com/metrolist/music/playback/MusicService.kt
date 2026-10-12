@@ -1388,16 +1388,25 @@ class MusicService :
         retryJob =
             scope.launch {
                 var attempt = 0
+                var sawOffline = false
                 while (isActive && waitingForNetworkConnection.value) {
                     delay(NETWORK_RECHECK_DELAYS_MS[attempt.coerceAtMost(NETWORK_RECHECK_DELAYS_MS.lastIndex)])
                     attempt++
                     if (InternetProbe.isOnline()) {
                         Timber.tag(TAG).d("Internet is back after %d check(s), retrying the track", attempt)
                         retryCount++
-                        forgetFailuresForOutage(player.currentMediaItem?.mediaId)
+                        // Only a real outage clears the failed sources. Online at the first check, the
+                        // network was fine and the source itself timed out (VK segments that never
+                        // came): forgetting that sent playback back to it, round and round, silently.
+                        if (sawOffline) {
+                            forgetFailuresForOutage(player.currentMediaItem?.mediaId)
+                        } else {
+                            AudioDiagnostics.warn("network is fine — the source timed out, trying another one")
+                        }
                         triggerRetry()
                         break
                     }
+                    sawOffline = true
                 }
             }
     }
@@ -4073,6 +4082,43 @@ class MusicService :
      *
      * Returns null when no enabled provider can serve the track.
      */
+    /**
+     * Which upload the audio cached under a key came from. The cache used to carry no such mark: a
+     * track once played from a wrong upload (SoundCloud "Stuff – Пошел нахуй" for ХАРК!) kept
+     * playing it from the cache while the player already named the right source (VK), and chunks
+     * of two uploads could end up mixed in one track.
+     */
+    private val cacheOwners by lazy { getSharedPreferences("cache_owner", MODE_PRIVATE) }
+
+    /** [owner] ("PROVIDER:trackId") is about to fill [cacheKey]: bytes from any other upload go first. */
+    private fun claimCache(cacheKey: String, owner: String) {
+        val previous = cacheOwners.getString(cacheKey, null)
+        if (previous == owner) return
+        runCatching { playerCache.removeResource(cacheKey) }
+        cacheOwners.edit().putString(cacheKey, owner).apply()
+    }
+
+    /**
+     * Whether the cached audio of [cacheKey] is from the upload chosen for the track now. Unmarked
+     * audio (cached before the mark existed, possibly by looser matching) is dropped once and fetched
+     * again from the right source.
+     */
+    private fun cachedAudioStillChosen(mediaId: String, cacheKey: String): Boolean {
+        val owner = cacheOwners.getString(cacheKey, null)
+        val chosen = if (owner == null) {
+            null
+        } else {
+            runCatching {
+                runBlocking(Dispatchers.IO) { AudioFallbackEngine.currentChoice(mediaId, database.getSongById(mediaId)) }
+            }.getOrNull()
+        }
+        if (owner != null && (chosen == null || owner == "${chosen.provider.name}:${chosen.trackId}")) return true
+        AudioDiagnostics.info("cached audio of $mediaId was from ${owner ?: "an unknown upload"} — fetching the chosen one")
+        runCatching { playerCache.removeResource(cacheKey) }
+        cacheOwners.edit().remove(cacheKey).apply()
+        return false
+    }
+
     private fun resolveFallbackDataSpec(
         dataSpec: DataSpec,
         mediaId: String,
@@ -4083,12 +4129,11 @@ class MusicService :
     ): DataSpec? {
         val cacheKey = if (youtubeRescue) RESCUE_CACHE_PREFIX + mediaId else mediaId
         val usePlayerCache = dataStore.get(EnableSongCacheKey, true)
-        if (!bypassCache && (
-                downloadCache.isCached(cacheKey, dataSpec.position, if (dataSpec.length >= 0) dataSpec.length else 1) ||
-                    (usePlayerCache && playerCache.isCached(cacheKey, dataSpec.position, CHUNK_LENGTH))
-                )
-        ) {
+        if (!bypassCache && downloadCache.isCached(cacheKey, dataSpec.position, if (dataSpec.length >= 0) dataSpec.length else 1)) {
             return dataSpec.buildUpon().setKey(cacheKey).build()
+        }
+        if (!bypassCache && usePlayerCache && playerCache.isCached(cacheKey, dataSpec.position, CHUNK_LENGTH)) {
+            if (cachedAudioStillChosen(mediaId, cacheKey)) return dataSpec.buildUpon().setKey(cacheKey).build()
         }
         songUrlCache[cacheKey]?.takeIf { it.second > System.currentTimeMillis() }?.let { (url, _) ->
             val spec = dataSpec.buildUpon().setUri(url.toUri()).setKey(cacheKey).build()
@@ -4179,6 +4224,7 @@ class MusicService :
                         }
                     }
                 }
+                claimCache(cacheKey, "${plan.provider.name}:${plan.trackId}")
                 songUrlCache[cacheKey] = stream.uri to (stream.expiresAtMs - 60_000L)
                 AudioDiagnostics.info("playing $mediaId via ${plan.provider} (${plan.trackId})")
                 dataSpec.buildUpon().setUri(stream.uri.toUri()).setKey(cacheKey).build()
@@ -4228,6 +4274,7 @@ class MusicService :
                         ),
                     )
                 }
+                claimCache(cacheKey, "${AudioProviderId.YOUTUBE.name}:${plan.videoId}")
                 songUrlCache[cacheKey] =
                     data.streamUrl to System.currentTimeMillis() + (data.streamExpiresInSeconds * 1000L)
                 AudioDiagnostics.info("playing $mediaId via YOUTUBE (${plan.videoId})")

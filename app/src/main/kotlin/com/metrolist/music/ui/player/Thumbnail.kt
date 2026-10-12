@@ -431,7 +431,8 @@ fun Thumbnail(
                                 isLandscape = isLandscape,
                                 isListenTogetherGuest = isListenTogetherGuest,
                                 currentMediaId = mediaMetadata?.id,
-                                currentMediaThumbnail = mediaMetadata?.thumbnailUrl
+                                currentMediaThumbnail = mediaMetadata?.thumbnailUrl,
+                                isCurrent = item === mediaItems.getOrNull(currentMediaIndex),
                             )
                         }
                     }
@@ -549,8 +550,12 @@ private fun ThumbnailItem(
     isListenTogetherGuest: Boolean = false,
     currentMediaId: String? = null,
     currentMediaThumbnail: String? = null,
+    isCurrent: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    // The playing item takes the cover of what plays now (fixed up when it was missing, see
+    // CoverFix) even when its id differs from the metadata's; the others look theirs up if needed.
+    val itemCover = rememberItemCover(item, isCurrent || item.mediaId == currentMediaId, currentMediaThumbnail)
     val incrementalSeekSkipEnabled by rememberPreference(SeekExtraSeconds, defaultValue = false)
     var skipMultiplier by remember { mutableIntStateOf(1) }
     var lastTapTime by remember { mutableLongStateOf(0L) }
@@ -558,11 +563,7 @@ private fun ThumbnailItem(
     // Tap: the cover full screen (zoomable). Long press: saved to the gallery straight away.
     val coverViewer = com.metrolist.music.ui.component.rememberCoverViewerState()
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val coverUrl = if (item.mediaId == currentMediaId && !currentMediaThumbnail.isNullOrBlank()) {
-        currentMediaThumbnail
-    } else {
-        item.mediaMetadata.artworkUri?.toString()
-    }
+    val coverUrl = itemCover
     val coverName = listOfNotNull(
         item.mediaMetadata.artist?.toString()?.takeIf { it.isNotBlank() },
         item.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() },
@@ -643,11 +644,7 @@ private fun ThumbnailItem(
             if (hidePlayerThumbnail) {
                 HiddenThumbnailPlaceholder(textBackgroundColor = textBackgroundColor)
             } else {
-                val artworkUriToUse = if (item.mediaId == currentMediaId && !currentMediaThumbnail.isNullOrBlank()) {
-                    currentMediaThumbnail
-                } else {
-                    item.mediaMetadata.artworkUri?.toString()
-                }
+                val artworkUriToUse = itemCover
 
                 ThumbnailImage(
                     artworkUri = artworkUriToUse,
@@ -692,6 +689,22 @@ private fun HiddenThumbnailPlaceholder(
 /**
  * Actual thumbnail image with caching and hardware layer rendering.
  */
+/** The cover to show for [item]: see [ThumbnailItem]. */
+@Composable
+private fun rememberItemCover(item: MediaItem, isCurrent: Boolean, currentThumbnail: String?): String? {
+    if (isCurrent && !currentThumbnail.isNullOrBlank() && !com.metrolist.music.utils.CoverFix.isBroken(currentThumbnail)) {
+        return currentThumbnail
+    }
+    val own = item.mediaMetadata.artworkUri?.toString()
+    if (!com.metrolist.music.utils.CoverFix.needsLookup(item.mediaId, own)) return own
+    val looked by androidx.compose.runtime.produceState<String?>(null, item.mediaId) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { com.metrolist.music.utils.CoverFix.lookup(item.mediaId) }.getOrNull()
+        }
+    }
+    return looked
+}
+
 @Composable
 private fun ThumbnailImage(
     artworkUri: String?,
@@ -703,7 +716,9 @@ private fun ThumbnailImage(
     // displays (#127). Re-resize to 1080 — `resize` is a no-op for non-YT URLs
     // and just rewrites the `w/h` query params for YT googleusercontent CDN /
     // the variant filename for i.ytimg.com video thumbnails.
-    val hiResUri = remember(artworkUri) { artworkUri?.resize(1080, 1080) }
+    val hiResUri = remember(artworkUri) {
+        artworkUri?.takeUnless(com.metrolist.music.utils.CoverFix::isBroken)?.resize(1080, 1080)
+    }
     // maxresdefault.jpg isn't generated for every YouTube video — fall back
     // down the variant ladder (sd → hq → mq) on 404. Coil-3 doesn't have a
     // built-in URL fallback chain, so we drive it from compose state and

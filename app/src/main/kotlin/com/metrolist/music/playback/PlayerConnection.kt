@@ -217,7 +217,7 @@ class PlayerConnection(
         // Refresh all state from new player
         playbackState.value = newPlayer.playbackState
         playWhenReady.value = newPlayer.playWhenReady
-        mediaMetadata.value = newPlayer.currentMetadata
+        publishMetadata(newPlayer.currentMetadata)
         queueTitle.value = service.queueTitle
         queueWindows.value = newPlayer.getQueueWindows()
         currentWindowIndex.value = newPlayer.getCurrentQueueIndex()
@@ -586,11 +586,37 @@ class PlayerConnection(
         }
     }
 
+    private val coverScope = scope
+
+    init {
+        // The track already playing when the screen connects goes through the same cover check.
+        publishMetadata(mediaMetadata.value)
+    }
+
+    /**
+     * What plays now, for the player and the mini player. A made-up YouTube cover of a catalog track
+     * (see [com.metrolist.music.utils.CoverFix]) is swapped for the track's real one.
+     */
+    private fun publishMetadata(metadata: com.metrolist.music.models.MediaMetadata?) {
+        if (metadata == null || !com.metrolist.music.utils.CoverFix.needsLookup(metadata.id, metadata.thumbnailUrl)) {
+            mediaMetadata.value = metadata
+            return
+        }
+        mediaMetadata.value = metadata.copy(thumbnailUrl = null)
+        coverScope.launch {
+            val url = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { com.metrolist.music.utils.CoverFix.lookup(metadata.id) }.getOrNull()
+            }
+            if (url == null) return@launch
+            if (mediaMetadata.value?.id == metadata.id) mediaMetadata.value = metadata.copy(thumbnailUrl = url)
+        }
+    }
+
     override fun onMediaItemTransition(
         mediaItem: MediaItem?,
         reason: Int,
     ) {
-        mediaMetadata.value = mediaItem?.metadata
+        publishMetadata(mediaItem?.metadata)
         currentMediaItemIndex.value = player.currentMediaItemIndex
         currentWindowIndex.value = player.getCurrentQueueIndex()
         updateCanSkipPreviousAndNext()

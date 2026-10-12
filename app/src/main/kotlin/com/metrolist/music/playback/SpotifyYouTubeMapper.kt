@@ -295,9 +295,12 @@ class SpotifyYouTubeMapper(
         @Suppress("UNUSED_PARAMETER") ytArtist: String,
         ytThumbnailUrl: String? = null,
     ): MediaMetadata {
+        // A video's own thumbnail only for a real video id: built from an "mfb:" id it pointed nowhere
+        // and the player showed no cover at all.
         val thumbnail = SpotifyMapper.getTrackThumbnail(spotifyTrack)
             ?: ytThumbnailUrl
-            ?: "https://i.ytimg.com/vi/$youtubeId/maxresdefault.jpg"
+            ?: youtubeId.takeIf { id -> id.length == 11 && id.all { it.isLetterOrDigit() || it == '-' || it == '_' } }
+                ?.let { "https://i.ytimg.com/vi/$it/maxresdefault.jpg" }
 
         // Metadata ALWAYS comes from Spotify: the YouTube upload's title/channel is often a label
         // ("Records", "Topic"), a re-upload name or missing entirely — that is what produced label-

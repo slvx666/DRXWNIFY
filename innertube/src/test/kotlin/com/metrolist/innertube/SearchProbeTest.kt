@@ -10,7 +10,7 @@ class SearchProbeTest {
     @Test
     fun probe() {
         assumeTrue(System.getenv("SEARCH_PROBE") == "1")
-        val queries = listOf(
+        val queries = System.getenv("PROBE_Q")?.split("|") ?: listOf(
             "Drudkh Solitude (Самітність)",
             "Drudkh Solitude",
             "Psyche Je T'Aime",
@@ -24,7 +24,7 @@ class SearchProbeTest {
                 val items = YouTube.search(q, YouTube.SearchFilter.FILTER_SONG, incognito = true).getOrNull()?.items.orEmpty()
                 println("=== $q (${items.size})")
                 items.filterIsInstance<SongItem>().take(6).forEach { s ->
-                    println("  ${s.id} | ${s.title} | ${s.artists.joinToString { it.name }} | ${s.duration}s | explicit=${s.explicit}")
+                    println("  ${s.id} | ${s.title} | ${s.artists.joinToString { it.name + "(" + it.id + ")" }} | ${s.album?.name} | ${s.duration}s | explicit=${s.explicit}")
                 }
             }
         }

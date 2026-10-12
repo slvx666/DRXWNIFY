@@ -315,7 +315,12 @@ object AudioFallbackEngine {
         val titleOk = com.metrolist.spotify.SpotifyMapper.isSymbolOnlyTitle(query.title) ||
             com.metrolist.spotify.SpotifyMapper.titlePlausiblyMatches(match.title, query.title)
         return titleOk &&
-            com.metrolist.spotify.SpotifyMapper.artistPlausiblyMatches(match.title, match.artist, tokens)
+            if (tokens.none { tk -> tk.any { it in 'a'..'z' || it in '0'..'9' } }) {
+                // Non-Latin artist: a transliteration of the name counts, any other uploader doesn't.
+                com.metrolist.spotify.SpotifyMapper.artistTransliterationMatches(match.title, match.artist, tokens)
+            } else {
+                com.metrolist.spotify.SpotifyMapper.artistPlausiblyMatches(match.title, match.artist, tokens)
+            }
     }
 
     // -- Manual source choice ----------------------------------------------------------------------
