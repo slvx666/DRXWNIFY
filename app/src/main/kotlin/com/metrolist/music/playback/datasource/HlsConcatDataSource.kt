@@ -45,14 +45,17 @@ import java.util.concurrent.TimeUnit
 class HlsConcatDataSource(
     private val upstream: DataSource,
     private val client: OkHttpClient,
+    /** Playback: "whole" tracks start after their first segment instead of after all of them. */
+    private val streamWhole: Boolean = false,
 ) : BaseDataSource(/* isNetwork = */ true) {
 
     class Factory(
         private val upstreamFactory: DataSource.Factory,
         private val client: OkHttpClient,
+        private val streamWhole: Boolean = false,
     ) : DataSource.Factory {
         override fun createDataSource(): DataSource =
-            HlsConcatDataSource(upstreamFactory.createDataSource(), client)
+            HlsConcatDataSource(upstreamFactory.createDataSource(), client, streamWhole)
     }
 
     /** Output layout: [urls] in order, each producing [sizes] bytes (null = unknown, stream from start). */
@@ -80,6 +83,10 @@ class HlsConcatDataSource(
     private var buffer: ByteArray? = null
     private var bufferPos = 0
 
+    // Streamed whole track: what is read, and where.
+    private var streaming: WholeStream? = null
+    private var streamPos = 0L
+
     override fun open(dataSpec: DataSpec): Long {
         if (dataSpec.uri.scheme == "file") {
             // Files fetched by the Soulseek provider (download pipeline has no DefaultDataSource).
@@ -96,7 +103,9 @@ class HlsConcatDataSource(
         transferInitializing(dataSpec)
         val playlistUrl = unwrap(dataSpec.uri)
             ?: throw DataSourceException(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS)
-        if (dataSpec.uri.getQueryParameter(WHOLE_PARAM) == "1") return openWhole(dataSpec, playlistUrl)
+        if (dataSpec.uri.getQueryParameter(WHOLE_PARAM) == "1") {
+            return if (streamWhole) openStreamed(dataSpec, playlistUrl) else openWhole(dataSpec, playlistUrl)
+        }
         val l = layoutCache.get(playlistUrl) ?: loadLayout(playlistUrl).also { if (it.sizes != null) layoutCache.put(playlistUrl, it) }
         // AAC whose output length could not be worked out (a probe failed on a weak network): without
         // a length the player can neither seek nor resume after a dropped connection — it starts the
@@ -142,8 +151,93 @@ class HlsConcatDataSource(
      * and working seeking. A track is ~10 MB at 320 kbps, fetched in parallel.
      */
     private fun openWhole(dataSpec: DataSpec, playlistUrl: String): Long {
-        val bytes = wholeCache.get(playlistUrl) ?: assembleWhole(playlistUrl).also { wholeCache.put(playlistUrl, it) }
+        val bytes = wholeCache.get(playlistUrl) ?: run {
+            val started = System.currentTimeMillis()
+            assembleWhole(playlistUrl).also {
+                wholeCache.put(playlistUrl, it)
+                com.metrolist.music.resolver.AudioDiagnostics.info(
+                    "hls whole: ${it.size / 1024} KB in ${System.currentTimeMillis() - started} ms (${playlistUrl.toHttpUrlOrNull()?.encodedPath})",
+                )
+            }
+        }
         return serveBytes(dataSpec, bytes)
+    }
+
+    /**
+     * Playback of a "whole" track (VK) without waiting for all of it. The segments are fetched in
+     * order in the background; the player starts as soon as the first one is decrypted and demuxed,
+     * the way Lane starts within a second, instead of after the complete file (2–10 s).
+     *
+     * The player needs the length up front (duration, seeking), and the real one is only known at
+     * the end. For a constant-bitrate MP3 it follows from the playlist's segment lengths: that
+     * estimate (a hair longer) is declared, the real audio is served, and whatever is left up to it
+     * is filled with silent MP3 frames. Anything else (variable bitrate, no lengths) is served
+     * whole, as before.
+     */
+    private fun openStreamed(dataSpec: DataSpec, playlistUrl: String): Long {
+        streamedCache.get(playlistUrl)?.let { return serveBytes(dataSpec, it) }
+        val stream = synchronized(streams) {
+            streams[playlistUrl]?.takeIf { it.failure == null } ?: startStream(playlistUrl).also { streams[playlistUrl] = it }
+        }
+        val declared = try {
+            stream.awaitDeclaredLength()
+        } catch (e: IOException) {
+            synchronized(streams) { streams.remove(playlistUrl) }
+            throw e
+        }
+        if (declared <= 0L) {
+            // Not streamable: wait for it whole (the stream keeps fetching meanwhile).
+            return serveBytes(dataSpec, stream.awaitExact())
+        }
+        val position = dataSpec.position
+        if (position > declared) throw DataSourceException(PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE)
+        streaming = stream
+        streamPos = position
+        val available = declared - position
+        bytesRemaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) minOf(dataSpec.length, available) else available
+        opened = true
+        transferStarted(dataSpec)
+        return bytesRemaining
+    }
+
+    private fun startStream(playlistUrl: String): WholeStream {
+        val started = System.currentTimeMillis()
+        val playlistBytes = retrying { fetchBytes(playlistUrl, null) }
+            ?: throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
+        val playlist = HlsPlaylist.parse(playlistUrl, String(playlistBytes, Charsets.UTF_8), allowAes128 = true)
+            ?: throw DataSourceException(PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED)
+        val keyBytes = playlist.keys.filterNotNull().map { it.url }.distinct().associateWith { url ->
+            retrying { fetchBytes(url, null) } ?: throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
+        }
+        val seconds = playlist.durations
+            .takeIf { d -> d.size == playlist.segments.size && d.all { it > 0.0 } }
+            ?.sum() ?: 0.0
+        // An init section means fMP4, which isn't joined segment by segment here.
+        val stream = WholeStream(playlistUrl, playlist.segments.size, if (playlist.initUrl == null) seconds else 0.0, started)
+        playlist.segments.forEachIndexed { i, url ->
+            segmentPool.execute {
+                try {
+                    val raw = retrying { fetchBytes(url, null) }
+                        ?: throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
+                    val key = playlist.keys.getOrNull(i)
+                    val plain = if (key == null) {
+                        raw
+                    } else {
+                        decryptAes128(raw, keyBytes.getValue(key.url), key.iv ?: sequenceIv(playlist.mediaSequence + i))
+                    }
+                    val audio = if (plain.isNotEmpty() && plain[0] == 0x47.toByte()) {
+                        TsAudioDemuxer.extract(plain)
+                            ?: throw DataSourceException(PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED)
+                    } else {
+                        plain
+                    }
+                    stream.segmentReady(i, audio)
+                } catch (t: Throwable) {
+                    stream.fail(t)
+                }
+            }
+        }
+        return stream
     }
 
     private fun serveBytes(dataSpec: DataSpec, bytes: ByteArray): Long {
@@ -165,7 +259,7 @@ class HlsConcatDataSource(
     private fun assembleAdts(l: Layout, config: Fmp4AdtsTransmuxer.AudioConfig): ByteArray {
         val parts = arrayOfNulls<ByteArray>(l.urls.size)
         val latch = CountDownLatch(l.urls.size)
-        val executor = client.dispatcher.executorService
+        val executor = segmentPool
         l.urls.forEachIndexed { i, url ->
             executor.execute {
                 try {
@@ -202,11 +296,15 @@ class HlsConcatDataSource(
         val parts = arrayOfNulls<ByteArray>(urls.size)
         val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
         val latch = CountDownLatch(urls.size)
-        val executor = client.dispatcher.executorService
+        // A few segments at a time, each retried: all ~70 segments of a 12-minute VK track at once
+        // over a VPN made one of them time out, and a single lost segment failed the whole track
+        // after ~45 s of silence (Drudkh – "Solitude" then fell back to Bandcamp).
+        val executor = segmentPool
         urls.forEachIndexed { i, url ->
             executor.execute {
                 try {
-                    val raw = fetchBytes(url, null)
+                    val raw = retrying { fetchBytes(url, null) }
+                        ?: throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
                     val segmentIndex = i - offset
                     val key = if (segmentIndex >= 0) playlist.keys.getOrNull(segmentIndex) else null
                     parts[i] = if (key == null) {
@@ -267,6 +365,14 @@ class HlsConcatDataSource(
         if (delegating) return fileSource?.read(target, offset, length) ?: upstream.read(target, offset, length)
         if (length == 0) return 0
         if (bytesRemaining == 0L) return C.RESULT_END_OF_INPUT
+        streaming?.let { stream ->
+            val n = stream.read(streamPos, target, offset, minOf(length.toLong(), bytesRemaining).toInt())
+            if (n <= 0) return C.RESULT_END_OF_INPUT
+            streamPos += n
+            bytesRemaining -= n
+            bytesTransferred(n)
+            return n
+        }
         val l = layout ?: return C.RESULT_END_OF_INPUT
         while (true) {
             val toRead = if (bytesRemaining == C.LENGTH_UNSET.toLong()) length else minOf(length.toLong(), bytesRemaining).toInt()
@@ -317,6 +423,7 @@ class HlsConcatDataSource(
         }
         closeCurrentPart()
         layout = null
+        streaming = null
         uri = null
         if (opened) {
             opened = false
@@ -485,15 +592,33 @@ class HlsConcatDataSource(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 
         private const val WHOLE_PARAM = "w"
-        private const val WHOLE_TIMEOUT_S = 60L
+        private const val WHOLE_TIMEOUT_S = 90L
+        private const val SEGMENT_PARALLELISM = 8
 
         private val layoutCache = LruCache<String, Layout>(16)
+
+        /** Segment downloads for whole tracks: bounded, so a long track doesn't open 70 connections at once. */
+        private val segmentPool = java.util.concurrent.Executors.newFixedThreadPool(SEGMENT_PARALLELISM)
 
         /** Transmuxed segments; a player reopens the same part several times while buffering/seeking. */
         private val segmentCache = LruCache<String, ByteArray>(4)
 
         /** Fully assembled tracks ("whole" mode); the player reopens them on every seek. */
         private val wholeCache = LruCache<String, ByteArray>(2)
+
+        /** Streamed tracks once complete, padded to the length the player was told. */
+        private val streamedCache = LruCache<String, ByteArray>(2)
+
+        /** Tracks being streamed, by playlist url (a seek reopens the same one). */
+        private val streams = object : LinkedHashMap<String, WholeStream>(4, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, WholeStream>?) = size > 3
+        }
+
+        /** How long a reader waits for the next segment before giving up. */
+        private const val SEGMENT_WAIT_MS = 25_000L
+
+        /** Declared length = estimate × this, so the real audio is never cut (the rest is silence). */
+        private const val LENGTH_MARGIN = 1.002
 
         /**
          * [whole]: fetch, decrypt and demux the complete track before playing it — for playlists
@@ -513,6 +638,161 @@ class HlsConcatDataSource(
 
         fun unwrap(uri: Uri): String? = uri.getQueryParameter("u")
     }
+
+    /**
+     * One "whole" track being fetched segment by segment: readers block until the bytes they need
+     * have arrived. See [openStreamed].
+     */
+    private class WholeStream(
+        val playlistUrl: String,
+        segmentCount: Int,
+        /** Total length per the playlist; 0 = unknown, so not streamable. */
+        private val seconds: Double,
+        private val started: Long,
+    ) {
+        @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
+        private val lock = Object() as java.lang.Object
+        private val chunks = arrayOfNulls<ByteArray>(segmentCount)
+        private var ready = 0
+
+        @Volatile
+        var failure: Throwable? = null
+            private set
+
+        /** -1 = not known yet, 0 = not streamable, otherwise the length the player is told. */
+        private var declared = -1L
+        private var silentFrame: ByteArray? = null
+        private var exact: ByteArray? = null
+        private var padded: ByteArray? = null
+
+        fun segmentReady(index: Int, audio: ByteArray) {
+            synchronized(lock) {
+                chunks[index] = audio
+                ready++
+                if (index == 0) {
+                    val cbr = if (seconds > 0.0) MeasuredAudio.constantMp3(audio) else null
+                    declared = cbr?.let { (it.bitrate / 8.0 * seconds * LENGTH_MARGIN).toLong() + it.frameLength } ?: 0L
+                    silentFrame = cbr?.silentFrame()
+                    if (cbr == null) {
+                        val head = audio.take(4).joinToString(" ") { "%02x".format(it) }
+                        com.metrolist.music.resolver.AudioDiagnostics.warn(
+                            "hls: served whole — playlist ${"%.1f".format(seconds)} s, first segment ${audio.size} B starts $head, not constant-bitrate MP3",
+                        )
+                    }
+                }
+                if (ready == chunks.size) finish()
+                lock.notifyAll()
+            }
+        }
+
+        fun fail(t: Throwable) {
+            synchronized(lock) {
+                if (failure == null) failure = t
+                lock.notifyAll()
+            }
+        }
+
+        /** Called under [lock] once every segment is in. */
+        private fun finish() {
+            val total = chunks.sumOf { it!!.size }
+            val joined = ByteArray(total)
+            var at = 0
+            for (c in chunks) {
+                c!!.copyInto(joined, at)
+                at += c.size
+            }
+            exact = joined
+            wholeCache.put(playlistUrl, joined)
+            MeasuredAudio.analyze(joined)?.let { MeasuredAudio.record(playlistUrl, it) }
+            if (declared > 0) {
+                val filled = ByteArray(declared.toInt())
+                joined.copyInto(filled, 0, 0, minOf(joined.size, filled.size))
+                fillSilence(filled, joined.size)
+                padded = filled
+                streamedCache.put(playlistUrl, filled)
+            }
+            com.metrolist.music.resolver.AudioDiagnostics.info(
+                "hls streamed: ${total / 1024} KB in ${System.currentTimeMillis() - started} ms, " +
+                    "player told ${declared / 1024} KB (${chunks.size} segments)",
+            )
+            synchronized(streams) { streams.remove(playlistUrl) }
+        }
+
+        /** Silent MP3 frames from [from] to the end (a partial last frame stays zeros). */
+        private fun fillSilence(target: ByteArray, from: Int) {
+            val frame = silentFrame ?: return
+            var at = from
+            while (at + frame.size <= target.size) {
+                frame.copyInto(target, at)
+                at += frame.size
+            }
+        }
+
+        /** Waits under [lock]; gives up when no segment has arrived for [SEGMENT_WAIT_MS]. */
+        private fun waitFor(condition: () -> Boolean) {
+            var lastProgress = ready
+            var deadline = System.currentTimeMillis() + SEGMENT_WAIT_MS
+            while (!condition()) {
+                failure?.let { t ->
+                    throw t as? DataSourceException ?: DataSourceException(t, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
+                }
+                if (ready != lastProgress) {
+                    lastProgress = ready
+                    deadline = System.currentTimeMillis() + SEGMENT_WAIT_MS
+                }
+                val left = deadline - System.currentTimeMillis()
+                if (left <= 0) throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT)
+                try {
+                    lock.wait(minOf(left, 1_000L))
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw java.io.InterruptedIOException()
+                }
+            }
+        }
+
+        fun awaitDeclaredLength(): Long = synchronized(lock) {
+            waitFor { declared >= 0 }
+            declared
+        }
+
+        fun awaitExact(): ByteArray = synchronized(lock) {
+            waitFor { exact != null }
+            exact!!
+        }
+
+        /** Copies bytes at [position] of the declared stream into [target]; blocks for missing segments. */
+        fun read(position: Long, target: ByteArray, offset: Int, length: Int): Int {
+            synchronized(lock) { return readLocked(position, target, offset, length) }
+        }
+
+        private fun readLocked(position: Long, target: ByteArray, offset: Int, length: Int): Int {
+            padded?.let { return copy(it, position, target, offset, length) }
+            var start = 0L
+            for (i in chunks.indices) {
+                waitFor { chunks[i] != null || padded != null }
+                padded?.let { return copy(it, position, target, offset, length) }
+                val chunk = chunks[i]!!
+                if (position < start + chunk.size) {
+                    val inChunk = (position - start).toInt()
+                    val n = minOf(length, chunk.size - inChunk)
+                    chunk.copyInto(target, offset, inChunk, inChunk + n)
+                    return n
+                }
+                start += chunk.size
+            }
+            // Past the real audio but within the declared length: the silence, once laid down.
+            waitFor { padded != null }
+            return copy(padded!!, position, target, offset, length)
+        }
+
+        private fun copy(all: ByteArray, position: Long, target: ByteArray, offset: Int, length: Int): Int {
+            if (position >= all.size) return -1
+            val n = minOf(length.toLong(), all.size - position).toInt()
+            all.copyInto(target, offset, position.toInt(), position.toInt() + n)
+            return n
+        }
+    }
 }
 
 /** Pure HLS media-playlist parsing (kept Android-free for unit tests). */
@@ -529,6 +809,8 @@ object HlsPlaylist {
         /** Per segment, parallel to [segments]; null = not encrypted. Empty for unencrypted playlists. */
         val keys: List<Key?> = emptyList(),
         val mediaSequence: Long = 0,
+        /** #EXTINF length of each segment in seconds, parallel to [segments] (0 when missing). */
+        val durations: List<Double> = emptyList(),
     )
 
     /**
@@ -547,6 +829,8 @@ object HlsPlaylist {
         var anyKey = false
         val segments = mutableListOf<String>()
         val keys = mutableListOf<Key?>()
+        val durations = mutableListOf<Double>()
+        var pendingDuration = 0.0
         for (raw in text.lineSequence()) {
             val line = raw.trim()
             when {
@@ -570,15 +854,19 @@ object HlsPlaylist {
                     if (segments.isNotEmpty()) return null
                     if (init == null) init = base.resolve(mapUri)?.toString()
                 }
+                line.startsWith("#EXTINF:") ->
+                    pendingDuration = line.substringAfter(':').substringBefore(',').trim().toDoubleOrNull() ?: 0.0
                 line.startsWith("#") -> Unit
                 else -> base.resolve(line)?.toString()?.let {
                     segments += it
                     keys += currentKey
+                    durations += pendingDuration
+                    pendingDuration = 0.0
                 }
             }
         }
         if (segments.isEmpty()) return null
-        return MediaPlaylist(init, segments, if (anyKey) keys else emptyList(), sequence)
+        return MediaPlaylist(init, segments, if (anyKey) keys else emptyList(), sequence, durations)
     }
 
     private fun hexToBytes(hex: String): ByteArray {

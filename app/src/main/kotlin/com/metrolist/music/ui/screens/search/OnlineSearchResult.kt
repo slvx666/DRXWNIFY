@@ -125,6 +125,9 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+/** How long a tapped search result waits for the catalog's full track before playing the list's data. */
+private const val FULL_TRACK_WAIT_MS = 400L
+
 @Composable
 fun OnlineSearchResult(
     navController: NavController,
@@ -365,7 +368,11 @@ fun OnlineSearchResult(
                                         // matches as accurately as playing from an album. Falls back
                                         // to the stub if the fetch fails.
                                         coroutineScope.launch {
-                                            val full = com.metrolist.music.catalog.Catalog.getTrack(item.id.stripSpotifyPrefix()).getOrNull()
+                                            // Not waited for long: when Spotify's lookup is slow or
+                                            // rate-limited the stub (with its cover) plays at once.
+                                            val full = kotlinx.coroutines.withTimeoutOrNull(FULL_TRACK_WAIT_MS) {
+                                                com.metrolist.music.catalog.Catalog.getTrack(item.id.stripSpotifyPrefix()).getOrNull()
+                                            }
                                             val spotifyTrack = full ?: item.toSpotifyTrackStub()
                                             if (spotifyTrack != null) {
                                                 playerConnection.playQueue(

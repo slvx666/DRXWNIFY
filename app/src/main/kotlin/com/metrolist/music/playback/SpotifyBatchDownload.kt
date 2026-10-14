@@ -11,6 +11,8 @@ import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import com.metrolist.music.db.MusicDatabase
+import com.metrolist.music.resolver.AudioFallbackEngine
+import com.metrolist.music.resolver.AudioQuery
 import com.metrolist.music.resolver.FallbackIds
 import com.metrolist.music.utils.DownloadExportState
 import com.metrolist.music.utils.DownloadExporter
@@ -163,41 +165,92 @@ object SpotifyBatchDownload {
             return Progress(sourceId, label, Phase.DONE, already, total, 0, 0, already)
         }
 
+        /** Searches [track] and queues its download: true = queued, false = not found, null = no answer. */
+        suspend fun resolveAndEnqueue(track: SpotifyTrack): Boolean? {
+            val metadata = runCatching { mapper.mapToYouTube(track) }.getOrNull()
+            if (metadata == null) {
+                return if (AudioFallbackEngine.sourcesDidNotAnswer(AudioQuery.from(track))) null else false
+            }
+            // Tag from Spotify before the download finishes so the exporter
+            // never falls back to YouTube's channel/label.
+            mapper.persistSpotifyMetadata(metadata, track)
+            if (folderName != null) {
+                // Recorded before enqueuing: the exporter reads it when the
+                // track's bytes are done, which can be immediate.
+                DownloadExporter.rememberPlaylistFolder(context, listOf(metadata.id), folderName)
+            }
+            enqueuedAt[metadata.id] = System.currentTimeMillis()
+            DownloadExportState.clearFailure(metadata.id)
+            enqueue(context, metadata.id, metadata.title)
+            enqueuedIds.add(metadata.id)
+            trackOfMedia[metadata.id] = track.id
+            return true
+        }
+
         try {
             // Stage 1 — SEARCHING: resolve + enqueue, bounded by the global permit pool.
+            // Tracks no source answered for (timeouts under the load of a big batch, VK's flood
+            // pause) are searched again at the end, a few at a time, instead of being written
+            // off as "not found" — that is how a friend's 30 popular tracks all came out missing.
+            val noAnswer = ConcurrentHashMap.newKeySet<SpotifyTrack>()
             withContext(Dispatchers.IO) {
                 coroutineScope {
                     todo.map { track ->
                         async {
                             resolvePermits.withPermit {
                                 if (isCancelled()) return@withPermit
-                                val metadata = runCatching { mapper.mapToYouTube(track) }.getOrNull()
-                                if (isCancelled()) return@withPermit
-                                if (metadata != null) {
-                                    // Tag from Spotify before the download finishes so the exporter
-                                    // never falls back to YouTube's channel/label.
-                                    mapper.persistSpotifyMetadata(metadata, track)
-                                    if (folderName != null) {
-                                        // Recorded before enqueuing: the exporter reads it when the
-                                        // track's bytes are done, which can be immediate.
-                                        DownloadExporter.rememberPlaylistFolder(context, listOf(metadata.id), folderName)
+                                when (resolveAndEnqueue(track)) {
+                                    true -> resolved.incrementAndGet()
+                                    false -> {
+                                        resolved.incrementAndGet()
+                                        skipped.incrementAndGet()
+                                        DownloadIssues.set(context, track.id, DownloadIssues.Reason.NOT_FOUND)
+                                        Timber.w("SpotifyBatchDownload: skip '${track.name}' — no match")
                                     }
-                                    enqueuedAt[metadata.id] = System.currentTimeMillis()
-                                    DownloadExportState.clearFailure(metadata.id)
-                                    enqueue(context, metadata.id, metadata.title)
-                                    enqueuedIds.add(metadata.id)
-                                    trackOfMedia[metadata.id] = track.id
-                                } else {
-                                    skipped.incrementAndGet()
-                                    DownloadIssues.set(context, track.id, DownloadIssues.Reason.NOT_FOUND)
-                                    Timber.w("SpotifyBatchDownload: skip '${track.name}' — no match")
+                                    null -> noAnswer.add(track)
                                 }
-                                resolved.incrementAndGet()
                                 publishSearching()
                             }
                         }
                     }.awaitAll()
                 }
+                for ((round, pauseMs) in UNANSWERED_RETRY_PAUSES_MS.withIndex()) {
+                    if (noAnswer.isEmpty() || isCancelled()) break
+                    Timber.i("SpotifyBatchDownload: %d track(s) without an answer, retry %d", noAnswer.size, round + 1)
+                    delay(pauseMs)
+                    AudioFallbackEngine.forgetMisses()
+                    val retry = Semaphore(UNANSWERED_RETRY_PARALLELISM)
+                    coroutineScope {
+                        noAnswer.toList().map { track ->
+                            async {
+                                retry.withPermit {
+                                    if (isCancelled()) return@withPermit
+                                    when (resolveAndEnqueue(track)) {
+                                        true -> {
+                                            noAnswer.remove(track)
+                                            resolved.incrementAndGet()
+                                        }
+                                        false -> {
+                                            noAnswer.remove(track)
+                                            resolved.incrementAndGet()
+                                            skipped.incrementAndGet()
+                                            DownloadIssues.set(context, track.id, DownloadIssues.Reason.NOT_FOUND)
+                                        }
+                                        null -> Unit
+                                    }
+                                    publishSearching()
+                                }
+                            }
+                        }.awaitAll()
+                    }
+                }
+                for (track in noAnswer) {
+                    resolved.incrementAndGet()
+                    skipped.incrementAndGet()
+                    DownloadIssues.set(context, track.id, DownloadIssues.Reason.SOURCES_DID_NOT_ANSWER)
+                    Timber.w("SpotifyBatchDownload: skip '${track.name}' — sources didn't answer")
+                }
+                publishSearching()
             }
 
             if (isCancelled()) {
@@ -390,6 +443,12 @@ object SpotifyBatchDownload {
     }
 
     private const val RETRY_PAUSE_MS = 3_000L
+
+    /** Pauses before each new search of tracks no source answered for. */
+    private val UNANSWERED_RETRY_PAUSES_MS = listOf(5_000L, 30_000L)
+
+    /** Retried searches run a few at a time so the sources aren't overloaded again. */
+    private const val UNANSWERED_RETRY_PARALLELISM = 2
 
     /** How many tracks to resolve concurrently (across all batches). */
     private const val PARALLELISM = 6

@@ -267,13 +267,12 @@ constructor(
         }
 
         val summaries = mutableListOf<SearchSummary>()
+        var topTracks = emptyList<com.metrolist.spotify.models.SpotifyTrack>()
 
         result.tracks?.items?.filter { it.id.isNotEmpty() }
             ?.takeIf { it.isNotEmpty() }?.let { tracks ->
-                val items: List<YTItem> = tracks
-                    .filter { !hideExplicit || !it.explicit }
-                    .ranked()
-                    .map { it.toSongItem() }
+                topTracks = tracks.filter { !hideExplicit || !it.explicit }.ranked()
+                val items: List<YTItem> = topTracks.map { it.toSongItem() }
                 if (items.isNotEmpty()) summaries.add(SearchSummary(title = "Songs", items = items))
             }
         result.albums?.items?.filter { it.id.isNotEmpty() }
@@ -314,6 +313,8 @@ constructor(
             }
 
         summaryPage = SearchSummaryPage(summaries = summaries)
+        // The first songs' audio is found while the list is being looked at (see SearchPrefetch).
+        com.metrolist.music.resolver.SearchPrefetch.start(context, topTracks)
     }
 
     private suspend fun loadSpotifyFiltered(filterType: String) {

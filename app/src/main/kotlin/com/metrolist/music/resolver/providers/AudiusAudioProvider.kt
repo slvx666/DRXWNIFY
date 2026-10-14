@@ -34,6 +34,8 @@ class AudiusAudioProvider : AudioProvider {
         .callTimeout(7, TimeUnit.SECONDS)
         .build()
 
+    private val streamCheck = http.newBuilder().callTimeout(STREAM_CHECK_TIMEOUT_S, TimeUnit.SECONDS).build()
+
     @Volatile
     private var host: Pair<String, Long>? = null
 
@@ -118,8 +120,12 @@ class AudiusAudioProvider : AudioProvider {
     override suspend fun stream(query: AudioQuery, match: ProviderMatch): AudioStream? = runInterruptible(Dispatchers.IO) {
         // The stream endpoint redirects to a content node serving the MP3; OkHttp follows it on playback.
         val url = "${discoveryHost()}/v1/tracks/${match.trackId}/stream?app_name=$APP_NAME"
-        val ok = http.newCall(Request.Builder().url(url).header("User-Agent", UA).header("Range", "bytes=0-1").build())
-            .execute().use { it.isSuccessful }
+        // A quick check only: a content node that doesn't answer in a few seconds is not waited
+        // for (it took up to 7 s and then the track went to YouTube anyway).
+        val ok = runCatching {
+            streamCheck.newCall(Request.Builder().url(url).header("User-Agent", UA).header("Range", "bytes=0-1").build())
+                .execute().use { it.isSuccessful }
+        }.getOrDefault(false)
         if (!ok) return@runInterruptible null
         AudioStream(
             uri = url,
@@ -135,6 +141,7 @@ class AudiusAudioProvider : AudioProvider {
     private companion object {
         const val APP_NAME = "Drxwnify"
         const val HOST_TTL_MS = 30 * 60 * 1000L
+        const val STREAM_CHECK_TIMEOUT_S = 3L
         const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
     }
 }

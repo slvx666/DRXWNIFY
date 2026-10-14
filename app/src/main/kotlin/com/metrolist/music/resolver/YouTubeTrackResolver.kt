@@ -5,6 +5,9 @@
 
 package com.metrolist.music.resolver
 
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.spotify.SpotifyMapper
@@ -71,11 +74,8 @@ class YouTubeTrackResolver(
         // song by the right artist: the old loose pick took the duration-closest of ANYTHING, which
         // played ".m0lly – CONCUSSION" as "Mindless Self Indulgence – Seven Minutes in Heaven".
         val tokens = SpotifyMapper.artistTokens(allArtists.ifBlank { primaryArtist })
-        val nonLatinArtist = tokens.none { t -> t.any { it in 'a'..'z' || it in '0'..'9' } }
         val looseCandidates = seen.values.filter { c ->
-            SpotifyMapper.titlePlausiblyMatches(c.title, track.name) &&
-                (if (nonLatinArtist) SpotifyMapper.artistTransliterationMatches(c.title, c.artist, tokens)
-                else SpotifyMapper.artistPlausiblyMatches(c.title, c.artist, tokens))
+            SpotifyMapper.titlePlausiblyMatches(c.title, track.name, tokens) && SpotifyMapper.artistMatches(c.title, c.artist, tokens)
         }
         if (loose && looseCandidates.isNotEmpty()) {
             val result = SpotifyMapper.selectBestMatch(
@@ -115,9 +115,9 @@ class YouTubeTrackResolver(
         val clip = videos.filter { v ->
             v.id !in excludedIds &&
                 (v.musicVideoType == "MUSIC_VIDEO_TYPE_OMV" || OFFICIAL_CLIP.containsMatchIn(v.title)) &&
-                SpotifyMapper.titlePlausiblyMatches(v.title, track.name) &&
+                SpotifyMapper.titlePlausiblyMatches(v.title, track.name, tokens) &&
                 !SpotifyMapper.isForeignRecording(track.name, v.title) &&
-                SpotifyMapper.artistPlausiblyMatches(v.title, v.artists.firstOrNull()?.name.orEmpty(), tokens) &&
+                SpotifyMapper.artistMatches(v.title, v.artists.firstOrNull()?.name.orEmpty(), tokens) &&
                 (trackSec <= 0 || v.duration == null || v.duration!! in (trackSec - 10)..(trackSec + CLIP_EXTRA_S))
         }.minByOrNull { v -> v.duration?.let { kotlin.math.abs(it - trackSec) } ?: Int.MAX_VALUE } ?: return null
         Timber.w("Resolver took the official clip for '${track.name}' -> ${clip.id}")
@@ -141,11 +141,15 @@ class YouTubeTrackResolver(
         includeVideos: Boolean,
         videosOut: MutableList<SongItem>,
     ): List<SpotifyMapper.Candidate> {
-        val songs = searchOnce(query, YouTube.SearchFilter.FILTER_SONG)
-        val videos = if (includeVideos) {
-            runCatching { searchOnce(query, YouTube.SearchFilter.FILTER_VIDEO) }.getOrDefault(emptyList())
-        } else {
-            emptyList()
+        // Songs and videos are asked at the same time: one after the other they cost a whole extra
+        // round trip (over a VPN, half a second or more) on the track's first search.
+        val (songs, videos) = coroutineScope {
+            val videosAsync: Deferred<List<SongItem>>? = if (includeVideos) {
+                async { runCatching { searchOnce(query, YouTube.SearchFilter.FILTER_VIDEO) }.getOrDefault(emptyList()) }
+            } else {
+                null
+            }
+            searchOnce(query, YouTube.SearchFilter.FILTER_SONG) to (videosAsync?.await() ?: emptyList())
         }
         videosOut += videos
         return (songs + videos)

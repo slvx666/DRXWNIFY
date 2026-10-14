@@ -36,7 +36,11 @@ import java.time.ZoneOffset
  * Adding a friend = pasting their code (npub). They get a request and see it in their app.
  */
 object FriendsHub {
-    enum class Audience { NOBODY, FRIENDS, EVERYONE }
+    /**
+     * Who a field is shared with, narrowest first (the order is used to tell a narrowed choice).
+     * [VERIFIED] is the developer's own: only the people they marked as verified.
+     */
+    enum class Audience { NOBODY, VERIFIED, FRIENDS, EVERYONE }
 
     data class Privacy(
         val nowPlaying: Audience = Audience.FRIENDS,
@@ -369,7 +373,29 @@ object FriendsHub {
         val updated = if (on) _verified.value + pubkey else _verified.value - pubkey
         _verified.value = updated
         prefs?.edit()?.putStringSet("verifiedSet", updated)?.apply()
-        scope.launch { publishTo(pubkey, F_VERIFIED, if (on) JSONObject().put("v", 1).toString() else "") }
+        scope.launch {
+            publishTo(pubkey, F_VERIFIED, if (on) JSONObject().put("v", 1).toString() else "")
+            // What is shared with "verified" only now reaches them — or is taken back.
+            val privacy = _privacy.value
+            val verifiedOnly = listOf(
+                F_NOW to privacy.nowPlaying,
+                F_HISTORY to privacy.history,
+                F_PLAYLISTS to privacy.playlists,
+                F_LIKES to privacy.playlists,
+                F_STATS to privacy.stats,
+                F_PORTRAIT to privacy.stats,
+            ).filter { it.second == Audience.VERIFIED }
+            if (verifiedOnly.isEmpty()) return@launch
+            if (on) {
+                publishLibrary(onlyFor = pubkey)
+                if (privacy.stats == Audience.VERIFIED) {
+                    prefs?.getString("portraitPacked", null)?.let { publishField(F_PORTRAIT, it, privacy.stats, pubkey) }
+                }
+                lastNow?.let { publishNow(it) }
+            } else {
+                verifiedOnly.forEach { (field, _) -> publishTo(pubkey, field, "") }
+            }
+        }
     }
 
     fun isVerified(pubkey: String) = pubkey in _verified.value
@@ -749,6 +775,10 @@ object FriendsHub {
                 .filter { onlyFor == null || it == onlyFor }
                 .take(MAX_FRIENDS_ENCRYPTED)
                 .forEach { publishTo(it, field, content) }
+            Audience.VERIFIED -> _verified.value
+                .filter { onlyFor == null || it == onlyFor }
+                .take(MAX_FRIENDS_ENCRYPTED)
+                .forEach { publishTo(it, field, content) }
         }
     }
 
@@ -756,6 +786,7 @@ object FriendsHub {
         when (wasAudience) {
             Audience.EVERYONE -> publishPublic(field, "")
             Audience.FRIENDS -> _friends.value.forEach { publishTo(it.pubkey, field, "") }
+            Audience.VERIFIED -> _verified.value.forEach { publishTo(it, field, "") }
             Audience.NOBODY -> Unit
         }
     }

@@ -218,13 +218,49 @@ class SoundCloudAudioProvider(
         }
         // Official uploads (uploader / publisher = the artist) are tried before re-uploads.
         val artistKey = normalizeName(query.primaryArtist)
-        val (official, others) = candidates.partition { c ->
-            artistKey.isNotEmpty() && normalizeName(c.artist) == artistKey
-        }
-        return (ProviderGate.ranked(query, official) + ProviderGate.ranked(query, others)).take(4)
+        val (official, others) = candidates
+            .filterNot { isEditOf(query.title, it.title) }
+            .partition { c -> artistKey.isNotEmpty() && normalizeName(c.artist) == artistKey }
+        // Label releases are DRM-only here, so what is left of a popular track is mostly fans'
+        // re-uploads and edits. A re-upload must name the artist as a whole word (not "my" inside
+        // "mystery", not an uploader called "futurebeats" for Future), be practically the same
+        // length, and never counts as a sure match: an exact match elsewhere always wins over it.
+        val reuploads = others.filter { namesArtist(query, it) }
+        val reuploadMatches = ProviderGate.ranked(query, reuploads, maxDurationGapS = REUPLOAD_DURATION_TOLERANCE_S)
+            .map { it.copy(score = minOf(it.score, REUPLOAD_MAX_CONFIDENCE)) }
+        return (ProviderGate.ranked(query, official) + reuploadMatches).take(4)
     }
 
     private fun normalizeName(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+
+    private fun words(s: String): List<String> =
+        s.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+
+    /** The artist as whole words in the upload's title or uploader name (or its transliteration). */
+    private fun namesArtist(query: AudioQuery, c: SpotifyMapper.Candidate): Boolean {
+        val titleWords = words(c.title)
+        val uploaderKey = normalizeName(c.artist)
+        val named = query.artists.any { artist ->
+            val key = normalizeName(artist)
+            val artistWords = words(artist)
+            key.isNotEmpty() && (
+                key == uploaderKey ||
+                    (artistWords.isNotEmpty() && titleWords.windowed(artistWords.size).any { it == artistWords })
+                )
+        }
+        if (named) return true
+        val tokens = SpotifyMapper.artistTokens(query.artists.joinToString(", "))
+        val nonLatin = tokens.none { t -> t.any { it in 'a'..'z' || it in '0'..'9' } }
+        return nonLatin && SpotifyMapper.artistTransliterationMatches(c.title, c.artist, tokens)
+    }
+
+    /** An edit / flip / someone's "version" of the song that the catalog title doesn't name. */
+    private fun isEditOf(catalogTitle: String, uploadTitle: String): Boolean {
+        val upload = EDIT_MARKERS.findAll(uploadTitle.lowercase()).map { it.value }.toSet() - SAME_RECORDING
+        if (upload.isEmpty()) return false
+        val own = EDIT_MARKERS.findAll(catalogTitle.lowercase()).map { it.value }.toSet()
+        return (upload - own).isNotEmpty()
+    }
 
     private fun ScTrack.hasOpenTranscoding(): Boolean {
         val arr = json.optJSONObject("media")?.optJSONArray("transcodings") ?: return false
@@ -301,6 +337,25 @@ class SoundCloudAudioProvider(
     }
 
     private companion object {
+        /** Re-uploads must be this close in length: an edit is often only a few seconds off. */
+        const val REUPLOAD_DURATION_TOLERANCE_S = 3
+
+        /** Below [com.metrolist.music.resolver.ParallelAudioResolver.STRONG_MATCH] on purpose. */
+        const val REUPLOAD_MAX_CONFIDENCE = 0.85
+
+        /**
+         * SoundCloud's own words for another cut of a song, on top of the remix / cover / sped-up
+         * markers every source rejects ("S&M (FLOZONE FLIP)", "One Kiss (SYLS Edit)",
+         * "Timeless (Elias Version)").
+         */
+        val EDIT_MARKERS = Regex(
+            "\\b(flip|edit|re-?edit|rework|vip|remake|extended|club mix|bass ?boost(ed)?|phonk|" +
+                "jersey( club)?|hardstyle|drill|amapiano|[\\p{L}\\p{N}]+ version)\\b",
+        )
+
+        /** "… version" words that still mean the very recording the catalog has. */
+        val SAME_RECORDING = setOf("album version", "original version", "single version", "explicit version")
+
         const val DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
     }

@@ -6,16 +6,28 @@
 package com.metrolist.music.portrait
 
 /**
- * What counts as having listened to a track (the rule Last.fm scrobbles by): at least half of it,
- * or four minutes of a long one. A track flicked past or skipped after a minute is not a listen —
- * not in the history, not in "recently played", not in the portrait.
+ * What counts as having listened to a track — for the history, "recently played", the profile's
+ * portrait and what friends see. The rule Last.fm scrobbles by: half of the track, but never less
+ * than [floorMs] (the "add to history after" setting, 30 s by default) and never more than four
+ * minutes. A track shorter than the floor counts when nearly all of it was heard; one of unknown
+ * length after a minute.
+ *
+ * 2:30 → 75 s, 3:30 → 1:45, 6:00 → 3:00, 12:00 → 4:00, 0:45 → 30 s, 0:20 → 18 s.
  */
 object Listening {
-    private const val LONG_TRACK_ENOUGH_MS = 4 * 60_000L
-    private const val UNKNOWN_LENGTH_ENOUGH_MS = 90_000L
+    const val DEFAULT_FLOOR_MS = 30_000L
+    private const val CEILING_MS = 4 * 60_000L
+    private const val UNKNOWN_LENGTH_MS = 60_000L
 
-    fun counts(playedMs: Long, durationMs: Long): Boolean = when {
-        durationMs <= 0 -> playedMs >= UNKNOWN_LENGTH_ENOUGH_MS
-        else -> playedMs >= minOf(durationMs / 2, LONG_TRACK_ENOUGH_MS)
+    /** Kept equal to the "add to history after" setting by the player. */
+    @Volatile
+    var floorMs: Long = DEFAULT_FLOOR_MS
+
+    fun neededMs(durationMs: Long): Long = when {
+        durationMs <= 0 -> maxOf(UNKNOWN_LENGTH_MS, floorMs)
+        durationMs < floorMs -> durationMs * 9 / 10
+        else -> (durationMs / 2).coerceIn(floorMs, maxOf(CEILING_MS, floorMs))
     }
+
+    fun counts(playedMs: Long, durationMs: Long): Boolean = playedMs >= neededMs(durationMs)
 }

@@ -65,6 +65,31 @@ class ParallelAudioResolverTest {
     }
 
     @Test
+    fun qualityModeDoesNotWaitForSourcesThatCannotSoundBetter() = runBlocking {
+        // SoundCloud (160) can't beat YouTube's exact 160 kbps match ranked above it: no 4.5 s wait.
+        val youtube = FakeProvider(AudioProviderId.YOUTUBE, 20, found = true, confidence = 1.0)
+        val soundcloud = FakeProvider(AudioProviderId.SOUNDCLOUD, 1_000, found = true, confidence = 1.0)
+        val order = listOf(AudioProviderId.YOUTUBE, AudioProviderId.VK, AudioProviderId.SOUNDCLOUD)
+        val outcome = qualityResolver().resolve(query, listOf(youtube, soundcloud), order)
+        assertEquals(AudioProviderId.YOUTUBE, outcome.winner?.provider)
+        assertTrue("decided without waiting: ${outcome.elapsedMs}", outcome.elapsedMs < 500)
+    }
+
+    @Test
+    fun doubtfulLowerRankedMatchDoesNotWinByTheClock() = runBlocking {
+        // A doubtful SoundCloud re-upload answers first; YouTube, ranked higher, needs longer than
+        // the soft deadline but has the exact track.
+        val youtube = FakeProvider(AudioProviderId.YOUTUBE, 600, found = true, confidence = 1.0)
+        val soundcloud = FakeProvider(AudioProviderId.SOUNDCLOUD, 30, found = true, confidence = 0.7)
+        val order = listOf(AudioProviderId.YOUTUBE, AudioProviderId.SOUNDCLOUD)
+        val speed = resolver(soft = 300, hard = 2_000).resolve(query, listOf(youtube, soundcloud), order)
+        assertEquals(AudioProviderId.YOUTUBE, speed.winner?.provider)
+        val quality = ParallelAudioResolver(300, 2_000, preferQuality = { true })
+            .resolve(query, listOf(youtube, soundcloud), order)
+        assertEquals(AudioProviderId.YOUTUBE, quality.winner?.provider)
+    }
+
+    @Test
     fun qualityModeNeverTradesAccuracyForBitrate() = runBlocking {
         // A doubtful match stays behind an exact one whatever its bitrate.
         val youtube = FakeProvider(AudioProviderId.YOUTUBE, 20, found = true, confidence = 1.0)
@@ -231,6 +256,34 @@ class ParallelAudioResolverTest {
             ),
             HlsPlaylist.parseMediaPlaylist("https://playback.media-streaming.soundcloud.cloud/abc/playlist.m3u8", text),
         )
+    }
+
+    @Test
+    fun segmentLengthsAreParsed() {
+        val text = "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"k\"\n#EXTINF:10.005,\na.ts\n#EXT-X-KEY:METHOD=NONE\n#EXTINF:4,\nb.ts\n"
+        val playlist = HlsPlaylist.parse("https://h/p.m3u8", text, allowAes128 = true)!!
+        assertEquals(listOf(10.005, 4.0), playlist.durations)
+    }
+
+    @Test
+    fun constantBitrateMp3IsRecognisedAndSilenceFitsIt() {
+        // 20 frames of MPEG-1 Layer III, 320 kbps, 44.1 kHz, joint stereo (sizes 1044/1045 with padding).
+        val frames = java.io.ByteArrayOutputStream()
+        repeat(20) { i ->
+            val padding = i % 2
+            val header = byteArrayOf(0xFF.toByte(), 0xFB.toByte(), (0xE0 or (padding shl 1)).toByte(), 0x44)
+            frames.write(header)
+            frames.write(ByteArray(1044 + padding - 4))
+        }
+        val cbr = com.metrolist.music.playback.datasource.MeasuredAudio.constantMp3(frames.toByteArray())!!
+        assertEquals(320_000, cbr.bitrate)
+        assertEquals(44_100, cbr.sampleRate)
+        val silent = cbr.silentFrame()
+        assertEquals(1044, silent.size)
+        assertEquals(0xFF.toByte(), silent[0])
+        // Protection bit set (no CRC) and padding bit cleared.
+        assertEquals(0xFB.toByte(), silent[1])
+        assertEquals(0xE0.toByte(), silent[2])
     }
 
     @Test

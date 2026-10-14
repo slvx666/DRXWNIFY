@@ -30,8 +30,10 @@ import java.util.concurrent.TimeUnit
  */
 class VkAudioProvider(
     private val token: () -> String?,
-    /** Asked before each track is streamed; false = the shared account's daily tracks are used up. */
-    private val allowTrack: () -> Boolean = { true },
+    /** Asked before a track is streamed (by its id); false = the shared account's daily tracks are used up. */
+    private val allowTrack: (String) -> Boolean = { true },
+    /** Whether streaming is possible today at all; when not, VK stays out of the race. */
+    private val hasTracksLeft: () -> Boolean = { true },
     private val userId: () -> String? = { null },
 ) : AudioProvider {
     override val id = AudioProviderId.VK
@@ -44,7 +46,12 @@ class VkAudioProvider(
         .dns(com.metrolist.music.utils.FallbackDns)
         .build()
 
-    override fun isReady(): Boolean = !token().isNullOrBlank()
+    // Out of the race once the shared account's tracks for today are used up: VK still "found"
+    // every track, then couldn't stream it, and the whole search ran again without it.
+    override fun isReady(): Boolean = hasToken() && hasTracksLeft()
+
+    /** Signed in (or the shared account offered): browsing, albums and the library work regardless of the day's tracks. */
+    private fun hasToken(): Boolean = !token().isNullOrBlank()
 
     private class VkApiException(val code: Int, message: String) : Exception(message)
 
@@ -146,7 +153,7 @@ class VkAudioProvider(
     }
 
     override suspend fun searchFree(text: String, limit: Int): List<ProviderMatch> {
-        if (!isReady() || text.isBlank()) return emptyList()
+        if (!hasToken() || text.isBlank()) return emptyList()
         if (System.currentTimeMillis() < searchPausedUntil) return emptyList()
         // Unlike the gated search this keeps tracks that came back without a stream URL: VK leaves
         // it out of search results for many accounts and hands it over on audio.getById instead,
@@ -243,7 +250,7 @@ class VkAudioProvider(
 
     /** Albums and playlists matching [text] (VK's own "albums" search). */
     suspend fun searchPlaylists(text: String, count: Int = 60): List<VkPlaylist> {
-        if (!isReady() || text.isBlank()) return emptyList()
+        if (!hasToken() || text.isBlank()) return emptyList()
         return throttled {
             val root = call("audio.searchPlaylists", mapOf("q" to text, "count" to count.toString()))
                 ?: throw IllegalStateException("VK API HTTP error")
@@ -256,7 +263,7 @@ class VkAudioProvider(
      * point at the original, which is where their tracks are read from.
      */
     suspend fun myPlaylists(): List<VkPlaylist> {
-        if (!isReady()) return emptyList()
+        if (!hasToken()) return emptyList()
         val owner = ownerId() ?: return emptyList()
         val all = mutableListOf<VkPlaylist>()
         var offset = 0
@@ -278,7 +285,7 @@ class VkAudioProvider(
 
     /** The account's own tracks ("My music"), newest first. */
     suspend fun myTracks(): List<ProviderMatch> {
-        if (!isReady()) return emptyList()
+        if (!hasToken()) return emptyList()
         val owner = ownerId() ?: return emptyList()
         val all = mutableListOf<VkAudio>()
         var offset = 0
@@ -318,7 +325,7 @@ class VkAudioProvider(
      * is a playlist. VK's own flags can't be trusted for this (they call collections albums).
      */
     suspend fun isAlbumByTracks(playlist: VkPlaylist): Boolean? {
-        if (!isReady()) return null
+        if (!hasToken()) return null
         val items = throttled {
             val params = buildMap {
                 put("owner_id", playlist.ownerId.toString())
@@ -347,7 +354,7 @@ class VkAudioProvider(
 
     /** Every track of [playlist], as playable matches (a missing stream URL is fetched on play). */
     suspend fun playlistTracks(playlist: VkPlaylist): List<ProviderMatch> {
-        if (!isReady()) return emptyList()
+        if (!hasToken()) return emptyList()
         val items = throttled {
             val params = buildMap {
                 put("owner_id", playlist.ownerId.toString())
@@ -505,7 +512,7 @@ class VkAudioProvider(
     private val recentUrls = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
 
     override suspend fun stream(query: AudioQuery, match: ProviderMatch): AudioStream? {
-        if (!allowTrack()) {
+        if (!allowTrack(match.trackId)) {
             Timber.tag("AudioRace").i("vk: the shared account's tracks for today are used up")
             return null
         }

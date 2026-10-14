@@ -11,8 +11,16 @@ import com.metrolist.spotify.models.SpotifyTrack
 object SpotifyMapper {
 
     // Pre-compiled regex patterns for title normalization (avoids re-creation on each call)
-    private val FEAT_PATTERN = Regex("\\(feat\\..*?\\)")
-    private val FT_PATTERN = Regex("\\(ft\\..*?\\)")
+    /**
+     * A bracket that only credits other artists: "(with Dua Lipa)", "(feat Playboi Carti)" with no
+     * dot, "(Metro Boomin & Swae Lee, NAV, feat. A Boogie Wit da Hoodie)". Only "(feat." used to be
+     * dropped, so the rest stayed in the title and Spotify's "One Kiss (with Dua Lipa)" matched
+     * nothing on any source — a friend's whole list of collaborations came out "not found".
+     */
+    private val CREDIT_PATTERN = Regex(
+        "[(\\[][^)\\]]*(?:\\b(?:feat|ft|featuring|with)\\b|\\bw/)[^)\\]]*[)\\]]",
+        RegexOption.IGNORE_CASE,
+    )
     private val BRACKET_PATTERN = Regex("\\[.*?]")
     private val REMASTER_PATTERN = Regex("\\(.*?remaster.*?\\)", RegexOption.IGNORE_CASE)
     private val REMIX_PATTERN = Regex("\\(.*?remix.*?\\)", RegexOption.IGNORE_CASE)
@@ -272,8 +280,8 @@ object SpotifyMapper {
      * >= 4 chars, whole-word match for shorter ones (so a 1–3 char song name like "i" doesn't match
      * every video). Guards the failure mode where the top hit is a DIFFERENT song by the SAME artist.
      */
-    fun titlePlausiblyMatches(candidateTitle: String, spotifyTitle: String): Boolean {
-        val target = cachedNormalize(spotifyTitleCore(spotifyTitle))
+    fun titlePlausiblyMatches(candidateTitle: String, spotifyTitle: String, artistTokens: List<String> = emptyList()): Boolean {
+        val target = cachedNormalize(stripOwnCredits(spotifyTitleCore(spotifyTitle), artistTokens))
         // A title made only of symbols ("./", "...", "?!") normalizes to nothing: compare the
         // symbols themselves instead of failing every candidate.
         if (target.isEmpty()) {
@@ -282,7 +290,29 @@ object SpotifyMapper {
         }
         val cand = cachedNormalize(candidateTitle)
         if (cand.isEmpty()) return false
-        return if (target.length >= 4) target in cand else target in cand.split(' ')
+        if (target.length >= 4) return target in cand
+        // Short targets match whole words only. "S&M" / "E.T." normalize to several one-letter
+        // words ("s m"), which a single-word lookup could never find — those tracks were "not found".
+        val wanted = target.split(' ')
+        return cand.split(' ').windowed(wanted.size).any { it == wanted }
+    }
+
+    private val BRACKET_GROUP = Regex("[(\\[]([^)\\]]*)[)\\]]")
+    private val CREDIT_SEPARATORS = Regex("[,&]|\\s+(?:and|x|и)\\s+", RegexOption.IGNORE_CASE)
+
+    /**
+     * Drops a bracket that only lists the track's own artists: Spotify titles some collaborations
+     * "Am I Dreaming (Metro Boomin & A$AP Rocky, Roisee)", while every upload says "Am I Dreaming".
+     */
+    private fun stripOwnCredits(title: String, artistTokens: List<String>): String {
+        if (artistTokens.isEmpty() || '(' !in title && '[' !in title) return title
+        return BRACKET_GROUP.replace(title) { group ->
+            val names = CREDIT_SEPARATORS.split(group.groupValues[1]).map { cachedNormalize(it) }.filter { it.isNotEmpty() }
+            val allCredits = names.isNotEmpty() && names.all { name ->
+                artistTokens.any { t -> t == name || (t.length >= 4 && (t in name || name in t)) }
+            }
+            if (allCredits) " " else group.value
+        }
     }
 
     /** True when the title has no letters or digits at all ("./", "…"). */
@@ -308,6 +338,9 @@ object SpotifyMapper {
         val titleN = cachedNormalize(candidateTitle)
         if (tokens.any { it in titleN }) return true
         val artistN = cachedNormalize(candidateArtist)
+        // The same name written with or without a space: "Newmagick" on Spotify, "New Magick" on YouTube.
+        val compactArtist = artistN.replace(" ", "")
+        if (tokens.any { t -> t.replace(" ", "").let { it.length >= 4 && it == compactArtist } }) return true
         if (tokens.none { it in artistN }) return false
         val parts = ARTIST_SPLIT_REGEX.split(candidateArtist)
             .map { stripArticle(cachedNormalize(it)) }
@@ -336,7 +369,8 @@ object SpotifyMapper {
         val titleKey = latinKey(candidateTitle)
         return tokens.any { token ->
             val key = latinKey(token)
-            key.length >= 3 && (
+            // A two-letter name only when it is exactly the same ("My" = "МЫ").
+            (key.length >= 2 && key == artistKey) || key.length >= 3 && (
                 key == artistKey ||
                     (key.length >= 4 && (key in titleKey || (artistKey.length >= 4 && (key in artistKey || artistKey in key)))) ||
                     bigramDice(key, artistKey) >= 0.75
@@ -373,6 +407,22 @@ object SpotifyMapper {
 
     private fun anyTokenHasLatin(tokens: List<String>): Boolean =
         tokens.any { t -> t.any { it in 'a'..'z' || it in '0'..'9' } }
+
+    private fun hasNonLatinLetters(text: String): Boolean = text.any { it.isLetter() && it !in 'a'..'z' && it !in 'A'..'Z' }
+
+    /**
+     * The candidate is by one of [tokens]' artists, written in either script. A transliteration
+     * counts both ways: a Cyrillic name found in Latin ("Kino" for "Кино"), and a name Spotify
+     * spells in Latin found in Cyrillic ("Basta" → "Баста", "My" → "МЫ") — the second one used to
+     * be refused, so those tracks were "not found".
+     */
+    fun artistMatches(candidateTitle: String, candidateArtist: String, tokens: List<String>): Boolean =
+        if (!anyTokenHasLatin(tokens)) {
+            artistTransliterationMatches(candidateTitle, candidateArtist, tokens)
+        } else {
+            artistPlausiblyMatches(candidateTitle, candidateArtist, tokens) ||
+                (hasNonLatinLetters(candidateArtist) && artistTransliterationMatches(candidateTitle, candidateArtist, tokens))
+        }
 
     /**
      * Ranking penalty for candidates that look like a non-studio variant (live/MV/cover/remix/
@@ -420,7 +470,7 @@ object SpotifyMapper {
 
         val tokens = artistTokens(spotifyArtistsAll.ifBlank { spotifyPrimaryArtist })
         var titleOk = candidates.filter {
-            titlePlausiblyMatches(it.title, spotifyTitle) && !isForeignRecording(spotifyTitle, it.title)
+            titlePlausiblyMatches(it.title, spotifyTitle, tokens) && !isForeignRecording(spotifyTitle, it.title)
         }
         // Symbol-only titles are often written differently by uploaders ("./" → "Untitled", "dot
         // slash"); the right artist with a near-exact length is then the best evidence there is.
@@ -433,12 +483,8 @@ object SpotifyMapper {
         }
         if (titleOk.isEmpty()) return if (loose) loosePick(candidates, ::durationOff) else MatchResult.NoMatch
 
-        var pool = titleOk.filter { artistPlausiblyMatches(it.title, it.artist, tokens) }
-        if (pool.isEmpty()) {
-            // Only a transliteration of a non-Latin artist may stand in for the name itself.
-            pool = if (!anyTokenHasLatin(tokens)) titleOk.filter { artistTransliterationMatches(it.title, it.artist, tokens) }
-            else return if (loose) loosePick(titleOk, ::durationOff) else MatchResult.NoMatch
-        }
+        var pool = titleOk.filter { artistMatches(it.title, it.artist, tokens) }
+        if (pool.isEmpty()) return if (loose) loosePick(titleOk, ::durationOff) else MatchResult.NoMatch
 
         // Too long or too short is another edit: dropped BEFORE ranking, so one extended upload
         // ranked first no longer hides a right-length one further down.
@@ -518,8 +564,7 @@ object SpotifyMapper {
 
     private fun normalizeTitle(title: String): String {
         var s = title.lowercase()
-            .replace(FEAT_PATTERN, "")
-            .replace(FT_PATTERN, "")
+            .replace(CREDIT_PATTERN, "")
             .replace(BRACKET_PATTERN, "")
             .replace(REMASTER_PATTERN, "")
             .replace(REMIX_PATTERN, "")

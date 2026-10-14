@@ -41,6 +41,30 @@ object AudioDiagnostics {
             val current = _lines.value
             _lines.value = if (current.size >= MAX_LINES) current.drop(current.size - MAX_LINES + 1) + line else current + line
         }
+        file?.let { f -> writer.execute { runCatching { f.appendText(line + NEWLINE) } } }
+    }
+
+    /**
+     * The journal is kept in a file as well: a slow start reported hours later used to be gone with
+     * the app's process (and the system log only holds a minute), so there was nothing to look at.
+     */
+    @Volatile
+    private var file: java.io.File? = null
+    private val writer = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private const val NEWLINE = "\n"
+
+    fun init(context: android.content.Context) {
+        if (file != null) return
+        val f = java.io.File(context.filesDir, "audio_log.txt")
+        writer.execute {
+            runCatching {
+                val kept = if (f.exists()) f.readLines().takeLast(MAX_LINES) else emptyList()
+                // Trimmed once per start, so the file never grows past a few hundred KB.
+                f.writeText(kept.joinToString(NEWLINE, postfix = if (kept.isEmpty()) "" else NEWLINE))
+                synchronized(this) { _lines.value = (kept + _lines.value).takeLast(MAX_LINES) }
+            }
+            file = f
+        }
     }
 
     /** Why audio could not be found for a track — turned into a short explanation on the player cover. */
@@ -87,6 +111,7 @@ object AudioDiagnostics {
 
     fun clear() {
         synchronized(this) { _lines.value = emptyList() }
+        file?.let { f -> writer.execute { runCatching { f.writeText("") } } }
     }
 
     fun asText(): String = _lines.value.joinToString("\n")

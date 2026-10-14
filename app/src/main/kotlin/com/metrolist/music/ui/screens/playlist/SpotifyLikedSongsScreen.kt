@@ -424,10 +424,22 @@ fun SpotifyLikedSongsScreen(
                         }
                         if (downloadedCount < tracks.size) {
                             Spacer(modifier = Modifier.height(6.dp))
+                            // When YouTube sees the device in Russia the same small line says so
+                            // plainly (in the warning colour), instead of the general advice.
+                            val youtubeCountry by com.metrolist.music.utils.YouTubeRegion.country.collectAsState()
+                            val limitedRegion = youtubeCountry != null && com.metrolist.music.utils.YouTubeRegion.limited
                             Text(
-                                text = stringResource(R.string.batch_download_vpn_hint),
+                                text = if (limitedRegion) {
+                                    stringResource(R.string.batch_download_region_hint)
+                                } else {
+                                    stringResource(R.string.batch_download_vpn_hint)
+                                },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                color = if (limitedRegion) {
+                                    MaterialTheme.colorScheme.error.copy(alpha = 0.85f)
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                },
                             )
                         }
                     }
@@ -602,6 +614,7 @@ fun SpotifyLikedSongsScreen(
                 val issueText = if (track.id !in downloadedIds) {
                     when (downloadIssues[track.id]) {
                         com.metrolist.music.playback.DownloadIssues.Reason.NOT_FOUND -> stringResource(R.string.download_issue_not_found)
+                        com.metrolist.music.playback.DownloadIssues.Reason.SOURCES_DID_NOT_ANSWER -> stringResource(R.string.download_issue_no_answer)
                         com.metrolist.music.playback.DownloadIssues.Reason.DOWNLOAD_FAILED -> stringResource(R.string.download_issue_download_failed)
                         com.metrolist.music.playback.DownloadIssues.Reason.SAVE_FAILED -> stringResource(R.string.download_issue_save_failed)
                         null -> null

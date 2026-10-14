@@ -20,6 +20,9 @@ object DownloadIssues {
         /** No enabled audio source had this track. */
         NOT_FOUND,
 
+        /** Some source didn't answer even after retries (timeout, VK pause, no network). */
+        SOURCES_DID_NOT_ANSWER,
+
         /** The audio was found but downloading it failed. */
         DOWNLOAD_FAILED,
 

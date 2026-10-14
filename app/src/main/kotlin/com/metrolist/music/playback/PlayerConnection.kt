@@ -62,6 +62,13 @@ class PlayerConnection(
     private val playerReadinessFlow = service.isPlayerReady
 
     /**
+     * For cover lookups in [publishMetadata]. Declared before every init block: the player setup
+     * below already publishes metadata, and a later declaration was still null then — the app
+     * crashed on start whenever the current track had no cover.
+     */
+    private val coverScope = scope
+
+    /**
      * Safe player accessor checks readiness & handles errors.
      * Should be used by all player access within this class.
      */
@@ -586,8 +593,6 @@ class PlayerConnection(
         }
     }
 
-    private val coverScope = scope
-
     init {
         // The track already playing when the screen connects goes through the same cover check.
         publishMetadata(mediaMetadata.value)
@@ -607,8 +612,12 @@ class PlayerConnection(
             val url = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 runCatching { com.metrolist.music.utils.CoverFix.lookup(metadata.id) }.getOrNull()
             }
-            if (url == null) return@launch
-            if (mediaMetadata.value?.id == metadata.id) mediaMetadata.value = metadata.copy(thumbnailUrl = url)
+            if (mediaMetadata.value?.id != metadata.id) return@launch
+            when {
+                url != null -> mediaMetadata.value = metadata.copy(thumbnailUrl = url)
+                // Nothing better found: the picture it came with, unless that one points nowhere.
+                !com.metrolist.music.utils.CoverFix.isBroken(metadata.thumbnailUrl) -> mediaMetadata.value = metadata
+            }
         }
     }
 

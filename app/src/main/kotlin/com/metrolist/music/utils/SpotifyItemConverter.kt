@@ -84,7 +84,30 @@ fun SongItem.toSpotifyTrackStub(): SpotifyTrack? {
                 name = it.name,
             )
         },
+        // The list row's album and cover go along: without them a track played from the stub (the
+        // full lookup is often rate-limited) had no cover anywhere in the player.
+        album = album?.let { a ->
+            com.metrolist.spotify.models.SpotifySimpleAlbum(
+                id = a.id.stripSpotifyPrefix(),
+                name = a.name,
+                images = listOfNotNull(
+                    thumbnail.takeIf { it.isNotBlank() }?.let { com.metrolist.spotify.models.SpotifyImage(url = it, width = 300, height = 300) },
+                    thumbnail.toLargeSpotifyCover()?.let { com.metrolist.spotify.models.SpotifyImage(url = it, width = 640, height = 640) },
+                ),
+            )
+        } ?: thumbnail.takeIf { it.isNotBlank() }?.let { url ->
+            com.metrolist.spotify.models.SpotifySimpleAlbum(
+                images = listOfNotNull(
+                    com.metrolist.spotify.models.SpotifyImage(url = url, width = 300, height = 300),
+                    url.toLargeSpotifyCover()?.let { com.metrolist.spotify.models.SpotifyImage(url = it, width = 640, height = 640) },
+                ),
+            )
+        },
         durationMs = (duration ?: 0) * 1000,
         explicit = explicit,
     )
 }
+
+/** Spotify's 640 px variant of a 300 px album cover ("…00001e02<hash>" → "…0000b273<hash>"). */
+private fun String.toLargeSpotifyCover(): String? =
+    takeIf { "/image/ab67616d00001e02" in it }?.replace("ab67616d00001e02", "ab67616d0000b273")

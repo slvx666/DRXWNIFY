@@ -29,6 +29,7 @@ import com.metrolist.music.utils.YTPlayerUtils.validateStatus
 import com.metrolist.music.utils.potoken.PoTokenGenerator
 import com.metrolist.music.utils.potoken.PoTokenResult
 import com.metrolist.music.utils.sabr.EjsNTransformSolver
+import kotlinx.coroutines.async
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import java.util.concurrent.TimeUnit
@@ -37,11 +38,21 @@ object YTPlayerUtils {
     private const val logTag = "YTPlayerUtils"
     private const val TAG = "YTPlayerUtils"
 
+    /**
+     * Shared with the player's HTTP client: the stream check below opens the connection to
+     * googlevideo, and the player then reuses it instead of a second TLS handshake (over a VPN
+     * that was most of a second before the first byte of audio).
+     */
+    val connectionPool = okhttp3.ConnectionPool()
+
     private val httpClient = OkHttpClient.Builder()
+        .connectionPool(connectionPool)
         .proxy(YouTube.proxy)
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
+        // Only the stream check uses it, and a check that doesn't answer is accepted anyway: 20 s
+        // per client let a cascade through several clients hold a track back for half a minute.
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(6, TimeUnit.SECONDS)
+        .writeTimeout(6, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -221,6 +232,42 @@ object YTPlayerUtils {
         // When true, bias format selection toward AAC (audio/mp4) instead of the default Opus
         // preference. Used by the download path so exported files need no Opus->AAC transcode.
         preferAac: Boolean = false,
+    ): Result<PlaybackData> {
+        // The same video is often asked for twice in a row (warm-up of the next track, then its
+        // playback; the version dialog, then the switch): the answer is reused while it is valid,
+        // and a request already on its way is joined instead of started again.
+        val key = "$videoId|$playlistId|$audioQuality|$preferAac"
+        playbackCache[key]?.takeIf { it.validUntil > System.currentTimeMillis() }?.let { return Result.success(it.data) }
+        val deferred = inflightPlayback.computeIfAbsent(key) {
+            playbackScope.async {
+                resolvePlayback(videoId, playlistId, audioQuality, connectivityManager, preferAac).onSuccess { data ->
+                    val validFor = (data.streamExpiresInSeconds - PLAYBACK_CACHE_MARGIN_S).coerceAtLeast(0) * 1000L
+                    if (validFor > 0) playbackCache[key] = CachedPlayback(data, System.currentTimeMillis() + validFor)
+                }
+            }
+        }
+        deferred.invokeOnCompletion { inflightPlayback.remove(key, deferred) }
+        return deferred.await()
+    }
+
+    private data class CachedPlayback(val data: PlaybackData, val validUntil: Long)
+
+    private val playbackCache = java.util.concurrent.ConcurrentHashMap<String, CachedPlayback>()
+    private val inflightPlayback =
+        java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<Result<PlaybackData>>>()
+
+    /** Resolutions outlive the caller: a skipped track's answer is still kept for when it comes back. */
+    private val playbackScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
+    /** A cached stream address is dropped this long before YouTube says it expires. */
+    private const val PLAYBACK_CACHE_MARGIN_S = 15 * 60
+
+    private suspend fun resolvePlayback(
+        videoId: String,
+        playlistId: String?,
+        audioQuality: AudioQuality,
+        connectivityManager: ConnectivityManager,
+        preferAac: Boolean,
     ): Result<PlaybackData> = runCatching {
         val fx = Fix403.nextId("res")
         Timber.tag(TAG).d("=== PLAYER RESPONSE FOR PLAYBACK ===")
@@ -261,13 +308,28 @@ object YTPlayerUtils {
             ),
         )
 
-        // Get signature timestamp (same as before for normal content)
-        val signatureTimestamp = getSignatureTimestampOrNull(videoId)
-        Timber.tag(logTag).d("Signature timestamp: ${signatureTimestamp.timestamp}")
-        Fix403.i(
-            fx, "resolve.sts",
-            Fix403.kv("sts" to signatureTimestamp.timestamp, "source" to "NewPipeExtractor"),
-        )
+        // The first stream client is asked right away, at the same time as the PoToken and the
+        // metadata client below: one after the other they cost two to three round trips before a
+        // stream address even existed. It hands out plain addresses, so it needs no signature
+        // timestamp either.
+        val firstStreamClient = STREAM_FALLBACK_CLIENTS[NORMAL_CONTENT_STREAM_START_INDEX]
+        val firstStreamResponse = if (!firstStreamClient.useWebPoTokens && !firstStreamClient.loginRequired) {
+            playbackScope.async {
+                YouTube.player(videoId, playlistId, firstStreamClient, null, null).getOrNull()
+            }
+        } else {
+            null
+        }
+
+        // The signature timestamp (NewPipe reads it from YouTube's player script, over a second on
+        // a cold start) only matters to clients whose addresses are ciphered: fetched when one of
+        // them is actually asked.
+        val signatureTimestamp by lazy {
+            getSignatureTimestampOrNull(videoId).also {
+                Timber.tag(logTag).d("Signature timestamp: ${it.timestamp}")
+                Fix403.i(fx, "resolve.sts", Fix403.kv("sts" to it.timestamp, "source" to "NewPipeExtractor"))
+            }
+        }
 
         // Generate PoToken
         var poToken: PoTokenResult? = null
@@ -284,7 +346,11 @@ object YTPlayerUtils {
                 "sessionIdEmpty" to (sessionId != null && sessionId.isEmpty()),
             ),
         )
-        if (mainClientNeedsPoToken && sessionId != null) {
+        // Without a YouTube login WEB_REMIX only ever gave metadata the stream client's own answer
+        // has as well (it is used that way whenever WEB_REMIX is cooling down), so neither it nor
+        // the PoToken it needs (a WebView script run) stands between the tap and the sound.
+        val metadataFromStreamClient = !isLoggedIn && firstStreamResponse != null
+        if (mainClientNeedsPoToken && sessionId != null && !metadataFromStreamClient) {
             Timber.tag(logTag).d("Generating PoToken for WEB_REMIX with sessionId")
             try {
                 poToken = Fix403.timed(fx, "potoken.generate") {
@@ -327,8 +393,8 @@ object YTPlayerUtils {
         // failure trips a cooldown: WEB_REMIX is skipped for a while and the first fallback client's
         // player response is used as the metadata response instead, so playback starts right away.
         val mainClientCoolingDown = System.currentTimeMillis() < mainClientBlockedUntil
-        val mainAttempt: PlayerResponse? = if (mainClientCoolingDown) {
-            Fix403.w(fx, "mainClient.skipped", Fix403.kv("reason" to "cooldown"))
+        val mainAttempt: PlayerResponse? = if (mainClientCoolingDown || metadataFromStreamClient) {
+            Fix403.w(fx, "mainClient.skipped", Fix403.kv("reason" to if (mainClientCoolingDown) "cooldown" else "anonymous"))
             null
         } else {
             Timber.tag(logTag).d("Attempting to get player response using MAIN_CLIENT: ${MAIN_CLIENT.clientName}")
@@ -349,7 +415,8 @@ object YTPlayerUtils {
         var mainPlayerResponse: PlayerResponse = mainAttempt ?: run {
             val substitute = STREAM_FALLBACK_CLIENTS.first()
             Timber.tag(logTag).d("Using ${substitute.clientName} as metadata client")
-            YouTube.player(videoId, playlistId, substitute, signatureTimestamp.timestamp, null).getOrThrow()
+            (if (substitute == firstStreamClient) firstStreamResponse?.await() else null)
+                ?: YouTube.player(videoId, playlistId, substitute, signatureTimestamp.timestamp, null).getOrThrow()
         }
         Fix403.i(fx, "mainClient.response", describeResponse(MAIN_CLIENT, mainPlayerResponse))
 
@@ -474,7 +541,8 @@ object YTPlayerUtils {
                         "poToken" to Fix403.redact(clientPoToken),
                     ),
                 )
-                streamPlayerResponse = Fix403.trap(fx, "client.request.${client.clientName}") {
+                val alreadyAsked = if (client == firstStreamClient && !wasOriginallyAgeRestricted) firstStreamResponse?.await() else null
+                streamPlayerResponse = alreadyAsked ?: Fix403.trap(fx, "client.request.${client.clientName}") {
                     Fix403.timed(fx, "client.http.${client.clientName}") {
                         // .getOrNull() hides the failure; surface it before discarding it.
                         YouTube.player(videoId, playlistId, client, clientSigTimestamp, clientPoToken)
@@ -490,8 +558,13 @@ object YTPlayerUtils {
                 Timber.tag(logTag).d("Player response status OK for client: ${if (clientIndex == -1) MAIN_CLIENT.clientName else STREAM_FALLBACK_CLIENTS[clientIndex].clientName}")
 
                 // Skip NewPipe for age-restricted content (NewPipe doesn't use our auth)
-                val responseToUse = if (wasOriginallyAgeRestricted) {
-                    Timber.tag(logTag).d("Skipping NewPipe for age-restricted content")
+                // NewPipe re-extracts the whole watch page (page, player script, its own requests:
+                // seconds over a VPN) just to hand over addresses this client usually already gave.
+                // It is asked only when the chosen format comes without one.
+                val hasOwnAddress = !wasOriginallyAgeRestricted &&
+                    findFormat(streamPlayerResponse, audioQuality, connectivityManager, preferAac)?.url.isNullOrEmpty() == false
+                val responseToUse = if (wasOriginallyAgeRestricted || hasOwnAddress) {
+                    if (wasOriginallyAgeRestricted) Timber.tag(logTag).d("Skipping NewPipe for age-restricted content")
                     streamPlayerResponse
                 } else {
                     // Try to get streams using newPipePlayer method
@@ -655,12 +728,13 @@ object YTPlayerUtils {
                     break
                 }
 
-                if (validateStatus(
-                        streamUrl,
-                        format.contentLength,
-                        Fix403.kv("fx" to fx, "client" to currentClient.clientName, "itag" to format.itag),
-                    )
-                ) {
+                val validationLabel = Fix403.kv("fx" to fx, "client" to currentClient.clientName, "itag" to format.itag)
+                val valid = if (currentClient in WHOLE_FILE_CLIENTS) {
+                    validateWithin(streamUrl, format.contentLength, validationLabel)
+                } else {
+                    validateStatus(streamUrl, format.contentLength, validationLabel)
+                }
+                if (valid) {
                     // working stream found
                     Timber.tag(logTag).d("Stream validated successfully with client: ${currentClient.clientName}")
                     // Log for release builds
@@ -914,6 +988,26 @@ object YTPlayerUtils {
         }
         return false
     }
+    /** Clients measured to serve the complete file (see [STREAM_FALLBACK_CLIENTS]). */
+    private val WHOLE_FILE_CLIENTS = setOf(VISIONOS, ANDROID_VR_1_65_10)
+
+    /** How long playback waits for the stream check of a [WHOLE_FILE_CLIENTS] address. */
+    private const val QUICK_VALIDATION_MS = 700L
+
+    /**
+     * [validateStatus] with a bound on the wait, for clients that serve whole files: a refusal
+     * that comes back in time still moves on to the next client, but a check that hangs (a cold
+     * connection over a VPN took 6 s) no longer holds the sound back. It keeps running and warms
+     * the shared connection the player is about to use.
+     */
+    private suspend fun validateWithin(url: String, contentLength: Long?, label: String): Boolean {
+        val check = playbackScope.async { validateStatus(url, contentLength, label) }
+        return kotlinx.coroutines.withTimeoutOrNull(QUICK_VALIDATION_MS) { check.await() } ?: run {
+            Timber.tag(logTag).d("Stream check still running after ${QUICK_VALIDATION_MS}ms — playing meanwhile $label")
+            true
+        }
+    }
+
     data class SignatureTimestampResult(
         val timestamp: Int?,
         val isAgeRestricted: Boolean
@@ -1078,5 +1172,6 @@ object YTPlayerUtils {
 
     fun forceRefreshForVideo(videoId: String) {
         Timber.tag(logTag).d("Force refreshing for videoId: $videoId")
+        playbackCache.keys.removeIf { it.startsWith("$videoId|") }
     }
 }

@@ -1221,6 +1221,18 @@ class MusicService :
             ExoPlayer
                 .Builder(this)
                 .setMediaSourceFactory(createMediaSourceFactory())
+                // Start after 1 s of audio instead of ExoPlayer's 2.5 s (5 s after a stall): the
+                // stream address is already known by then, so waiting longer only delayed every
+                // start. Lane starts at 0.5 s.
+                .setLoadControl(
+                    androidx.media3.exoplayer.DefaultLoadControl.Builder()
+                        .setBufferDurationsMs(
+                            androidx.media3.exoplayer.DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                            androidx.media3.exoplayer.DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
+                            START_BUFFER_MS,
+                            START_BUFFER_AFTER_STALL_MS,
+                        ).build(),
+                )
                 .setRenderersFactory(createRenderersFactory(eqProcessor, silenceProcessor))
                 .setHandleAudioBecomingNoisy(true)
                 .setWakeMode(C.WAKE_MODE_NETWORK)
@@ -1533,10 +1545,11 @@ class MusicService :
             song?.song?.duration?.takeIf { it != -1 }
                 ?: mediaMetadata.duration.takeIf { it != -1 }
                 ?: (
-                    playbackData?.videoDetails ?: YTPlayerUtils
-                        .playerResponseForMetadata(mediaId)
-                        .getOrNull()
-                        ?.videoDetails
+                    playbackData?.videoDetails ?: mediaId.takeIf(::isYouTubeVideoId)?.let { id ->
+                        // Only a real video has a YouTube answer: asking for an "mfb:" (VK,
+                        // SoundCloud…) id cost a pointless request, seconds long, on every track.
+                        YTPlayerUtils.playerResponseForMetadata(id).getOrNull()?.videoDetails
+                    }
                 )?.lengthSeconds?.toInt()
                 ?: -1
         database.query {
@@ -2573,6 +2586,7 @@ class MusicService :
         mediaItem: MediaItem?,
         reason: Int,
     ) {
+        startTiming = mediaItem?.let { it.mediaId to android.os.SystemClock.elapsedRealtime() }
         // Save previous episode position if it was an episode
         previousEpisodeId?.let { episodeId ->
             if (previousEpisodePosition > 0) {
@@ -2699,6 +2713,19 @@ class MusicService :
     override fun onPlaybackStateChanged(
         @Player.State playbackState: Int,
     ) {
+        // How long the sound took: one line per track in the audio journal, so a slow start can be
+        // looked into afterwards (the 30-second one couldn't be — nothing said where the time went).
+        startTiming?.let { (mediaId, since) ->
+            if (playbackState == Player.STATE_READY && player.playWhenReady && player.currentMediaItem?.mediaId == mediaId) {
+                startTiming = null
+                val seconds = (android.os.SystemClock.elapsedRealtime() - since) / 1000.0
+                val title = player.currentMediaItem?.mediaMetadata?.title
+                val source = fallbackServing[mediaId]?.provider?.name ?: "YouTube/cache"
+                val line = "sound for '$title' after ${"%.1f".format(java.util.Locale.US, seconds)} s ($source)"
+                if (seconds >= SLOW_START_S) com.metrolist.music.resolver.AudioDiagnostics.warn("slow start: $line")
+                else com.metrolist.music.resolver.AudioDiagnostics.info(line)
+            }
+        }
         // Listening in the background is using the app: no launch intro on the next open.
         if (player.playWhenReady) com.metrolist.music.ui.component.AppIntroState.markActive(this)
         // Force Repeat All if the player ignored it and ended playback
@@ -3388,6 +3415,9 @@ class MusicService :
         // Clear decryption caches
         try {
             YTPlayerUtils.forceRefreshForVideo(mediaId)
+            // A catalog track playing a YouTube upload: that video's cached address goes too.
+            fallbackServing[mediaId]?.takeIf { it.provider == AudioProviderId.YOUTUBE }
+                ?.let { YTPlayerUtils.forceRefreshForVideo(it.trackId) }
             Timber.tag(TAG).d("Cleared decryption caches for $mediaId")
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Failed to clear decryption caches for $mediaId")
@@ -3578,6 +3608,9 @@ class MusicService :
         // Clear decryption caches
         try {
             YTPlayerUtils.forceRefreshForVideo(mediaId)
+            // A catalog track playing a YouTube upload: that video's cached address goes too.
+            fallbackServing[mediaId]?.takeIf { it.provider == AudioProviderId.YOUTUBE }
+                ?.let { YTPlayerUtils.forceRefreshForVideo(it.trackId) }
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Failed to clear decryption caches")
         }
@@ -3839,6 +3872,7 @@ class MusicService :
                             this@MusicService,
                             OkHttpDataSource.Factory(
                                 OkHttpClient.Builder()
+                                    .connectionPool(YTPlayerUtils.connectionPool)
                                     .proxy(YouTube.proxy)
                                     .proxyAuthenticator { _, response ->
                                         YouTube.proxyAuth?.let { auth ->
@@ -3899,6 +3933,8 @@ class MusicService :
                             // as one progressive stream; every other uri goes straight to OkHttp.
                             OkHttpClient
                                 .Builder()
+                                // The stream check already connected to googlevideo: reuse it.
+                                .connectionPool(YTPlayerUtils.connectionPool)
                                 .proxy(YouTube.proxy)
                                 .proxyAuthenticator { _, response ->
                                     YouTube.proxyAuth?.let { auth ->
@@ -3909,7 +3945,8 @@ class MusicService :
                                     } ?: response.request
                                 }.build()
                                 .let { client ->
-                                    HlsConcatDataSource.Factory(OkHttpDataSource.Factory(client), client)
+                                    // Playback streams VK tracks from their first segment.
+                                    HlsConcatDataSource.Factory(OkHttpDataSource.Factory(client), client, streamWhole = true)
                                 },
                         ),
                     ),
@@ -4033,6 +4070,15 @@ class MusicService :
     }
 
     /** What currently serves a fallback / rescued media id, so a failure can switch upload or provider. */
+    /** A plain YouTube video id (not "mfb:", "local:" or any other source's id). */
+    private fun isYouTubeVideoId(id: String): Boolean = YOUTUBE_VIDEO_ID.matches(id)
+
+    private val YOUTUBE_VIDEO_ID = Regex("[0-9A-Za-z_-]{11}")
+
+    /** The item that just became current and when, until its sound starts (see onPlaybackStateChanged). */
+    @Volatile
+    private var startTiming: Pair<String, Long>? = null
+
     private data class FallbackServing(val provider: AudioProviderId, val trackId: String)
 
     private val fallbackServing = java.util.concurrent.ConcurrentHashMap<String, FallbackServing>()
@@ -4908,15 +4954,32 @@ class MusicService :
         val mediaItem = eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem
         val historyDurationMs = dataStore[HistoryDuration]?.times(1000f) ?: 30000f
 
-        // Only a real listen goes into the history (and so into "recently played" and the portrait).
+        // Only a real listen goes into the history (and so into "recently played" and the portrait):
+        // as long as the setting says, or half of a short track.
+        com.metrolist.music.portrait.Listening.floorMs = historyDurationMs.toLong()
         val trackDurationMs = (mediaItem.metadata?.duration ?: 0) * 1000L
         val listened = com.metrolist.music.portrait.Listening.counts(playbackStats.totalPlayTimeMs, trackDurationMs)
-        if (playbackStats.totalPlayTimeMs >= historyDurationMs && listened &&
-            !dataStore.get(PauseListenHistoryKey, false)
-        ) {
+        val historyPaused = dataStore.get(PauseListenHistoryKey, false)
+        if (playbackStats.totalPlayTimeMs > 0) {
+            com.metrolist.music.resolver.AudioDiagnostics.info(
+                "listened '${mediaItem.mediaMetadata.title}' ${playbackStats.totalPlayTimeMs / 1000}s of " +
+                    "${trackDurationMs / 1000}s → " + when {
+                        historyPaused -> "history paused"
+                        listened -> "saved to history"
+                        else -> "too short for history"
+                    },
+            )
+        }
+        if (listened && !historyPaused) {
             // A play from the endless radio counts less in the profile's portrait than a chosen one.
             if (RecommendedTracks.isRecommended(mediaItem.mediaId)) com.metrolist.music.portrait.RadioPlays.mark(mediaItem.mediaId)
             database.query {
+                // A listen points at the track's row. Catalog tracks played through another source
+                // ("mfb:" ids — most of the radio and of any queue) often had none, the insert failed
+                // on the foreign key, the error was swallowed, and the history stayed nearly empty.
+                if (!songExistsBlocking(mediaItem.mediaId)) {
+                    mediaItem.metadata?.let { metadata -> runCatching { insert(metadata) } }
+                }
                 incrementTotalPlayTime(mediaItem.mediaId, playbackStats.totalPlayTimeMs)
                 try {
                     insert(
@@ -4926,12 +4989,15 @@ class MusicService :
                             playTime = playbackStats.totalPlayTimeMs,
                         ),
                     )
-                } catch (_: SQLException) {
+                } catch (e: SQLException) {
+                    com.metrolist.music.resolver.AudioDiagnostics.warn(
+                        "listen of ${mediaItem.mediaId} not saved: ${e.message?.take(120)}",
+                    )
                 }
             }
         }
 
-        if (playbackStats.totalPlayTimeMs >= historyDurationMs) {
+        if (playbackStats.totalPlayTimeMs >= historyDurationMs && isYouTubeVideoId(mediaItem.mediaId)) {
             CoroutineScope(Dispatchers.IO).launch {
                 val playbackUrl =
                     database.format(mediaItem.mediaId).first()?.playbackUrl
@@ -5865,6 +5931,11 @@ class MusicService :
 
         private const val TAG = "MusicService"
         private const val PRECACHE_TAG = "DrxwPreCache"
+
+        private const val SLOW_START_S = 8.0
+
+        private const val START_BUFFER_MS = 1_000
+        private const val START_BUFFER_AFTER_STALL_MS = 2_000
 
         @Volatile
         var isRunning = false

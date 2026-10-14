@@ -188,9 +188,14 @@ class ArtistViewModel @Inject constructor(
             // when the artist is known there, otherwise straight from Spotify by id — so a Spotify
             // artist that was never played locally still opens the real profile instead of hanging
             // on an empty screen.
+            // The catalog id is already known: its profile, top tracks and releases load right away
+            // and the screen shows them without waiting for the YouTube page found by name.
+            if (spotifyArtistId != null) loadCatalogReleases(null)
             viewModelScope.launch {
+                // The row's first answer, absent or not: waiting for a non-null one cost a full
+                // 1.5 s for every artist not saved locally.
                 val dbName = kotlinx.coroutines.withTimeoutOrNull(1500) {
-                    libraryArtist.first { it != null }
+                    artistRowFlow.first()
                 }?.artist?.name
                 val name = dbName ?: resolveSpotifyName(artistId)
                 loadCatalogReleases(name)

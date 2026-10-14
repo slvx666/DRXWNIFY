@@ -73,6 +73,66 @@ object MeasuredAudio {
         return Measured(bitrate = (bytes * 8 / seconds).toInt(), sampleRate = sampleRate)
     }
 
+    /** An MP3 stream every frame of which has the same bitrate, sample rate and channel mode. */
+    data class ConstantMp3(
+        val bitrate: Int,
+        val sampleRate: Int,
+        /** The first frame's 4-byte header with the padding bit cleared (for silent filler frames). */
+        val header: ByteArray,
+    ) {
+        val frameLength: Int get() = 144 * bitrate / sampleRate
+
+        /** A valid MPEG-1 Layer III frame that decodes to silence (empty side info and main data). */
+        fun silentFrame(): ByteArray = ByteArray(frameLength).also { header.copyInto(it) }
+    }
+
+    /**
+     * [data]'s constant bitrate, or null when it isn't plain MPEG-1 Layer III with every frame alike
+     * (a variable bitrate can't be turned into an exact byte length up front).
+     */
+    fun constantMp3(data: ByteArray): ConstantMp3? {
+        // The first place where frames chain up: a stray 0xFFEx in a tag or in a cut-off frame at
+        // the start of a segment is not mistaken for the stream.
+        var anchor = 0
+        while (anchor + 4 <= data.size && !chains(data, anchor, CBR_PROBE_FRAMES)) anchor++
+        if (anchor + 4 > data.size) return null
+        val first = signatureAt(data, anchor)
+        if (((data[anchor + 1].toInt() and 0xFF) shr 3 and 3) != 3) return null // MPEG-1 only
+        var i = anchor
+        while (i + 4 <= data.size) {
+            val frame = (if (isSync(data, i)) mpegFrame(data, i) else null) ?: break // end of this chunk
+            if (signatureAt(data, i) != first) return null // the bitrate changes: VBR
+            i += frame.first
+        }
+        val b2 = data[anchor + 2].toInt() and 0xFF
+        val kbps = MPEG1_L3[(b2 shr 4) and 0xF]
+        val rate = MPEG1_RATES[(b2 shr 2) and 3]
+        // Protection bit set (no CRC follows), padding bit cleared.
+        val header = byteArrayOf(data[anchor], (data[anchor + 1].toInt() or 0x01).toByte(), (b2 and 0xFD).toByte(), data[anchor + 3])
+        return ConstantMp3(kbps * 1000, rate, header)
+    }
+
+    private const val CBR_PROBE_FRAMES = 10
+
+    private fun isSync(data: ByteArray, i: Int): Boolean =
+        i + 7 < data.size && (data[i].toInt() and 0xFF) == 0xFF && (data[i + 1].toInt() and 0xE0) == 0xE0
+
+    /** Version, layer, bitrate, sample rate and channel mode of the frame header at [i]. */
+    private fun signatureAt(data: ByteArray, i: Int): Int =
+        ((data[i + 1].toInt() and 0x1E) shl 16) or ((data[i + 2].toInt() and 0xFC) shl 8) or (data[i + 3].toInt() and 0xC0)
+
+    /** Whether [count] alike MPEG Layer III frames follow each other from [i]. */
+    private fun chains(data: ByteArray, i: Int, count: Int): Boolean {
+        if (!isSync(data, i)) return false
+        val signature = signatureAt(data, i)
+        var at = i
+        repeat(count) {
+            if (!isSync(data, at) || signatureAt(data, at) != signature) return false
+            at += (mpegFrame(data, at) ?: return false).first
+        }
+        return true
+    }
+
     private val MPEG1_L3 = intArrayOf(0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0)
     private val MPEG2_L3 = intArrayOf(0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0)
     private val MPEG1_RATES = intArrayOf(44100, 48000, 32000)

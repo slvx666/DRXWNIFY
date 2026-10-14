@@ -104,26 +104,49 @@ class ParallelAudioResolver(
         fun ordered(matches: Collection<ProviderMatch>) =
             if (quality) byQuality(matches, ::rank) else preferred(matches, ::rank)
 
+        /** A doubtful match from a lower-ranked source while a preferred one is still searching. */
+        fun doubtfulWhileBetterPending(best: ProviderMatch) =
+            best.confidence < STRONG_MATCH && pending.any { rank(it) < rank(best.provider) }
+
         fun decide(now: Long): ProviderMatch? {
             if (quality) {
-                // Every source may still have the same track in better quality: wait for all of them,
-                // but not beyond the quality deadline once an exact match is in hand.
+                // Every source may still have the same track in better quality: wait for the ones
+                // that could still win, but not beyond the quality deadline once an exact match is in hand.
                 val best = ordered(found.values).firstOrNull() ?: return null
                 val strongInHand = found.values.any { it.confidence >= STRONG_MATCH }
-                return if (pending.isEmpty() || (strongInHand && now - start >= QUALITY_DEADLINE_MS)) best else null
+                // A source can only take over by sounding better, or as well while ranked higher:
+                // waiting 4.5 s for SoundCloud (160) after YouTube (160, ranked first) found the
+                // exact track bought nothing but a slower start.
+                val margin = if (ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.QUALITY) QUALITY_CONFIDENCE_MARGIN else ACCURACY_CONFIDENCE_MARGIN
+                val cannotBeBeaten = best.confidence >= MAX_SCORE - margin && pending.none { id ->
+                    id.typicalKbps > best.expectedKbps ||
+                        (id.typicalKbps == best.expectedKbps && rank(id) < rank(best.provider))
+                }
+                return when {
+                    pending.isEmpty() -> best
+                    strongInHand && cannotBeBeaten -> best
+                    strongInHand && now - start >= QUALITY_DEADLINE_MS -> best
+                    else -> null
+                }
             }
             val best = preferred(found.values, ::rank).firstOrNull() ?: return null
             val higherPending = pending.any { rank(it) < rank(best.provider) }
             // A doubtful match doesn't end the race early: a slower provider may still have the exact track.
             val couldBeBeaten = best.confidence < STRONG_MATCH && pending.isNotEmpty()
-            return if ((!higherPending && !couldBeBeaten) || now - start >= softDeadlineMs) best else null
+            // The soft deadline only cuts short the wait for a STRONG match: a doubtful SoundCloud
+            // re-upload used to win simply because YouTube needed 3 s to answer.
+            val deadlinePassed = now - start >= softDeadlineMs && !doubtfulWhileBetterPending(best)
+            return if ((!higherPending && !couldBeBeaten) || deadlinePassed) best else null
         }
 
         var winner: ProviderMatch? = null
         while (pending.isNotEmpty()) {
             val now = clock()
+            val bestSoFar = ordered(found.values).firstOrNull()
             val waitUntil = when {
-                found.isEmpty() -> start + hardDeadlineMs
+                bestSoFar == null -> start + hardDeadlineMs
+                doubtfulWhileBetterPending(bestSoFar) -> start + hardDeadlineMs
+                quality && found.values.none { it.confidence >= STRONG_MATCH } -> start + hardDeadlineMs
                 quality -> start + QUALITY_DEADLINE_MS
                 else -> start + softDeadlineMs
             }
@@ -172,6 +195,9 @@ class ParallelAudioResolver(
 
         /** A match at least this confident is taken without waiting for lower-ranked providers. */
         const val STRONG_MATCH = 0.9
+
+        /** The highest automatic match score (title + artist + length all exact). */
+        private const val MAX_SCORE = 1.0
 
         /** Comparably confident matches in the user's order, then the weaker ones by confidence. */
         fun preferred(matches: Collection<ProviderMatch>, rank: (AudioProviderId) -> Int): List<ProviderMatch> {

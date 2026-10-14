@@ -35,8 +35,8 @@ android {
         applicationId = applicationIdOverride ?: "com.drxwnify.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 45
-        versionName = "2.1.0"
+        versionCode = 46
+        versionName = "2.1.1"
         resValue("string", "app_name", appNameOverride ?: "Drxwnify")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

@@ -56,6 +56,27 @@ class NonLatinArtistMatchTest {
     }
 }
 
+/** Short titles made of several one-letter words used to match nothing at all. */
+class ShortTitleMatchTest {
+    @Test
+    fun lettersSeparatedBySymbolsMatch() {
+        assertTrue(SpotifyMapper.titlePlausiblyMatches("S&M", "S&M"))
+        assertTrue(SpotifyMapper.titlePlausiblyMatches("Rihanna - S&M (Official Audio)", "S&M"))
+        assertTrue(SpotifyMapper.titlePlausiblyMatches("E.T.", "E.T."))
+        val result = SpotifyMapper.selectBestMatch(
+            "S&M", "Rihanna", "Rihanna", 243_000,
+            listOf(SpotifyMapper.Candidate("yt1", "S&M", "Rihanna", 244)),
+        )
+        assertTrue(result is SpotifyMapper.MatchResult.Matched)
+    }
+
+    @Test
+    fun shortTitleStillNeedsWholeWords() {
+        assertEquals(false, SpotifyMapper.titlePlausiblyMatches("SMS", "S&M"))
+        assertEquals(false, SpotifyMapper.titlePlausiblyMatches("Mess", "S&M"))
+    }
+}
+
 class LongTrackProbeTest {
     @Test
     fun drudkhSolitude() {

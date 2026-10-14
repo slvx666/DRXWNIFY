@@ -243,7 +243,7 @@ object PortraitBuilder {
     }
 
     /** Bumped when the way a portrait is counted changes: it is rebuilt at once, not the next day. */
-    const val VERSION = 2
+    const val VERSION = 4
 
     /** Genres shown in a portrait's bar and legend before the rest is "Other". */
     private const val MAX_GENRES = 10

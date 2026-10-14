@@ -1276,6 +1276,7 @@
     <string name="download_filter_downloaded">Downloaded</string>
     <string name="download_filter_not_downloaded">Not downloaded</string>
     <string name="download_issue_not_found">not found in sources</string>
+    <string name="download_issue_no_answer">sources didn’t answer — try again</string>
     <string name="download_issue_download_failed">download failed</string>
     <string name="download_issue_save_failed">couldn’t save the file</string>
     <string name="download_issues_hint">For tracks that weren’t found, connect VK or turn on more sources in Settings → Integrations → Music sources, then tap “Download the rest”.</string>
@@ -1494,6 +1495,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="friends_privacy_discoverable_desc">A public profile with your name; otherwise only your code finds you</string>
     <string name="friends_privacy_explain">\"Friends\" = encrypted separately for each friend; \"Everyone\" = readable by anyone with your code; \"Nobody\" = not sent at all (what was sent before is overwritten).</string>
     <string name="friends_audience_nobody">Nobody</string>
+    <string name="friends_audience_verified">Verified</string>
     <string name="friends_audience_friends">Friends</string>
     <string name="friends_audience_everyone">Everyone</string>
     <string name="app_update_offer_title">Version %s is out</string>
@@ -1723,6 +1725,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="catalog_playlists_load_error">Couldn\'t load %1$s playlists. This may be temporary.</string>
     <string name="liked_list_incomplete">Loaded %1$d of %2$d: the network didn\'t answer. The rest isn\'t lost.</string>
     <string name="liked_list_resume">Continue</string>
+    <string name="batch_download_region_hint">YouTube sees you in Russia: without a VPN for Drxwnify it may be slow or find less. Route the app through your VPN.</string>
     <string name="batch_download_vpn_hint">Turn on a VPN for a big download: without it many tracks may not be found, even with a VK account.</string>
     <plurals name="liked_local_only_title">
         <item quantity="one">%d more track saved in the app only</item>
@@ -1786,5 +1789,20 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="app_update_now">Update</string>
     <string name="app_update_hide">Hide</string>
     <string name="app_update_you_have">You have %1$s. The update downloads and installs right here; nothing is lost.</string>
+    <string name="changelog_2_1_1">### Faster
+• VK tracks start almost at once instead of after the whole file has loaded
+• YouTube tracks start 2–3 times faster
+• The first search results are prepared in advance: tap and it plays
+• Artist pages open faster
+### Finding tracks
+• Tracks with “(with …)” or “(feat …)” in the title are found, as well as S&amp;M, E.T. and the like
+• Artists spelled differently (Latin or Cyrillic, with or without a space) are no longer missed
+• SoundCloud no longer slips in remixes, edits and other artists
+• In big downloads, tracks whose source didn’t answer are searched again and marked separately
+### Fixed
+• A crash on start
+• History and stats fill up again: a track counts once half of it was heard (30 seconds to 4 minutes)
+• Covers of tracks from search and in the full-screen view
+• Long VK tracks no longer cut off</string>
     <string name="changelog_2_1_0">### Friends\n+ A new look, finding friends by name, pinning with a long press\n+ A portrait on the profile: listening time, top artists and tracks, genres — for a week, a month, a year and month by month in a calendar\n+ Three main genres as tags under the name\n+ A friend\'s liked songs: play, download or add them to yours — the playlist keeps itself up to date\n### Music\n+ Genres on artist pages\n• Only real listens go into the history — tracks skipped past don\'t count\n• Track version: no identical options, with length and the real bitrate\n• Friends\' tracks start at once, and their menu has “Go to artist”\n### Other\n+ Updating right in the app: what\'s new and the download progress\n• Liked songs and the Friends tab open more smoothly</string>
 </resources>

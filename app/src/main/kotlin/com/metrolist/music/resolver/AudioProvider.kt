@@ -43,7 +43,10 @@ enum class AudioProviderId {
             VK -> 320
             SOUNDCLOUD -> 160
             BANDCAMP -> 128
-            AUDIUS -> 320
+            // Its free streams are 128 kbps MP3. Counted as 320 it "beat" YouTube on sound, won
+            // the race, then often failed to stream (~20 s lost per track), and the race waited
+            // for it even with an exact YouTube match in hand.
+            AUDIUS -> 128
             SOULSEEK -> 320
             LOSSLESS -> 1411
         }

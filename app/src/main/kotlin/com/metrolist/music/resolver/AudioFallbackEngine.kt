@@ -62,8 +62,16 @@ object AudioFallbackEngine {
     private lateinit var database: MusicDatabase
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    private const val UNANSWERED_TTL_MS = 30L * 60 * 1000
+
+    /** After a network change, so a VPN coming up has settled before YouTube is asked. */
+    private const val REGION_CHECK_DELAY_MS = 4_000L
+
     private val racer = ParallelAudioResolver()
     private val misses = LruCache<String, Long>(512)
+
+    /** Searches that came back empty only because a source failed to answer (see [sourcesDidNotAnswer]). */
+    private val unanswered = LruCache<String, Long>(2048)
 
     /** Winners resolved in this process, keyed by catalog id (skips even the DB read). */
     private val memory = LruCache<String, ProviderMatch>(1024)
@@ -75,11 +83,19 @@ object AudioFallbackEngine {
     fun init(context: Context, database: MusicDatabase) {
         appContext = context.applicationContext
         this.database = database
+        AudioDiagnostics.init(appContext)
         // A new network (VPN back up, Wi-Fi ↔ mobile) may well find what the previous one couldn't.
         runCatching {
             appContext.getSystemService(android.net.ConnectivityManager::class.java)
                 ?.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
-                    override fun onAvailable(network: android.net.Network) = forgetMisses()
+                    override fun onAvailable(network: android.net.Network) {
+                        forgetMisses()
+                        // A VPN switched on or off changes the country YouTube sees.
+                        scope.launch {
+                            kotlinx.coroutines.delay(REGION_CHECK_DELAY_MS)
+                            com.metrolist.music.utils.YouTubeRegion.refresh(force = true)
+                        }
+                    }
                 })
         }
     }
@@ -109,7 +125,8 @@ object AudioFallbackEngine {
             VkAudioProvider(
                 // The user's own login, else the shared test account from the remote config.
                 token = { SharedVk.tokenFor(appContext.dataStore.get(VkAccessTokenKey, "")) },
-                allowTrack = { SharedVk.allowTrack(appContext.dataStore.get(VkAccessTokenKey, "")) },
+                allowTrack = { trackId -> SharedVk.allowTrack(appContext.dataStore.get(VkAccessTokenKey, ""), trackId) },
+                hasTracksLeft = { SharedVk.hasTracksLeft(appContext.dataStore.get(VkAccessTokenKey, "")) },
                 userId = { appContext.dataStore.get(com.metrolist.music.constants.VkUserIdKey, "") },
             ),
             com.metrolist.music.resolver.providers.BandcampAudioProvider(),
@@ -218,7 +235,8 @@ object AudioFallbackEngine {
             // Racing it for each track (a queue resolves many at once) flooded the network with
             // searches, each answered by hundreds of peers.
             val (lastResort, regular) = active.partition { it.id == AudioProviderId.SOULSEEK }
-            val outcome = racer.resolve(query, regular, ResolverPreferences.order)
+            val regularOutcome = racer.resolve(query, regular, ResolverPreferences.order)
+            val outcome = regularOutcome
                 .takeIf { it.winner != null || lastResort.isEmpty() }
                 ?: racer.resolve(query, lastResort, ResolverPreferences.order)
             val winner = outcome.winner
@@ -227,19 +245,34 @@ object AudioFallbackEngine {
                     outcome.report.joinToString("\n  "),
             )
             if (winner == null) {
-                if (networkLooksUp()) {
+                // "Not found" only when every source really searched and came back empty. A timeout,
+                // a VK flood-control pause or a dropped request is no answer: such a track was marked
+                // "not found in sources" in a batch and never looked for again.
+                val everyoneAnswered = regular.all { it.id in regularOutcome.definitiveMisses }
+                if (everyoneAnswered && networkLooksUp()) {
                     misses.put(missKey, System.currentTimeMillis())
+                    unanswered.remove(key)
                 } else {
-                    AudioDiagnostics.warn("the internet doesn't answer (VPN / weak signal?) — ${query.label()} will be searched again")
+                    unanswered.put(key, System.currentTimeMillis())
+                    val silent = regular.map { it.id } - regularOutcome.definitiveMisses
+                    AudioDiagnostics.warn("no answer from $silent — ${query.label()} will be searched again")
                 }
                 // A stored alternate is better than nothing when the live race found no match
                 // (e.g. a provider is temporarily down).
                 return@withContext storedCandidates(query).firstOrNull { it.usableFor(query, exclude) }
             }
+            unanswered.remove(key)
             memory.put(key, winner)
             remember(query, outcome.matches, winner)
             winner
         }
+
+    /**
+     * True when the last search for [query] found nothing because some source didn't answer
+     * (timeout, error, paused) rather than because every source looked and had nothing.
+     */
+    fun sourcesDidNotAnswer(query: AudioQuery): Boolean =
+        unanswered.get(query.cacheKey)?.let { System.currentTimeMillis() - it < UNANSWERED_TTL_MS } == true
 
     /**
      * Stores [match] as the choice for [query] — used when a whole album was found on one source
@@ -313,14 +346,9 @@ object AudioFallbackEngine {
         val tokens = com.metrolist.spotify.SpotifyMapper.artistTokens(query.artists.joinToString(", "))
         // A symbol-only title ("./") was matched by artist + exact length; its title can't be re-checked.
         val titleOk = com.metrolist.spotify.SpotifyMapper.isSymbolOnlyTitle(query.title) ||
-            com.metrolist.spotify.SpotifyMapper.titlePlausiblyMatches(match.title, query.title)
-        return titleOk &&
-            if (tokens.none { tk -> tk.any { it in 'a'..'z' || it in '0'..'9' } }) {
-                // Non-Latin artist: a transliteration of the name counts, any other uploader doesn't.
-                com.metrolist.spotify.SpotifyMapper.artistTransliterationMatches(match.title, match.artist, tokens)
-            } else {
-                com.metrolist.spotify.SpotifyMapper.artistPlausiblyMatches(match.title, match.artist, tokens)
-            }
+            com.metrolist.spotify.SpotifyMapper.titlePlausiblyMatches(match.title, query.title, tokens)
+        // The same artist rules as the search itself (either script, with or without spaces).
+        return titleOk && com.metrolist.spotify.SpotifyMapper.artistMatches(match.title, match.artist, tokens)
     }
 
     // -- Manual source choice ----------------------------------------------------------------------
@@ -705,6 +733,9 @@ object AudioFallbackEngine {
         // Known matches first (no search): comparably confident ones in the user's order.
         val stored = storedCandidates(query)
         for (match in stored) {
+            // A source that can't stream today (VK's shared account out of tracks) is passed over,
+            // not forgotten: its match is still right tomorrow.
+            if (providers[match.provider]?.isReady() == false) continue
             val manual = match.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE
             if (!match.usableFor(query.copy(excludedTrackIds = badTracks), tried)) {
                 if (manual) manualPinFailures.tryEmit(mediaId to match.provider)

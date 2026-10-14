@@ -190,6 +190,7 @@ class App :
             }
         }
         com.metrolist.music.resolver.AudioFallbackEngine.init(this, database)
+        com.metrolist.music.utils.CoverFix.init(database)
         applicationScope.launch(Dispatchers.IO) {
             runCatching { com.metrolist.music.resolver.VkMusic.loadSavedTracks(this@App) }
         }

@@ -5,6 +5,8 @@
 
 package com.metrolist.music.ui.screens.friends
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -1261,11 +1263,18 @@ fun FriendsPrivacyItems(modifier: Modifier = Modifier) {
 
 @Composable
 private fun AudienceRow(title: String, value: FriendsHub.Audience, onChange: (FriendsHub.Audience) -> Unit) {
+    // "Verified" — only the people the developer marked — exists for the developer's profile alone.
+    val profile by FriendsHub.profile.collectAsState()
+    val developer = profile?.isDeveloper == true
     Column {
         Text(title, style = MaterialTheme.typography.titleSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
-            listOf(
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(top = 4.dp).horizontalScroll(rememberScrollState()),
+        ) {
+            listOfNotNull(
                 FriendsHub.Audience.NOBODY to R.string.friends_audience_nobody,
+                (FriendsHub.Audience.VERIFIED to R.string.friends_audience_verified).takeIf { developer || value == FriendsHub.Audience.VERIFIED },
                 FriendsHub.Audience.FRIENDS to R.string.friends_audience_friends,
                 FriendsHub.Audience.EVERYONE to R.string.friends_audience_everyone,
             ).forEach { (audience, label) ->

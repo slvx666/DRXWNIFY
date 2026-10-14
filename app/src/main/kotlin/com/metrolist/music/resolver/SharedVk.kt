@@ -32,16 +32,33 @@ object SharedVk {
     /** True while the shared account stands in for the user's own. */
     fun inUse(userToken: String?): Boolean = userToken.isNullOrBlank() && RemoteConfig.config.value.vkShared != null
 
-    /** Counts one track played or downloaded through the shared account; false once today's are used up. */
-    fun allowTrack(userToken: String?): Boolean {
+    /**
+     * Counts [trackId] as one of today's tracks through the shared account; false once they are
+     * used up. The same track asked for again the same day (the next track's warm-up and then its
+     * playback, a stream address renewed, a seek) is not counted twice: it used to be, and the
+     * day's tracks ran out several times faster than tracks were heard.
+     */
+    fun allowTrack(userToken: String?, trackId: String): Boolean {
+        if (!inUse(userToken)) return true
+        val store = prefs ?: return true
+        val limit = RemoteConfig.config.value.vkShared?.dailyTracks ?: return true
+        val today = (System.currentTimeMillis() / DAY_MS).toInt()
+        val counted = if (store.getInt("day", -1) == today) store.getStringSet("tracks", emptySet()).orEmpty() else emptySet()
+        if (trackId in counted) return true
+        val used = if (store.getInt("day", -1) == today) store.getInt("count", 0) else 0
+        if (used >= limit) return false
+        store.edit().putInt("day", today).putInt("count", used + 1).putStringSet("tracks", counted + trackId).apply()
+        return true
+    }
+
+    /** Whether the shared account has tracks left today (or isn't in use): nothing is counted. */
+    fun hasTracksLeft(userToken: String?): Boolean {
         if (!inUse(userToken)) return true
         val store = prefs ?: return true
         val limit = RemoteConfig.config.value.vkShared?.dailyTracks ?: return true
         val today = (System.currentTimeMillis() / DAY_MS).toInt()
         val used = if (store.getInt("day", -1) == today) store.getInt("count", 0) else 0
-        if (used >= limit) return false
-        store.edit().putInt("day", today).putInt("count", used + 1).apply()
-        return true
+        return used < limit
     }
 
     private const val DAY_MS = 24L * 60 * 60 * 1000
