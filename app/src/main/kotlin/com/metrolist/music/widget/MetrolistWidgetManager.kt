@@ -545,8 +545,8 @@ class MetrolistWidgetManager @Inject constructor(
     }
 
     /**
-     * The 2x1 player: the 2x2's blurred cover behind, the cover on the left; to its right
-     * "title · artist" on one line, previous / play / next under it and the progress at the bottom.
+     * The 2x1 player: the 2x2's blurred cover behind; "title · artist" on one line across the top,
+     * the cover with previous / play / next to its right, the progress across the bottom.
      */
     private fun miniFaces(face: MeldFace, options: Bundle): List<Face> {
         val scale = minOf(context.resources.displayMetrics.density, 2.2f)

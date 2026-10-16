@@ -2752,6 +2752,8 @@ class MusicService :
             waitingForNetworkConnection.value = false
             retryJob?.cancel()
 
+            checkCutShort()
+
             // Reset retry count for current song on successful playback
             player.currentMediaItem?.mediaId?.let { mediaId ->
                 resetRetryCount(mediaId)
@@ -4506,8 +4508,20 @@ class MusicService :
         return uri.takeIf { readable }
     }
 
+    /**
+     * Audio of a track whose copy was found cut short is read and cached under its own key this run:
+     * the download cache is read by key, so the cut download would be served again whatever the
+     * resolver picked — and the fresh download being written under the track's own key stays apart.
+     */
+    private fun cutShortRekeyed(upstream: DataSource.Factory): DataSource.Factory =
+        ResolvingDataSource.Factory(upstream) { spec ->
+            val key = spec.key
+            if (key == null || cutShortBypass.isEmpty() || stripQobuzCacheKeyPrefix(key) !in cutShortBypass) spec
+            else spec.buildUpon().setKey(CUT_SHORT_KEY_PREFIX + key).build()
+        }
+
     private fun createDataSourceFactory(): DataSource.Factory {
-        return ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
+        return ResolvingDataSource.Factory(cutShortRekeyed(createCacheDataSource())) { dataSpec ->
             val mediaId = stripQobuzCacheKeyPrefix(dataSpec.key ?: error("No media id"))
 
             // Handle local audio files — resolve to content URI and bypass YouTube fetch
@@ -4524,7 +4538,7 @@ class MusicService :
 
 
             // Check if we need to bypass cache for quality change
-            val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId)
+            val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId) || mediaId in cutShortBypass
 
             // A downloaded track plays from its download, before any lookup: with YouTube marked
             // unreachable (no VPN) or a rescue remembered for it, every seek used to search for the
@@ -5701,6 +5715,85 @@ class MusicService :
     /** Tracks already given a second chance after ending early (once each, per run). */
     private val cutShortRecovered = java.util.Collections.synchronizedSet(HashSet<String>())
 
+    /** Tracks whose cached or downloaded copy is cut short: played from the network this run. */
+    private val cutShortBypass = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /** How many times each track was found short this run. */
+    private val cutShortTries = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /**
+     * The audio the player has for the current track is far shorter than the track (Show Me A
+     * Dinosaur – "Unsaid I": 3:20 of 5:48 from its download, so the crossfade took the next track at
+     * 3:17 — no error, no natural end). The download was copied from a cut cache entry (the old
+     * warm-up bug): it is fetched again in full, and meanwhile the track plays on from the network,
+     * from the same spot. A copy that is short again means the version itself is: another one is
+     * picked. Twice per track per run at most, so a track that only exists shorter doesn't loop.
+     */
+    private fun checkCutShort() {
+        val item = player.currentMediaItem ?: return
+        val mediaId = item.mediaId
+        val expectedMs = (item.metadata?.duration ?: 0) * 1000L
+        val actualMs = player.duration
+        if (actualMs == C.TIME_UNSET || actualMs <= 0L || expectedMs < 60_000L) return
+        if (expectedMs - actualMs < 15_000L || actualMs > expectedMs * 0.93) return
+        if (mediaId.startsWith("local:")) return
+        val tries = cutShortTries.merge(mediaId, 1, Int::plus) ?: 1
+        if (tries > 2) return
+        val title = item.mediaMetadata.title?.toString().orEmpty()
+        val downloaded = downloadCache.isCached(mediaId, 0, 1)
+        val where = when {
+            tries > 1 -> "the network copy too"
+            downloaded -> "downloaded copy"
+            mediaId in cutShortBypass -> "network copy"
+            else -> "cached copy"
+        }
+        AudioDiagnostics.warn("'$title' is ${actualMs / 1000}s here but ${expectedMs / 1000}s long ($where) — playing it from the network")
+        cutShortBypass.add(mediaId)
+        songUrlCache.remove(mediaId)
+        songUrlCache.remove(RESCUE_CACHE_PREFIX + mediaId)
+        if (tries > 1) {
+            // Short again from the network: this version is. Another one plays.
+            val choice = runCatching {
+                runBlocking(Dispatchers.IO) { AudioFallbackEngine.currentChoice(mediaId, database.getSongById(mediaId)) }
+            }.getOrNull()
+            if (choice != null) markFallbackFailed(mediaId, trackId = choice.trackId)
+        }
+        val index = player.currentMediaItemIndex
+        val position = player.currentPosition
+        scope.launch {
+            if (player.currentMediaItem?.mediaId != mediaId) return@launch
+            // stop(): a seek alone keeps the old source and its (short) length.
+            player.stop()
+            withContext(Dispatchers.IO) {
+                listOf(mediaId, RESCUE_CACHE_PREFIX + mediaId).forEach { key ->
+                    runCatching { playerCache.removeResource(key) }
+                    runCatching { playerCache.removeResource(CUT_SHORT_KEY_PREFIX + key) }
+                }
+                cacheOwners.edit().remove(mediaId).remove(RESCUE_CACHE_PREFIX + mediaId).apply()
+            }
+            if (player.currentMediaItemIndex == index && player.currentMediaItem?.mediaId == mediaId) {
+                player.seekTo(index, position)
+                player.prepare()
+            }
+            if (downloaded && tries == 1) {
+                AudioDiagnostics.info("'$title': downloading it again in full")
+                withContext(Dispatchers.IO) {
+                    runCatching { downloadExporter.deleteExported(mediaId) }
+                    androidx.media3.exoplayer.offline.DownloadService.sendRemoveDownload(
+                        this@MusicService, ExoDownloadService::class.java, mediaId, false,
+                    )
+                    val request = androidx.media3.exoplayer.offline.DownloadRequest.Builder(mediaId, mediaId.toUri())
+                        .setCustomCacheKey(mediaId)
+                        .setData(title.toByteArray())
+                        .build()
+                    androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
+                        this@MusicService, ExoDownloadService::class.java, request, false,
+                    )
+                }
+            }
+        }
+    }
+
     /**
      * A track that "ended" well before its length (Show Me A Dinosaur – "Unsaid I" stopped at 3:17
      * of 5:48 and the next one started, with no error): its audio came from a cached copy that was
@@ -5984,6 +6077,7 @@ class MusicService :
 
         /** Cache-key prefix for audio rescued from another provider for a regular YouTube id. */
         const val RESCUE_CACHE_PREFIX = "fbrescue:"
+        private const val CUT_SHORT_KEY_PREFIX = "cutshort:"
         private const val FALLBACK_FAILED_TTL_MS = 10 * 60 * 1000L
         // Generous: a Soulseek last-resort download has to finish before the track can start.
         private const val FALLBACK_RESOLVE_TIMEOUT_MS = 210_000L
