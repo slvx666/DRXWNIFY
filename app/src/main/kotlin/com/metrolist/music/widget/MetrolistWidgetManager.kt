@@ -29,6 +29,7 @@ import com.metrolist.music.db.MusicDatabase
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -149,16 +150,35 @@ class MetrolistWidgetManager @Inject constructor(
             }
             miniIds.forEach { id ->
                 val signature = "${meld.title}|${meld.artist}|${meld.isPlaying}|${meld.cover.generationId}"
+                val now = android.os.SystemClock.elapsedRealtime()
                 if (miniRendered[id] == signature) {
-                    // Same track and state: only the progress moves. A full update every second
-                    // started the scrolling "title · artist" line over before it got anywhere.
-                    val progress = RemoteViews(context.packageName, R.layout.widget_mini).apply {
-                        setProgressBar(R.id.mini_progress, 1000, meld.progress, false)
+                    // Same track and state: only the progress moves — and only while the scrolling
+                    // line rests at its start (see miniWaitMs), or it would jump back mid-scroll.
+                    miniLatest[id] = meld.progress
+                    if (miniProgress[id] == meld.progress) return@forEach
+                    val wait = miniWaitMs(id, now)
+                    if (wait == 0L) {
+                        applyMiniProgress(appWidgetManager, id, meld.progress, now)
+                    } else if (miniPending[id]?.isActive != true) {
+                        miniPending[id] = miniScope.launch {
+                            kotlinx.coroutines.delay(wait)
+                            renderMutex.withLock {
+                                val latest = miniLatest[id]
+                                if (miniRendered[id] == signature && latest != null && latest != miniProgress[id]) {
+                                    applyMiniProgress(appWidgetManager, id, latest, android.os.SystemClock.elapsedRealtime())
+                                }
+                            }
+                        }
                     }
-                    runCatching { appWidgetManager.partiallyUpdateAppWidget(id, progress) }
                 } else {
+                    miniPending.remove(id)?.cancel()
                     miniRendered[id] = signature
-                    runCatching { appWidgetManager.updateAppWidget(id, miniFaces(meld, appWidgetManager.getAppWidgetOptions(id)).first().views) }
+                    val options = appWidgetManager.getAppWidgetOptions(id)
+                    runCatching { appWidgetManager.updateAppWidget(id, miniFaces(meld, options).first().views) }
+                    miniProgress[id] = meld.progress
+                    miniLatest[id] = meld.progress
+                    miniAnchor[id] = now
+                    miniScrollMs[id] = marqueeScrollMs(miniLine(meld), options)
                 }
             }
             if (freaks.isNotEmpty()) {
@@ -491,6 +511,66 @@ class MetrolistWidgetManager @Inject constructor(
     /** What each 2x1 widget shows in full (track and play state); otherwise it only gets the progress. */
     private val miniRendered = HashMap<Int, String>()
 
+    /*
+     * Any update of a widget — even a partial one with only the progress — makes the launcher set
+     * all of it again, the "title · artist" text included, and setting a TextView's text starts its
+     * scrolling over: the line jumped back to its start every second. So the progress moves only
+     * while the line rests at its start between two rounds (TextView's marquee: 30 dp/s, then
+     * 1.2 s with the following copy exactly where the text began) — starting over there looks the
+     * same. A line that fits doesn't scroll: its progress moves at once.
+     */
+    private val miniProgress = HashMap<Int, Int>()
+    private val miniLatest = HashMap<Int, Int>()
+    private val miniAnchor = HashMap<Int, Long>()
+    private val miniScrollMs = HashMap<Int, Long>()
+    private val miniPending = HashMap<Int, kotlinx.coroutines.Job>()
+    private val miniScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Default)
+
+    /** 0 when the 2x1 line [id] may be set again now, else how long until it next rests at its start. */
+    private fun miniWaitMs(id: Int, now: Long): Long {
+        val scroll = miniScrollMs[id] ?: 0L
+        if (scroll <= 0L) return 0L
+        val cycle = scroll + MARQUEE_PAUSE_MS
+        val phase = (now - (miniAnchor[id] ?: now)) % cycle
+        // The middle of the pause, with room for the launcher's own delay in applying it.
+        val from = scroll + 250
+        val to = scroll + MARQUEE_PAUSE_MS - 250
+        if (phase in from..to) return 0L
+        val target = scroll + MARQUEE_PAUSE_MS / 2
+        return if (phase < target) target - phase else cycle - phase + target
+    }
+
+    private fun applyMiniProgress(manager: AppWidgetManager, id: Int, progress: Int, now: Long) {
+        val views = RemoteViews(context.packageName, R.layout.widget_mini).apply {
+            setProgressBar(R.id.mini_progress, 1000, progress, false)
+        }
+        runCatching { manager.partiallyUpdateAppWidget(id, views) }
+        miniProgress[id] = progress
+        miniAnchor[id] = now
+    }
+
+    /**
+     * How long the 2x1 line takes to scroll one round (ms), as TextView's marquee does it: by the
+     * text's width plus a third of the line's, at 30 dp/s. 0 when the text fits.
+     */
+    private fun marqueeScrollMs(line: CharSequence, options: Bundle): Long {
+        val metrics = context.resources.displayMetrics
+        val landscape = context.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val widthDp = options.getInt(
+            if (landscape) AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH else AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,
+        ).takeIf { it > 0 } ?: return 0L
+        // The layout's side padding (9 dp each side).
+        val linePx = (widthDp - 18) * metrics.density
+        val paint = android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, 12f, metrics)
+        }
+        val textPx = android.text.Layout.getDesiredWidth(line, paint)
+        if (textPx <= linePx) return 0L
+        val ms = ((textPx + linePx / 3f) / (MARQUEE_DP_PER_SECOND * metrics.density) * 1000f).toLong()
+        android.util.Log.i("DrxwWidget", "2x1 line: ${textPx.toInt()} px in ${linePx.toInt()} px ($widthDp dp) → one round ${ms} ms")
+        return ms
+    }
+
     private var classicCoverFor: Bitmap? = null
     private var classicCover: Bitmap? = null
 
@@ -552,14 +632,7 @@ class MetrolistWidgetManager @Inject constructor(
         val scale = minOf(context.resources.displayMetrics.density, 2.2f)
         val widthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH).takeIf { it > 0 } ?: 170
         val heightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: 80
-        val line = android.text.SpannableStringBuilder(face.title).apply {
-            setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-            if (face.artist.isNotBlank()) {
-                val from = length
-                append("  ·  ").append(face.artist)
-                setSpan(android.text.style.ForegroundColorSpan(0xC8FFFFFF.toInt()), from, length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
-        }
+        val line = miniLine(face)
         val views = RemoteViews(context.packageName, R.layout.widget_mini).apply {
             runCatching {
                 SquareWidgetArt.backdrop(
@@ -580,6 +653,16 @@ class MetrolistWidgetManager @Inject constructor(
             setOnClickPendingIntent(R.id.mini_next, nextIntent)
         }
         return listOf(Face(100f, 40f, views))
+    }
+
+    /** "title · artist" for the 2x1 widget: the title bold, the artist a little dimmer. */
+    private fun miniLine(face: MeldFace): CharSequence = android.text.SpannableStringBuilder(face.title).apply {
+        setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (face.artist.isNotBlank()) {
+            val from = length
+            append("  ·  ").append(face.artist)
+            setSpan(android.text.style.ForegroundColorSpan(0xC8FFFFFF.toInt()), from, length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
     }
 
     /** A layout for each size, smallest first, as (min width dp, min height dp) to views. */
@@ -777,5 +860,9 @@ class MetrolistWidgetManager @Inject constructor(
         /** Matches 12dp at ~4x density for the 48dp artwork views. */
         const val DEFAULT_CORNER_RADIUS = 48f
         const val ARTWORK_SIZE = 512
+
+        /** TextView's marquee: its speed and its rest between two rounds. */
+        const val MARQUEE_DP_PER_SECOND = 30f
+        const val MARQUEE_PAUSE_MS = 1_200L
     }
 }
