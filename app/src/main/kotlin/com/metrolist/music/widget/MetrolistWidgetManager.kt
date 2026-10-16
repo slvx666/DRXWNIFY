@@ -528,25 +528,39 @@ class MetrolistWidgetManager @Inject constructor(
         )
     }
 
-    /** The 2x1 player, in the classic widget's look (its live backdrop with the progress glow). */
+    /**
+     * The 2x1 player: the 2x2's blurred cover behind, the cover, "title · artist" on one line and
+     * previous / play / next under it — every control a thumb needs in two cells.
+     */
     private fun miniFaces(face: MeldFace, options: Bundle): List<Face> {
         val scale = minOf(context.resources.displayMetrics.density, 2.2f)
-        val widthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH).takeIf { it > 0 } ?: 160
+        val widthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH).takeIf { it > 0 } ?: 170
+        val heightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: 70
+        val line = android.text.SpannableStringBuilder(face.title).apply {
+            setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (face.artist.isNotBlank()) {
+                val from = length
+                append("  ·  ").append(face.artist)
+                setSpan(android.text.style.ForegroundColorSpan(0xC8FFFFFF.toInt()), from, length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
         val views = RemoteViews(context.packageName, R.layout.widget_mini).apply {
             runCatching {
-                ClassicWidgetArt.draw(
+                SquareWidgetArt.backdrop(
+                    face.rawCover,
                     (widthDp * scale).toInt().coerceIn(160, 600),
-                    (64 * scale).toInt(),
-                    face.rawCover, face.isPlaying, face.progress / 1000f, face.seed, System.currentTimeMillis() / 1000,
+                    (heightDp * scale).toInt().coerceIn(80, 300),
+                    18f * scale,
                 )
             }.getOrNull()?.let { setImageViewBitmap(R.id.mini_bg, it) }
-            setImageViewBitmap(R.id.mini_cover, classicCoverOf(face))
-            setTextViewText(R.id.mini_title, face.title)
-            setTextViewText(R.id.mini_artist, face.artist)
-            setImageViewResource(R.id.mini_play, if (face.isPlaying) R.drawable.wd_pause else R.drawable.wd_play)
+            setImageViewBitmap(R.id.mini_cover, face.cover)
+            setTextViewText(R.id.mini_title, line)
+            setImageViewResource(R.id.mini_play, if (face.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play)
             setOnClickPendingIntent(R.id.mini_cover, openAppIntent)
-            setOnClickPendingIntent(R.id.mini_texts, openAppIntent)
+            setOnClickPendingIntent(R.id.mini_title, openAppIntent)
+            setOnClickPendingIntent(R.id.mini_prev, previousIntent)
             setOnClickPendingIntent(R.id.mini_play, playPauseIntent)
+            setOnClickPendingIntent(R.id.mini_next, nextIntent)
         }
         return listOf(Face(100f, 40f, views))
     }

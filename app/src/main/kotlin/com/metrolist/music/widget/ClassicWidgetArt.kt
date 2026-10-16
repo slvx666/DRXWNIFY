@@ -233,12 +233,17 @@ internal object ClassicWidgetArt {
  */
 internal object SquareWidgetArt {
     private var forCover: Bitmap? = null
-    private var forSize = 0L
-    private var cached: Bitmap? = null
+
+    /** By size (the 2x2 and the 2x1 both ask each second): drawn once per track and size. */
+    private val cached = HashMap<Long, Bitmap>()
 
     fun backdrop(cover: Bitmap?, w: Int, h: Int, radius: Float): Bitmap {
         val size = w.toLong() shl 32 or h.toLong()
-        cached?.takeIf { forCover === cover && forSize == size }?.let { return it }
+        if (forCover !== cover) {
+            cached.clear()
+            forCover = cover
+        }
+        cached[size]?.let { return it }
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(out)
         c.clipPath(Path().apply { addRoundRect(RectF(0f, 0f, w.toFloat(), h.toFloat()), radius, radius, Path.Direction.CW) })
@@ -254,9 +259,8 @@ internal object SquareWidgetArt {
             floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP,
         )
         c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
-        forCover = cover
-        forSize = size
-        cached = out
+        if (cached.size >= 4) cached.clear()
+        cached[size] = out
         return out
     }
 

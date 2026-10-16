@@ -5,7 +5,6 @@
     android:targetCellWidth="2"
     android:targetCellHeight="1"
     android:updatePeriodMillis="0"
-    android:previewImage="@drawable/widget_preview_mini"
     android:previewLayout="@layout/widget_preview_mini"
     android:initialLayout="@layout/widget_mini"
     android:description="@string/widget_mini_desc"

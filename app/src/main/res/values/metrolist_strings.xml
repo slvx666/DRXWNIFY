@@ -1813,10 +1813,10 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="genre_playlist_subtitle">%1$d tracks that describe it best</string>
     <string name="genre_playlist_failed">Couldn\'t put the playlist together. Check the connection.</string>
     <string name="genre_playlist_source">Picked from Last.fm listeners\' tags</string>
-    <string name="widget_square">Drxwnify · square</string>
+    <string name="widget_square">Drxwnify · 2×2</string>
     <string name="widget_square_desc">2x2 player: the cover on its own blurred backdrop, progress with time, like and buttons.</string>
-    <string name="widget_mini">Drxwnify · mini</string>
-    <string name="widget_mini_desc">2x1 player in the black-and-red look: cover, title and play.</string>
+    <string name="widget_mini">Drxwnify · 2×1</string>
+    <string name="widget_mini_desc">2x1 player: the cover on its blurred backdrop, title and artist, previous, play and next.</string>
     <string name="suggest_title">Suggest</string>
     <string name="suggest_settings_desc">An idea, a bug or a track that isn\'t found — straight to the developer</string>
     <string name="suggest_new_count">New: %1$d</string>
@@ -1835,5 +1835,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="suggest_privacy">The message goes encrypted to the developer only, with your friends name if you have a profile and the app\'s version.</string>
     <string name="suggest_inbox">Inbox · %1$d</string>
     <string name="suggest_anonymous">anonymous</string>
-    <string name="changelog_2_2_0">### New\n+ A new home page: new releases of your artists, “More like …” for the ones you love most, your genres, what friends are listening to, “Remember these”\n+ Tap a genre for 15 tracks to get to know it\n+ Genres on album pages\n+ Links to albums, playlists, tracks and artists that open right in the app\n+ 2x2 and 2x1 widgets; the main one is now exactly 4x1\n+ Suggestions in Settings: an idea, a bug or a track — straight to the developer\n### Fixed\n• The slider stood still and the track went back to the start (often in the radio)\n• The home page loads faster and no longer hangs on placeholders</string>
+    <string name="changelog_2_2_0">### New\n+ Home page: new releases of your artists, “More like …” for the ones you love (new every day), “More … for you” in your genres, what friends are listening to, “Remember these”\n+ Tap a genre for 15 tracks to get to know it\n+ Genres on album pages\n+ Links to albums, playlists, tracks and artists that open right in the app\n+ 2x2 and 2x1 widgets; the main one is now exactly 4x1\n+ Suggestions in Settings: an idea, a bug or a track — straight to the developer\n### Fixed\n• The slider stood still and the track went back to the start (often in the radio)\n• The home page loads faster and no longer hangs on placeholders</string>
+    <string name="home_more_in_genre">More %1$s for you</string>
+    <string name="home_more_in_genre_label">Close to %1$s</string>
 </resources>

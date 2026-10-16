@@ -1,8 +1,88 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The widget picker preview: the widget drawn with a track playing, no wallpaper. -->
-<ImageView xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Widget picker preview of widget_mini.xml: 2x1 player: the cover blurred behind (as on the 2x2), the cover, title · artist on one line
+     and the three buttons under it. Drawn by MetrolistWidgetManager.miniFaces. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:contentDescription="@null"
-    android:scaleType="fitCenter"
-    android:src="@drawable/widget_preview_mini" />
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/mini_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:scaleType="fitXY"
+        android:src="@drawable/wd_bg_preview" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="7dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="6dp"
+        android:paddingBottom="6dp">
+
+        <ImageView
+            android:id="@+id/mini_cover"
+            android:src="@drawable/ic_launcher_static_foreground"
+            android:background="#FF2A1418"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:contentDescription="@null"
+            android:scaleType="fitXY" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/mini_title"
+                android:text="Lift Your Head · Holy Fawn"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#FFFFFFFF"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="30dp"
+                android:layout_marginTop="1dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:id="@+id/mini_prev"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:contentDescription="@string/previous"
+                    android:padding="6dp"
+                    android:src="@drawable/wd_prev" />
+
+                <ImageView
+                    android:id="@+id/mini_play"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:contentDescription="@null"
+                    android:padding="2dp"
+                    android:src="@drawable/ic_widget_play" />
+
+                <ImageView
+                    android:id="@+id/mini_next"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:contentDescription="@string/next"
+                    android:padding="6dp"
+                    android:src="@drawable/wd_next" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

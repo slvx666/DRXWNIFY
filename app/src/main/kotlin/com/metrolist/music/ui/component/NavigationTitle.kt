@@ -35,6 +35,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.metrolist.music.R
 
+/**
+ * Section titles without their "Play all" button and arrow (the home page: a title alone reads
+ * cleaner there; tapping it still opens the section where it can).
+ */
+val LocalPlainSectionTitles = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 @Composable
 fun NavigationTitle(
     title: String,
@@ -44,6 +50,7 @@ fun NavigationTitle(
     onClick: (() -> Unit)? = null,
     onPlayAllClick: (() -> Unit)? = null,
 ) {
+    val plain = LocalPlainSectionTitles.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -79,7 +86,7 @@ fun NavigationTitle(
             )
         }
 
-        onPlayAllClick?.let { playAllClick ->
+        onPlayAllClick?.takeUnless { plain }?.let { playAllClick ->
             OutlinedButton(
                 onClick = playAllClick,
                 shape = RoundedCornerShape(12.dp),
@@ -98,7 +105,7 @@ fun NavigationTitle(
             }
         }
 
-        if (onClick != null) {
+        if (onClick != null && !plain) {
             Icon(
                 painter = painterResource(R.drawable.arrow_forward),
                 contentDescription = null,

@@ -209,7 +209,7 @@ class HomeViewModel @Inject constructor(
     // Spotify home sections: populated when UseSpotifyHomeKey is enabled
     val spotifyHomeSections = MutableStateFlow<List<SpotifyHomeSection>?>(null)
 
-    /** Spotify's personal mixes (see [loadSpotifyMixes]). */
+    /** Spotify's personal mixes, filtered to the listener's (see [loadSpotifyHome]). */
     val spotifyMixes = MutableStateFlow<List<SpotifyPlaylist>?>(null)
 
     /** The personal rows of the home page (new releases, "More like", genres…). */
@@ -580,11 +580,10 @@ class HomeViewModel @Inject constructor(
         val spotifyHasToken = (prefs[SpotifyAccessTokenKey] ?: "").isNotEmpty()
         val isSpotifyHome = spotifyEnabled && spotifyUseForHome && spotifyHasToken
         val isSpotifyOnly = isSpotifyHome && spotifyHomeOnlyPref
-        // A music account (Spotify or Yandex) gets the app's own home page; the classic YouTube one
-        // (its feed, chips and history-based rows) stays for listeners without one.
-        val catalogHome = (spotifyEnabled && spotifyHasToken) || prefs[YandexAccessTokenKey].orEmpty().isNotEmpty()
-        val withYouTube = !catalogHome && !isSpotifyOnly
-        youtubeHome.value = withYouTube
+        // The history-based YouTube rows stay unless the home is set to Spotify only (as before);
+        // YouTube's own feed and its chips only when the home isn't Spotify's.
+        val withYouTube = !isSpotifyOnly
+        youtubeHome.value = !isSpotifyHome
 
         // Local play history — always loaded regardless of Spotify mode
         recentlyPlayed.value = database.events().first()
@@ -603,12 +602,31 @@ class HomeViewModel @Inject constructor(
             section("homeFeed", Unit) { com.metrolist.music.home.HomeFeed.refresh(database, hideExplicit, force) }
         }
         jobs += launch {
-            if (isSpotifyHome) {
-                section("spotifyMixes", Unit) {
-                    withTimeoutOrNull(SECTION_TIMEOUT_MS) { if (SpotifyTokenManager.ensureAuthenticated()) loadSpotifyMixes() }
+            val spotifyLoaded = isSpotifyHome && section("spotifyHome", false) {
+                withTimeoutOrNull(SECTION_TIMEOUT_MS) {
+                    if (SpotifyTokenManager.ensureAuthenticated()) loadSpotifyHome(hideExplicit) else false
+                } ?: false
+            }
+            if (!isSpotifyHome) {
+                spotifyHomeSections.value = null
+                spotifyMixes.value = null
+            }
+            // YouTube's feed: the home's own when it isn't Spotify's, or standing in when Spotify failed.
+            if (!spotifyLoaded && !isSpotifyOnly) {
+                section("youtubeHome", Unit) {
+                    withTimeoutOrNull(SECTION_TIMEOUT_MS) {
+                        YouTube.home().onSuccess { page ->
+                            homePage.value = page.copy(
+                                sections = page.sections.mapNotNull { section ->
+                                    val filteredItems = section.items.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs).filterYoutubeShorts(hideYoutubeShorts)
+                                    if (filteredItems.isEmpty()) null else section.copy(items = filteredItems)
+                                }
+                            )
+                        }.onFailure { reportException(it) }
+                    }
                 }
             } else {
-                spotifyMixes.value = null
+                homePage.value = null
             }
         }
 
@@ -637,20 +655,6 @@ class HomeViewModel @Inject constructor(
                     }
                 }
             }
-            jobs += launch {
-                section("youtubeHome", Unit) {
-                    withTimeoutOrNull(SECTION_TIMEOUT_MS) {
-                        YouTube.home().onSuccess { page ->
-                            homePage.value = page.copy(
-                                sections = page.sections.mapNotNull { section ->
-                                    val filteredItems = section.items.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs).filterYoutubeShorts(hideYoutubeShorts)
-                                    if (filteredItems.isEmpty()) null else section.copy(items = filteredItems)
-                                }
-                            )
-                        }.onFailure { reportException(it) }
-                    }
-                }
-            }
             launch(Dispatchers.IO) {
                 YouTube.explore().onSuccess { page ->
                     explorePage.value = page.copy(
@@ -659,7 +663,6 @@ class HomeViewModel @Inject constructor(
                 }.onFailure { reportException(it) }
             }
         } else {
-            homePage.value = null
             explorePage.value = null
             quickPicks.value = null
             dailyDiscover.value = null
@@ -673,8 +676,9 @@ class HomeViewModel @Inject constructor(
         // real is on it, or after a few seconds whatever happens.
         launch {
             withTimeoutOrNull(FIRST_CONTENT_WAIT_MS) {
-                kotlinx.coroutines.flow.combine(forYou, com.metrolist.music.home.HomeFeed.feed, homePage) { fy, feed, page ->
-                    !fy.isNullOrEmpty() || (feed != null && (feed.newReleases.isNotEmpty() || feed.similar.isNotEmpty())) || page != null
+                kotlinx.coroutines.flow.combine(forYou, com.metrolist.music.home.HomeFeed.feed, homePage, spotifyHomeSections) { fy, feed, page, spotify ->
+                    !fy.isNullOrEmpty() || (feed != null && (feed.newReleases.isNotEmpty() || feed.similar.isNotEmpty())) ||
+                        page != null || !spotify.isNullOrEmpty()
                 }.first { it }
             }
             isLoading.value = false
@@ -767,20 +771,41 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
-     * Spotify's personal mixes (Discover Weekly, the Daily Mixes, Release Radar…) as one row. The
-     * rest of Spotify's home feed (albums "featuring songs you like", "by artists you follow", "your
-     * favourite artists", charts) is left out: the app's own rows cover that, from what is really
-     * listened to and in the app's language.
+     * Spotify's home feed in the app's language, as before, without the sections the app does
+     * better itself (see [com.metrolist.music.home.SpotifyHomeFilter]). Spotify's own playlists are
+     * kept only when they are the listener's mixes; those go into one row, "Your mixes".
      */
-    private suspend fun loadSpotifyMixes() {
-        val feed = Spotify.home(sectionItemsLimit = 20).getOrNull() ?: return
-        val mixes = feed.sections
-            .flatMap { it.items }
-            .filterIsInstance<SpotifyHomeFeedItem.Playlist>()
-            .filter { it.isTasteBased() && it.ownerName.equals("Spotify", ignoreCase = true) }
-            .distinctBy { it.id }
-            .map(::toSpotifyPlaylist)
-        spotifyMixes.value = mixes.ifEmpty { null }
+    private suspend fun loadSpotifyHome(hideExplicit: Boolean): Boolean = coroutineScope {
+        val language = context.resources.configuration.locales.get(0)?.language
+        val newReleasesDeferred = async { Spotify.newReleases(limit = 20) }
+        val homeDeferred = async { Spotify.home(sectionItemsLimit = 20, language = language) }
+        val feedData = com.metrolist.music.home.HomeFeed.feed.value
+        val artists = feedData?.favoriteArtists.orEmpty()
+        val genres = feedData?.genres.orEmpty()
+        val sections = mutableListOf<SpotifyHomeSection>()
+        val mixes = LinkedHashMap<String, SpotifyPlaylist>()
+
+        newReleasesDeferred.await().onSuccess { newReleases ->
+            val albums = newReleases.albums?.items.orEmpty()
+            if (albums.isNotEmpty()) sections += SpotifyHomeSection(title = "spotify_new_releases", type = SectionType.ALBUMS, albums = albums)
+        }.onFailure { Timber.w(it, "spotifyHome: newReleases failed") }
+
+        homeDeferred.await().onSuccess { feed ->
+            feed.sections.forEach { raw ->
+                if (com.metrolist.music.home.SpotifyHomeFilter.isRemovedSection(raw.title)) return@forEach
+                val spotifyMade = raw.items.filterIsInstance<SpotifyHomeFeedItem.Playlist>()
+                    .filter { it.ownerName.equals("Spotify", ignoreCase = true) }
+                spotifyMade.filter { com.metrolist.music.home.SpotifyHomeFilter.isOwnMix(it.name, artists, genres) }
+                    .forEach { mixes.putIfAbsent(it.id, toSpotifyPlaylist(it)) }
+                // Spotify's playlists leave the section (mixes are in their own row, the rest is editorial).
+                val rest = raw.copy(items = raw.items.filterNot { it is SpotifyHomeFeedItem.Playlist && it.ownerName.equals("Spotify", ignoreCase = true) })
+                convertHomeSection(rest)?.let(sections::add)
+            }
+        }.onFailure { Timber.w(it, "spotifyHome: home failed") }
+
+        spotifyHomeSections.value = sections.ifEmpty { null }
+        spotifyMixes.value = mixes.values.toList().ifEmpty { null }
+        sections.isNotEmpty() || mixes.isNotEmpty()
     }
 
     // P4: keep only taste-based playlists. Spotify seeds the home feed with generic
@@ -800,6 +825,43 @@ class HomeViewModel @Inject constructor(
         return madeForUsername != null || personalPrefixes.any { n.startsWith(it) || n.contains(it) }
     }
 
+    private fun convertHomeSection(feedSection: SpotifyHomeFeedSection): SpotifyHomeSection? {
+        val title = feedSection.title ?: return null
+
+        val playlists = feedSection.items
+            .filterIsInstance<SpotifyHomeFeedItem.Playlist>()
+            .filter { it.isTasteBased() }
+        val albums = feedSection.items.filterIsInstance<SpotifyHomeFeedItem.Album>()
+        val artists = feedSection.items.filterIsInstance<SpotifyHomeFeedItem.Artist>()
+
+        val counts = listOf(
+            SectionType.PLAYLISTS to playlists.size,
+            SectionType.ALBUMS to albums.size,
+            SectionType.ARTISTS to artists.size,
+        )
+        val (dominant, size) = counts.maxByOrNull { it.second } ?: return null
+        if (size == 0) return null
+
+        return when (dominant) {
+            SectionType.PLAYLISTS -> SpotifyHomeSection(
+                title = title,
+                type = SectionType.PLAYLISTS,
+                playlists = playlists.map(::toSpotifyPlaylist),
+            )
+            SectionType.ALBUMS -> SpotifyHomeSection(
+                title = title,
+                type = SectionType.ALBUMS,
+                albums = albums.map(::toSpotifyAlbum),
+            )
+            SectionType.ARTISTS -> SpotifyHomeSection(
+                title = title,
+                type = SectionType.ARTISTS,
+                artists = artists.map(::toSpotifyArtist),
+            )
+            SectionType.TRACKS -> null
+        }
+    }
+
     private fun toSpotifyPlaylist(p: SpotifyHomeFeedItem.Playlist): SpotifyPlaylist =
         SpotifyPlaylist(
             id = p.id,
@@ -809,6 +871,24 @@ class HomeViewModel @Inject constructor(
             owner = p.ownerName?.let { SpotifyPlaylistOwner(displayName = it) },
             tracks = SpotifyPlaylistTracksRef(total = p.totalCount),
             uri = p.uri,
+        )
+
+    private fun toSpotifyAlbum(a: SpotifyHomeFeedItem.Album): SpotifyAlbum =
+        SpotifyAlbum(
+            id = a.id,
+            name = a.name,
+            albumType = a.albumType,
+            artists = a.artists,
+            images = a.imageUrl?.let { listOf(SpotifyImage(url = it)) } ?: emptyList(),
+            uri = a.uri,
+        )
+
+    private fun toSpotifyArtist(ar: SpotifyHomeFeedItem.Artist): SpotifyArtist =
+        SpotifyArtist(
+            id = ar.id,
+            name = ar.name,
+            images = ar.imageUrl?.let { listOf(SpotifyImage(url = it)) } ?: emptyList(),
+            uri = ar.uri,
         )
 
     private val _isLoadingMore = MutableStateFlow(false)

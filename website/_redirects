@@ -1,3 +1,4 @@
+/.well-known/assetlinks.json  /assetlinks.json  200
 /add/*  /add  200
 /album/*  /open  200
 /playlist/*  /open  200

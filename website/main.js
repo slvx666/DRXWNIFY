@@ -112,7 +112,7 @@ async function fetchJson(url, timeoutMs) {
 
 async function loadReleases() {
   const [local, gh] = await Promise.allSettled([
-    fetchJson("releases.json", 6000),
+    fetchJson("/releases.json", 6000),
     fetchJson(`https://api.github.com/repos/${CONFIG.repo}/releases?per_page=30`, 5000),
   ]);
 

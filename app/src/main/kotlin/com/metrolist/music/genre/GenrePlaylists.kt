@@ -72,6 +72,37 @@ object GenrePlaylists {
             .onFailure { Timber.w(it, "GenrePlaylists: '$genre' failed") }
     }
 
+    @Serializable
+    private data class Artists(val at: Long, val names: List<String>)
+
+    private val artistsMemory = ConcurrentHashMap<String, Artists>()
+
+    /**
+     * The genre's most tagged artists on Last.fm (up to 250), strongest first: one request per
+     * genre, kept for a week. The home page's genre rows keep their picks inside the genre with it.
+     */
+    suspend fun topArtistNamesOf(genre: String): List<String> = withContext(Dispatchers.IO) {
+        val tag = lastFmTag(genre)
+        val now = System.currentTimeMillis()
+        val file = dir?.let { File(it, "artists_" + tag.replace(Regex("[^a-z0-9]+"), "_") + ".json") }
+        val kept = artistsMemory[tag] ?: runCatching {
+            file?.takeIf { it.exists() }?.readText()?.let { json.decodeFromString(Artists.serializer(), it) }
+        }.getOrNull()?.also { artistsMemory[tag] = it }
+        if (kept != null && now - kept.at < TTL_MS && kept.names.isNotEmpty()) return@withContext kept.names
+        val names = runCatching {
+            lastFm("tag.gettopartists", tag, 250, "topartists", "artist").mapNotNull { it.optString("name").takeIf(String::isNotBlank) }
+        }.getOrElse { return@withContext kept?.names.orEmpty() }
+        if (names.isNotEmpty()) {
+            val fresh = Artists(now, names)
+            artistsMemory[tag] = fresh
+            runCatching { file?.writeText(json.encodeToString(Artists.serializer(), fresh)) }
+        }
+        names
+    }
+
+    /** [topArtistNamesOf] as normalized names (letters and digits, lower case), for quick checks. */
+    suspend fun topArtistsOf(genre: String): Set<String> = topArtistNamesOf(genre).mapTo(HashSet(), ::norm)
+
     /** The tag Last.fm knows the genre by (the app shows them in its own spelling). */
     private fun lastFmTag(genre: String): String = when (val g = genre.trim().lowercase()) {
         "r&b" -> "rnb"
@@ -85,8 +116,7 @@ object GenrePlaylists {
     private suspend fun build(tag: String, genre: String): List<SpotifyTrack> = coroutineScope {
         if (!Catalog.ensureAuthenticated()) throw IllegalStateException("catalog unavailable")
         val topTracks = async { lastFm("tag.gettoptracks", tag, 150, "tracks", "track") }
-        val topArtists = async { lastFm("tag.gettopartists", tag, 250, "topartists", "artist") }
-        val artistsOfGenre = topArtists.await().mapNotNullTo(HashSet()) { it.optString("name").takeIf(String::isNotBlank)?.let(::norm) }
+        val artistsOfGenre = topArtistsOf(genre)
         val family = Genres.family(genre).lowercase()
 
         fun belongs(artist: String): Boolean =

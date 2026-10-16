@@ -189,6 +189,8 @@ object Spotify {
     private suspend fun graphqlPost(
         operationName: String,
         variables: JsonObject = buildJsonObject {},
+        /** Accept-Language for this request (section titles of the home feed come in it). */
+        language: String? = null,
     ): JsonObject {
         var token =
             currentToken() ?: throw SpotifyException(401, "Not authenticated").also {
@@ -206,14 +208,14 @@ object Spotify {
         for ((hashIdx, sha256Hash) in hashCandidates.withIndex()) {
             val body = buildGqlBody(operationName, sha256Hash, variables)
             val result = try {
-                executeGqlWithRetries(operationName, token, body)
+                executeGqlWithRetries(operationName, token, body, language)
             } catch (e: SpotifyException) {
                 // Expired or revoked early: one fresh token, one more try.
                 if (e.statusCode != 401) throw e
                 val fresh = currentToken(forceRefresh = true)?.takeIf { it != token } ?: throw e
                 log("W", "GQL $operationName -> 401, retrying with a refreshed token")
                 token = fresh
-                executeGqlWithRetries(operationName, token, body)
+                executeGqlWithRetries(operationName, token, body, language)
             }
 
             if (result.isPersistedQueryNotFound) {
@@ -257,6 +259,7 @@ object Spotify {
         operationName: String,
         token: String,
         body: JsonObject,
+        language: String? = null,
     ): GqlResult {
         val maxRetries = 3
         for (attempt in 0 until maxRetries) {
@@ -269,6 +272,7 @@ object Spotify {
             val response =
                 gqlClient.post(GQL_URL) {
                     header("Authorization", "Bearer $token")
+                    language?.let { header("Accept-Language", it) }
                     setBody(
                         TextContent(
                             body.toString(),
@@ -1605,6 +1609,7 @@ object Spotify {
     suspend fun home(
         sectionItemsLimit: Int = 10,
         timeZone: String = java.util.TimeZone.getDefault().id,
+        language: String? = null,
     ): Result<com.metrolist.spotify.models.SpotifyHomeFeed> =
         runCatching {
             log("D", "spotifyHome: GQL home() request — timeZone=$timeZone limit=$sectionItemsLimit")
@@ -1622,6 +1627,7 @@ object Spotify {
                 graphqlPost(
                     operationName = "home",
                     variables = vars,
+                    language = language,
                 )
 
             val homeData =
