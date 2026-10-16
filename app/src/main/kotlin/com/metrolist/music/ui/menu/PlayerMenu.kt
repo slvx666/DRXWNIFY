@@ -1226,18 +1226,26 @@ fun PlayerMenu(
 }
 
 /** A link to [mediaMetadata] that opens anywhere: Spotify when it is a Spotify track, else YouTube Music. */
-private fun shareLinkOf(mediaMetadata: MediaMetadata, spotifyId: String?): String {
+/**
+ * What sharing a track sends: "Artist – Title" and a Drxwnify link that opens it in the app (or a
+ * page with a download for people without it). Tracks found only on a source site (VK, SoundCloud…)
+ * have no link anyone else could open: just the names.
+ */
+internal fun shareLinkOf(mediaMetadata: MediaMetadata, spotifyId: String?): String {
     val id = mediaMetadata.id
+    val by = mediaMetadata.artists.joinToString { it.name }
     val catalogId = spotifyId
         ?: com.metrolist.music.resolver.FallbackIds.catalogIdOf(id)
         ?: id.takeIf { it.isSpotifyId() }?.stripSpotifyPrefix()
-    val plain = "${mediaMetadata.artists.joinToString { it.name }} – ${mediaMetadata.title}"
     return when {
-        com.metrolist.music.resolver.SourceSearch.isSourceTrack(id) -> plain
-        catalogId != null && !com.metrolist.music.catalog.Catalog.isYandexId(catalogId) ->
-            "https://open.spotify.com/track/$catalogId"
-        catalogId != null || com.metrolist.music.resolver.FallbackIds.isFallbackId(id) -> plain
-        else -> "https://music.youtube.com/watch?v=$id"
+        com.metrolist.music.resolver.SourceSearch.isSourceTrack(id) || id.startsWith("local:") -> "$by – ${mediaMetadata.title}"
+        catalogId != null -> com.metrolist.music.utils.AppLinks.shareText(com.metrolist.music.utils.AppLinks.Kind.TRACK, catalogId, mediaMetadata.title, by)
+        else -> com.metrolist.music.utils.AppLinks.shareText(
+            com.metrolist.music.utils.AppLinks.Kind.TRACK,
+            com.metrolist.music.utils.AppLinks.YOUTUBE_PREFIX + id,
+            mediaMetadata.title,
+            by,
+        )
     }
 }
 

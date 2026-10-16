@@ -1,1 +1,5 @@
 /add/*  /add  200
+/album/*  /open  200
+/playlist/*  /open  200
+/track/*  /open  200
+/artist/*  /open  200

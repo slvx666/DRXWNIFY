@@ -1621,7 +1621,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="freak_shoes">Drxwnify · clown shoes</string>
     <string name="freak_shoes_desc">Clown shoes sneaking along as the track goes, no background. Tap: play/pause.</string>
     <string name="widget_classic">Drxwnify</string>
-    <string name="widget_classic_desc">Black and red player: blurred cover, a live equalizer, sound quality, like and every button. Stretch it taller for the big one.</string>
+    <string name="widget_classic_desc">Black and red 4x1 player: blurred cover, a live equalizer, like and every button.</string>
     <string name="freak_pet">Drxwnify · pixel pet</string>
     <string name="freak_pet_desc">A Game Boy pet: dances to your music, sleeps when it stops, starves without it. Tap: play/pause.</string>
     <string name="freak_tv">Drxwnify · haunted TV</string>
@@ -1789,20 +1789,51 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="app_update_now">Update</string>
     <string name="app_update_hide">Hide</string>
     <string name="app_update_you_have">You have %1$s. The update downloads and installs right here; nothing is lost.</string>
-    <string name="changelog_2_1_1">### Faster
-• VK tracks start almost at once instead of after the whole file has loaded
-• YouTube tracks start 2–3 times faster
-• The first search results are prepared in advance: tap and it plays
-• Artist pages open faster
-### Finding tracks
-• Tracks with “(with …)” or “(feat …)” in the title are found, as well as S&amp;M, E.T. and the like
-• Artists spelled differently (Latin or Cyrillic, with or without a space) are no longer missed
-• SoundCloud no longer slips in remixes, edits and other artists
-• In big downloads, tracks whose source didn’t answer are searched again and marked separately
-### Fixed
-• A crash on start
-• History and stats fill up again: a track counts once half of it was heard (30 seconds to 4 minutes)
-• Covers of tracks from search and in the full-screen view
-• Long VK tracks no longer cut off</string>
+    <string name="changelog_2_1_1">### Faster\n• VK and YouTube tracks start almost at once\n• Tap a track in search and it is already playing\n### Fixed\n• Tracks with “feat” or “with” in the title and artists spelled differently are found\n• SoundCloud no longer slips in remixes and other artists\' tracks\n• History and stats fill up again\n• A crash on start, missing covers, long VK tracks cutting off</string>
     <string name="changelog_2_1_0">### Friends\n+ A new look, finding friends by name, pinning with a long press\n+ A portrait on the profile: listening time, top artists and tracks, genres — for a week, a month, a year and month by month in a calendar\n+ Three main genres as tags under the name\n+ A friend\'s liked songs: play, download or add them to yours — the playlist keeps itself up to date\n### Music\n+ Genres on artist pages\n• Only real listens go into the history — tracks skipped past don\'t count\n• Track version: no identical options, with length and the real bitrate\n• Friends\' tracks start at once, and their menu has “Go to artist”\n### Other\n+ Updating right in the app: what\'s new and the download progress\n• Liked songs and the Friends tab open more smoothly</string>
+    <string name="home_new_releases">New from your artists</string>
+    <string name="home_more_like">More like %1$s</string>
+    <string name="home_your_genres">Your genres</string>
+    <string name="home_your_genres_label">15 tracks to get to know each</string>
+    <string name="home_friends_listening">Friends are listening</string>
+    <string name="home_forgotten">Remember these</string>
+    <string name="home_forgotten_label">Liked long ago, not heard since</string>
+    <string name="home_mixes">Your mixes</string>
+    <string name="home_today">today</string>
+    <string name="home_yesterday">yesterday</string>
+    <string name="home_days_ago">%1$d d ago</string>
+    <string name="home_weeks_ago">%1$d wk ago</string>
+    <string name="home_months_ago">%1$d mo ago</string>
+    <string name="home_friend_now">now</string>
+    <string name="home_minutes_ago">%1$d min ago</string>
+    <string name="home_hours_ago">%1$d h ago</string>
+    <string name="home_type_single">Single</string>
+    <string name="home_type_album">Album</string>
+    <string name="home_type_ep">EP</string>
+    <string name="genre_playlist_subtitle">%1$d tracks that describe it best</string>
+    <string name="genre_playlist_failed">Couldn\'t put the playlist together. Check the connection.</string>
+    <string name="genre_playlist_source">Picked from Last.fm listeners\' tags</string>
+    <string name="widget_square">Drxwnify · square</string>
+    <string name="widget_square_desc">2x2 player: the cover on its own blurred backdrop, progress with time, like and buttons.</string>
+    <string name="widget_mini">Drxwnify · mini</string>
+    <string name="widget_mini_desc">2x1 player in the black-and-red look: cover, title and play.</string>
+    <string name="suggest_title">Suggest</string>
+    <string name="suggest_settings_desc">An idea, a bug or a track that isn\'t found — straight to the developer</string>
+    <string name="suggest_new_count">New: %1$d</string>
+    <string name="suggest_intro">Write what to add, what is broken or which track can\'t be found. Every message is read.</string>
+    <string name="suggest_topic_idea">Idea</string>
+    <string name="suggest_topic_bug">Bug</string>
+    <string name="suggest_topic_track">Track</string>
+    <string name="suggest_topic_other">Other</string>
+    <string name="suggest_hint_idea">What would make the app better?</string>
+    <string name="suggest_hint_bug">What happened, and what did you do before it?</string>
+    <string name="suggest_hint_track">Artist and title, and where it plays wrong or isn\'t found</string>
+    <string name="suggest_hint_other">Anything</string>
+    <string name="suggest_send">Send</string>
+    <string name="suggest_sent">Sent. Thank you!</string>
+    <string name="suggest_limited">That\'s a lot for one hour — try a bit later</string>
+    <string name="suggest_privacy">The message goes encrypted to the developer only, with your friends name if you have a profile and the app\'s version.</string>
+    <string name="suggest_inbox">Inbox · %1$d</string>
+    <string name="suggest_anonymous">anonymous</string>
+    <string name="changelog_2_2_0">### New\n+ A new home page: new releases of your artists, “More like …” for the ones you love most, your genres, what friends are listening to, “Remember these”\n+ Tap a genre for 15 tracks to get to know it\n+ Genres on album pages\n+ Links to albums, playlists, tracks and artists that open right in the app\n+ 2x2 and 2x1 widgets; the main one is now exactly 4x1\n+ Suggestions in Settings: an idea, a bug or a track — straight to the developer\n### Fixed\n• The slider stood still and the track went back to the start (often in the radio)\n• The home page loads faster and no longer hangs on placeholders</string>
 </resources>

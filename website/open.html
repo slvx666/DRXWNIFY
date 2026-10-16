@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Слушать в Drxwnify</title>
+  <meta name="description" content="Открой ссылку на телефоне с Drxwnify — альбом, плейлист или трек откроется прямо в приложении.">
+  <meta name="theme-color" content="#07070a">
+  <meta name="color-scheme" content="dark">
+  <meta name="robots" content="noindex">
+  <link rel="icon" type="image/png" href="/assets/icon-180.png">
+  <meta property="og:title" content="Послушай в Drxwnify">
+  <meta property="og:description" content="Открой на телефоне — откроется прямо в приложении.">
+  <meta property="og:image" content="/assets/icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=Unbounded:wght@700;900&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #07070a; --card: #111117; --line: rgba(238,242,248,.1); --text: #eef2f8; --muted: #9aa3b2; --red: #e0283a; --red-glow: rgba(224,40,58,.45); }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: radial-gradient(circle at 50% 0%, rgba(224,40,58,.18), transparent 60%), var(--bg); color: var(--text); font: 17px/1.55 Manrope, system-ui, sans-serif; }
+    .card { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--line); border-radius: 26px; padding: 28px 24px 32px; text-align: center; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+    .cover { width: 220px; height: 220px; max-width: 70vw; max-height: 70vw; margin: 0 auto 20px; border-radius: 18px; background: linear-gradient(140deg, var(--red), #8e0f1b) center/cover no-repeat; box-shadow: 0 20px 50px rgba(0,0,0,.55), 0 0 40px var(--red-glow); }
+    .cover.round { border-radius: 50%; }
+    .kind { display: inline-block; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--red); margin-bottom: 6px; }
+    h1 { font: 700 22px/1.25 Unbounded, sans-serif; margin: 0 0 6px; letter-spacing: -.01em; word-break: break-word; }
+    .by { margin: 0 0 22px; color: var(--muted); }
+    .btn { display: block; width: 100%; padding: 15px 18px; border-radius: 16px; font-weight: 800; text-decoration: none; margin-top: 10px; }
+    .primary { background: var(--red); color: #fff; box-shadow: 0 10px 30px var(--red-glow); }
+    .ghost { border: 1px solid var(--line); color: var(--text); }
+    .hint { margin-top: 18px; font-size: 13px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="cover" id="cover"></div>
+    <div class="kind" id="kind">Drxwnify</div>
+    <h1 id="title">Послушай в Drxwnify</h1>
+    <p class="by" id="by"></p>
+    <a class="btn primary" id="open" href="#">Открыть в Drxwnify</a>
+    <a class="btn ghost" href="/">Скачать Drxwnify</a>
+    <p class="hint">Приложение уже стоит? Ссылка откроется прямо в нём.</p>
+  </main>
+  <script>
+    (function () {
+      var KINDS = { album: "Альбом", playlist: "Плейлист", track: "Трек", artist: "Исполнитель" };
+      var m = location.pathname.match(/^\/(album|playlist|track|artist)\/([^/?#]+)/);
+      var open = document.getElementById("open");
+      if (!m) { open.hidden = true; return; }
+      var kind = m[1];
+      var id = decodeURIComponent(m[2]);
+      var q = new URLSearchParams(location.search);
+      var name = q.get("n") || "";
+      var by = q.get("by") || "";
+      var cover = document.getElementById("cover");
+      document.getElementById("kind").textContent = KINDS[kind];
+      if (kind === "artist") cover.classList.add("round");
+      function show(title, artist) {
+        if (title) {
+          document.getElementById("title").textContent = title;
+          document.title = (artist ? artist + " — " : "") + title + " · Drxwnify";
+        }
+        document.getElementById("by").textContent = artist || "";
+      }
+      show(name, by);
+
+      // Spotify ids: the cover (and the title, if the link has none) from Spotify's public oEmbed.
+      if (/^[A-Za-z0-9]{22}$/.test(id)) {
+        fetch("https://open.spotify.com/oembed?url=" + encodeURIComponent("https://open.spotify.com/" + kind + "/" + id))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (j) {
+            if (!j) return;
+            if (j.thumbnail_url) cover.style.backgroundImage = "url('" + j.thumbnail_url + "')";
+            if (!name && j.title) show(j.title, by);
+          })
+          .catch(function () {});
+      } else if (id.indexOf("yt:") === 0 && kind === "track") {
+        cover.style.backgroundImage = "url('https://i.ytimg.com/vi/" + encodeURIComponent(id.slice(3)) + "/hqdefault.jpg')";
+      }
+
+      var tail = kind + "/" + encodeURIComponent(id) + location.search;
+      var fallback = encodeURIComponent(location.origin + "/");
+      // Chrome on Android: an intent link opens the app (or the site when it is not installed).
+      open.href = /android/i.test(navigator.userAgent)
+        ? "intent://" + tail + "#Intent;scheme=drxwnify;package=com.drxwnify.app;S.browser_fallback_url=" + fallback + ";end"
+        : "drxwnify://" + tail;
+    })();
+  </script>
+</body>
+</html>

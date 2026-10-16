@@ -219,6 +219,20 @@ sealed class HomeSection(
     ) : HomeSection("home_page_section_$index", 10)
 
     data object MoodAndGenres : HomeSection("mood_and_genres", 5)
+
+    /** Releases of the favourite artists from the last months. */
+    data object NewReleases : HomeSection("new_releases", 95)
+
+    /** "More like <artist>" for one of the three favourite artists. */
+    data class MoreLike(val index: Int) : HomeSection("more_like_$index", 90)
+
+    data object FriendsListening : HomeSection("friends_listening", 88)
+
+    data object YourGenres : HomeSection("your_genres", 86)
+
+    data object RememberFavorites : HomeSection("remember_favorites", 70)
+
+    data object SpotifyMixes : HomeSection("spotify_mixes", 60)
 }
 
 @Composable
@@ -686,7 +700,34 @@ fun HomeScreen(
     val savedPodcastShows by viewModel.savedPodcastShows.collectAsState()
     val episodesForLater by viewModel.episodesForLater.collectAsState()
 
-    val spotifyHomeSections by viewModel.spotifyHomeSections.collectAsState()
+    val homeFeed by viewModel.homeFeed.collectAsState()
+    val spotifyMixes by viewModel.spotifyMixes.collectAsState()
+    val youtubeHome by viewModel.youtubeHome.collectAsState()
+    val friendsList by com.metrolist.music.friends.FriendsHub.friends.collectAsState()
+    val friendsData by com.metrolist.music.friends.FriendsHub.data.collectAsState()
+    val myProfile by com.metrolist.music.friends.FriendsHub.profile.collectAsState()
+    val friendsListening = remember(friendsList, friendsData, myProfile) {
+        com.metrolist.music.ui.screens.home.friendsListening(friendsList, friendsData, myProfile?.pubkey) { key, name ->
+            if (com.metrolist.music.friends.FriendsHub.isDeveloper(key)) com.metrolist.music.friends.FriendsHub.DEVELOPER_NAME
+            else name ?: key.take(8)
+        }
+    }
+    // Friends' latest tracks: fetched for a while each time the page shows (not kept open: battery).
+    if (friendsList.isNotEmpty()) {
+        androidx.compose.runtime.DisposableEffect(Unit) {
+            com.metrolist.music.friends.FriendsHub.startLive()
+            val stop = kotlinx.coroutines.MainScope().launch {
+                kotlinx.coroutines.delay(45_000L)
+                com.metrolist.music.friends.FriendsHub.stopLive()
+            }
+            onDispose {
+                if (stop.isActive) {
+                    stop.cancel()
+                    com.metrolist.music.friends.FriendsHub.stopLive()
+                }
+            }
+        }
+    }
     val isSpotifyHome by viewModel.useSpotifyHome.collectAsState()
     val isSpotifyHomeOnly by viewModel.spotifyHomeOnly.collectAsState()
     val pinnedSpeedDialIds by viewModel.pinnedSpeedDialIds.collectAsState()
@@ -1070,14 +1111,29 @@ fun HomeScreen(
             similarRecommendations,
             homePage?.sections,
             explorePage?.moodAndGenres,
+            homeFeed,
+            spotifyMixes,
+            friendsListening,
         ) {
             val list = mutableListOf<HomeSection>()
             val chipActive = selectedChip != null
 
-            if (recentlyPlayed?.isNotEmpty() == true) list.add(HomeSection.RecentlyPlayed)
-
-            // Recommendations sit where the speed dial used to, in every mode.
-            if (!forYou.isNullOrEmpty()) list.add(HomeSection.ForYou)
+            // The app's own rows come first, in a set order (the most tempting ones up top).
+            val own = mutableListOf<HomeSection>()
+            if (!chipActive) {
+                if (recentlyPlayed?.isNotEmpty() == true) own.add(HomeSection.RecentlyPlayed)
+                if (!forYou.isNullOrEmpty()) own.add(HomeSection.ForYou)
+                val feed = homeFeed
+                if (!feed?.newReleases.isNullOrEmpty()) own.add(HomeSection.NewReleases)
+                val similarCount = feed?.similar?.size ?: 0
+                if (similarCount > 0) own.add(HomeSection.MoreLike(0))
+                if (friendsListening.isNotEmpty()) own.add(HomeSection.FriendsListening)
+                if (!feed?.genres.isNullOrEmpty()) own.add(HomeSection.YourGenres)
+                if (similarCount > 1) own.add(HomeSection.MoreLike(1))
+                if (!feed?.forgotten.isNullOrEmpty()) own.add(HomeSection.RememberFavorites)
+                if (similarCount > 2) own.add(HomeSection.MoreLike(2))
+                if (!spotifyMixes.isNullOrEmpty()) own.add(HomeSection.SpotifyMixes)
+            }
 
             if (!isSpotifyHomeOnly && !chipActive) {
                 if (quickPicks?.isNotEmpty() == true) list.add(HomeSection.QuickPicks)
@@ -1098,7 +1154,7 @@ fun HomeScreen(
 
             if (!isSpotifyHomeOnly && explorePage?.moodAndGenres != null) list.add(HomeSection.MoodAndGenres)
 
-            if (randomizeHomeOrder) {
+            own + if (randomizeHomeOrder) {
                 list.sortedByDescending { section ->
                     val sectionRandom = Random(randomSeed + section.id.hashCode())
 
@@ -1223,7 +1279,7 @@ fun HomeScreen(
                     )
                 },
             ) {
-                item {
+                if (youtubeHome) item {
                     ChipsRow(
                         chips = homePage?.chips?.map { it to it.title } ?: emptyList(),
                         currentValue = selectedChip,
@@ -1233,7 +1289,7 @@ fun HomeScreen(
                     )
                 }
 
-                if (isLoading && homePage?.chips.isNullOrEmpty()) {
+                if (youtubeHome && isLoading && homePage?.chips.isNullOrEmpty()) {
                     item(key = "chips_shimmer") {
                         ShimmerHost(showGradient = false) {
                             LazyRow(
@@ -2354,6 +2410,179 @@ fun HomeScreen(
                                 }
                             }
                         }
+                        HomeSection.NewReleases -> {
+                            homeFeed?.newReleases?.takeIf { it.isNotEmpty() }?.let { albums ->
+                                item(key = "new_releases_title") {
+                                    NavigationTitle(title = stringResource(R.string.home_new_releases), modifier = Modifier.animateItem())
+                                }
+                                item(key = "new_releases_row") {
+                                    com.metrolist.music.ui.screens.home.NewReleasesRow(
+                                        albums = albums,
+                                        onOpen = { navController.navigate("spotify_album/${it.id}") },
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                            }
+                        }
+
+                        is HomeSection.MoreLike -> {
+                            homeFeed?.similar?.getOrNull(section.index)?.let { row ->
+                                fun playRow(index: Int) {
+                                    if (isListenTogetherGuest) return
+                                    playerConnection.playQueue(
+                                        SpotifyPlaylistQueue(
+                                            playlistId = "home_more_like_${row.artistId ?: row.artist}",
+                                            initialTracks = row.tracks,
+                                            startIndex = index,
+                                            mapper = spotifyMapper,
+                                        ),
+                                    )
+                                }
+                                item(key = "more_like_title_${section.index}") {
+                                    NavigationTitle(
+                                        title = stringResource(R.string.home_more_like, row.artist),
+                                        thumbnail = { com.metrolist.music.ui.screens.home.ArtistThumb(row.image) },
+                                        onClick = row.artistId?.let { id -> { navController.navigate("spotify_artist/$id") } },
+                                        onPlayAllClick = { playRow(0) },
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                                item(key = "more_like_row_${section.index}") {
+                                    com.metrolist.music.ui.screens.home.TrackCardsRow(
+                                        tracks = row.tracks,
+                                        currentId = mediaMetadata?.id,
+                                        onPlay = ::playRow,
+                                        onMenu = { track ->
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            menuState.show {
+                                                com.metrolist.music.ui.menu.SpotifyTrackMenu(
+                                                    track = track,
+                                                    mapper = spotifyMapper,
+                                                    onDismiss = menuState::dismiss,
+                                                    navController = navController,
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                            }
+                        }
+
+                        HomeSection.FriendsListening -> {
+                            if (friendsListening.isNotEmpty()) {
+                                item(key = "friends_listening_title") {
+                                    NavigationTitle(
+                                        title = stringResource(R.string.home_friends_listening),
+                                        onClick = { navController.navigate("friends") },
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                                item(key = "friends_listening_row") {
+                                    com.metrolist.music.ui.screens.home.FriendsListeningRow(
+                                        entries = friendsListening,
+                                        onPlay = { entry ->
+                                            if (!isListenTogetherGuest) scope.launch {
+                                                com.metrolist.music.friends.FriendPlayback.queueFor(entry.track)?.let { playerConnection.playQueue(it) }
+                                            }
+                                        },
+                                        onOpenFriend = { entry ->
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            navController.navigate("friend/${entry.pubkey}")
+                                        },
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                            }
+                        }
+
+                        HomeSection.YourGenres -> {
+                            homeFeed?.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
+                                item(key = "your_genres_title") {
+                                    NavigationTitle(
+                                        title = stringResource(R.string.home_your_genres),
+                                        label = stringResource(R.string.home_your_genres_label),
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                                item(key = "your_genres_row") {
+                                    com.metrolist.music.ui.screens.home.GenreTilesRow(
+                                        genres = genres,
+                                        onOpen = { navController.navigate("genre/" + android.net.Uri.encode(it)) },
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                            }
+                        }
+
+                        HomeSection.RememberFavorites -> {
+                            homeFeed?.forgotten?.takeIf { it.isNotEmpty() }?.let { tracks ->
+                                fun playForgotten(index: Int) {
+                                    if (isListenTogetherGuest) return
+                                    playerConnection.playQueue(
+                                        SpotifyPlaylistQueue(
+                                            playlistId = "home_remember",
+                                            initialTracks = tracks,
+                                            startIndex = index,
+                                            mapper = spotifyMapper,
+                                        ),
+                                    )
+                                }
+                                item(key = "remember_title") {
+                                    NavigationTitle(
+                                        title = stringResource(R.string.home_forgotten),
+                                        label = stringResource(R.string.home_forgotten_label),
+                                        onPlayAllClick = { playForgotten(0) },
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                                item(key = "remember_row") {
+                                    com.metrolist.music.ui.screens.home.TrackCardsRow(
+                                        tracks = tracks,
+                                        currentId = mediaMetadata?.id,
+                                        onPlay = ::playForgotten,
+                                        onMenu = { track ->
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            menuState.show {
+                                                com.metrolist.music.ui.menu.SpotifyTrackMenu(
+                                                    track = track,
+                                                    mapper = spotifyMapper,
+                                                    onDismiss = menuState::dismiss,
+                                                    navController = navController,
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                            }
+                        }
+
+                        HomeSection.SpotifyMixes -> {
+                            spotifyMixes?.takeIf { it.isNotEmpty() }?.let { mixes ->
+                                item(key = "spotify_mixes_title") {
+                                    NavigationTitle(title = stringResource(R.string.home_mixes), modifier = Modifier.animateItem())
+                                }
+                                item(key = "spotify_mixes_row") {
+                                    SpotifyPlaylistSectionRow(
+                                        playlists = mixes,
+                                        onPlaylistClick = { playlist -> navController.navigate("spotify_playlist/${playlist.id}") },
+                                        onPlaylistLongClick = { playlist ->
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            menuState.show {
+                                                SpotifyPlaylistMenu(
+                                                    playlist = playlist,
+                                                    onNavigate = { navController.navigate("spotify_playlist/${playlist.id}") },
+                                                    onDismiss = menuState::dismiss,
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                            }
+                        }
+
                         HomeSection.RecentlyPlayed -> {
                                 recentlyPlayed?.takeIf { it.isNotEmpty() }?.let { songs ->
                                     val recentTitle = viewModel.context.getString(R.string.recently_played)
@@ -2494,129 +2723,9 @@ fun HomeScreen(
                     }
                 }
 
-                // Spotify Home Sections (shown when Spotify home is active)
-                if (isSpotifyHome && spotifyHomeSections != null) {
-                    spotifyHomeSections?.forEachIndexed { index, section ->
-                        item(key = "spotify_section_title_$index") {
-                            NavigationTitle(
-                                title = resolveSpotifySectionTitle(section),
-                                onClick = if (section.title == "spotify_new_releases") {
-                                    { navController.navigate("new_release") }
-                                } else null,
-                                modifier = Modifier.animateItem()
-                            )
-                        }
-
-                        item(key = "spotify_section_content_$index") {
-                            when (section.type) {
-                                SectionType.TRACKS -> {
-                                    val likedSpotifyIds by com.metrolist.music.playback.SpotifyLikeCache.liked.collectAsState()
-                                    LaunchedEffect(section.tracks) {
-                                        com.metrolist.music.playback.SpotifyLikeCache
-                                            .ensureLoaded(section.tracks.map { it.id })
-                                    }
-                                    SpotifyTrackSectionRow(
-                                        tracks = section.tracks,
-                                        horizontalItemWidth = horizontalLazyGridItemWidth,
-                                        isPlaying = isPlaying,
-                                        currentMediaId = mediaMetadata?.id,
-                                        likedSpotifyIds = likedSpotifyIds,
-                                        onTrackClick = { track ->
-                                            // Play through the whole section (e.g. "Your Top Tracks")
-                                            // starting at the tapped track — pressing next then advances
-                                            // to the next real track in the list instead of a random
-                                            // radio song (the old single-track SpotifyQueue behaviour).
-                                            val startIndex = section.tracks
-                                                .indexOfFirst { it.id == track.id }
-                                                .coerceAtLeast(0)
-                                            playerConnection.playQueue(
-                                                SpotifyPlaylistQueue(
-                                                    playlistId = "spotify_section_${section.title}",
-                                                    initialTracks = section.tracks,
-                                                    startIndex = startIndex,
-                                                    mapper = spotifyMapper,
-                                                )
-                                            )
-                                        },
-                                        onTrackLongClick = { },
-                                        modifier = Modifier.animateItem(),
-                                    )
-                                }
-                                SectionType.ARTISTS -> {
-                                    SpotifyArtistSectionRow(
-                                        artists = section.artists,
-                                        onArtistClick = { artist ->
-                                            // Open the real Spotify artist by id (deterministic) instead
-                                            // of searching YouTube by name, which could open a wrong
-                                            // same-named artist.
-                                            navController.navigate("spotify_artist/${artist.id}")
-                                        },
-                                        modifier = Modifier.animateItem(),
-                                    )
-                                }
-                                SectionType.ALBUMS -> {
-                                    SpotifyAlbumSectionRow(
-                                        albums = section.albums,
-                                        onAlbumClick = { album ->
-                                            navController.navigate("spotify_album/${album.id}")
-                                        },
-                                        onAlbumPlay = { album ->
-                                            // Spotify-native album playback: resolve the
-                                            // album's tracks then hand them to the
-                                            // existing playlist queue with initialTracks
-                                            // so we don't need a dedicated album queue.
-                                            scope.launch(Dispatchers.IO) {
-                                                val tracks = com.metrolist.music.catalog.Catalog.album(album.id)
-                                                    .getOrNull()
-                                                    ?.tracks
-                                                    ?.items
-                                                    ?.filter { !it.isLocal && it.id.isNotEmpty() }
-                                                    .orEmpty()
-                                                if (tracks.isEmpty()) {
-                                                    Timber.w("HomeScreen: no playable tracks for Spotify album ${album.id}")
-                                                    return@launch
-                                                }
-                                                withContext(Dispatchers.Main) {
-                                                    playerConnection.playQueue(
-                                                        SpotifyPlaylistQueue(
-                                                            playlistId = "album_${album.id}",
-                                                            initialTracks = tracks,
-                                                            startIndex = 0,
-                                                            mapper = spotifyMapper,
-                                                        ),
-                                                    )
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.animateItem(),
-                                    )
-                                }
-                                SectionType.PLAYLISTS -> {
-                                    SpotifyPlaylistSectionRow(
-                                        playlists = section.playlists,
-                                        onPlaylistClick = { playlist ->
-                                            navController.navigate("spotify_playlist/${playlist.id}")
-                                        },
-                                        onPlaylistLongClick = { playlist ->
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            menuState.show {
-                                                SpotifyPlaylistMenu(
-                                                    playlist = playlist,
-                                                    onNavigate = { navController.navigate("spotify_playlist/${playlist.id}") },
-                                                    onDismiss = menuState::dismiss,
-                                                )
-                                            }
-                                        },
-                                        modifier = Modifier.animateItem(),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // Only show shimmer during initial loading, not for pagination
-                if (isLoading && homePage?.sections.isNullOrEmpty()) {
+                val feedEmpty = homeFeed?.let { it.newReleases.isEmpty() && it.similar.isEmpty() && it.genres.isEmpty() && it.forgotten.isEmpty() } ?: true
+                if (isLoading && homePage?.sections.isNullOrEmpty() && forYou.isNullOrEmpty() && feedEmpty) {
                     item(key = "loading_shimmer") {
                         ShimmerHost(
                             modifier = Modifier.animateItem(),

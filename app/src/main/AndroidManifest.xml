@@ -112,6 +112,33 @@
                 <data android:scheme="drxwnify" android:host="add" />
             </intent-filter>
 
+            <!-- Links to an album, playlist, track or artist (utils/AppLinks.kt) -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" />
+                <data android:host="drxwnify.pages.dev" />
+                <data android:pathPrefix="/album/" />
+                <data android:pathPrefix="/playlist/" />
+                <data android:pathPrefix="/track/" />
+                <data android:pathPrefix="/artist/" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="drxwnify" />
+                <data android:host="album" />
+                <data android:host="playlist" />
+                <data android:host="track" />
+                <data android:host="artist" />
+            </intent-filter>
+
             <!-- Listen Together invite link -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
@@ -329,6 +356,30 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/meld_classic_widget_info" />
+        </receiver>
+
+        <!-- The 2x2 and 2x1 players (MeldWidgets.kt) -->
+        <receiver
+            android:name=".widget.MeldSquareWidget"
+            android:exported="true"
+            android:label="@string/widget_square">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/meld_square_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.MeldMiniWidget"
+            android:exported="true"
+            android:label="@string/widget_mini">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/meld_mini_widget_info" />
         </receiver>
 
         <!-- The car-radio widget (MeldWidgets.kt) -->

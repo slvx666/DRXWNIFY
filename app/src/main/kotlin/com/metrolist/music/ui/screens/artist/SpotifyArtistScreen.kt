@@ -331,6 +331,14 @@ fun SpotifyArtistScreen(
 
     TopAppBar(
         title = { Text(artist?.name.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        actions = {
+            com.metrolist.music.ui.component.ShareLinkButton(
+                com.metrolist.music.utils.AppLinks.Kind.ARTIST,
+                artist?.id,
+                artist?.name,
+                null,
+            )
+        },
         navigationIcon = {
             IconButton(
                 onClick = navController::navigateUp,

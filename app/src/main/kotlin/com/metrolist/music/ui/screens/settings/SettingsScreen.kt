@@ -282,6 +282,24 @@ fun SettingsScreen(
                         },
                     ),
                 )
+                // The suggestion box (on the developer's account: with what came in).
+                val unseenSuggestions by com.metrolist.music.friends.Suggestions.unseen.collectAsState()
+                add(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.lightbulb),
+                        title = { Text(stringResource(R.string.suggest_title)) },
+                        description = {
+                            Text(
+                                text = if (unseenSuggestions > 0) stringResource(R.string.suggest_new_count, unseenSuggestions)
+                                else stringResource(R.string.suggest_settings_desc),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        showBadge = unseenSuggestions > 0,
+                        onClick = { navController.navigate("suggest") },
+                    ),
+                )
                 val showChangelog = com.metrolist.music.LocalChangelogState.current
                 add(
                     Material3SettingsItem(

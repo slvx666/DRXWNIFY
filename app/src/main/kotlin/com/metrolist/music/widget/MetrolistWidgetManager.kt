@@ -93,8 +93,14 @@ class MetrolistWidgetManager @Inject constructor(
                 .getOrNull() ?: IntArray(0)
             val classicIds = runCatching { appWidgetManager.getAppWidgetIds(ComponentName(context, MeldPlayerClassicWidget::class.java)) }
                 .getOrNull() ?: IntArray(0)
+            val squareIds = runCatching { appWidgetManager.getAppWidgetIds(ComponentName(context, MeldSquareWidget::class.java)) }
+                .getOrNull() ?: IntArray(0)
+            val miniIds = runCatching { appWidgetManager.getAppWidgetIds(ComponentName(context, MeldMiniWidget::class.java)) }
+                .getOrNull() ?: IntArray(0)
             val freaks = FreakWidgets.placed(context)
-            if (widgetIds.isEmpty() && turntableWidgetIds.isEmpty() && radioIds.isEmpty() && classicIds.isEmpty() && freaks.isEmpty()) return
+            if (widgetIds.isEmpty() && turntableWidgetIds.isEmpty() && radioIds.isEmpty() && classicIds.isEmpty() &&
+                squareIds.isEmpty() && miniIds.isEmpty() && freaks.isEmpty()
+            ) return
 
             // Reload album art only when the track actually changed.
             if (artworkUri != cachedArtworkUri || (artworkUri != null && cachedAlbumArt == null)) {
@@ -137,6 +143,11 @@ class MetrolistWidgetManager @Inject constructor(
             )
             radioIds.forEach { id -> runCatching { appWidgetManager.updateAppWidget(id, responsive(appWidgetManager, id, radioFaces(meld))) } }
             classicIds.forEach { id -> runCatching { appWidgetManager.updateAppWidget(id, responsive(appWidgetManager, id, classicFaces(meld, appWidgetManager.getAppWidgetOptions(id)))) } }
+            if (squareIds.isNotEmpty()) {
+                val faces = squareFaces(meld, duration, currentPosition)
+                squareIds.forEach { id -> runCatching { appWidgetManager.updateAppWidget(id, responsive(appWidgetManager, id, faces)) } }
+            }
+            miniIds.forEach { id -> runCatching { appWidgetManager.updateAppWidget(id, responsive(appWidgetManager, id, miniFaces(meld, appWidgetManager.getAppWidgetOptions(id)))) } }
             if (freaks.isNotEmpty()) {
                 FreakWidgets.update(
                     context,
@@ -467,6 +478,79 @@ class MetrolistWidgetManager @Inject constructor(
     private var classicCoverFor: Bitmap? = null
     private var classicCover: Bitmap? = null
 
+    /** The cover as the classic widget shows it (framed in the cover's accent), made once per track. */
+    private fun classicCoverOf(face: MeldFace): Bitmap {
+        val scale = minOf(context.resources.displayMetrics.density, 2.2f)
+        val source = face.rawCover ?: face.cover
+        if (classicCoverFor !== source) {
+            classicCoverFor = source
+            classicCover = runCatching {
+                ClassicWidgetArt.cover(source, (92 * scale).toInt(), ClassicWidgetArt.accentOf(face.rawCover))
+            }.getOrNull()
+        }
+        return classicCover ?: face.cover
+    }
+
+    private fun clock(ms: Long): String {
+        val s = (ms / 1000).coerceAtLeast(0)
+        return "%d:%02d".format(s / 60, s % 60)
+    }
+
+    /**
+     * The 2x2 player. Its backdrop (the cover blurred and darkened) is drawn once per track; the
+     * progress and times change every refresh.
+     */
+    private fun squareFaces(face: MeldFace, duration: Long, position: Long): List<Face> {
+        val density = context.resources.displayMetrics.density
+        val scale = minOf(density, 2.2f)
+        fun build(layout: Int, sizeDp: Int) = RemoteViews(context.packageName, layout).apply {
+            val px = (sizeDp * scale).toInt()
+            runCatching { SquareWidgetArt.backdrop(face.rawCover, px, px, 22f * scale) }.getOrNull()?.let { setImageViewBitmap(R.id.square_bg, it) }
+            setImageViewBitmap(R.id.square_cover, face.cover)
+            setTextViewText(R.id.square_title, face.title)
+            setTextViewText(R.id.square_artist, face.artist)
+            setProgressBar(R.id.square_progress, 1000, face.progress, false)
+            setTextViewText(R.id.square_position, if (duration > 0) clock(position) else "")
+            setTextViewText(R.id.square_duration, if (duration > 0) clock(duration) else "")
+            setImageViewResource(R.id.square_play, if (face.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play)
+            setImageViewResource(R.id.square_like, if (face.isLiked) R.drawable.wd_heart_filled else R.drawable.wd_heart)
+            setOnClickPendingIntent(R.id.square_cover, openAppIntent)
+            setOnClickPendingIntent(R.id.square_title, openAppIntent)
+            setOnClickPendingIntent(R.id.square_artist, openAppIntent)
+            setOnClickPendingIntent(R.id.square_play, playPauseIntent)
+            setOnClickPendingIntent(R.id.square_prev, previousIntent)
+            setOnClickPendingIntent(R.id.square_next, nextIntent)
+            setOnClickPendingIntent(R.id.square_like, likeIntent)
+        }
+        return listOf(
+            Face(100f, 100f, build(R.layout.widget_square_small, 140)),
+            Face(150f, 150f, build(R.layout.widget_square, 180)),
+        )
+    }
+
+    /** The 2x1 player, in the classic widget's look (its live backdrop with the progress glow). */
+    private fun miniFaces(face: MeldFace, options: Bundle): List<Face> {
+        val scale = minOf(context.resources.displayMetrics.density, 2.2f)
+        val widthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH).takeIf { it > 0 } ?: 160
+        val views = RemoteViews(context.packageName, R.layout.widget_mini).apply {
+            runCatching {
+                ClassicWidgetArt.draw(
+                    (widthDp * scale).toInt().coerceIn(160, 600),
+                    (64 * scale).toInt(),
+                    face.rawCover, face.isPlaying, face.progress / 1000f, face.seed, System.currentTimeMillis() / 1000,
+                )
+            }.getOrNull()?.let { setImageViewBitmap(R.id.mini_bg, it) }
+            setImageViewBitmap(R.id.mini_cover, classicCoverOf(face))
+            setTextViewText(R.id.mini_title, face.title)
+            setTextViewText(R.id.mini_artist, face.artist)
+            setImageViewResource(R.id.mini_play, if (face.isPlaying) R.drawable.wd_pause else R.drawable.wd_play)
+            setOnClickPendingIntent(R.id.mini_cover, openAppIntent)
+            setOnClickPendingIntent(R.id.mini_texts, openAppIntent)
+            setOnClickPendingIntent(R.id.mini_play, playPauseIntent)
+        }
+        return listOf(Face(100f, 40f, views))
+    }
+
     /** A layout for each size, smallest first, as (min width dp, min height dp) to views. */
     private class Face(val widthDp: Float, val heightDp: Float, val views: RemoteViews)
 
@@ -498,14 +582,7 @@ class MetrolistWidgetManager @Inject constructor(
         val fullHeightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it >= 110 } ?: 160
         val frame = System.currentTimeMillis() / 1000
         val progress = face.progress / 1000f
-        val source = face.rawCover ?: face.cover
-        if (classicCoverFor !== source) {
-            classicCoverFor = source
-            classicCover = runCatching {
-                ClassicWidgetArt.cover(source, (92 * scale).toInt(), ClassicWidgetArt.accentOf(face.rawCover))
-            }.getOrNull()
-        }
-        val cover = classicCover ?: face.cover
+        val cover = classicCoverOf(face)
 
         fun build(layout: Int, heightDp: Int) = RemoteViews(context.packageName, layout).apply {
             val bg = runCatching {
@@ -585,6 +662,11 @@ class MetrolistWidgetManager @Inject constructor(
         save("preview_classic", renderViews(classic.last().views, 320, 160))
         save("preview_classic_row", renderViews(classic.first().views, 380, 106))
         save("preview_radio", renderViews(radioFaces(face).last().views, 320, 160))
+        val square = squareFaces(face, 225_000L, 84_000L)
+        save("preview_square", renderViews(square.last().views, 170, 170))
+        save("preview_square_small", renderViews(square.first().views, 140, 140))
+        val miniOptions = Bundle().apply { putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 170) }
+        save("preview_mini", renderViews(miniFaces(face, miniOptions).first().views, 170, 72))
         val state = FreakState("Lift Your Head", "Holy Fawn", cover, isPlaying = true, isLiked = true, progress = 0.45f, live = true, quality = "320 kbps · MP3 · VK")
         fun px(dp: Int) = (dp * minOf(density, 2.2f)).toInt()
         save("preview_tv", FreakWidgets.drawFor(context, FreakKind.TV, px(220), px(160), state))

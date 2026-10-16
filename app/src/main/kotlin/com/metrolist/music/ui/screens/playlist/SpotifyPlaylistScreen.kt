@@ -717,6 +717,12 @@ fun SpotifyPlaylistScreen(
                     com.metrolist.music.ui.component.TrackSelectionActions(selection, tracks.map { it.id })
                 }
                 if (!isSearching && !selection.active) {
+                    com.metrolist.music.ui.component.ShareLinkButton(
+                        com.metrolist.music.utils.AppLinks.Kind.PLAYLIST,
+                        playlist?.id?.takeIf { it.isNotBlank() && it != com.metrolist.yandex.YandexIds.LIKED_SONGS_ID },
+                        playlist?.name,
+                        playlist?.owner?.displayName,
+                    )
                     IconButton(
                         onClick = { isSearching = true },
                         onLongClick = {},

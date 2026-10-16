@@ -242,6 +242,17 @@ object Catalog {
             }
         }
 
+    /**
+     * An artist's newest releases in one request (the home page asks for many artists at once;
+     * [artistReleases] pages through the whole discography).
+     */
+    suspend fun latestReleases(id: String): Result<List<SpotifyAlbum>> =
+        if (isYandexId(id)) {
+            YandexMusic.artistAlbums(id)
+        } else {
+            Spotify.artistDiscography(id).map { d -> (listOfNotNull(d.latest) + d.albums + d.singles).distinctBy { it.id } }
+        }
+
     suspend fun relatedArtists(id: String): Result<List<SpotifyArtist>> =
         if (isYandexId(id)) YandexMusic.similarArtists(id) else Spotify.artistRelatedArtists(id)
 

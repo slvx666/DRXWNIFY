@@ -186,7 +186,9 @@ constructor(
             // stream through the audio fallback engine and record FormatEntity/SongEntity rows so the
             // exporter can transcode it to MP3 afterwards. Ordinary YouTube downloads are untouched.
             if (FallbackIds.isFallbackId(mediaId)) {
-                if (playerCache.isCached(mediaId, dataSpec.position, length)) return@Factory dataSpec
+                // Only a whole cached track goes without an address: a warmed-up start alone failed
+                // the download where the cached part ended.
+                if (playerCache.holdsWhole(mediaId)) return@Factory dataSpec
                 songUrlCache[mediaId]?.takeIf { it.second > System.currentTimeMillis() }?.let {
                     return@Factory dataSpec.withUri(it.first.toUri())
                 }

@@ -342,6 +342,13 @@ fun NavGraphBuilder.navigationBuilder(
     }
 
     composable(
+        "genre/{name}",
+        arguments = listOf(androidx.navigation.navArgument("name") { type = androidx.navigation.NavType.StringType }),
+    ) { entry ->
+        GenreScreen(navController, android.net.Uri.decode(entry.arguments?.getString("name").orEmpty()))
+    }
+
+    composable(
         "friend_likes/{pubkey}",
         arguments = listOf(androidx.navigation.navArgument("pubkey") { type = androidx.navigation.NavType.StringType }),
     ) { entry ->
@@ -583,6 +590,9 @@ fun NavGraphBuilder.navigationBuilder(
         UpdaterScreen(navController)
     }
 
+    composable("suggest") {
+        com.metrolist.music.ui.screens.settings.SuggestScreen(navController)
+    }
     composable("settings/about") {
         AboutScreen(navController, scrollBehavior)
     }

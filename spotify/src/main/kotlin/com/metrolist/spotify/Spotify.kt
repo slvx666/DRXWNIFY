@@ -479,7 +479,7 @@ object Spotify {
             ?: return null
         val id = uri.substringAfterLast(":").ifBlank { return null }
         val name = release.str("name") ?: return null
-        val year = release.obj("date")?.int("year")?.toString()
+        val year = gqlReleaseDate(release.obj("date"))
         val images = parseGqlImages(release.obj("coverArt")?.arr("sources"))
         val totalTracks = release.obj("tracks")?.int("totalCount") ?: 0
         return SpotifyAlbum(
@@ -491,6 +491,23 @@ object Spotify {
             totalTracks = totalTracks,
             uri = uri,
         )
+    }
+
+    /**
+     * A release date as precise as Spotify knows it: "2025-03-14" when the day is known (what "new
+     * releases" are sorted and dated by), else the year. Readers that want the year take 4 chars.
+     */
+    private fun gqlReleaseDate(date: JsonObject?): String? {
+        date ?: return null
+        val year = date.int("year") ?: return date.str("isoString")?.take(4)
+        val precision = date.str("precision")
+        if (precision == null || precision == "DAY") {
+            date.str("isoString")?.take(10)?.takeIf { it.length == 10 && it.startsWith(year.toString()) }?.let { return it }
+            val month = date.int("month")
+            val day = date.int("day")
+            if (month != null && day != null) return "%04d-%02d-%02d".format(year, month, day)
+        }
+        return year.toString()
     }
 
     /**
@@ -1887,6 +1904,7 @@ object Spotify {
                 albums = parseGroup("albums", "album"),
                 singles = parseGroup("singles", "single"),
                 compilations = parseGroup("compilations", "compilation"),
+                latest = disco?.obj("latest")?.let { parseGqlRelease(it, it.str("type")?.lowercase() ?: "album") },
             )
         }
 
@@ -1949,6 +1967,8 @@ data class ArtistDiscography(
     val albums: List<SpotifyAlbum> = emptyList(),
     val singles: List<SpotifyAlbum> = emptyList(),
     val compilations: List<SpotifyAlbum> = emptyList(),
+    /** The newest release, whatever its kind (Spotify names it apart from the groups). */
+    val latest: SpotifyAlbum? = null,
 )
 
 @kotlinx.serialization.Serializable

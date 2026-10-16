@@ -206,6 +206,10 @@ class App :
         com.metrolist.music.utils.UpdateCheckReceiver.schedule(this)
         com.metrolist.music.portrait.Genres.init(this)
         com.metrolist.music.portrait.RadioPlays.init(this)
+        applicationScope.launch(Dispatchers.IO) {
+            com.metrolist.music.home.HomeFeed.init(this@App)
+            com.metrolist.music.genre.GenrePlaylists.init(this@App)
+        }
         com.metrolist.music.friends.FriendLikesSync.init(this, database)
         com.metrolist.music.friends.FriendsHub.init(this, database)
         com.metrolist.music.catalog.Catalog.init(dataStore, applicationScope, getString(R.string.liked_songs))

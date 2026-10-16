@@ -1229,7 +1229,7 @@ fun BottomSheetPlayer(
                                                     type = "text/plain"
                                                     putExtra(
                                                         Intent.EXTRA_TEXT,
-                                                        "https://music.youtube.com/watch?v=${mediaMetadata.id}",
+                                                        com.metrolist.music.ui.menu.shareLinkOf(mediaMetadata, null),
                                                     )
                                                 }
                                             context.startActivity(Intent.createChooser(intent, null))
@@ -1409,7 +1409,7 @@ fun BottomSheetPlayer(
                                                     type = "text/plain"
                                                     putExtra(
                                                         Intent.EXTRA_TEXT,
-                                                        "https://music.youtube.com/watch?v=${mediaMetadata.id}",
+                                                        com.metrolist.music.ui.menu.shareLinkOf(mediaMetadata, null),
                                                     )
                                                 }
                                             context.startActivity(Intent.createChooser(intent, null))

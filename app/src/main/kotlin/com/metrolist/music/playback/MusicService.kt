@@ -2756,6 +2756,15 @@ class MusicService :
             player.currentMediaItem?.mediaId?.let { mediaId ->
                 resetRetryCount(mediaId)
                 Timber.tag(TAG).d("Playback successful for $mediaId, reset retry count")
+                // A track without a length can't be sought and starts over after any hiccup: said in
+                // the audio journal, so the next report of a frozen slider says where it came from.
+                if (player.duration == C.TIME_UNSET && !mediaId.startsWith("local:") && lengthlessReported != mediaId) {
+                    lengthlessReported = mediaId
+                    AudioDiagnostics.warn(
+                        "no length for '${player.currentMediaItem?.mediaMetadata?.title}' " +
+                            "(${fallbackServing[mediaId]?.provider?.name ?: "YouTube/cache"}): slider and seeking won't work",
+                    )
+                }
             }
             scheduleCrossfade()
         }
@@ -3739,7 +3748,12 @@ class MusicService :
             withContext(Dispatchers.IO) {
                 val source = warmUpSourceFactory.createDataSource()
                 runCatching {
-                    source.open(DataSpec.Builder().setUri(uri).setKey(key).setPosition(0).setLength(bytes).build())
+                    // Opened for the whole track and read only partly: a request with a length makes
+                    // the cache keep the bytes but not the track's full length. Played from such a
+                    // cache later, the track had no duration (the slider stood still, no seeking) and
+                    // went back to 0:00 when its cached minute ran out — the radio's next track is
+                    // warmed up every time.
+                    source.open(DataSpec.Builder().setUri(uri).setKey(key).setPosition(0).build())
                     val buffer = ByteArray(64 * 1024)
                     var total = 0L
                     while (isActive && total < bytes) {
@@ -4165,6 +4179,23 @@ class MusicService :
         return false
     }
 
+    /**
+     * Bytes cached without the track's full length (warmed up by a ranged request, before that was
+     * fixed): played from there a track had no duration, couldn't be sought and started over from
+     * 0:00 after any hiccup. They go, and the track is fetched with its length. YouTube's audio is
+     * cached in chunks that never carry the length, but its container states the duration itself.
+     */
+    @Volatile
+    private var lengthlessReported: String? = null
+
+    private fun dropLengthlessCache(cacheKey: String) {
+        if (cacheOwners.getString(cacheKey, null)?.startsWith("${AudioProviderId.YOUTUBE.name}:") == true) return
+        if (androidx.media3.datasource.cache.ContentMetadata.getContentLength(playerCache.getContentMetadata(cacheKey)) != C.LENGTH_UNSET.toLong()) return
+        if (playerCache.getCachedSpans(cacheKey).isEmpty()) return
+        AudioDiagnostics.info("cached start of $cacheKey had no full length — fetching the track again")
+        runCatching { playerCache.removeResource(cacheKey) }
+    }
+
     private fun resolveFallbackDataSpec(
         dataSpec: DataSpec,
         mediaId: String,
@@ -4178,12 +4209,16 @@ class MusicService :
         if (!bypassCache && downloadCache.isCached(cacheKey, dataSpec.position, if (dataSpec.length >= 0) dataSpec.length else 1)) {
             return dataSpec.buildUpon().setKey(cacheKey).build()
         }
-        if (!bypassCache && usePlayerCache && playerCache.isCached(cacheKey, dataSpec.position, CHUNK_LENGTH)) {
-            if (cachedAudioStillChosen(mediaId, cacheKey)) return dataSpec.buildUpon().setKey(cacheKey).build()
-        }
+        if (!bypassCache && usePlayerCache && dataSpec.position == 0L) dropLengthlessCache(cacheKey)
+        // A known address comes first even when the start is cached: the cache still serves what it
+        // holds (it is read by key) and the address fills in the rest. Cached bytes alone left the
+        // player nothing to fetch the rest from — the track failed where the cache ended.
         songUrlCache[cacheKey]?.takeIf { it.second > System.currentTimeMillis() }?.let { (url, _) ->
             val spec = dataSpec.buildUpon().setUri(url.toUri()).setKey(cacheKey).build()
             return if (fallbackServing[mediaId]?.provider == AudioProviderId.YOUTUBE) spec.subrange(0, CHUNK_LENGTH) else spec
+        }
+        if (!bypassCache && usePlayerCache && playerCache.holdsWhole(cacheKey)) {
+            if (cachedAudioStillChosen(mediaId, cacheKey)) return dataSpec.buildUpon().setKey(cacheKey).build()
         }
         if (depth > 4) return null
 

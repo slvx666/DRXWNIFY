@@ -225,3 +225,70 @@ internal object ClassicWidgetArt {
         return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
     }
 }
+
+/**
+ * The 2x2 widget's backdrop: the cover blown up and blurred (scaled down to a few pixels and back
+ * up, which is a cheap, smooth blur), darkened, and darker still towards the bottom where the text
+ * and buttons sit. Drawn once per track and size.
+ */
+internal object SquareWidgetArt {
+    private var forCover: Bitmap? = null
+    private var forSize = 0L
+    private var cached: Bitmap? = null
+
+    fun backdrop(cover: Bitmap?, w: Int, h: Int, radius: Float): Bitmap {
+        val size = w.toLong() shl 32 or h.toLong()
+        cached?.takeIf { forCover === cover && forSize == size }?.let { return it }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val c = Canvas(out)
+        c.clipPath(Path().apply { addRoundRect(RectF(0f, 0f, w.toFloat(), h.toFloat()), radius, radius, Path.Direction.CW) })
+        c.drawColor(Color.rgb(24, 22, 28))
+        val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        if (cover != null) {
+            val side = max(w, h) * 1.2f
+            c.drawBitmap(blurred(cover), null, RectF((w - side) / 2, (h - side) / 2, (w + side) / 2, (h + side) / 2), p)
+        }
+        p.shader = LinearGradient(
+            0f, 0f, 0f, h.toFloat(),
+            intArrayOf(Color.argb(60, 0, 0, 0), Color.argb(90, 0, 0, 0), Color.argb(170, 0, 0, 0)),
+            floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP,
+        )
+        c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
+        forCover = cover
+        forSize = size
+        cached = out
+        return out
+    }
+
+    /** The cover at 36 px, box-blurred three times (≈ a gaussian): smooth when stretched, no blocks. */
+    private fun blurred(cover: Bitmap): Bitmap {
+        val n = 36
+        val small = Bitmap.createScaledBitmap(cover, n, n, true).copy(Bitmap.Config.ARGB_8888, true)
+        val px = IntArray(n * n)
+        small.getPixels(px, 0, n, 0, 0, n, n)
+        val tmp = IntArray(n * n)
+        val r = 3
+        repeat(3) {
+            boxPass(px, tmp, n, r, horizontal = true)
+            boxPass(tmp, px, n, r, horizontal = false)
+        }
+        small.setPixels(px, 0, n, 0, 0, n, n)
+        return small
+    }
+
+    private fun boxPass(src: IntArray, dst: IntArray, n: Int, r: Int, horizontal: Boolean) {
+        for (line in 0 until n) {
+            for (i in 0 until n) {
+                var a = 0; var red = 0; var g = 0; var b = 0; var count = 0
+                for (k in -r..r) {
+                    val j = (i + k).coerceIn(0, n - 1)
+                    val c = if (horizontal) src[line * n + j] else src[j * n + line]
+                    a += c ushr 24; red += (c shr 16) and 0xff; g += (c shr 8) and 0xff; b += c and 0xff
+                    count++
+                }
+                val v = ((a / count) shl 24) or ((red / count) shl 16) or ((g / count) shl 8) or (b / count)
+                if (horizontal) dst[line * n + i] = v else dst[i * n + line] = v
+            }
+        }
+    }
+}

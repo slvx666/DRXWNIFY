@@ -38,3 +38,9 @@ class MeldRadioWidget : MeldPlayerWidget()
 
 /** A plain player like every music app has: cover, title, artist, controls; 4x2 adds progress and like. */
 class MeldPlayerClassicWidget : MeldPlayerWidget()
+
+/** 2x2: the cover blurred behind, the cover itself, title, artist, progress with times, buttons. */
+class MeldSquareWidget : MeldPlayerWidget()
+
+/** 2x1: the classic widget's look in two cells — cover, title, artist, play/pause. */
+class MeldMiniWidget : MeldPlayerWidget()

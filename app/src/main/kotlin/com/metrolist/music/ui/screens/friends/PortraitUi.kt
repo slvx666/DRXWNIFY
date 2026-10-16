@@ -103,13 +103,21 @@ fun genreColor(genre: String, hue: Float? = null): Color =
     if (genre.isBlank()) MaterialTheme.colorScheme.outlineVariant
     else Color.hsv(hue ?: hueOf(genre), 0.6f, if (isDark()) 0.85f else 0.72f)
 
-/** A genre tag, like a Discord role: tinted background, text of the same hue. */
+/** What a tap on a genre tag does (opens the genre's playlist); set once around the app's screens. */
+val LocalGenreClick = androidx.compose.runtime.staticCompositionLocalOf<((String) -> Unit)?> { null }
+
+/** Opens the "getting to know the genre" playlist of [genre]. */
+fun androidx.navigation.NavController.openGenre(genre: String) = navigate("genre/" + android.net.Uri.encode(genre))
+
+/** A genre tag, like a Discord role: tinted background, text of the same hue. A tap opens the genre. */
 @Composable
 fun GenreTag(genre: String, hue: Float = hueOf(genre)) {
     val dark = isDark()
+    val onClick = LocalGenreClick.current
     Surface(
         shape = RoundedCornerShape(50),
         color = Color.hsv(hue, if (dark) 0.45f else 0.18f, if (dark) 0.32f else 0.97f),
+        modifier = if (onClick != null) Modifier.clip(RoundedCornerShape(50)).clickable { onClick(genre) } else Modifier,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)) {
             Box(Modifier.size(7.dp).clip(CircleShape).background(Color.hsv(hue, 0.6f, if (dark) 0.9f else 0.65f)))
@@ -141,6 +149,17 @@ fun ArtistGenreTags(artistName: String?, modifier: Modifier = Modifier) {
     val version by Genres.version.collectAsState()
     LaunchedEffect(artistName) { runCatching { Genres.ensure(listOf(artistName)) } }
     val tags = remember(artistName, version) { Genres.cached(artistName) }
+    GenreTags(tags, modifier)
+}
+
+/** An album's genre tags (album page): its own Last.fm tags, else the artist's. */
+@Composable
+fun AlbumGenreTags(artistName: String?, albumName: String?, modifier: Modifier = Modifier) {
+    if (artistName.isNullOrBlank() || albumName.isNullOrBlank()) return
+    var tags by remember(artistName, albumName) { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(artistName, albumName) {
+        tags = runCatching { Genres.ofAlbum(artistName, albumName) }.getOrDefault(emptyList()).take(4)
+    }
     GenreTags(tags, modifier)
 }
 

@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit
  */
 object Genres {
     /** Last.fm API key of the Drxwnify application (public by nature: it is in every APK). */
-    private const val LASTFM_KEY = "710106bd28502d7d62fb5493c67033f9"
+    internal const val LASTFM_KEY = "710106bd28502d7d62fb5493c67033f9"
     private const val TTL_MS = 30L * 24 * 60 * 60_000
     private const val MISS_TTL_MS = 7L * 24 * 60 * 60_000
     private const val MAX_TAGS = 5
@@ -48,7 +48,7 @@ object Genres {
     private var file: File? = null
     private var lastMusicBrainzAt = 0L
 
-    private val client by lazy {
+    internal val client by lazy {
         OkHttpClient.Builder()
             .connectTimeout(8, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
@@ -125,6 +125,46 @@ object Genres {
             tags.optJSONObject(i)?.let { it.optString("name") to it.optInt("count") }
         }, artist, minCount = 8)
     }
+
+    private val albumCache = ConcurrentHashMap<String, Entry>()
+
+    /**
+     * Genres of an album: its own Last.fm tags (a band's albums can be far apart — a metal band's
+     * acoustic record), else the artist's. Kept in memory for the session; the artist's on disk.
+     */
+    suspend fun ofAlbum(artist: String, album: String): List<String> = withContext(Dispatchers.IO) {
+        val key = keyOf(artist) + "|" + album.trim().lowercase()
+        albumCache[key]?.takeIf { System.currentTimeMillis() - it.at < TTL_MS }?.let { return@withContext it.genres }
+        val own = runCatching { albumFromLastFm(artist, album) }.getOrNull()
+        val genres = own?.takeIf { it.size >= 2 } ?: (own.orEmpty() + of(artist)).distinct().take(MAX_TAGS)
+        if (own != null) albumCache[key] = Entry(genres, System.currentTimeMillis())
+        genres
+    }
+
+    private fun albumFromLastFm(artist: String, album: String): List<String>? {
+        val url = "https://ws.audioscrobbler.com/2.0/".toHttpUrl().newBuilder()
+            .addQueryParameter("method", "album.gettoptags")
+            .addQueryParameter("artist", artist)
+            .addQueryParameter("album", album.substringBefore(" (").substringBefore(" [").trim())
+            .addQueryParameter("autocorrect", "1")
+            .addQueryParameter("api_key", LASTFM_KEY)
+            .addQueryParameter("format", "json")
+            .build()
+        val body = client.newCall(Request.Builder().url(url).build()).execute().use { r ->
+            if (!r.isSuccessful) return null
+            r.body?.string()
+        } ?: return null
+        val root = JSONObject(body)
+        // An album Last.fm doesn't know: an error object, not "no tags".
+        if (root.has("error")) return emptyList()
+        val tags = root.optJSONObject("toptags")?.optJSONArray("tag") ?: return emptyList()
+        return pick((0 until tags.length()).mapNotNull { i ->
+            tags.optJSONObject(i)?.let { it.optString("name") to it.optInt("count") }
+        }, artist, minCount = 5)
+    }
+
+    /** The display form of a Last.fm tag when it is a genre, else null (for lists built from tags). */
+    fun displayName(tag: String): String? = normalize(tag, "")
 
     private suspend fun fromMusicBrainz(artist: String): List<String>? {
         // MusicBrainz asks for at most one request a second.

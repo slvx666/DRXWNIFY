@@ -238,6 +238,12 @@ fun SpotifyAlbumScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    // The album's genres (a tap opens the genre's playlist).
+                    com.metrolist.music.ui.screens.friends.AlbumGenreTags(
+                        artistName = album?.artists?.firstOrNull()?.name,
+                        albumName = album?.name,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
 
                     val downloadedCount = com.metrolist.music.ui.component.rememberDownloadedCount(tracks)
                     if (!isLoading && tracks.isNotEmpty()) {
@@ -494,6 +500,14 @@ fun SpotifyAlbumScreen(
             title = { Text(album?.name ?: stringResource(R.string.albums)) },
             actions = {
                 com.metrolist.music.ui.component.TrackSelectionActions(selection, tracks.map { it.id })
+                if (!selection.active) {
+                    com.metrolist.music.ui.component.ShareLinkButton(
+                        com.metrolist.music.utils.AppLinks.Kind.ALBUM,
+                        album?.id,
+                        album?.name,
+                        album?.artists?.joinToString { it.name },
+                    )
+                }
             },
             navigationIcon = {
                 IconButton(

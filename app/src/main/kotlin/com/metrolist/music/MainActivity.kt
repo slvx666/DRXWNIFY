@@ -982,6 +982,9 @@ class MainActivity : ComponentActivity() {
                     LocalSyncUtils provides syncUtils,
                     LocalListenTogetherManager provides listenTogetherManager,
                     LocalChangelogState provides showChangelog,
+                    com.metrolist.music.ui.screens.friends.LocalGenreClick provides { genre: String ->
+                        navController.navigate("genre/" + android.net.Uri.encode(genre))
+                    },
                 ) {
                     if (showChangelog.value && !introVisible && startupWelcomeDone.value) {
                         ChangelogScreen(onDismiss = { showChangelog.value = false })
@@ -1593,7 +1596,12 @@ class MainActivity : ComponentActivity() {
             runCatching { navController.navigate(route) }
             return
         }
-        val uri = intent.data ?: intent.extras?.getString(Intent.EXTRA_TEXT)?.toUri() ?: return
+        // Shared text ("Artist — Title" and a link on the next line) carries the link somewhere inside.
+        val uri = intent.data
+            ?: intent.extras?.getString(Intent.EXTRA_TEXT)?.let { text ->
+                (Regex("https?://\\S+").find(text)?.value ?: text).toUri()
+            }
+            ?: return
         intent.data = null
         intent.removeExtra(Intent.EXTRA_TEXT)
         val coroutineScope = lifecycle.coroutineScope
@@ -1603,6 +1611,12 @@ class MainActivity : ComponentActivity() {
         com.metrolist.music.friends.FriendsHub.parseInvite(uri)?.let { invite ->
             com.metrolist.music.friends.FriendsHub.openInvite(invite)
             runCatching { navController.navigate("friends") { launchSingleTop = true } }
+            return
+        }
+
+        // A Drxwnify link (drxwnify.pages.dev/album/…, drxwnify://track/…) or a Spotify one.
+        com.metrolist.music.utils.AppLinks.parse(uri)?.let { target ->
+            openAppLink(target, navController)
             return
         }
 
@@ -1700,6 +1714,51 @@ class MainActivity : ComponentActivity() {
                             }.onFailure {
                                 reportException(it)
                             }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Opens what an app link points at: the page of an album, playlist or artist, or plays a track. */
+    private fun openAppLink(target: com.metrolist.music.utils.AppLinks.Target, navController: NavHostController) {
+        val links = com.metrolist.music.utils.AppLinks
+        val fromYouTube = target.id.startsWith(links.YOUTUBE_PREFIX)
+        val raw = target.id.removePrefix(links.YOUTUBE_PREFIX)
+        lifecycle.coroutineScope.launch {
+            val id = if (fromYouTube) {
+                raw
+            } else {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        com.metrolist.music.catalog.Catalog.ensureAuthenticated()
+                        links.reachableId(target)
+                    }.getOrDefault(target.id)
+                }
+            }
+            when (target.kind) {
+                com.metrolist.music.utils.AppLinks.Kind.ALBUM ->
+                    runCatching { navController.navigate(if (fromYouTube) "album/$id" else "spotify_album/$id") }
+                com.metrolist.music.utils.AppLinks.Kind.PLAYLIST ->
+                    runCatching { navController.navigate(if (fromYouTube) "online_playlist/$id" else "spotify_playlist/$id") }
+                com.metrolist.music.utils.AppLinks.Kind.ARTIST ->
+                    runCatching { navController.navigate(if (fromYouTube) "artist/$id" else "spotify_artist/$id") }
+                com.metrolist.music.utils.AppLinks.Kind.TRACK -> if (fromYouTube) {
+                    playerConnection?.playQueue(YouTubeQueue(WatchEndpoint(videoId = id)))
+                } else {
+                    val track = withContext(Dispatchers.IO) { com.metrolist.music.catalog.Catalog.getTrack(id).getOrNull() }
+                    if (track != null) {
+                        playerConnection?.playQueue(
+                            com.metrolist.music.playback.queues.SpotifyQueue(
+                                initialTrack = track,
+                                mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database),
+                            ),
+                        )
+                    } else {
+                        // Not found by id (another catalog): searched for by name instead.
+                        listOfNotNull(target.by, target.title).joinToString(" ").takeIf { it.isNotBlank() }?.let { query ->
+                            runCatching { navController.navigate("search/${URLEncoder.encode(query, "UTF-8")}") }
+                        }
                     }
                 }
             }

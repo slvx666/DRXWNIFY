@@ -215,6 +215,9 @@ object FriendsHub {
 
     internal fun databaseOrNull(): MusicDatabase? = database
 
+    /** This profile's key, when there is a profile (for messages signed as it). */
+    internal fun secretKeyOrNull(): ByteArray? = secretKey
+
     fun init(context: Context, database: MusicDatabase) {
         appContext = context.applicationContext
         this.database = database
@@ -272,6 +275,11 @@ object FriendsHub {
         if (secretKey != null) scope.launch {
             delay(60_000L)
             publishPortraitIfStale()
+        }
+        // The developer's phone: new suggestions counted for the badge in Settings.
+        if (_profile.value?.isDeveloper == true) scope.launch {
+            delay(15_000L)
+            Suggestions.peek(context.applicationContext)
         }
         // Liked tracks of the friends whose likes are kept as a playlist: fetched at start, at most hourly.
         if (secretKey != null) scope.launch {

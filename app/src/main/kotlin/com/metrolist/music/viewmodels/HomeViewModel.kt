@@ -38,6 +38,9 @@ import com.metrolist.music.utils.SpotifyTokenManager
 import com.metrolist.music.constants.SpotifyTokenExpiryKey
 import com.metrolist.music.constants.UseSpotifyHomeKey
 import com.metrolist.music.constants.WrappedSeenKey
+import com.metrolist.music.constants.YandexAccessTokenKey
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.withTimeoutOrNull
 import com.metrolist.music.catalog.Catalog
 import com.metrolist.music.constants.ArtistSortType
 import com.metrolist.music.constants.SongSortType
@@ -205,6 +208,15 @@ class HomeViewModel @Inject constructor(
 
     // Spotify home sections: populated when UseSpotifyHomeKey is enabled
     val spotifyHomeSections = MutableStateFlow<List<SpotifyHomeSection>?>(null)
+
+    /** Spotify's personal mixes (see [loadSpotifyMixes]). */
+    val spotifyMixes = MutableStateFlow<List<SpotifyPlaylist>?>(null)
+
+    /** The personal rows of the home page (new releases, "More like", genres…). */
+    val homeFeed = com.metrolist.music.home.HomeFeed.feed
+
+    /** True when the page is the classic YouTube one (no Spotify or Yandex account). */
+    val youtubeHome = MutableStateFlow(false)
     val useSpotifyHome: StateFlow<Boolean> = context.dataStore.data.map { prefs ->
         val enabled = prefs[EnableSpotifyKey] ?: false
         val useForHome = prefs[UseSpotifyHomeKey] ?: false
@@ -544,16 +556,16 @@ class HomeViewModel @Inject constructor(
             fallback
         }
 
-    private suspend fun load() {
+    private suspend fun load(force: Boolean = false) {
         try {
-            loadSections()
+            loadSections(force)
         } finally {
             isLoading.value = false
             firstLoadDone.value = true
         }
     }
 
-    private suspend fun loadSections() {
+    private suspend fun loadSections(force: Boolean = false) = coroutineScope {
         isLoading.value = true
         val hideExplicit = context.dataStore.get(HideExplicitKey, false)
         val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
@@ -568,6 +580,11 @@ class HomeViewModel @Inject constructor(
         val spotifyHasToken = (prefs[SpotifyAccessTokenKey] ?: "").isNotEmpty()
         val isSpotifyHome = spotifyEnabled && spotifyUseForHome && spotifyHasToken
         val isSpotifyOnly = isSpotifyHome && spotifyHomeOnlyPref
+        // A music account (Spotify or Yandex) gets the app's own home page; the classic YouTube one
+        // (its feed, chips and history-based rows) stays for listeners without one.
+        val catalogHome = (spotifyEnabled && spotifyHasToken) || prefs[YandexAccessTokenKey].orEmpty().isNotEmpty()
+        val withYouTube = !catalogHome && !isSpotifyOnly
+        youtubeHome.value = withYouTube
 
         // Local play history — always loaded regardless of Spotify mode
         recentlyPlayed.value = database.events().first()
@@ -576,37 +593,118 @@ class HomeViewModel @Inject constructor(
             .map { it.song }
             .filterVideoSongs(hideVideoSongs)
 
-        // Recommendations replace the old speed dial: they are catalog-based, so they are loaded
-        // in every mode, including Spotify-only.
-        section("forYou", Unit) { loadForYou(hideExplicit) }
-
-        // When Spotify-only mode is active, skip all YouTube-based content
-        if (!isSpotifyOnly) {
-            section("quickPicks", Unit) { getQuickPicks() }
-            section("dailyDiscover", Unit) { getDailyDiscover() }
-            section("communityPlaylists", Unit) { getCommunityPlaylists() }
-            section("forgottenFavorites", Unit) {
-                forgottenFavorites.value = database.forgottenFavorites().first().filterVideoSongs(hideVideoSongs).shuffled().take(20)
+        // Every row loads side by side and shows as soon as it is ready: one after another, a slow or
+        // blocked source (YouTube without a VPN) kept the whole page on placeholders for minutes.
+        val jobs = mutableListOf<kotlinx.coroutines.Job>()
+        jobs += launch { section("forYou", Unit) { withTimeoutOrNull(SECTION_TIMEOUT_MS) { loadForYou(hideExplicit) } } }
+        // The personal rows are rebuilt behind the page (their genre lookups can take a while) and
+        // show row by row; the saved ones stay meanwhile. Not waited for, so a pull-to-refresh ends.
+        viewModelScope.launch(Dispatchers.IO) {
+            section("homeFeed", Unit) { com.metrolist.music.home.HomeFeed.refresh(database, hideExplicit, force) }
+        }
+        jobs += launch {
+            if (isSpotifyHome) {
+                section("spotifyMixes", Unit) {
+                    withTimeoutOrNull(SECTION_TIMEOUT_MS) { if (SpotifyTokenManager.ensureAuthenticated()) loadSpotifyMixes() }
+                }
+            } else {
+                spotifyMixes.value = null
             }
+        }
 
-            val keepListeningSongs = database.mostPlayedSongs(fromTimeStamp, limit = 15, offset = 5).first().filterVideoSongs(hideVideoSongs).shuffled().take(10)
-            val keepListeningAlbums = database.mostPlayedAlbums(fromTimeStamp, limit = 8, offset = 2).first().filter { it.album.thumbnailUrl != null }.shuffled().take(5)
-            val keepListeningArtists = database.mostPlayedArtists(fromTimeStamp).first().filter { it.artist.isYouTubeArtist && it.artist.thumbnailUrl != null }.shuffled().take(5)
-            keepListening.value = (keepListeningSongs + keepListeningAlbums + keepListeningArtists).shuffled()
-
-            if (YouTube.cookie != null) {
-                loadAccountPlaylists()
+        if (withYouTube) {
+            jobs += launch { section("quickPicks", Unit) { withTimeoutOrNull(SECTION_TIMEOUT_MS) { getQuickPicks() } } }
+            jobs += launch { section("dailyDiscover", Unit) { withTimeoutOrNull(SECTION_TIMEOUT_MS) { getDailyDiscover() } } }
+            jobs += launch { section("communityPlaylists", Unit) { withTimeoutOrNull(SECTION_TIMEOUT_MS) { getCommunityPlaylists() } } }
+            jobs += launch {
+                section("forgottenFavorites", Unit) {
+                    forgottenFavorites.value = database.forgottenFavorites().first().filterVideoSongs(hideVideoSongs).shuffled().take(20)
+                }
             }
+            jobs += launch {
+                section("keepListening", Unit) {
+                    val keepListeningSongs = database.mostPlayedSongs(fromTimeStamp, limit = 15, offset = 5).first().filterVideoSongs(hideVideoSongs).shuffled().take(10)
+                    val keepListeningAlbums = database.mostPlayedAlbums(fromTimeStamp, limit = 8, offset = 2).first().filter { it.album.thumbnailUrl != null }.shuffled().take(5)
+                    val keepListeningArtists = database.mostPlayedArtists(fromTimeStamp).first().filter { it.artist.isYouTubeArtist && it.artist.thumbnailUrl != null }.shuffled().take(5)
+                    keepListening.value = (keepListeningSongs + keepListeningAlbums + keepListeningArtists).shuffled()
+                }
+            }
+            if (YouTube.cookie != null) jobs += launch { section("accountPlaylists", Unit) { withTimeoutOrNull(SECTION_TIMEOUT_MS) { loadAccountPlaylists() } } }
+            jobs += launch {
+                section("similarRecommendations", Unit) {
+                    withTimeoutOrNull(SECTION_TIMEOUT_MS) {
+                        similarRecommendations.value = similarRecommendations(fromTimeStamp, hideExplicit, hideVideoSongs)
+                    }
+                }
+            }
+            jobs += launch {
+                section("youtubeHome", Unit) {
+                    withTimeoutOrNull(SECTION_TIMEOUT_MS) {
+                        YouTube.home().onSuccess { page ->
+                            homePage.value = page.copy(
+                                sections = page.sections.mapNotNull { section ->
+                                    val filteredItems = section.items.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs).filterYoutubeShorts(hideYoutubeShorts)
+                                    if (filteredItems.isEmpty()) null else section.copy(items = filteredItems)
+                                }
+                            )
+                        }.onFailure { reportException(it) }
+                    }
+                }
+            }
+            launch(Dispatchers.IO) {
+                YouTube.explore().onSuccess { page ->
+                    explorePage.value = page.copy(
+                        newReleaseAlbums = page.newReleaseAlbums.filterExplicit(hideExplicit)
+                    )
+                }.onFailure { reportException(it) }
+            }
+        } else {
+            homePage.value = null
+            explorePage.value = null
+            quickPicks.value = null
+            dailyDiscover.value = null
+            communityPlaylists.value = null
+            forgottenFavorites.value = null
+            keepListening.value = null
+            similarRecommendations.value = null
+        }
 
-            val artistRecommendations = section("artistRecommendations", emptyList<SimilarRecommendation>()) { database.mostPlayedArtists(fromTimeStamp, limit = 15).first()
+        // The page counts as loaded (placeholders go, the launch intro may end) as soon as something
+        // real is on it, or after a few seconds whatever happens.
+        launch {
+            withTimeoutOrNull(FIRST_CONTENT_WAIT_MS) {
+                kotlinx.coroutines.flow.combine(forYou, com.metrolist.music.home.HomeFeed.feed, homePage) { fy, feed, page ->
+                    !fy.isNullOrEmpty() || (feed != null && (feed.newReleases.isNotEmpty() || feed.similar.isNotEmpty())) || page != null
+                }.first { it }
+            }
+            isLoading.value = false
+            firstLoadDone.value = true
+        }
+
+        jobs.joinAll()
+
+        if (withYouTube) {
+            allLocalItems.value = (quickPicks.value.orEmpty() + forgottenFavorites.value.orEmpty() + keepListening.value.orEmpty())
+                .filter { it is Song || it is Album }
+            allYtItems.value = similarRecommendations.value?.flatMap { it.items }.orEmpty() +
+                    homePage.value?.sections?.flatMap { it.items }.orEmpty()
+        }
+        isLoading.value = false
+    }
+
+    private suspend fun similarRecommendations(
+        fromTimeStamp: Long,
+        hideExplicit: Boolean,
+        hideVideoSongs: Boolean,
+    ): List<SimilarRecommendation> = coroutineScope {
+        val artistRecommendations = async {
+            database.mostPlayedArtists(fromTimeStamp, limit = 15).first()
                 .filter { it.artist.isYouTubeArtist }
                 .shuffled().take(4)
                 .mapNotNull {
                     val items = mutableListOf<YTItem>()
                     YouTube.artist(it.id).onSuccess { page ->
-                        page.sections.takeLast(3).forEach { section ->
-                            items += section.items
-                        }
+                        page.sections.takeLast(3).forEach { section -> items += section.items }
                     }
                     SimilarRecommendation(
                         title = it,
@@ -616,13 +714,12 @@ class HomeViewModel @Inject constructor(
                             .filterVideoSongs(hideVideoSongs)
                             .shuffled()
                             .take(12)
-                            .ifEmpty { return@mapNotNull null }
+                            .ifEmpty { return@mapNotNull null },
                     )
                 }
-
-            }
-
-            val songRecommendations = section("songRecommendations", emptyList<SimilarRecommendation>()) { database.mostPlayedSongs(fromTimeStamp, limit = 15).first()
+        }
+        val songRecommendations = async {
+            database.mostPlayedSongs(fromTimeStamp, limit = 15).first()
                 .filter { it.album != null }
                 .shuffled().take(3)
                 .mapNotNull { song ->
@@ -638,24 +735,19 @@ class HomeViewModel @Inject constructor(
                             .filterExplicit(hideExplicit)
                             .filterVideoSongs(hideVideoSongs)
                             .shuffled()
-                            .ifEmpty { return@mapNotNull null }
+                            .ifEmpty { return@mapNotNull null },
                     )
                 }
-
-            }
-
-            val albumRecommendations = section("albumRecommendations", emptyList<SimilarRecommendation>()) { database.mostPlayedAlbums(fromTimeStamp, limit = 10).first()
+        }
+        val albumRecommendations = async {
+            database.mostPlayedAlbums(fromTimeStamp, limit = 10).first()
                 .filter { it.album.thumbnailUrl != null && !it.id.startsWith("spotify:") }
                 .shuffled().take(2)
                 .mapNotNull { album ->
                     val items = mutableListOf<YTItem>()
-                    YouTube.album(album.id).onSuccess { page ->
-                        page.otherVersions.let { items += it }
-                    }
+                    YouTube.album(album.id).onSuccess { page -> items += page.otherVersions }
                     album.artists.firstOrNull()?.id?.let { artistId ->
-                        YouTube.artist(artistId).onSuccess { page ->
-                            page.sections.lastOrNull()?.items?.let { items += it }
-                        }
+                        YouTube.artist(artistId).onSuccess { page -> page.sections.lastOrNull()?.items?.let { items += it } }
                     }
                     SimilarRecommendation(
                         title = album,
@@ -665,191 +757,47 @@ class HomeViewModel @Inject constructor(
                             .filterVideoSongs(hideVideoSongs)
                             .shuffled()
                             .take(10)
-                            .ifEmpty { return@mapNotNull null }
+                            .ifEmpty { return@mapNotNull null },
                     )
                 }
-
-            }
-
-            similarRecommendations.value = (artistRecommendations + songRecommendations + albumRecommendations).shuffled()
         }
-
-        // Load remote content: Spotify or YouTube depending on preference
-        Timber.d("spotifyHome: gate isSpotifyHome=$isSpotifyHome isSpotifyOnly=$isSpotifyOnly")
-        val spotifyLoaded = isSpotifyHome && section("spotifyHome", false) {
-            if (SpotifyTokenManager.ensureAuthenticated()) {
-                Timber.d("spotifyHome: auth OK, loading Spotify sections")
-                loadSpotifyHomeSections(hideExplicit)
-                !spotifyHomeSections.value.isNullOrEmpty()
-            } else {
-                false
-            }
-        }
-        if (!spotifyLoaded && (!isSpotifyOnly || isSpotifyHome)) {
-            Timber.d("spotifyHome: falling back to YouTube home (auth failed or not enabled)")
-            spotifyHomeSections.value = null
-
-            YouTube.home().onSuccess { page ->
-                homePage.value = page.copy(
-                    sections = page.sections.mapNotNull { section ->
-                        val filteredItems = section.items.filterExplicit(hideExplicit).filterVideoSongs(hideVideoSongs).filterYoutubeShorts(hideYoutubeShorts)
-                        if (filteredItems.isEmpty()) null else section.copy(items = filteredItems)
-                    }
-                )
-            }.onFailure {
-                reportException(it)
-            }
-        }
-
-        if (!isSpotifyOnly) {
-            allLocalItems.value = (quickPicks.value.orEmpty() + forgottenFavorites.value.orEmpty() + keepListening.value.orEmpty())
-                .filter { it is Song || it is Album }
-            allYtItems.value = similarRecommendations.value?.flatMap { it.items }.orEmpty() +
-                    homePage.value?.sections?.flatMap { it.items }.orEmpty()
-        }
-
-        isLoading.value = false
-
-        // Load YouTube explore (mood & genres) in the background — it is also shown
-        // alongside Spotify home sections, but never in Spotify-only mode.
-        // dailyDiscover, communityPlaylists and similarRecommendations already ran
-        // synchronously above (gated by !isSpotifyOnly); they are no longer re-run here.
-        if (!isSpotifyOnly) {
-            viewModelScope.launch(Dispatchers.IO) {
-                YouTube.explore().onSuccess { page ->
-                    explorePage.value = page.copy(
-                        newReleaseAlbums = page.newReleaseAlbums.filterExplicit(hideExplicit)
-                    )
-                }.onFailure { reportException(it) }
-            }
-        }
-    }
-
-    private suspend fun loadSpotifyHomeSections(hideExplicit: Boolean) {
-        Timber.d("spotifyHome: loadSpotifyHomeSections() START (hideExplicit=$hideExplicit)")
-        val sections = mutableListOf<SpotifyHomeSection>()
-
-        try {
-            // "Your Top Tracks" removed per user request: it hit Spotify's /me/top/tracks endpoint,
-            // which gets rate-limited hard (429, sometimes retryAfter=86400s / 24h) and the user
-            // doesn't care about the section anyway. These two sources are independent — fetch them
-            // concurrently and then assemble the sections in a fixed display order.
-            val (newReleasesResult, homeResult) = coroutineScope {
-                val newReleasesDeferred = async { Spotify.newReleases(limit = 20) }
-                val homeDeferred = async { Spotify.home(sectionItemsLimit = 10) }
-                newReleasesDeferred.await() to homeDeferred.await()
-            }
-
-            newReleasesResult.onSuccess { newReleases ->
-                val albums = newReleases.albums?.items.orEmpty()
-                if (albums.isNotEmpty()) {
-                    sections.add(SpotifyHomeSection(
-                        title = "spotify_new_releases",
-                        type = SectionType.ALBUMS,
-                        albums = albums,
-                    ))
-                    Timber.d("spotifyHome: added pinned section 'New Releases' (${albums.size} albums)")
-                } else {
-                    Timber.w("spotifyHome: newReleases returned 0 albums — skipping section")
-                }
-            }.onFailure { e ->
-                Timber.e(e, "spotifyHome: newReleases() FAILED — ${e.javaClass.simpleName}: ${e.message}")
-            }
-
-            homeResult.onSuccess { feed ->
-                Timber.d("spotifyHome: home() OK — greeting='${feed.greeting}' rawSections=${feed.sections.size}")
-                feed.sections.forEachIndexed { i, s ->
-                    Timber.d("spotifyHome:   raw[$i] title='${s.title}' type=${s.typename} items=${s.items.size} totalCount=${s.totalCount}")
-                }
-                feed.sections.forEach { raw ->
-                    val converted = convertHomeSection(raw)
-                    if (converted == null) {
-                        Timber.d("spotifyHome: SKIPPED '${raw.title ?: "<no title>"}' (typename=${raw.typename})")
-                    } else {
-                        sections.add(converted)
-                        Timber.d("spotifyHome: ADDED '${converted.title}' type=${converted.type} items=${converted.playlists.size + converted.albums.size + converted.artists.size}")
-                    }
-                }
-            }.onFailure { e ->
-                Timber.e(e, "spotifyHome: home() FAILED — ${e.javaClass.simpleName}: ${e.message}")
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "spotifyHome: loadSpotifyHomeSections() threw ${e.javaClass.simpleName}: ${e.message}")
-            reportException(e)
-        }
-
-        Timber.d("spotifyHome: loadSpotifyHomeSections() END — final sections=${sections.size}")
-        spotifyHomeSections.value = sections.ifEmpty { null }
-        if (sections.isEmpty()) Timber.w("spotifyHome: flow set to NULL — UI will show nothing")
-
-        homePage.value = null
-        explorePage.value = null
+        (runCatching { artistRecommendations.await() }.getOrDefault(emptyList()) +
+            runCatching { songRecommendations.await() }.getOrDefault(emptyList()) +
+            runCatching { albumRecommendations.await() }.getOrDefault(emptyList())).shuffled()
     }
 
     /**
-     * Converts a Spotify home-feed section (mixed types, Spotify-localized title)
-     * into our [SpotifyHomeSection] model. Picks the dominant content type when
-     * a section is heterogeneous and filters items to that type — Shorts sections
-     * and episode-only sections are skipped (no title / not playable as tracks).
+     * Spotify's personal mixes (Discover Weekly, the Daily Mixes, Release Radar…) as one row. The
+     * rest of Spotify's home feed (albums "featuring songs you like", "by artists you follow", "your
+     * favourite artists", charts) is left out: the app's own rows cover that, from what is really
+     * listened to and in the app's language.
      */
+    private suspend fun loadSpotifyMixes() {
+        val feed = Spotify.home(sectionItemsLimit = 20).getOrNull() ?: return
+        val mixes = feed.sections
+            .flatMap { it.items }
+            .filterIsInstance<SpotifyHomeFeedItem.Playlist>()
+            .filter { it.isTasteBased() && it.ownerName.equals("Spotify", ignoreCase = true) }
+            .distinctBy { it.id }
+            .map(::toSpotifyPlaylist)
+        spotifyMixes.value = mixes.ifEmpty { null }
+    }
+
     // P4: keep only taste-based playlists. Spotify seeds the home feed with generic
     // editorial playlists (charts like "Top 100…", mood/decade compilations) that are
     // owned by the "Spotify" account and not made for this user. Personal mixes
     // (Daily Mix, Discover Weekly, Release Radar) are Spotify-owned but carry a
-    // `madeForUsername`, so we keep those; user-owned and other-user playlists (owner
-    // != Spotify) are kept too.
+    // `madeForUsername`, so we keep those.
     private fun SpotifyHomeFeedItem.Playlist.isTasteBased(): Boolean {
         val owner = ownerName?.trim()
-        // Playlists NOT owned by the Spotify editorial account are the user's own or other people's —
-        // always keep those.
         if (!owner.equals("Spotify", ignoreCase = true)) return true
-        // Spotify-owned playlists are mostly generic editorial (charts, moods, "Happy Hits!",
-        // localized "fijne zondag!" greeting playlists) that ignore the user's taste. Keep only the
-        // genuinely personal algorithmic mixes, matched by their stable names.
         val n = name.trim().lowercase()
         val personalPrefixes = listOf(
             "daily mix", "discover weekly", "release radar", "on repeat", "repeat rewind",
             "your time capsule", "time capsule", "your top songs", "your summer rewind",
-            "made for", "blend",
+            "made for", "blend", "микс дня", "открытия недели", "радар новинок",
         )
-        return personalPrefixes.any { n.startsWith(it) || n.contains(it) }
-    }
-
-    private fun convertHomeSection(feedSection: SpotifyHomeFeedSection): SpotifyHomeSection? {
-        val title = feedSection.title ?: return null
-
-        val playlists = feedSection.items
-            .filterIsInstance<SpotifyHomeFeedItem.Playlist>()
-            .filter { it.isTasteBased() }
-        val albums = feedSection.items.filterIsInstance<SpotifyHomeFeedItem.Album>()
-        val artists = feedSection.items.filterIsInstance<SpotifyHomeFeedItem.Artist>()
-
-        val counts = listOf(
-            SectionType.PLAYLISTS to playlists.size,
-            SectionType.ALBUMS to albums.size,
-            SectionType.ARTISTS to artists.size,
-        )
-        val (dominant, size) = counts.maxByOrNull { it.second } ?: return null
-        if (size == 0) return null
-
-        return when (dominant) {
-            SectionType.PLAYLISTS -> SpotifyHomeSection(
-                title = title,
-                type = SectionType.PLAYLISTS,
-                playlists = playlists.map(::toSpotifyPlaylist),
-            )
-            SectionType.ALBUMS -> SpotifyHomeSection(
-                title = title,
-                type = SectionType.ALBUMS,
-                albums = albums.map(::toSpotifyAlbum),
-            )
-            SectionType.ARTISTS -> SpotifyHomeSection(
-                title = title,
-                type = SectionType.ARTISTS,
-                artists = artists.map(::toSpotifyArtist),
-            )
-            SectionType.TRACKS -> null
-        }
+        return madeForUsername != null || personalPrefixes.any { n.startsWith(it) || n.contains(it) }
     }
 
     private fun toSpotifyPlaylist(p: SpotifyHomeFeedItem.Playlist): SpotifyPlaylist =
@@ -861,24 +809,6 @@ class HomeViewModel @Inject constructor(
             owner = p.ownerName?.let { SpotifyPlaylistOwner(displayName = it) },
             tracks = SpotifyPlaylistTracksRef(total = p.totalCount),
             uri = p.uri,
-        )
-
-    private fun toSpotifyAlbum(a: SpotifyHomeFeedItem.Album): SpotifyAlbum =
-        SpotifyAlbum(
-            id = a.id,
-            name = a.name,
-            albumType = a.albumType,
-            artists = a.artists,
-            images = a.imageUrl?.let { listOf(SpotifyImage(url = it)) } ?: emptyList(),
-            uri = a.uri,
-        )
-
-    private fun toSpotifyArtist(ar: SpotifyHomeFeedItem.Artist): SpotifyArtist =
-        SpotifyArtist(
-            id = ar.id,
-            name = ar.name,
-            images = ar.imageUrl?.let { listOf(SpotifyImage(url = it)) } ?: emptyList(),
-            uri = ar.uri,
         )
 
     private val _isLoadingMore = MutableStateFlow(false)
@@ -1000,7 +930,7 @@ class HomeViewModel @Inject constructor(
                     )
                 }
             } else {
-                load()
+                load(force = true)
             }
             isRefreshing.value = false
         }
@@ -1013,6 +943,9 @@ class HomeViewModel @Inject constructor(
     companion object {
         /** Set once the home page finished its first load; the launch intro waits for it. */
         val firstLoadDone = MutableStateFlow(false)
+
+        private const val SECTION_TIMEOUT_MS = 40_000L
+        private const val FIRST_CONTENT_WAIT_MS = 5_000L
     }
 
     init {
