@@ -35,6 +35,9 @@ class CustomEqualizerAudioProcessor : AudioProcessor {
     companion object {
         private const val TAG = "CustomEqualizerAudioProcessor"
         private val EMPTY_BUFFER: ByteBuffer = ByteBuffer.allocateDirect(0).order(ByteOrder.nativeOrder())
+
+        /** -1 dBFS: where the soft limiter starts to bend the signal. */
+        private const val KNEE = 0.891
     }
 
     /**
@@ -214,8 +217,7 @@ class CustomEqualizerAudioProcessor : AudioProcessor {
                     // Apply preamp gain
                     processed *= preampGain
 
-                    // Clamp and convert back to 16-bit
-                    val outputSample = (processed * 32768.0).coerceIn(-32768.0, 32767.0).toInt().toShort()
+                    val outputSample = toPcm16(processed)
                     output.putShort(outputSample)
                 }
                 2 -> {
@@ -237,9 +239,8 @@ class CustomEqualizerAudioProcessor : AudioProcessor {
                     processedLeft *= preampGain
                     processedRight *= preampGain
 
-                    // Clamp and convert back to 16-bit
-                    val outputLeft = (processedLeft * 32768.0).coerceIn(-32768.0, 32767.0).toInt().toShort()
-                    val outputRight = (processedRight * 32768.0).coerceIn(-32768.0, 32767.0).toInt().toShort()
+                    val outputLeft = toPcm16(processedLeft)
+                    val outputRight = toPcm16(processedRight)
 
                     output.putShort(outputLeft)
                     output.putShort(outputRight)
@@ -252,6 +253,21 @@ class CustomEqualizerAudioProcessor : AudioProcessor {
                 }
             }
         }
+    }
+
+    /**
+     * Back to 16-bit through a soft knee above -1 dBFS: a boost on a loud master bends its peaks
+     * smoothly instead of chopping them off (hard clipping is what made a small boost sound harsh).
+     */
+    private fun toPcm16(sample: Double): Short {
+        val magnitude = kotlin.math.abs(sample)
+        val shaped = if (magnitude <= KNEE) {
+            sample
+        } else {
+            val over = (magnitude - KNEE) / (1.0 - KNEE)
+            kotlin.math.sign(sample) * (KNEE + (1.0 - KNEE) * kotlin.math.tanh(over))
+        }
+        return kotlin.math.round(shaped * 32767.0).coerceIn(-32768.0, 32767.0).toInt().toShort()
     }
 
     override fun getOutput(): ByteBuffer {

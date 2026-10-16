@@ -529,21 +529,13 @@ class MetrolistWidgetManager @Inject constructor(
     }
 
     /**
-     * The 2x1 player: the 2x2's blurred cover behind, the cover, "title · artist" on one line and
-     * previous / play / next under it — every control a thumb needs in two cells.
+     * The 2x1 player: the 2x2's blurred cover behind, title and artist over the whole width on top,
+     * previous / play / next in the middle and the progress at the bottom.
      */
     private fun miniFaces(face: MeldFace, options: Bundle): List<Face> {
         val scale = minOf(context.resources.displayMetrics.density, 2.2f)
         val widthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH).takeIf { it > 0 } ?: 170
-        val heightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: 70
-        val line = android.text.SpannableStringBuilder(face.title).apply {
-            setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-            if (face.artist.isNotBlank()) {
-                val from = length
-                append("  ·  ").append(face.artist)
-                setSpan(android.text.style.ForegroundColorSpan(0xC8FFFFFF.toInt()), from, length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
-        }
+        val heightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: 80
         val views = RemoteViews(context.packageName, R.layout.widget_mini).apply {
             runCatching {
                 SquareWidgetArt.backdrop(
@@ -553,11 +545,12 @@ class MetrolistWidgetManager @Inject constructor(
                     18f * scale,
                 )
             }.getOrNull()?.let { setImageViewBitmap(R.id.mini_bg, it) }
-            setImageViewBitmap(R.id.mini_cover, face.cover)
-            setTextViewText(R.id.mini_title, line)
+            setTextViewText(R.id.mini_title, face.title)
+            setTextViewText(R.id.mini_artist, face.artist)
+            setProgressBar(R.id.mini_progress, 1000, face.progress, false)
             setImageViewResource(R.id.mini_play, if (face.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play)
-            setOnClickPendingIntent(R.id.mini_cover, openAppIntent)
             setOnClickPendingIntent(R.id.mini_title, openAppIntent)
+            setOnClickPendingIntent(R.id.mini_artist, openAppIntent)
             setOnClickPendingIntent(R.id.mini_prev, previousIntent)
             setOnClickPendingIntent(R.id.mini_play, playPauseIntent)
             setOnClickPendingIntent(R.id.mini_next, nextIntent)
@@ -680,7 +673,7 @@ class MetrolistWidgetManager @Inject constructor(
         save("preview_square", renderViews(square.last().views, 170, 170))
         save("preview_square_small", renderViews(square.first().views, 140, 140))
         val miniOptions = Bundle().apply { putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 170) }
-        save("preview_mini", renderViews(miniFaces(face, miniOptions).first().views, 170, 72))
+        save("preview_mini", renderViews(miniFaces(face, miniOptions).first().views, 170, 80))
         val state = FreakState("Lift Your Head", "Holy Fawn", cover, isPlaying = true, isLiked = true, progress = 0.45f, live = true, quality = "320 kbps · MP3 · VK")
         fun px(dp: Int) = (dp * minOf(density, 2.2f)).toInt()
         save("preview_tv", FreakWidgets.drawFor(context, FreakKind.TV, px(220), px(160), state))

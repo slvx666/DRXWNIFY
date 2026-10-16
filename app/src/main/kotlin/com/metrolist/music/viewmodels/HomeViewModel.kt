@@ -777,7 +777,19 @@ class HomeViewModel @Inject constructor(
      */
     private suspend fun loadSpotifyHome(hideExplicit: Boolean): Boolean = coroutineScope {
         val language = context.resources.configuration.locales.get(0)?.language
-        val newReleasesDeferred = async { Spotify.newReleases(limit = 20) }
+        // The followed artists' releases: two pages, so the row has plenty to scroll through.
+        val newReleasesDeferred = async {
+            // A page of 50 where Spotify allows it, else its usual 20.
+            Spotify.newReleases(limit = 50).recoverCatching { Spotify.newReleases(limit = 20).getOrThrow() }.mapCatching { first ->
+                val albums = first.albums?.items.orEmpty()
+                if ((first.albums?.total ?: 0) > albums.size) {
+                    val more = Spotify.newReleases(limit = 50, offset = albums.size).getOrNull()?.albums?.items.orEmpty()
+                    first.copy(albums = first.albums?.copy(items = (albums + more).distinctBy { it.id }))
+                } else {
+                    first
+                }
+            }
+        }
         val homeDeferred = async { Spotify.home(sectionItemsLimit = 20, language = language) }
         val feedData = com.metrolist.music.home.HomeFeed.feed.value
         val artists = feedData?.favoriteArtists.orEmpty()

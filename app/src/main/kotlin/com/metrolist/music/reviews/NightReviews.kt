@@ -57,6 +57,9 @@ object NightReviews {
 
     private const val BASE = "https://tgzip.drxwnslvt.workers.dev/"
     private const val DATA_URL = BASE + "data/reviews.json"
+
+    /** The bot's fresh posts and edits since the last site build (the site lays them over the build). */
+    private const val LIVE_URL = BASE + "api/live"
     private const val CACHE_FILE = "night_reviews.json"
     private const val PREFS = "night_reviews"
 
@@ -85,12 +88,11 @@ object NightReviews {
                 }
             }
             _state.value = _state.value.copy(loading = true, error = false)
-            val text = runCatching {
-                client.newCall(Request.Builder().url("$DATA_URL?t=${System.currentTimeMillis()}").build()).execute().use { r ->
-                    if (!r.isSuccessful) error("HTTP ${r.code}")
-                    r.body?.string() ?: error("empty")
-                }
-            }.onFailure { Timber.w(it, "NightReviews: fetch failed") }.getOrNull()
+            val built = fetchText(DATA_URL)
+            // New albums and changed ratings come through the live feed until the next site build:
+            // without it the app missed them while the site showed them.
+            val live = fetchText(LIVE_URL)
+            val text = built?.let { b -> live?.let { l -> runCatching { mergeLive(b, l) }.getOrNull() } ?: b }
             val parsed = text?.let { runCatching { parse(it) }.getOrNull() }
             if (parsed == null) {
                 _state.value = _state.value.copy(loading = false, error = _state.value.reviews.isEmpty())
@@ -110,6 +112,45 @@ object NightReviews {
                 newIds = _state.value.newIds + fresh,
             )
         }
+    }
+
+    private fun fetchText(url: String): String? = runCatching {
+        client.newCall(Request.Builder().url("$url?t=${System.currentTimeMillis()}").header("Cache-Control", "no-cache").build()).execute().use { r ->
+            if (!r.isSuccessful) error("HTTP ${r.code}")
+            r.body?.string() ?: error("empty")
+        }
+    }.onFailure { Timber.w(it, "NightReviews: fetch $url failed") }.getOrNull()
+
+    /**
+     * The site's own merge (assets/app.js mergeLive): a live post replaces the built one (its text,
+     * rating and genres), keeping the build's cover, country, label and stats; a post not in the build
+     * is added. An edit older than the build's Telegram export is already in it and is skipped.
+     */
+    internal fun mergeLive(builtText: String, liveText: String): String {
+        val base = JSONObject(builtText)
+        val live = JSONObject(liveText).optJSONArray("reviews") ?: return builtText
+        val exported = base.optLong("exportedTs")
+        val list = base.optJSONArray("reviews") ?: org.json.JSONArray()
+        val indexById = HashMap<String, Int>()
+        for (i in 0 until list.length()) list.optJSONObject(i)?.optString("id")?.let { indexById[it] = i }
+        val kept = listOf("c", "l", "pop", "img", "pal", "mg", "ls", "pc", "tn", "dur")
+        for (i in 0 until live.length()) {
+            val l = live.optJSONObject(i) ?: continue
+            if (exported > 0 && l.optLong("ed") <= exported) continue
+            val id = l.optString("id")
+            val at = indexById[id]
+            if (at != null) {
+                val old = list.getJSONObject(at)
+                val merged = JSONObject(l.toString())
+                kept.forEach { k -> if (old.has(k) && !old.isNull(k) && old.opt(k).toString().let { v -> v.isNotEmpty() && v != "0" }) merged.put(k, old.get(k)) }
+                if (old.optString("rev").length > l.optString("rev").length) merged.put("rev", old.optString("rev"))
+                list.put(at, merged)
+            } else {
+                list.put(l)
+                indexById[id] = list.length() - 1
+            }
+        }
+        return base.put("reviews", list).toString()
     }
 
     private fun parse(text: String): Pair<List<Review>, String?> {

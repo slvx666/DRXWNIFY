@@ -239,6 +239,9 @@ sealed class HomeSection(
 
     /** One of Spotify's own home sections (the ones the app keeps, see SpotifyHomeFilter). */
     data class SpotifyFeed(val index: Int) : HomeSection("spotify_feed_$index", 50)
+
+    /** Album tracks of loved artists that are neither hits nor heard yet. */
+    data object DeepCuts : HomeSection("deep_cuts", 40)
 }
 
 @Composable
@@ -1131,20 +1134,19 @@ fun HomeScreen(
             if (!chipActive) {
                 if (!forYou.isNullOrEmpty()) own.add(HomeSection.ForYou)
                 val feed = homeFeed
-                if (!feed?.newReleases.isNullOrEmpty()) own.add(HomeSection.NewReleases)
-                val similarCount = feed?.similar?.size ?: 0
-                val genreRowCount = feed?.genreRows?.size ?: 0
-                if (similarCount > 0) own.add(HomeSection.MoreLike(0))
-                if (genreRowCount > 0) own.add(HomeSection.MoreInGenre(0))
+                val spotify = spotifyHomeSections.orEmpty()
+                val newReleases = spotify.indexOfFirst { it.title == "spotify_new_releases" }
+                if (newReleases >= 0) own.add(HomeSection.SpotifyFeed(newReleases))
+                // Alike rows stay together: the genre rows one after another, "More like" at the very end.
+                repeat(feed?.genreRows?.size ?: 0) { own.add(HomeSection.MoreInGenre(it)) }
                 if (friendsListening.isNotEmpty()) own.add(HomeSection.FriendsListening)
                 if (!feed?.genres.isNullOrEmpty()) own.add(HomeSection.YourGenres)
-                if (genreRowCount > 1) own.add(HomeSection.MoreInGenre(1))
-                if (similarCount > 1) own.add(HomeSection.MoreLike(1))
                 if (!feed?.forgotten.isNullOrEmpty()) own.add(HomeSection.RememberFavorites)
-                if (genreRowCount > 2) own.add(HomeSection.MoreInGenre(2))
                 if (!spotifyMixes.isNullOrEmpty()) own.add(HomeSection.SpotifyMixes)
-                spotifyHomeSections?.indices?.forEach { own.add(HomeSection.SpotifyFeed(it)) }
+                spotify.indices.filter { it != newReleases }.forEach { own.add(HomeSection.SpotifyFeed(it)) }
+                if (!feed?.deepCuts.isNullOrEmpty()) own.add(HomeSection.DeepCuts)
             }
+            val bottom = if (chipActive) emptyList() else List(homeFeed?.similar?.size ?: 0) { HomeSection.MoreLike(it) }
 
             if (!isSpotifyHomeOnly && !chipActive) {
                 if (quickPicks?.isNotEmpty() == true) list.add(HomeSection.QuickPicks)
@@ -1165,7 +1167,7 @@ fun HomeScreen(
 
             if (!isSpotifyHomeOnly && explorePage?.moodAndGenres != null) list.add(HomeSection.MoodAndGenres)
 
-            own + if (randomizeHomeOrder) {
+            own + (if (randomizeHomeOrder) {
                 list.sortedByDescending { section ->
                     val sectionRandom = Random(randomSeed + section.id.hashCode())
 
@@ -1225,7 +1227,7 @@ fun HomeScreen(
                         else -> defaultOrder[section] ?: 0
                     }
                 }
-            }
+            }) + bottom
         }
 
 
@@ -2526,7 +2528,23 @@ fun HomeScreen(
                         }
 
                         is HomeSection.SpotifyFeed -> {
-                            spotifyHomeSections?.getOrNull(section.index)?.let { feedSection ->
+                            spotifyHomeSections?.getOrNull(section.index)?.takeIf { it.title == "spotify_new_releases" }?.let { releases ->
+                                item(key = "spotify_new_releases_title") {
+                                    NavigationTitle(
+                                        title = resolveSpotifySectionTitle(releases),
+                                        onClick = { navController.navigate("new_release") },
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                                item(key = "spotify_new_releases_row") {
+                                    com.metrolist.music.ui.screens.home.NewReleasesRow(
+                                        albums = releases.albums,
+                                        onOpen = { navController.navigate("spotify_album/${it.id}") },
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                            }
+                            spotifyHomeSections?.getOrNull(section.index)?.takeIf { it.title != "spotify_new_releases" }?.let { feedSection ->
                                 item(key = "spotify_section_title_${section.index}") {
                                     NavigationTitle(
                                         title = resolveSpotifySectionTitle(feedSection),
@@ -2607,6 +2625,48 @@ fun HomeScreen(
                                             )
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        HomeSection.DeepCuts -> {
+                            homeFeed?.deepCuts?.takeIf { it.isNotEmpty() }?.let { tracks ->
+                                fun playDeepCuts(index: Int) {
+                                    if (isListenTogetherGuest) return
+                                    playerConnection.playQueue(
+                                        SpotifyPlaylistQueue(
+                                            playlistId = "home_deep_cuts",
+                                            initialTracks = tracks,
+                                            startIndex = index,
+                                            mapper = spotifyMapper,
+                                        ),
+                                    )
+                                }
+                                item(key = "deep_cuts_title") {
+                                    NavigationTitle(
+                                        title = stringResource(R.string.home_deep_cuts),
+                                        label = stringResource(R.string.home_deep_cuts_label),
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                                item(key = "deep_cuts_row") {
+                                    com.metrolist.music.ui.screens.home.TrackCardsRow(
+                                        tracks = tracks,
+                                        currentId = mediaMetadata?.id,
+                                        onPlay = ::playDeepCuts,
+                                        onMenu = { track ->
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            menuState.show {
+                                                com.metrolist.music.ui.menu.SpotifyTrackMenu(
+                                                    track = track,
+                                                    mapper = spotifyMapper,
+                                                    onDismiss = menuState::dismiss,
+                                                    navController = navController,
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.animateItem(),
+                                    )
                                 }
                             }
                         }

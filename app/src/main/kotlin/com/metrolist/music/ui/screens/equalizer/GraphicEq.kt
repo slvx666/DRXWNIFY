@@ -67,7 +67,12 @@ object GraphicEq {
         UNDERWATER(R.string.eq_underwater, floatArrayOf(6f, 6f, 4f, 2f, -2f, -6f, -10f, -12f, -12f, -12f)),
     }
 
-    /** The profile the engine plays: peaking filters, and enough negative preamp to never clip. */
+    /**
+     * The profile the engine plays: peaking filters and no preamp. A negative preamp as large as the
+     * biggest boost made the whole track that much quieter: lifting one band by 3 dB dropped
+     * everything else by 3 dB, and the sound seemed to change far more than asked. The engine's
+     * soft limiter keeps boosted peaks from clipping instead.
+     */
     fun profile(gains: FloatArray, name: String): SavedEQProfile = SavedEQProfile(
         id = PROFILE_ID,
         name = name,
@@ -75,7 +80,7 @@ object GraphicEq {
         bands = FREQUENCIES.mapIndexed { i, f ->
             ParametricEQBand(frequency = f, gain = gains[i].toDouble(), q = 1.41, filterType = FilterType.PK)
         },
-        preamp = -(gains.maxOrNull()?.coerceAtLeast(0f) ?: 0f).toDouble(),
+        preamp = 0.0,
         isCustom = false,
     )
 

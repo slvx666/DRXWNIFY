@@ -88,7 +88,9 @@ class EqualizerService @Inject constructor() {
 
     private fun applyProfileToProcessor(processor: CustomEqualizerAudioProcessor, profile: SavedEQProfile) {
         val parametricEQ = ParametricEQ(
-            preamp = profile.preamp,
+            // The graphic EQ saved before 2.1.2 carries a preamp of minus its biggest boost: no more
+            // (see GraphicEq.profile); imported AutoEQ profiles keep theirs.
+            preamp = if (profile.id == com.metrolist.music.ui.screens.equalizer.GraphicEq.PROFILE_ID) 0.0 else profile.preamp,
             bands = profile.bands
         )
         processor.applyProfile(parametricEQ)

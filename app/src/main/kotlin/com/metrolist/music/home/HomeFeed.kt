@@ -37,6 +37,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import timber.log.Timber
 import java.io.File
 import java.time.Duration
@@ -74,6 +75,8 @@ data class HomeFeedData(
     val genres: List<String> = emptyList(),
     /** Liked tracks not heard for a long time. */
     val forgotten: List<SpotifyTrack> = emptyList(),
+    /** "Deeper into favourites": album tracks of loved artists, not their hits, not heard yet. */
+    val deepCuts: List<SpotifyTrack> = emptyList(),
     /** The favourite artists by name, strongest first (other rows check against them). */
     val favoriteArtists: List<String> = emptyList(),
 )
@@ -89,11 +92,10 @@ data class HomeFeedData(
  */
 object HomeFeed {
     private const val TTL_MS = 6 * 60 * 60_000L
-    private const val NEW_RELEASE_DAYS = 120L
     private const val FORGOTTEN_AFTER_DAYS = 60L
 
     /** Bumped when the rows are chosen differently: a feed kept from before is rebuilt on the next start. */
-    const val FORMAT = 2
+    const val FORMAT = 3
 
     /** Below this an artist is only listened to, not loved: never a seed for recommendations. */
     private const val MIN_LOVE = 1.0
@@ -140,7 +142,7 @@ object HomeFeed {
 
         val stats = async { section("genres") { genreStats(taste) } }
         val parts = listOf(
-            launch { section("newReleases") { newReleases(favorites, taste, catalogGate).let { r -> _feed.update { it?.copy(newReleases = r) } } } },
+            launch { section("deepCuts") { deepCuts(favorites, taste, hideExplicit, rotation, catalogGate).let { r -> _feed.update { it?.copy(deepCuts = r) } } } },
             launch { section("similar") { similar(favorites, taste, hideExplicit, rotation, catalogGate).let { r -> _feed.update { it?.copy(similar = r) } } } },
             launch { section("forgotten") { forgotten(taste, hideExplicit, rotation).let { r -> _feed.update { it?.copy(forgotten = r) } } } },
             launch {
@@ -292,29 +294,6 @@ object HomeFeed {
 
     // ── Rows ─────────────────────────────────────────────────────────────────────────────────────
 
-    private suspend fun newReleases(favorites: List<Favorite>, taste: Taste, gate: Semaphore): List<SpotifyAlbum> = coroutineScope {
-        val since = LocalDate.now().minusDays(NEW_RELEASE_DAYS).toString()
-        favorites.filter { it.id != null }.take(18).map { f ->
-            async {
-                gate.withPermit {
-                    Catalog.latestReleases(f.id!!).getOrNull().orEmpty()
-                        // Only releases dated to the day: a bare year can't say "new".
-                        .filter { (it.releaseDate?.length ?: 0) == 10 && it.releaseDate!! >= since }
-                        .filter { albumKey(f.name, it.name) !in taste.playedAlbums }
-                        .map { album ->
-                            album.copy(
-                                artists = album.artists.ifEmpty { listOf(SpotifySimpleArtist(id = f.id, name = f.name)) },
-                                tracks = null,
-                            )
-                        }
-                }
-            }
-        }.awaitAll().flatten()
-            .distinctBy { it.id }
-            .sortedByDescending { it.releaseDate }
-            .take(20)
-    }
-
     /** "More like": two favourites, drawn anew each day (and each refresh), and tracks of artists close to them. */
     private suspend fun similar(
         favorites: List<Favorite>,
@@ -328,11 +307,16 @@ object HomeFeed {
             async {
                 val rowRandom = Random(rotation * 31 + index)
                 val image = async { gate.withPermit { artistImage(seed.id!!) } }
-                val related = gate.withPermit { Catalog.relatedArtists(seed.id!!).getOrNull().orEmpty() }
+                val spotifyRelated = gate.withPermit { Catalog.relatedArtists(seed.id!!).getOrNull().orEmpty() }
                     .filter { it.id.isNotBlank() && it.name.lowercase() != seed.name.lowercase() }
+                val alsoOnLastFm = lastFmSimilar(seed.name)
+                // Both services agree first: Spotify's list alone drifted away from the artist now and then.
+                val agreed = spotifyRelated.filter { norm(it.name) in alsoOnLastFm }
+                val related = (if (agreed.size >= 5) agreed else spotifyRelated.take(10))
                     .take(15)
                     .shuffled(rowRandom)
                     .take(7)
+                android.util.Log.i("DrxwHome", "more like ${seed.name} (${seed.id}): ${related.joinToString { it.name }} [agreed ${agreed.size}/${spotifyRelated.size}]")
                 val tracks = tracksOf(related.map { it.id }, taste, hideExplicit, rowRandom, gate)
                 SimilarRow(seed.name, seed.id, image.await(), tracks)
             }
@@ -340,6 +324,16 @@ object HomeFeed {
     }
 
     private class GenreStats(val top: List<String>, val rows: List<String>, val artistsOf: Map<String, List<String>>)
+
+    /**
+     * Genres too wide to say anything about taste: "Metal" brought old-school heavy metal to someone
+     * who listens to progressive metalcore. Rows and tiles use the narrower tags.
+     */
+    private val UMBRELLA = setOf(
+        "metal", "rock", "pop", "hip-hop", "electronic", "alternative rock", "alternative", "indie",
+        "punk", "dance", "experimental", "electronic dance", "hard rock", "heavy metal", "soundtrack",
+        "classical", "jazz", "folk", "r&b", "soul", "rap",
+    )
 
     /**
      * The listener's genres: each artist's genres (Last.fm tags) weighted by how loved and how
@@ -357,7 +351,7 @@ object HomeFeed {
         val favoriteScore = taste.favorites.associate { it.name.lowercase() to it.score }
         artists.forEach { name ->
             val key = name.lowercase()
-            val genres = Genres.cached(name).map(Genres::family).distinct().take(2)
+            val genres = Genres.cached(name).filter { it.lowercase() !in UMBRELLA }.distinct().take(2)
             genres.forEachIndexed { i, g ->
                 val part = if (i == 0) 1.0 else 0.5
                 loveScore.merge(g, (favoriteScore[key] ?: 0.0) * part, Double::plus)
@@ -371,18 +365,20 @@ object HomeFeed {
         val totalLikes = likeScore.values.sum().coerceAtLeast(1.0)
         val combined = loveScore.keys.associateWith { g -> loveScore[g]!! / totalLove + (playScore[g] ?: 0.0) / totalPlays }
         val top = combined.entries.sortedByDescending { it.value }.map { it.key }
-        val main = top.take(2)
+        // A row needs a few loved artists of its own to start from.
+        val rowWorthy = top.filter { g -> (artistsOf[g]?.count { favoriteScore.containsKey(it.lowercase()) } ?: 0) >= 2 }
+        val main = rowWorthy.take(2)
         val lovedMore = likeScore.entries
-            .filter { it.key !in main && it.value >= 3 }
+            .filter { it.key !in main && it.key in rowWorthy && it.value >= 3 }
             .maxByOrNull { (g, likes) -> (likes / totalLikes) / ((playScore[g] ?: 0.0) / totalPlays + 0.02) }
             ?.key
         return GenreStats(top.take(10), main + listOfNotNull(lovedMore), artistsOf)
     }
 
     /**
-     * "More <genre>": artists close to the listener's favourites in that genre, kept to the genre
-     * (its Last.fm top artists, or tags already known), and new to the listener. Few calls: the
-     * genre's artist list is one request, kept for a week.
+     * "More <genre>": artists close to the listener's favourites in that genre ("fans also like" of
+     * up to four of them), kept to the genre by its Last.fm artists or known tags, and new to the
+     * listener. Never the genre's general chart: that is what brought old classics nobody asked for.
      */
     private suspend fun genreRows(
         stats: GenreStats,
@@ -396,32 +392,90 @@ object HomeFeed {
         stats.rows.mapIndexed { index, genre ->
             async {
                 val random = Random(rotation * 17 + index)
-                val family = genre.lowercase()
                 val ofGenre = runCatching { GenrePlaylists.topArtistsOf(genre) }.getOrDefault(emptySet())
                 fun inGenre(name: String) = norm(name) in ofGenre ||
-                    Genres.cached(name).any { Genres.family(it).lowercase() == family }
+                    Genres.cached(name).any { it.equals(genre, ignoreCase = true) }
 
                 val mine = stats.artistsOf[genre].orEmpty().mapNotNull { byName[it.lowercase()] }.filter { it.id != null }
-                val seeds = pick(mine, 3, pool = 8, random)
-                val candidates = seeds.map { seed ->
-                    async {
-                        gate.withPermit { Catalog.relatedArtists(seed.id!!).getOrNull().orEmpty() }
-                            .filter { it.id.isNotBlank() && it.name.lowercase() !in taste.knownArtists && inGenre(it.name) }
-                    }
-                }.awaitAll().flatten().distinctBy { it.id }.shuffled(random).take(7).toMutableList()
-
-                // Too few close ones: the genre's own artists the listener doesn't know yet.
-                if (candidates.size < 4 && ofGenre.isNotEmpty()) {
-                    val fresh = GenrePlaylists.topArtistNamesOf(genre)
-                        .filter { it.lowercase() !in taste.knownArtists }
-                        .take(30).shuffled(random).take(5)
-                    candidates += fresh.map { name -> async { gate.withPermit { findArtist(name) } } }.awaitAll().filterNotNull()
-                }
-                val tracks = tracksOf(candidates.map { it.id }.distinct(), taste, hideExplicit, random, gate)
+                val seeds = pick(mine, 4, pool = 8, random)
+                val related = seeds.map { seed ->
+                    async { gate.withPermit { Catalog.relatedArtists(seed.id!!).getOrNull().orEmpty() } }
+                }.awaitAll().flatten()
+                    .filter { it.id.isNotBlank() && it.name.lowercase() !in taste.knownArtists }
+                // Close to several of the listener's artists first, then the rest.
+                val counted = related.groupingBy { it.id }.eachCount()
+                val candidates = related.distinctBy { it.id }
+                    .sortedByDescending { (counted[it.id] ?: 0) + if (inGenre(it.name)) 2 else 0 }
+                    // In-genre ones first; a narrow genre with few of them is filled up with the rest.
+                    .let { list -> (list.filter { inGenre(it.name) } + list.filterNot { inGenre(it.name) }).take(12) }
+                    .shuffled(random)
+                    .take(7)
+                android.util.Log.i("DrxwHome", "more $genre from ${seeds.joinToString { it.name }}: ${candidates.joinToString { it.name }}")
+                val tracks = tracksOf(candidates.map { it.id }, taste, hideExplicit, random, gate)
                 SimilarRow(artist = seeds.firstOrNull()?.name.orEmpty(), artistId = null, image = null, tracks = tracks, genre = genre)
             }
         }.awaitAll().filter { it.tracks.size >= 4 }
     }
+
+    /**
+     * "Deeper into favourites": tracks from the albums of loved artists that are neither their hits
+     * nor heard yet — the part of a discography the radio never gets to.
+     */
+    private suspend fun deepCuts(
+        favorites: List<Favorite>,
+        taste: Taste,
+        hideExplicit: Boolean,
+        rotation: Long,
+        gate: Semaphore,
+    ): List<SpotifyTrack> = coroutineScope {
+        val random = Random(rotation * 7 + 3)
+        pick(favorites, 5, pool = 15, random).map { seed ->
+            async {
+                val hits = gate.withPermit { Catalog.artistTopTracks(seed.id!!).getOrNull()?.tracks.orEmpty() }.mapTo(HashSet()) { it.id }
+                val albums = gate.withPermit { Catalog.latestReleases(seed.id!!).getOrNull().orEmpty() }
+                    .filter { it.totalTracks >= 4 || it.albumType.equals("album", ignoreCase = true) }
+                    .shuffled(random)
+                    .take(2)
+                albums.flatMap { release ->
+                    val album = gate.withPermit { Catalog.album(release.id).getOrNull() } ?: return@flatMap emptyList()
+                    val cover = com.metrolist.spotify.models.SpotifySimpleAlbum(
+                        id = album.id, name = album.name, images = album.images.ifEmpty { release.images },
+                        releaseDate = album.releaseDate, albumType = album.albumType, artists = album.artists,
+                    )
+                    album.tracks?.items.orEmpty()
+                        .filter { t ->
+                            t.id.isNotEmpty() && t.id !in hits && !t.isLocal && (!hideExplicit || !t.explicit) &&
+                                trackKey(t.artists.firstOrNull()?.name ?: seed.name, t.name) !in taste.known
+                        }
+                        .shuffled(random)
+                        .take(2)
+                        .map { t -> if (t.album?.images.isNullOrEmpty()) t.copy(album = cover) else t }
+                }
+            }
+        }.awaitAll().let(::interleave).take(14)
+    }
+
+    /** Last.fm's similar artists of [artist], normalized; empty when it doesn't know them. Kept for the run. */
+    private suspend fun lastFmSimilar(artist: String): Set<String> = withContext(Dispatchers.IO) {
+        similarMemory[artist.lowercase()]?.let { return@withContext it }
+        val names = runCatching {
+            val url = "https://ws.audioscrobbler.com/2.0/".toHttpUrl().newBuilder()
+                .addQueryParameter("method", "artist.getsimilar")
+                .addQueryParameter("artist", artist)
+                .addQueryParameter("autocorrect", "1")
+                .addQueryParameter("limit", "150")
+                .addQueryParameter("api_key", Genres.LASTFM_KEY)
+                .addQueryParameter("format", "json")
+                .build()
+            val body = Genres.client.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { it.body?.string() }
+            val list = org.json.JSONObject(body ?: "{}").optJSONObject("similarartists")?.optJSONArray("artist")
+            (0 until (list?.length() ?: 0)).mapNotNullTo(HashSet()) { i -> list?.optJSONObject(i)?.optString("name")?.takeIf { it.isNotBlank() }?.let(::norm) }
+        }.getOrDefault(emptySet())
+        if (names.isNotEmpty()) similarMemory[artist.lowercase()] = names
+        names
+    }
+
+    private val similarMemory = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
 
     /** Two new-to-the-listener top tracks of each artist, interleaved. */
     private suspend fun tracksOf(

@@ -62,7 +62,8 @@ fun SpotifyPlaylist.toPlaylistItem(): PlaylistItem = PlaylistItem(
     id = "$SPOTIFY_ID_PREFIX$id",
     title = name,
     author = owner?.let { Artist(name = it.displayName ?: "", id = null) },
-    songCountText = tracks?.total?.toString(),
+    // Spotify's mixes on the home page come without a count (0): none rather than "Spotify • 0".
+    songCountText = tracks?.total?.takeIf { it > 0 }?.toString(),
     thumbnail = SpotifyMapper.getPlaylistThumbnail(this),
     playEndpoint = null,
     shuffleEndpoint = null,

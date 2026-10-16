@@ -12,6 +12,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -124,14 +125,25 @@ fun SpotifyLibraryScreen(
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     val searchQuery by viewModel.searchQuery.collectAsState()
     val normalizedQuery = remember(searchQuery) { searchQuery.normalizeForSearch() }
-    val filteredEntries = remember(entries, normalizedQuery) {
-        if (normalizedQuery.isBlank()) {
+    // Pinned with a long press come first, in the order they were pinned.
+    val pins by com.metrolist.music.catalog.LibraryPins.pinned.collectAsState()
+    val filteredEntries = remember(entries, normalizedQuery, pins) {
+        val found = if (normalizedQuery.isBlank()) {
             entries
         } else {
             entries.filter { entry ->
                 matchesNormalizedQuery(normalizedQuery, entry.name, entry.creator)
             }
         }
+        val order = pins.withIndex().associate { (i, key) -> key to i }
+        found.sortedBy { order[pinKey(it)] ?: Int.MAX_VALUE }
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val togglePin: (SpotifyLibraryEntry) -> Unit = { entry ->
+        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+        val nowPinned = com.metrolist.music.catalog.LibraryPins.toggle(pinKey(entry))
+        android.widget.Toast.makeText(context, if (nowPinned) R.string.library_pinned else R.string.library_unpinned, android.widget.Toast.LENGTH_SHORT).show()
     }
 
     androidx.activity.compose.BackHandler(enabled = isSearchActive || filter != Filter.ALL) {
@@ -217,7 +229,9 @@ fun SpotifyLibraryScreen(
                     fadeOutSpec = androidx.compose.animation.core.tween(160),
                 ),
             ) {
-                if (grid) LibraryGridCell(entry, onClick) else LibraryRow(entry, onClick)
+                val pinnedHere = pinKey(entry) in pins
+                if (grid) LibraryGridCell(entry, pinnedHere, onClick) { togglePin(entry) }
+                else LibraryRow(entry, pinnedHere, onClick) { togglePin(entry) }
             }
         }
         // The app's own playlists show at once; the account's library arrives later. Until it has,
@@ -520,10 +534,13 @@ private fun EntryArtwork(entry: SpotifyLibraryEntry, modifier: Modifier) {
     }
 }
 
+/** What a library entry is pinned by (the uri, stable across catalogs and the app's own playlists). */
+private fun pinKey(entry: SpotifyLibraryEntry): String = entry.uri.ifBlank { entry.id }
+
 @Composable
-private fun PinnedSubtitle(entry: SpotifyLibraryEntry, maxLines: Int = 1) {
+private fun PinnedSubtitle(entry: SpotifyLibraryEntry, pinnedHere: Boolean = false, maxLines: Int = 1) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        if (entry.pinned) {
+        if (entry.pinned || pinnedHere) {
             Icon(
                 painterResource(R.drawable.ic_push_pin),
                 contentDescription = null,
@@ -542,13 +559,14 @@ private fun PinnedSubtitle(entry: SpotifyLibraryEntry, maxLines: Int = 1) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun LibraryRow(entry: SpotifyLibraryEntry, onClick: () -> Unit) {
+private fun LibraryRow(entry: SpotifyLibraryEntry, pinnedHere: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         EntryArtwork(entry, Modifier.size(64.dp))
@@ -561,23 +579,24 @@ private fun LibraryRow(entry: SpotifyLibraryEntry, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(2.dp))
-            PinnedSubtitle(entry)
+            PinnedSubtitle(entry, pinnedHere)
         }
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun LibraryGridCell(entry: SpotifyLibraryEntry, onClick: () -> Unit) {
+private fun LibraryGridCell(entry: SpotifyLibraryEntry, pinnedHere: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(8.dp),
     ) {
         EntryArtwork(entry, Modifier.fillMaxWidth().aspectRatio(1f))
         Spacer(Modifier.height(6.dp))
         Text(entry.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        PinnedSubtitle(entry)
+        PinnedSubtitle(entry, pinnedHere)
     }
 }
 

@@ -208,6 +208,7 @@ class App :
         com.metrolist.music.portrait.RadioPlays.init(this)
         applicationScope.launch(Dispatchers.IO) {
             com.metrolist.music.home.HomeFeed.init(this@App)
+            com.metrolist.music.catalog.LibraryPins.init(this@App)
             com.metrolist.music.genre.GenrePlaylists.init(this@App)
         }
         com.metrolist.music.friends.FriendLikesSync.init(this, database)

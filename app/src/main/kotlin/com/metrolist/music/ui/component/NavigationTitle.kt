@@ -82,7 +82,8 @@ fun NavigationTitle(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
                 overflow = TextOverflow.Ellipsis,
-                maxLines = 1,
+                // Spotify's long section names ("Friday new releases for you") need the room.
+                maxLines = if (plain) 2 else 1,
             )
         }
 
