@@ -1842,4 +1842,6 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="home_deep_cuts_label">Album tracks you haven\'t heard yet</string>
     <string name="library_pinned">Pinned to the top</string>
     <string name="library_unpinned">Unpinned</string>
+    <string name="home_unheard_albums">Albums you never got to</string>
+    <string name="home_unheard_albums_label">By artists you love — not played, or left after a track or two</string>
 </resources>

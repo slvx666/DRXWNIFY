@@ -147,7 +147,20 @@ class MetrolistWidgetManager @Inject constructor(
                 val faces = squareFaces(meld, duration, currentPosition)
                 squareIds.forEach { id -> runCatching { appWidgetManager.updateAppWidget(id, responsive(appWidgetManager, id, faces)) } }
             }
-            miniIds.forEach { id -> runCatching { appWidgetManager.updateAppWidget(id, responsive(appWidgetManager, id, miniFaces(meld, appWidgetManager.getAppWidgetOptions(id)))) } }
+            miniIds.forEach { id ->
+                val signature = "${meld.title}|${meld.artist}|${meld.isPlaying}|${meld.cover.generationId}"
+                if (miniRendered[id] == signature) {
+                    // Same track and state: only the progress moves. A full update every second
+                    // started the scrolling "title · artist" line over before it got anywhere.
+                    val progress = RemoteViews(context.packageName, R.layout.widget_mini).apply {
+                        setProgressBar(R.id.mini_progress, 1000, meld.progress, false)
+                    }
+                    runCatching { appWidgetManager.partiallyUpdateAppWidget(id, progress) }
+                } else {
+                    miniRendered[id] = signature
+                    runCatching { appWidgetManager.updateAppWidget(id, miniFaces(meld, appWidgetManager.getAppWidgetOptions(id)).first().views) }
+                }
+            }
             if (freaks.isNotEmpty()) {
                 FreakWidgets.update(
                     context,
@@ -475,6 +488,9 @@ class MetrolistWidgetManager @Inject constructor(
         val seed: Int = 0,
     )
 
+    /** What each 2x1 widget shows in full (track and play state); otherwise it only gets the progress. */
+    private val miniRendered = HashMap<Int, String>()
+
     private var classicCoverFor: Bitmap? = null
     private var classicCover: Bitmap? = null
 
@@ -529,13 +545,21 @@ class MetrolistWidgetManager @Inject constructor(
     }
 
     /**
-     * The 2x1 player: the 2x2's blurred cover behind, title and artist over the whole width on top,
-     * previous / play / next in the middle and the progress at the bottom.
+     * The 2x1 player: the 2x2's blurred cover behind, the cover on the left; to its right
+     * "title · artist" on one line, previous / play / next under it and the progress at the bottom.
      */
     private fun miniFaces(face: MeldFace, options: Bundle): List<Face> {
         val scale = minOf(context.resources.displayMetrics.density, 2.2f)
         val widthDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH).takeIf { it > 0 } ?: 170
         val heightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: 80
+        val line = android.text.SpannableStringBuilder(face.title).apply {
+            setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (face.artist.isNotBlank()) {
+                val from = length
+                append("  ·  ").append(face.artist)
+                setSpan(android.text.style.ForegroundColorSpan(0xC8FFFFFF.toInt()), from, length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
         val views = RemoteViews(context.packageName, R.layout.widget_mini).apply {
             runCatching {
                 SquareWidgetArt.backdrop(
@@ -545,12 +569,12 @@ class MetrolistWidgetManager @Inject constructor(
                     18f * scale,
                 )
             }.getOrNull()?.let { setImageViewBitmap(R.id.mini_bg, it) }
-            setTextViewText(R.id.mini_title, face.title)
-            setTextViewText(R.id.mini_artist, face.artist)
+            setImageViewBitmap(R.id.mini_cover, face.cover)
+            setTextViewText(R.id.mini_title, line)
             setProgressBar(R.id.mini_progress, 1000, face.progress, false)
             setImageViewResource(R.id.mini_play, if (face.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play)
+            setOnClickPendingIntent(R.id.mini_cover, openAppIntent)
             setOnClickPendingIntent(R.id.mini_title, openAppIntent)
-            setOnClickPendingIntent(R.id.mini_artist, openAppIntent)
             setOnClickPendingIntent(R.id.mini_prev, previousIntent)
             setOnClickPendingIntent(R.id.mini_play, playPauseIntent)
             setOnClickPendingIntent(R.id.mini_next, nextIntent)

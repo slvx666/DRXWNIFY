@@ -4218,7 +4218,13 @@ class MusicService :
             return if (fallbackServing[mediaId]?.provider == AudioProviderId.YOUTUBE) spec.subrange(0, CHUNK_LENGTH) else spec
         }
         if (!bypassCache && usePlayerCache && playerCache.holdsWhole(cacheKey)) {
-            if (cachedAudioStillChosen(mediaId, cacheKey)) return dataSpec.buildUpon().setKey(cacheKey).build()
+            if (cachedAudioStillChosen(mediaId, cacheKey)) {
+                if (dataSpec.position == 0L) {
+                    val length = androidx.media3.datasource.cache.ContentMetadata.getContentLength(playerCache.getContentMetadata(cacheKey))
+                    AudioDiagnostics.info("playing $mediaId from the cache (${length / 1024} KB, ${cacheOwners.getString(cacheKey, null) ?: "?"})")
+                }
+                return dataSpec.buildUpon().setKey(cacheKey).build()
+            }
         }
         if (depth > 4) return null
 
@@ -5686,6 +5692,44 @@ class MusicService :
     ) {
         if (reason == Player.DISCONTINUITY_REASON_SEEK) {
             scheduleCrossfade()
+        }
+        if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
+            recoverCutShortTrack(oldPosition)
+        }
+    }
+
+    /** Tracks already given a second chance after ending early (once each, per run). */
+    private val cutShortRecovered = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /**
+     * A track that "ended" well before its length (Show Me A Dinosaur – "Unsaid I" stopped at 3:17
+     * of 5:48 and the next one started, with no error): its audio came from a cached copy that was
+     * written cut short and looked whole. That copy goes, and the track goes on from where it
+     * stopped, fetched anew. Once per track, so a version that really is shorter can't loop.
+     */
+    private fun recoverCutShortTrack(old: Player.PositionInfo) {
+        val item = old.mediaItem ?: return
+        val mediaId = item.mediaId
+        val expectedMs = (item.metadata?.duration ?: 0) * 1000L
+        val endedAt = old.positionMs
+        if (expectedMs < 60_000L || endedAt <= 0L) return
+        if (expectedMs - endedAt < 15_000L || endedAt > expectedMs * 0.93) return
+        if (mediaId.startsWith("local:") || !cutShortRecovered.add(mediaId)) return
+        val title = item.mediaMetadata.title
+        // A download is the user's own file: reported, not deleted.
+        if (downloadCache.isCached(mediaId, 0, 1)) {
+            AudioDiagnostics.warn("'$title' ended at ${endedAt / 1000}s of ${expectedMs / 1000}s — the downloaded copy looks cut short")
+            return
+        }
+        AudioDiagnostics.warn("'$title' ended at ${endedAt / 1000}s of ${expectedMs / 1000}s — its cached copy was cut short; fetching it again from there")
+        runCatching { playerCache.removeResource(mediaId) }
+        runCatching { playerCache.removeResource(RESCUE_CACHE_PREFIX + mediaId) }
+        cacheOwners.edit().remove(mediaId).remove(RESCUE_CACHE_PREFIX + mediaId).apply()
+        val index = old.mediaItemIndex
+        scope.launch {
+            if (index == C.INDEX_UNSET || index >= player.mediaItemCount || player.getMediaItemAt(index).mediaId != mediaId) return@launch
+            player.seekTo(index, endedAt)
+            player.prepare()
         }
     }
 

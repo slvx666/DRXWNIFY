@@ -78,7 +78,7 @@ private fun releaseType(album: SpotifyAlbum): String = when {
 /** New releases of the favourite artists: cover, title, artist, and how fresh it is. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun NewReleasesRow(albums: List<SpotifyAlbum>, onOpen: (SpotifyAlbum) -> Unit, modifier: Modifier = Modifier) {
+fun NewReleasesRow(albums: List<SpotifyAlbum>, onOpen: (SpotifyAlbum) -> Unit, modifier: Modifier = Modifier, showAge: Boolean = true) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -97,7 +97,7 @@ fun NewReleasesRow(albums: List<SpotifyAlbum>, onOpen: (SpotifyAlbum) -> Unit, m
                         cover, album.name, contentScale = ContentScale.Crop,
                         modifier = Modifier.size(CardWidth).clip(RoundedCornerShape(ThumbnailCornerRadius)),
                     )
-                    releasedAgo(album.releaseDate)?.let { ago ->
+                    releasedAgo(album.releaseDate)?.takeIf { showAge }?.let { ago ->
                         Surface(
                             color = MaterialTheme.colorScheme.primary,
                             shape = RoundedCornerShape(50),
@@ -115,7 +115,11 @@ fun NewReleasesRow(albums: List<SpotifyAlbum>, onOpen: (SpotifyAlbum) -> Unit, m
                 Spacer(Modifier.height(6.dp))
                 Text(album.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    releaseType(album) + " · " + album.artists.joinToString { it.name },
+                    listOfNotNull(
+                        releaseType(album),
+                        album.releaseDate?.take(4)?.takeIf { !showAge && it.length == 4 },
+                        album.artists.joinToString { it.name }.ifBlank { null },
+                    ).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

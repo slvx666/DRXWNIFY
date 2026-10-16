@@ -242,6 +242,9 @@ sealed class HomeSection(
 
     /** Album tracks of loved artists that are neither hits nor heard yet. */
     data object DeepCuts : HomeSection("deep_cuts", 40)
+
+    /** Albums of loved artists never played or dropped after a track or two. */
+    data object UnheardAlbums : HomeSection("unheard_albums", 45)
 }
 
 @Composable
@@ -1137,6 +1140,7 @@ fun HomeScreen(
                 val spotify = spotifyHomeSections.orEmpty()
                 val newReleases = spotify.indexOfFirst { it.title == "spotify_new_releases" }
                 if (newReleases >= 0) own.add(HomeSection.SpotifyFeed(newReleases))
+                if (!feed?.unheardAlbums.isNullOrEmpty()) own.add(HomeSection.UnheardAlbums)
                 // Alike rows stay together: the genre rows one after another, "More like" at the very end.
                 repeat(feed?.genreRows?.size ?: 0) { own.add(HomeSection.MoreInGenre(it)) }
                 if (friendsListening.isNotEmpty()) own.add(HomeSection.FriendsListening)
@@ -2625,6 +2629,26 @@ fun HomeScreen(
                                             )
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        HomeSection.UnheardAlbums -> {
+                            homeFeed?.unheardAlbums?.takeIf { it.isNotEmpty() }?.let { albums ->
+                                item(key = "unheard_albums_title") {
+                                    NavigationTitle(
+                                        title = stringResource(R.string.home_unheard_albums),
+                                        label = stringResource(R.string.home_unheard_albums_label),
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                                item(key = "unheard_albums_row") {
+                                    com.metrolist.music.ui.screens.home.NewReleasesRow(
+                                        albums = albums,
+                                        onOpen = { navController.navigate("spotify_album/${it.id}") },
+                                        showAge = false,
+                                        modifier = Modifier.animateItem(),
+                                    )
                                 }
                             }
                         }

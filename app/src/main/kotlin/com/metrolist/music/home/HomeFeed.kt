@@ -77,6 +77,8 @@ data class HomeFeedData(
     val forgotten: List<SpotifyTrack> = emptyList(),
     /** "Deeper into favourites": album tracks of loved artists, not their hits, not heard yet. */
     val deepCuts: List<SpotifyTrack> = emptyList(),
+    /** Albums of loved artists never played, or left after a couple of tracks. */
+    val unheardAlbums: List<SpotifyAlbum> = emptyList(),
     /** The favourite artists by name, strongest first (other rows check against them). */
     val favoriteArtists: List<String> = emptyList(),
 )
@@ -95,7 +97,7 @@ object HomeFeed {
     private const val FORGOTTEN_AFTER_DAYS = 60L
 
     /** Bumped when the rows are chosen differently: a feed kept from before is rebuilt on the next start. */
-    const val FORMAT = 3
+    const val FORMAT = 4
 
     /** Below this an artist is only listened to, not loved: never a seed for recommendations. */
     private const val MIN_LOVE = 1.0
@@ -142,6 +144,7 @@ object HomeFeed {
 
         val stats = async { section("genres") { genreStats(taste) } }
         val parts = listOf(
+            launch { section("unheardAlbums") { unheardAlbums(favorites, taste, rotation, catalogGate).let { r -> _feed.update { it?.copy(unheardAlbums = r) } } } },
             launch { section("deepCuts") { deepCuts(favorites, taste, hideExplicit, rotation, catalogGate).let { r -> _feed.update { it?.copy(deepCuts = r) } } } },
             launch { section("similar") { similar(favorites, taste, hideExplicit, rotation, catalogGate).let { r -> _feed.update { it?.copy(similar = r) } } } },
             launch { section("forgotten") { forgotten(taste, hideExplicit, rotation).let { r -> _feed.update { it?.copy(forgotten = r) } } } },
@@ -180,6 +183,8 @@ object HomeFeed {
         val recentlyHeard: Set<String>,
         /** "artist|album" of albums played from. */
         val playedAlbums: Set<String>,
+        /** "artist|album" → the album's different tracks played (by "artist|title"). */
+        val albumTracks: Map<String, Set<String>>,
         val likedTracks: List<SpotifyTrack>,
         val likedAt: Map<String, Long>,
         /** Per artist (lower case): likes and chosen plays, for the genre rows. */
@@ -197,6 +202,7 @@ object HomeFeed {
         val albums = HashSet<String>()
         val likes = HashMap<String, Int>()
         val plays = HashMap<String, Double>()
+        val albumTracks = HashMap<String, MutableSet<String>>()
 
         fun note(name: String, id: String?): String? {
             val n = name.trim()
@@ -219,7 +225,10 @@ object HomeFeed {
             val trackKey = trackKey(artist.name, song.song.title)
             known += trackKey
             if (ageDays <= FORGOTTEN_AFTER_DAYS) recent += trackKey
-            song.song.albumName?.takeIf { it.isNotBlank() }?.let { albums += albumKey(artist.name, it) }
+            song.song.albumName?.takeIf { it.isNotBlank() }?.let {
+                albums += albumKey(artist.name, it)
+                albumTracks.getOrPut(albumKey(artist.name, it)) { HashSet() } += trackKey
+            }
             if (ageDays > 240 || !Listening.counts(e.event.playTime, song.song.duration * 1000L)) return@forEach
             if (RadioPlays.isRadio(song.id, e.event.timestamp.toLocalDate())) return@forEach
             val weight = exp(-ageDays / 90.0)
@@ -261,7 +270,7 @@ object HomeFeed {
         val favorites = love.entries.filter { it.value >= MIN_LOVE }.sortedByDescending { it.value }.take(40).map { (key, s) ->
             Favorite(names.getValue(key), ids[key], s)
         }
-        return Taste(favorites, known, knownArtists, recent, albums, liked, likedAt, likes, plays)
+        return Taste(favorites, known, knownArtists, recent, albums, albumTracks, liked, likedAt, likes, plays)
     }
 
     /** Catalog ids for the strongest favourites that only have a name (YouTube or local tracks). */
@@ -453,6 +462,32 @@ object HomeFeed {
                 }
             }
         }.awaitAll().let(::interleave).take(14)
+    }
+
+    /**
+     * Albums (and EPs) of loved artists that were never played, or dropped after a track or two —
+     * two at most per artist, a different set each day.
+     */
+    private suspend fun unheardAlbums(favorites: List<Favorite>, taste: Taste, rotation: Long, gate: Semaphore): List<SpotifyAlbum> = coroutineScope {
+        val random = Random(rotation * 11 + 5)
+        pick(favorites, 10, pool = 20, random).map { f ->
+            async {
+                gate.withPermit { Catalog.latestReleases(f.id!!).getOrNull().orEmpty() }
+                    .filter { album ->
+                        val full = album.albumType.equals("album", ignoreCase = true) || album.albumType.equals("ep", ignoreCase = true) ||
+                            album.totalTracks >= 4
+                        full && (taste.albumTracks[albumKey(f.name, album.name)]?.size ?: 0) < 3
+                    }
+                    .shuffled(random)
+                    .take(2)
+                    .map { album ->
+                        album.copy(
+                            artists = album.artists.ifEmpty { listOf(SpotifySimpleArtist(id = f.id, name = f.name)) },
+                            tracks = null,
+                        )
+                    }
+            }
+        }.awaitAll().let(::interleave).distinctBy { it.id }.take(16)
     }
 
     /** Last.fm's similar artists of [artist], normalized; empty when it doesn't know them. Kept for the run. */

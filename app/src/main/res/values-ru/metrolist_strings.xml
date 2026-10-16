@@ -1783,4 +1783,6 @@
     <string name="home_deep_cuts_label">Треки из альбомов, до которых ты не дошёл</string>
     <string name="library_pinned">Закреплено наверху</string>
     <string name="library_unpinned">Откреплено</string>
+    <string name="home_unheard_albums">Альбомы, до которых не дошли руки</string>
+    <string name="home_unheard_albums_label">Любимые исполнители — не слушал или бросил после пары треков</string>
 </resources>
