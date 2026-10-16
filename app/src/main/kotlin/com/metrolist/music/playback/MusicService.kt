@@ -1191,6 +1191,15 @@ class MusicService :
             }
         }
 
+        // Where the current track really was: on an automatic transition ExoPlayer reports the old
+        // track's declared length as its position, not where its sound ran out.
+        scope.launch {
+            while (isActive) {
+                delay(500)
+                if (player.isPlaying) player.currentMediaItem?.mediaId?.let { lastSeenPlaying = it to player.currentPosition }
+            }
+        }
+
         // Save queue more frequently when playing to ensure state is preserved
         scope.launch {
             while (isActive) {
@@ -2720,8 +2729,15 @@ class MusicService :
                 startTiming = null
                 val seconds = (android.os.SystemClock.elapsedRealtime() - since) / 1000.0
                 val title = player.currentMediaItem?.mediaMetadata?.title
-                val source = fallbackServing[mediaId]?.provider?.name ?: "YouTube/cache"
-                val line = "sound for '$title' after ${"%.1f".format(java.util.Locale.US, seconds)} s ($source)"
+                val source = audioOrigin(mediaId)
+                val hereMs = player.duration
+                val catalogMs = (player.currentMediaItem?.metadata?.duration ?: 0) * 1000L
+                val length = if (hereMs > 0L && catalogMs > 0L && kotlin.math.abs(hereMs - catalogMs) > 15_000L) {
+                    ", ${clock(hereMs)} long here, ${clock(catalogMs)} in the catalog"
+                } else {
+                    ""
+                }
+                val line = "sound for '$title' after ${"%.1f".format(java.util.Locale.US, seconds)} s ($source$length)"
                 if (seconds >= SLOW_START_S) com.metrolist.music.resolver.AudioDiagnostics.warn("slow start: $line")
                 else com.metrolist.music.resolver.AudioDiagnostics.info(line)
             }
@@ -4008,7 +4024,7 @@ class MusicService :
                 delay(INSTANT_SILENCE_SKIP_SETTLE_MS)
             }
             if (hops > 0) {
-                Timber.tag(TAG).d("Silence skip: jumped $hops times")
+                AudioDiagnostics.info("silence in '${player.currentMediaItem?.mediaMetadata?.title}': skipped ${hops * INSTANT_SILENCE_SKIP_STEP_MS / 1000}s, now at ${clock(player.currentPosition)} of ${clock(duration)}")
             }
         } finally {
             isSilenceSkipping = false
@@ -5712,22 +5728,33 @@ class MusicService :
         }
     }
 
-    /** Tracks already given a second chance after ending early (once each, per run). */
-    private val cutShortRecovered = java.util.Collections.synchronizedSet(HashSet<String>())
+    /** The track last seen playing and its position then (ms), sampled every half second. */
+    @Volatile
+    private var lastSeenPlaying: Pair<String, Long>? = null
 
-    /** Tracks whose cached or downloaded copy is cut short: played from the network this run. */
+    /** Tracks whose cached or downloaded copy is broken: played from the network this run. */
     private val cutShortBypass = java.util.Collections.synchronizedSet(HashSet<String>())
 
-    /** How many times each track was found short this run. */
+    /** How many times each track was found broken this run. */
     private val cutShortTries = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    private fun clock(ms: Long): String =
+        if (ms < 0L || ms == C.TIME_UNSET) "?" else "%d:%02d".format(java.util.Locale.US, ms / 60_000, ms / 1000 % 60)
+
+    /** Where the current audio of [mediaId] comes from, for the journal. Cheap: no lookups. */
+    private fun audioOrigin(mediaId: String): String {
+        fallbackServing[mediaId]?.let { return it.provider.name }
+        if (mediaId in cutShortBypass) return "network"
+        if (downloadCache.isCached(mediaId, 0, 1)) return "download"
+        downloadAliases[mediaId]?.takeIf { downloadCache.isCached(it, 0, 1) }?.let { return "download of $it" }
+        if (!exportedFiles[mediaId].isNullOrEmpty()) return "file"
+        if (playerCache.holdsWhole(mediaId)) return "cache, ${cacheOwners.getString(mediaId, null) ?: "?"}"
+        return "YouTube"
+    }
 
     /**
      * The audio the player has for the current track is far shorter than the track (Show Me A
-     * Dinosaur – "Unsaid I": 3:20 of 5:48 from its download, so the crossfade took the next track at
-     * 3:17 — no error, no natural end). The download was copied from a cut cache entry (the old
-     * warm-up bug): it is fetched again in full, and meanwhile the track plays on from the network,
-     * from the same spot. A copy that is short again means the version itself is: another one is
-     * picked. Twice per track per run at most, so a track that only exists shorter doesn't loop.
+     * Dinosaur – "Unsaid I": 3:20 of 5:48) — the copy is broken; see [recoverBrokenCopy].
      */
     private fun checkCutShort() {
         val item = player.currentMediaItem ?: return
@@ -5737,32 +5764,62 @@ class MusicService :
         if (actualMs == C.TIME_UNSET || actualMs <= 0L || expectedMs < 60_000L) return
         if (expectedMs - actualMs < 15_000L || actualMs > expectedMs * 0.93) return
         if (mediaId.startsWith("local:")) return
-        val tries = cutShortTries.merge(mediaId, 1, Int::plus) ?: 1
-        if (tries > 2) return
         val title = item.mediaMetadata.title?.toString().orEmpty()
-        val downloaded = downloadCache.isCached(mediaId, 0, 1)
-        val where = when {
-            tries > 1 -> "the network copy too"
-            downloaded -> "downloaded copy"
-            mediaId in cutShortBypass -> "network copy"
-            else -> "cached copy"
+        AudioDiagnostics.warn("'$title' is ${clock(actualMs)} here but ${clock(expectedMs)} long (${audioOrigin(mediaId)})")
+        recoverBrokenCopy(mediaId, player.currentMediaItemIndex, player.currentPosition, title)
+    }
+
+    /**
+     * The sound of the track that just ended ran out well before its length — the file says one
+     * length and holds audio only up to some point ("Unsaid I" from its download: 11 minutes
+     * declared, sound until 3:17, then the next track — no error). The real stop is the position
+     * last seen playing; the old position of an automatic transition is only the declared length.
+     */
+    private fun recoverCutShortTrack(old: Player.PositionInfo) {
+        val item = old.mediaItem ?: return
+        val mediaId = item.mediaId
+        val endedAt = lastSeenPlaying?.takeIf { it.first == mediaId }?.second ?: return
+        val declaredMs = old.positionMs
+        val catalogMs = (item.metadata?.duration ?: 0) * 1000L
+        val fullMs = maxOf(declaredMs, catalogMs)
+        if (fullMs < 60_000L || fullMs - endedAt < 15_000L || endedAt > fullMs * 0.93) return
+        if (mediaId.startsWith("local:")) return
+        val title = item.mediaMetadata.title?.toString().orEmpty()
+        AudioDiagnostics.warn(
+            "'$title' ran out at ${clock(endedAt)} of ${clock(declaredMs)} (catalog ${clock(catalogMs)}, ${audioOrigin(mediaId)})",
+        )
+        recoverBrokenCopy(mediaId, old.mediaItemIndex, endedAt, title)
+    }
+
+    /**
+     * The copy of [mediaId] is broken (cut short, or ends long before the length it declares): the
+     * track plays on from [positionMs] from the network, read and cached under its own key (the
+     * download cache is read by key and would serve the broken download again), and a download is
+     * fetched again in full. Broken again from the network means the version is: another one is
+     * picked. Twice per track per run at most, so a track that only exists like this doesn't loop.
+     */
+    private fun recoverBrokenCopy(mediaId: String, index: Int, positionMs: Long, title: String) {
+        val tries = cutShortTries.merge(mediaId, 1, Int::plus) ?: 1
+        if (tries > 2) {
+            AudioDiagnostics.warn("'$title': still broken after another version — left as it is")
+            return
         }
-        AudioDiagnostics.warn("'$title' is ${actualMs / 1000}s here but ${expectedMs / 1000}s long ($where) — playing it from the network")
+        val downloaded = downloadCache.isCached(mediaId, 0, 1) || !exportedFiles[mediaId].isNullOrEmpty()
         cutShortBypass.add(mediaId)
         songUrlCache.remove(mediaId)
         songUrlCache.remove(RESCUE_CACHE_PREFIX + mediaId)
         if (tries > 1) {
-            // Short again from the network: this version is. Another one plays.
             val choice = runCatching {
                 runBlocking(Dispatchers.IO) { AudioFallbackEngine.currentChoice(mediaId, database.getSongById(mediaId)) }
             }.getOrNull()
+            AudioDiagnostics.warn("'$title': the network copy is broken too — trying another version than ${choice?.provider ?: "this one"}")
             if (choice != null) markFallbackFailed(mediaId, trackId = choice.trackId)
+        } else {
+            AudioDiagnostics.warn("'$title': playing on from ${clock(positionMs)} from the network")
         }
-        val index = player.currentMediaItemIndex
-        val position = player.currentPosition
         scope.launch {
-            if (player.currentMediaItem?.mediaId != mediaId) return@launch
-            // stop(): a seek alone keeps the old source and its (short) length.
+            if (index == C.INDEX_UNSET || index >= player.mediaItemCount || player.getMediaItemAt(index).mediaId != mediaId) return@launch
+            // stop(): a seek alone keeps the old source and its length.
             player.stop()
             withContext(Dispatchers.IO) {
                 listOf(mediaId, RESCUE_CACHE_PREFIX + mediaId).forEach { key ->
@@ -5771,12 +5828,13 @@ class MusicService :
                 }
                 cacheOwners.edit().remove(mediaId).remove(RESCUE_CACHE_PREFIX + mediaId).apply()
             }
-            if (player.currentMediaItemIndex == index && player.currentMediaItem?.mediaId == mediaId) {
-                player.seekTo(index, position)
+            if (index < player.mediaItemCount && player.getMediaItemAt(index).mediaId == mediaId) {
+                player.seekTo(index, positionMs)
                 player.prepare()
             }
             if (downloaded && tries == 1) {
                 AudioDiagnostics.info("'$title': downloading it again in full")
+                exportedFiles.remove(mediaId)
                 withContext(Dispatchers.IO) {
                     runCatching { downloadExporter.deleteExported(mediaId) }
                     androidx.media3.exoplayer.offline.DownloadService.sendRemoveDownload(
@@ -5791,38 +5849,6 @@ class MusicService :
                     )
                 }
             }
-        }
-    }
-
-    /**
-     * A track that "ended" well before its length (Show Me A Dinosaur – "Unsaid I" stopped at 3:17
-     * of 5:48 and the next one started, with no error): its audio came from a cached copy that was
-     * written cut short and looked whole. That copy goes, and the track goes on from where it
-     * stopped, fetched anew. Once per track, so a version that really is shorter can't loop.
-     */
-    private fun recoverCutShortTrack(old: Player.PositionInfo) {
-        val item = old.mediaItem ?: return
-        val mediaId = item.mediaId
-        val expectedMs = (item.metadata?.duration ?: 0) * 1000L
-        val endedAt = old.positionMs
-        if (expectedMs < 60_000L || endedAt <= 0L) return
-        if (expectedMs - endedAt < 15_000L || endedAt > expectedMs * 0.93) return
-        if (mediaId.startsWith("local:") || !cutShortRecovered.add(mediaId)) return
-        val title = item.mediaMetadata.title
-        // A download is the user's own file: reported, not deleted.
-        if (downloadCache.isCached(mediaId, 0, 1)) {
-            AudioDiagnostics.warn("'$title' ended at ${endedAt / 1000}s of ${expectedMs / 1000}s — the downloaded copy looks cut short")
-            return
-        }
-        AudioDiagnostics.warn("'$title' ended at ${endedAt / 1000}s of ${expectedMs / 1000}s — its cached copy was cut short; fetching it again from there")
-        runCatching { playerCache.removeResource(mediaId) }
-        runCatching { playerCache.removeResource(RESCUE_CACHE_PREFIX + mediaId) }
-        cacheOwners.edit().remove(mediaId).remove(RESCUE_CACHE_PREFIX + mediaId).apply()
-        val index = old.mediaItemIndex
-        scope.launch {
-            if (index == C.INDEX_UNSET || index >= player.mediaItemCount || player.getMediaItemAt(index).mediaId != mediaId) return@launch
-            player.seekTo(index, endedAt)
-            player.prepare()
         }
     }
 
@@ -5914,6 +5940,7 @@ class MusicService :
 
     private fun startCrossfade() {
         if (isCrossfading) return
+        AudioDiagnostics.info("crossfade out of '${player.currentMediaItem?.mediaMetadata?.title}' at ${clock(player.currentPosition)} of ${clock(player.duration)}")
 
         // Preserve player state before creating the secondary player
         val savedRepeatMode = dataStore.get(RepeatModeKey, REPEAT_MODE_OFF)

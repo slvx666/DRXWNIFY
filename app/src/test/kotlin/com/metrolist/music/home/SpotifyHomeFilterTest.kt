@@ -21,6 +21,8 @@ class SpotifyHomeFilterTest {
             "Похоже на Sewerslvt",
             "Недавно прослушано",
             "Снова в эфире",
+            "Пятничные новинки для тебя",
+            "New Music Friday for you",
         ).forEach { assertTrue(it, SpotifyHomeFilter.isRemovedSection(it)) }
     }
 

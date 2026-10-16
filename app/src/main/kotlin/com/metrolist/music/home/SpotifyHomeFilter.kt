@@ -10,7 +10,8 @@ package com.metrolist.music.home
  *
  * Left out: "Albums featuring songs you like", "Albums by artists you follow", "Your favourite
  * artists", "More like …" (the app's own rows do these from what is really loved) and "Recently
- * played" / "Jump back in" (history, not something new). Titles come in the app's language, so
+ * played" / "Jump back in" (history, not something new), "Friday releases for you" (the user didn't
+ * want it). Titles come in the app's language, so
  * both the English and the Russian wordings are matched.
  *
  * Spotify's own playlists are kept only when they are the listener's: the personal mixes (Daily
@@ -33,6 +34,10 @@ object SpotifyHomeFilter {
         Regex("похож"),
         Regex("недавно"),
         Regex("^(слушать )?снова"),
+        // "Пятничные новинки для тебя" / "New Music Friday for you": Friday's releases, a repeat of
+        // "New releases" (and of editorial picks) — not wanted on the home page.
+        Regex("friday"),
+        Regex("пятнич"),
     )
 
     fun isRemovedSection(title: String?): Boolean {
