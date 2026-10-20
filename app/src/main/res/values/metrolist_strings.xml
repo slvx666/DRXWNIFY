@@ -653,6 +653,8 @@
     <string name="import_profile">Import profile</string>
     <string name="system_equalizer">System equalizer</string>
     <string name="eq_disabled">Disabled</string>
+    <string name="eq_off">Off</string>
+    <string name="eq_on">On</string>
     <plurals name="band_count">
         <item quantity="one">%d band</item>
         <item quantity="other">%d bands</item>
@@ -1835,6 +1837,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="suggest_privacy">The message goes encrypted to the developer only, with your friends name if you have a profile and the app\'s version.</string>
     <string name="suggest_inbox">Inbox · %1$d</string>
     <string name="suggest_anonymous">anonymous</string>
+    <string name="changelog_2_1_3">### New\n+ Spotify and YouTube links in search: paste a link to get the track, album or artist\n+ On / Off buttons in the equalizer, profile import removed\n### Fixed\n• VK tracks didn\'t start or waited half a minute\n• Some VK tracks of an album failed to download\n• The same track several times in search\n• "Friends are listening" showed an old track\n• Listened tracks went missing from the history\n• Empty artist page when Spotify has nothing by the artist\n• YouTube sometimes played the music video instead of the track</string>
     <string name="changelog_2_1_2">### New\n+ New home page: picks from your artists and genres\n+ Genre playlists, genres on albums\n+ Links open right in the app\n+ 2x2 and 2x1 widgets\n+ Pinning in the library\n+ Suggestions added\n### Fixed\n• The slider stood still and the track jumped back to the start\n• Downloaded tracks stopped halfway\n• The equalizer made the sound quieter\n• The home page loaded slowly</string>
     <string name="home_more_in_genre">More %1$s for you</string>
     <string name="home_more_in_genre_label">Close to %1$s</string>

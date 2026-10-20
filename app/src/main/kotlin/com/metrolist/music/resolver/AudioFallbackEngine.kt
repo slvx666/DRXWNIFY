@@ -90,6 +90,7 @@ object AudioFallbackEngine {
                 ?.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: android.net.Network) {
                         forgetMisses()
+                        com.metrolist.music.playback.datasource.CdnHosts.forgetAll()
                         // A VPN switched on or off changes the country YouTube sees.
                         scope.launch {
                             kotlinx.coroutines.delay(REGION_CHECK_DELAY_MS)
@@ -424,7 +425,14 @@ object AudioFallbackEngine {
                 }
             youtube.await() + others.awaitAll().filterNotNull()
         }
-        found.sortedWith(
+        // What plays now and what was found before are versions too: a source that didn't answer
+        // this time (VK paused, a slow network) left the dialog saying nothing was found at all
+        // while the track was playing.
+        val known = (listOfNotNull(currentChoice(mediaId, dbSong)) + storedCandidates(query))
+            .filter { k -> found.none { it.match.provider == k.provider && it.match.trackId == k.trackId } }
+            .distinctBy { it.provider to it.trackId }
+            .map { VersionCandidate(it.copy(confidence = it.confidence.coerceAtMost(1.0)), knownBitrate(it.provider, it.trackId)) }
+        (found + known).sortedWith(
             // Matches within 5% of each other count as equally close; the better sound wins there.
             compareByDescending<VersionCandidate> { (it.match.confidence.coerceAtMost(1.0) * 20).toInt() }
                 .thenByDescending { it.bitrateKbps ?: it.match.expectedKbps },
@@ -541,8 +549,20 @@ object AudioFallbackEngine {
     /** The source currently remembered for [mediaId] (the one a manual pick or the last race chose). */
     fun currentChoice(mediaId: String, dbSong: Song?): ProviderMatch? {
         val query = queryFor(mediaId, dbSong) ?: return null
+        val stored = storedCandidates(query)
+        // A version picked by hand is the choice, even while a race result for the track is remembered.
+        stored.firstOrNull { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }?.let { return it }
         memory.get(query.cacheKey)?.let { return it }
-        return storedCandidates(query).firstOrNull()
+        return stored.firstOrNull()
+    }
+
+    /** The chosen upload for [mediaId] turned out to be gone: the next play or download picks again (a hand-picked one stays). */
+    fun forgetChoice(mediaId: String, dbSong: Song?) {
+        val query = queryFor(mediaId, dbSong) ?: return
+        val choice = currentChoice(mediaId, dbSong) ?: return
+        if (choice.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE) return
+        AudioDiagnostics.warn("${choice.provider} upload ${choice.trackId} of ${query.label()} failed to download — choosing again")
+        forget(query, choice)
     }
 
     /** Forgets the remembered "nothing found" answers, so a retry really searches again. */
@@ -730,8 +750,12 @@ object AudioFallbackEngine {
             markQualityChecked(catalogId)
         }
 
-        // Known matches first (no search): comparably confident ones in the user's order.
-        val stored = storedCandidates(query)
+        // Known matches first (no search): comparably confident ones in the user's order. A source
+        // that lately sent no audio in time goes after the others (a hand-picked version stays first).
+        val stored = storedCandidates(query).let { all ->
+            val (manual, auto) = all.partition { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }
+            manual + auto.sortedBy { ProviderHealth.isSlow(it.provider) }
+        }
         for (match in stored) {
             // A source that can't stream today (VK's shared account out of tracks) is passed over,
             // not forgotten: its match is still right tomorrow.
@@ -753,6 +777,7 @@ object AudioFallbackEngine {
         }
 
         // Then races, each time without what already failed.
+        val streamFailures = HashMap<AudioProviderId, Int>()
         repeat(6) {
             val match = resolve(query.copy(excludedTrackIds = badTracks), exclude = tried) ?: run {
                 AudioDiagnostics.warn("no playable audio for ${query.label()} (failed providers=$tried, bad uploads=${badTracks.size})")
@@ -771,8 +796,12 @@ object AudioFallbackEngine {
             badTracks += match.trackId
             if (match.confidence < ParallelAudioResolver.MANUAL_CONFIDENCE) forget(query, match)
             else memory.remove(query.cacheKey)
-            // A provider whose best match can't stream is unlikely to have a second playable upload.
-            if (match.provider != AudioProviderId.YOUTUBE) tried += match.provider
+            // A provider whose best match can't stream is unlikely to have a third playable upload.
+            // The second is worth it: VK's first upload may sit on a server this network can't
+            // reach while another upload of the same track is on one it can.
+            if (match.provider != AudioProviderId.YOUTUBE && streamFailures.merge(match.provider, 1, Int::plus)!! >= 2) {
+                tried += match.provider
+            }
         }
         null
     }

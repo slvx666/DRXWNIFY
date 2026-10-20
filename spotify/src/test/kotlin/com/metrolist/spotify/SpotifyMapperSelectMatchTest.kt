@@ -43,6 +43,33 @@ class SpotifyMapperSelectMatchTest {
     }
 
     @Test
+    fun `stroked letters match their plain spelling`() {
+        val r = select("Extraction", "LARCɆNIA ROɆ", 200, listOf(
+            cand("RIGHT", "Extraction", "Larcenia Roe", 200),
+        ))
+        assertEquals("RIGHT", matchedId(r))
+    }
+
+    @Test
+    fun `released audio wins over the clip of the same song`() {
+        // The clip is a few seconds closer to the catalog length but opens with its own intro.
+        val r = select("THE SOUND", "The Plot In You", 245, listOf(
+            cand("CLIP", "The Sound", "The Plot in You", 245, video = true),
+            cand("AUDIO", "THE SOUND", "The Plot In You", 249),
+        ))
+        assertEquals("AUDIO", matchedId(r))
+    }
+
+    @Test
+    fun `a clip is still taken when the audio is another edit`() {
+        val r = select("THE SOUND", "The Plot In You", 245, listOf(
+            cand("CLIP", "The Sound", "The Plot in You", 245, video = true),
+            cand("LIVE", "THE SOUND (Live)", "The Plot In You", 262),
+        ))
+        assertEquals("CLIP", matchedId(r))
+    }
+
+    @Test
     fun `symbol-only title matches by its symbols`() {
         val r = select("./", "DOGBITE", 95, listOf(
             cand("OTHER", "Punishment Routine", "DOGBITE", 180),

@@ -866,14 +866,7 @@ object FriendsHub {
         if (secretKey == null) return@withContext
         val privacy = _privacy.value
         runCatching {
-            if (privacy.history != Audience.NOBODY) {
-                val history = db.events().first()
-                    .filter { com.metrolist.music.portrait.Listening.counts(it.event.playTime, it.song.song.duration * 1000L) }
-                    .distinctBy { it.song.id }
-                    .take(MAX_HISTORY)
-                    .map { e -> refOf(db, e.song, e.event.timestamp.toInstant(ZoneOffset.UTC).toEpochMilli()) }
-                publishField(F_HISTORY, JSONObject().put("tracks", refsToJson(history)).toString(), privacy.history, onlyFor)
-            }
+            if (privacy.history != Audience.NOBODY) publishHistory(db, privacy.history, onlyFor)
             if (privacy.playlists != Audience.NOBODY) {
                 val playlists = db.playlistsByCreateDateAsc().first().take(MAX_PLAYLISTS).map { playlist ->
                     val songs = db.playlistSongs(playlist.id).first()
@@ -901,6 +894,35 @@ object FriendsHub {
             }
             if (onlyFor == null) prefs?.edit()?.putLong("libraryAt", System.currentTimeMillis())?.apply()
         }.onFailure { Timber.w(it, "FriendsHub: publishing the library failed") }
+    }
+
+    private suspend fun publishHistory(db: MusicDatabase, audience: Audience, onlyFor: String?) {
+        val zone = java.time.ZoneId.systemDefault()
+        val history = db.events().first()
+            .filter { com.metrolist.music.portrait.Listening.counts(it.event.playTime, it.song.song.duration * 1000L) }
+            .distinctBy { it.song.id }
+            .take(MAX_HISTORY)
+            // Listens are kept in local time: as epoch time for the friend's clock.
+            .map { e -> refOf(db, e.song, e.event.timestamp.atZone(zone).toInstant().toEpochMilli()) }
+        publishField(F_HISTORY, JSONObject().put("tracks", refsToJson(history)).toString(), audience, onlyFor)
+    }
+
+    private var historyJob: Job? = null
+
+    /**
+     * From the player: a listen was saved. Friends get the history a little later (several listens
+     * in a row are sent once), not only with the library every few hours — their home page showed
+     * a track from hours ago while this one was playing something else.
+     */
+    fun listened() {
+        if (secretKey == null || _privacy.value.history == Audience.NOBODY) return
+        if (historyJob?.isActive == true) return
+        historyJob = scope.launch {
+            delay(HISTORY_PUBLISH_DELAY_MS)
+            val db = database ?: return@launch
+            runCatching { publishHistory(db, _privacy.value.history, null) }
+                .onFailure { Timber.w(it, "FriendsHub: publishing the history failed") }
+        }
     }
 
     /**
@@ -1123,6 +1145,7 @@ object FriendsHub {
 
     private const val NOW_DEBOUNCE_MS = 1_500L
     private const val LIBRARY_REFRESH_MS = 6 * 60 * 60_000L
+    private const val HISTORY_PUBLISH_DELAY_MS = 2 * 60_000L
     private const val MAX_HISTORY = 50
     const val MAX_LIKES = 500
     /** Packed likes above this many characters lose their oldest tracks (encryption adds a third). */

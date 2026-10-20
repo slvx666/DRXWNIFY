@@ -38,6 +38,7 @@ import com.metrolist.music.utils.toSongItem
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.playback.SpotifyYouTubeMapper
 import com.metrolist.music.catalog.Catalog
+import com.metrolist.music.R
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -119,6 +120,14 @@ constructor(
     init {
         rememberFilters()
         viewModelScope.launch(Dispatchers.IO) {
+            // A pasted link (Spotify, YouTube, the app's own) shows what it points to, not a text search for it.
+            if (com.metrolist.music.utils.LinkSearch.linkIn(query) != null) {
+                com.metrolist.music.utils.LinkSearch.summaryFor(context, query)?.let { page ->
+                    isSpotifySearch.value = true
+                    summaryPage = page
+                    return@launch
+                }
+            }
             val useSpotify = shouldUseSpotifySearch()
             isSpotifySearch.value = useSpotify
 
@@ -271,9 +280,9 @@ constructor(
 
         result.tracks?.items?.filter { it.id.isNotEmpty() }
             ?.takeIf { it.isNotEmpty() }?.let { tracks ->
-                topTracks = tracks.filter { !hideExplicit || !it.explicit }.ranked()
+                topTracks = tracks.filter { !hideExplicit || !it.explicit }.ranked().oneRowPerRecording()
                 val items: List<YTItem> = topTracks.map { it.toSongItem() }
-                if (items.isNotEmpty()) summaries.add(SearchSummary(title = "Songs", items = items))
+                if (items.isNotEmpty()) summaries.add(SearchSummary(title = context.getString(R.string.songs), items = items))
             }
         result.albums?.items?.filter { it.id.isNotEmpty() }
             ?.takeIf { it.isNotEmpty() }?.let { albums ->
@@ -286,10 +295,10 @@ constructor(
                     it.albumType.equals("album", ignoreCase = true) && it.totalTracks != 1
                 }
                 if (realAlbums.isNotEmpty()) {
-                    summaries.add(SearchSummary(title = "Albums", items = realAlbums.map { it.toAlbumItem() }))
+                    summaries.add(SearchSummary(title = context.getString(R.string.albums), items = realAlbums.map { it.toAlbumItem() }))
                 }
                 if (otherReleases.isNotEmpty()) {
-                    summaries.add(SearchSummary(title = "Singles & EPs", items = otherReleases.map { it.toAlbumItem() }))
+                    summaries.add(SearchSummary(title = context.getString(R.string.singles_and_eps), items = otherReleases.map { it.toAlbumItem() }))
                 }
             }
         result.artists?.items?.filter { it.id.isNotEmpty() }
@@ -298,7 +307,7 @@ constructor(
                 val items: List<YTItem> = rankedArtists.map { it.toArtistItem() }
                 if (items.isNotEmpty()) {
                     // Typing an artist's exact name shows that artist first, above songs.
-                    val section = SearchSummary(title = "Artists", items = items)
+                    val section = SearchSummary(title = context.getString(R.string.artists), items = items)
                     if (com.metrolist.spotify.SearchRelevance.isArtistQuery(query, rankedArtists)) {
                         summaries.add(0, section)
                     } else {
@@ -309,7 +318,7 @@ constructor(
         result.playlists?.items?.filter { it.id.isNotEmpty() }
             ?.takeIf { it.isNotEmpty() }?.let { playlists ->
                 val items: List<YTItem> = playlists.rankedPlaylists().map { it.toPlaylistItem() }
-                if (items.isNotEmpty()) summaries.add(SearchSummary(title = "Playlists", items = items))
+                if (items.isNotEmpty()) summaries.add(SearchSummary(title = context.getString(R.string.playlists), items = items))
             }
 
         summaryPage = SearchSummaryPage(summaries = summaries)
@@ -335,6 +344,7 @@ constructor(
                 "track" -> result.tracks?.items
                     ?.filter { !hideExplicit || !it.explicit }
                     ?.ranked()
+                    ?.oneRowPerRecording()
                     ?.map { it.toSongItem() } ?: emptyList()
                 "album" -> result.albums?.items?.rankedAlbums()?.map { it.toAlbumItem() } ?: emptyList()
                 "artist" -> result.artists?.items?.rankedArtists()?.map { it.toArtistItem() } ?: emptyList()
@@ -433,7 +443,7 @@ constructor(
                 }
 
                 viewStateMap[filterType] = ItemsPage(
-                    (viewState.items + newItems).distinctBy { it.id },
+                    (viewState.items + newItems).distinctBy { it.id }.oneSongPerRecording(),
                     if (hasMore) "spotify:$filterType:${offset + limit}" else null,
                 )
             }.onFailure {
@@ -443,4 +453,39 @@ constructor(
         }
     }
 
+}
+
+
+/**
+ * One row per recording: Spotify lists the same track from its single, its album and compilations
+ * under separate ids, so one search showed "I'll Find the Dark" four times in a row. Same title,
+ * same artists and a length within 2 s are one recording; the best-ranked copy stays.
+ */
+private fun List<com.metrolist.spotify.models.SpotifyTrack>.oneRowPerRecording(): List<com.metrolist.spotify.models.SpotifyTrack> {
+    fun key(t: com.metrolist.spotify.models.SpotifyTrack) =
+        com.metrolist.spotify.SearchRelevance.normalize(t.name) + "|" +
+            t.artists.joinToString(",") { com.metrolist.spotify.SearchRelevance.normalize(it.name) }
+    val kept = mutableListOf<com.metrolist.spotify.models.SpotifyTrack>()
+    for (track in this) {
+        val k = key(track)
+        if (kept.none { key(it) == k && kotlin.math.abs(it.durationMs - track.durationMs) <= 2_000 }) kept += track
+    }
+    return kept
+}
+
+/** [oneRowPerRecording] for rows already shown as songs (a further page of results joined on). */
+private fun List<YTItem>.oneSongPerRecording(): List<YTItem> {
+    fun key(s: com.metrolist.innertube.models.SongItem) =
+        com.metrolist.spotify.SearchRelevance.normalize(s.title) + "|" +
+            s.artists.joinToString(",") { com.metrolist.spotify.SearchRelevance.normalize(it.name) }
+    val kept = mutableListOf<YTItem>()
+    for (item in this) {
+        val song = item as? com.metrolist.innertube.models.SongItem
+        val duplicate = song != null && kept.any { other ->
+            other is com.metrolist.innertube.models.SongItem && key(other) == key(song) &&
+                (other.duration == null || song.duration == null || kotlin.math.abs(other.duration!! - song.duration!!) <= 2)
+        }
+        if (!duplicate) kept += item
+    }
+    return kept
 }

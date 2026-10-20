@@ -35,6 +35,7 @@ class ParallelAudioResolver(
     private val preferQuality: () -> Boolean = {
         ResolverPreferences.pickMode != com.metrolist.music.constants.SourcePickMode.SPEED
     },
+    private val isSlow: (AudioProviderId) -> Boolean = ProviderHealth::isSlow,
 ) {
     data class Outcome(
         val winner: ProviderMatch?,
@@ -104,9 +105,12 @@ class ParallelAudioResolver(
         fun ordered(matches: Collection<ProviderMatch>) =
             if (quality) byQuality(matches, ::rank) else preferred(matches, ::rank)
 
+        /** Sources still searching that are worth waiting for (not one that lately sent no audio in time). */
+        fun waitable() = pending.filterNot(isSlow)
+
         /** A doubtful match from a lower-ranked source while a preferred one is still searching. */
         fun doubtfulWhileBetterPending(best: ProviderMatch) =
-            best.confidence < STRONG_MATCH && pending.any { rank(it) < rank(best.provider) }
+            best.confidence < STRONG_MATCH && waitable().any { rank(it) < rank(best.provider) }
 
         fun decide(now: Long): ProviderMatch? {
             if (quality) {
@@ -118,7 +122,7 @@ class ParallelAudioResolver(
                 // waiting 4.5 s for SoundCloud (160) after YouTube (160, ranked first) found the
                 // exact track bought nothing but a slower start.
                 val margin = if (ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.QUALITY) QUALITY_CONFIDENCE_MARGIN else ACCURACY_CONFIDENCE_MARGIN
-                val cannotBeBeaten = best.confidence >= MAX_SCORE - margin && pending.none { id ->
+                val cannotBeBeaten = best.confidence >= MAX_SCORE - margin && waitable().none { id ->
                     id.typicalKbps > best.expectedKbps ||
                         (id.typicalKbps == best.expectedKbps && rank(id) < rank(best.provider))
                 }
@@ -130,7 +134,7 @@ class ParallelAudioResolver(
                 }
             }
             val best = preferred(found.values, ::rank).firstOrNull() ?: return null
-            val higherPending = pending.any { rank(it) < rank(best.provider) }
+            val higherPending = waitable().any { rank(it) < rank(best.provider) }
             // A doubtful match doesn't end the race early: a slower provider may still have the exact track.
             val couldBeBeaten = best.confidence < STRONG_MATCH && pending.isNotEmpty()
             // The soft deadline only cuts short the wait for a STRONG match: a doubtful SoundCloud

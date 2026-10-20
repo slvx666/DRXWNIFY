@@ -10,6 +10,7 @@ import com.metrolist.music.resolver.AudioProviderId
 import com.metrolist.music.resolver.AudioQuery
 import com.metrolist.music.resolver.AudioStream
 import com.metrolist.music.resolver.ProviderMatch
+import com.metrolist.music.playback.datasource.CdnHosts
 import com.metrolist.music.playback.datasource.HlsConcatDataSource
 import com.metrolist.spotify.SpotifyMapper
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +45,12 @@ class VkAudioProvider(
         .readTimeout(14, TimeUnit.SECONDS)
         .callTimeout(15, TimeUnit.SECONDS)
         .dns(com.metrolist.music.utils.FallbackDns)
+        .build()
+
+    /** The track's address when it is about to play: VK answers it in well under a second, a minute of silence is not worth it. */
+    private val quickHttp = http.newBuilder()
+        .readTimeout(7, TimeUnit.SECONDS)
+        .callTimeout(8, TimeUnit.SECONDS)
         .build()
 
     // Out of the race once the shared account's tracks for today are used up: VK still "found"
@@ -96,7 +103,7 @@ class VkAudioProvider(
         }
     }
 
-    private fun call(method: String, params: Map<String, String>): JSONObject? {
+    private fun call(method: String, params: Map<String, String>, client: OkHttpClient = http): JSONObject? {
         val accessToken = token()?.takeIf { it.isNotBlank() } ?: return null
         val body = FormBody.Builder().apply {
             params.forEach { (k, v) -> add(k, v) }
@@ -109,7 +116,7 @@ class VkAudioProvider(
             .post(body)
             .build()
         Timber.tag("VkAuth").i("%s → sending %s", method, params)
-        http.newCall(request).execute().use { response ->
+        client.newCall(request).execute().use { response ->
             val text = response.body?.string()
             Timber.tag("VkAuth").i("%s → HTTP %d in %dms: %s", method, response.code, response.receivedResponseAtMillis - response.sentRequestAtMillis, text?.take(600))
             if (!response.isSuccessful) return null
@@ -228,11 +235,18 @@ class VkAudioProvider(
         val items = fetch(text, 30, requireUrl = false)
         if (items.isEmpty()) return null
 
-        val chosen = ProviderGate.ranked(
+        // The best upload whose server isn't known to be out of reach: VK keeps the same track on
+        // many servers, and one cut off by the network only played after a minute of retries.
+        val ranked = ProviderGate.ranked(
             query,
             items.map { SpotifyMapper.Candidate(it.fullId, it.title, it.artist, it.durationSec.takeIf { d -> d > 0 }, thumbnailUrl = it.thumb) },
-            limit = 1,
-        ).firstOrNull() ?: return null
+            limit = 5,
+        )
+        val chosen = ranked.firstOrNull { c ->
+            !com.metrolist.music.playback.datasource.CdnHosts.likelyDown(
+                com.metrolist.music.playback.datasource.CdnHosts.hostOf(items.first { it.fullId == c.id }.url),
+            )
+        } ?: return null
         val audio = items.first { it.fullId == chosen.id }
         audio.url?.let { recentUrls[audio.fullId] = it to System.currentTimeMillis() }
         return ProviderMatch(
@@ -517,17 +531,41 @@ class VkAudioProvider(
             return null
         }
         val now = System.currentTimeMillis()
-        val url = recentUrls[match.trackId]?.takeIf { now - it.second < URL_TTL_MS }?.first
-            ?: runCatching {
-                throttled {
-                    val root = call("audio.getById", mapOf("audios" to match.trackId))
-                    val arr = root?.optJSONArray("response")
-                    arr?.optJSONObject(0)?.let(::parse)?.url
-                }
-            }.onFailure { Timber.tag("AudioRace").d("vk stream ✘ %s: %s", match.trackId, it.message) }
-                .getOrNull()
-                ?.also { recentUrls[match.trackId] = it to now }
-            ?: return null
+        suspend fun fetchUrl(): String? = runCatching {
+            throttled {
+                val root = call("audio.getById", mapOf("audios" to match.trackId), quickHttp)
+                val arr = root?.optJSONArray("response")
+                arr?.optJSONObject(0)?.let(::parse)?.url
+            }
+        }.onFailure { Timber.tag("AudioRace").d("vk stream ✘ %s: %s", match.trackId, it.message) }
+            .getOrNull()
+            ?.also { recentUrls[match.trackId] = it to now }
+        val cached = recentUrls[match.trackId]?.takeIf { now - it.second < URL_TTL_MS }?.first
+        var url = cached ?: fetchUrl() ?: return null
+        // Asked of the stream itself before a track is played or downloaded from it: a server out of
+        // reach is found out in seconds, an upload VK deleted (its address answers 404) is not used.
+        suspend fun check(u: String) = runInterruptible(Dispatchers.IO) { CdnHosts.check(u) }
+        var verdict = check(url)
+        if (verdict == CdnHosts.Check.GONE && cached != null) {
+            // The address from the search may be the stale one: VK's own answer for the track decides.
+            recentUrls.remove(match.trackId)
+            url = fetchUrl() ?: return null
+            verdict = check(url)
+        }
+        when (verdict) {
+            CdnHosts.Check.OK -> Unit
+            CdnHosts.Check.UNREACHABLE -> {
+                com.metrolist.music.resolver.AudioDiagnostics.warn(
+                    "VK upload ${match.trackId} is on ${CdnHosts.hostOf(url)}, which can't be reached",
+                )
+                return null
+            }
+            CdnHosts.Check.GONE -> {
+                recentUrls.remove(match.trackId)
+                com.metrolist.music.resolver.AudioDiagnostics.warn("VK upload ${match.trackId} is gone from VK's servers (404)")
+                return null
+            }
+        }
         return AudioStream(
             // VK's HLS is AES-128 encrypted MPEG-TS: fetched whole, decrypted and demuxed to plain MP3.
             uri = if (url.contains(".m3u8")) HlsConcatDataSource.wrap(url, whole = true) else url,

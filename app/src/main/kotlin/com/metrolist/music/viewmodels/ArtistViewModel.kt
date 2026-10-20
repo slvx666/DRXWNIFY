@@ -124,6 +124,16 @@ class ArtistViewModel @Inject constructor(
         private set
     private var catalogReleasesRequested = false
 
+    /**
+     * The catalog's tracks and releases were asked for (with or without an answer). A catalog
+     * profile that has none of them must not hide the YouTube page: a same-named artist, or one
+     * whose releases aren't available in the account's country, left the screen empty.
+     */
+    val catalogLoaded = MutableStateFlow(false)
+
+    /** The catalog artist was picked by name only, so it may be another artist of that name. */
+    private var catalogFoundByName = false
+
     private fun loadCatalogReleases(nameHint: String?) {
         if (catalogReleasesRequested) return
         catalogReleasesRequested = true
@@ -141,6 +151,7 @@ class ArtistViewModel @Inject constructor(
             }
             if (known != null) catalog.ensureAuthenticated()
             catalogArtistId = id
+            catalogFoundByName = known == null
             if (catalog.canWrite(id)) {
                 launch {
                     // Two-way: an artist followed/unfollowed in the Spotify (or Yandex) app shows so here.
@@ -155,14 +166,46 @@ class ArtistViewModel @Inject constructor(
             }
             launch { catalog.artist(id).onSuccess { catalogArtist.value = it } }
             launch { catalog.relatedArtists(id).onSuccess { catalogRelated.value = it } }
-            launch { catalog.artistTopTracks(id).onSuccess { catalogTopTracks.value = it.tracks.filter { t -> t.id.isNotBlank() } } }
+            val topTracks = async {
+                catalog.artistTopTracks(id).onSuccess { catalogTopTracks.value = it.tracks.filter { t -> t.id.isNotBlank() } }
+            }
             catalog.artistReleases(id)
                 .onSuccess { catalogReleases.value = it }
                 .onFailure {
                     Timber.w(it, "Catalog releases failed for $id")
                     catalogReleasesRequested = false
                 }
+            topTracks.await()
+            catalogLoaded.value = true
+            reconcileCatalog()
         }
+    }
+
+    /**
+     * A catalog artist found by name is dropped when the YouTube page has music and none of it is
+     * the catalog artist's: two artists merely share the name.
+     */
+    private fun reconcileCatalog() {
+        if (!catalogFoundByName || !catalogLoaded.value) return
+        val page = artistPage ?: return
+        fun norm(s: String) = s.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), "")
+        val pageTitles = page.sections.flatMap { it.items }.mapNotNull {
+            when (it) {
+                is com.metrolist.innertube.models.SongItem -> it.title
+                is com.metrolist.innertube.models.AlbumItem -> it.title
+                else -> null
+            }
+        }.map(::norm).filter { it.isNotEmpty() }.toSet()
+        if (pageTitles.size < 3) return
+        val catalogTitles = (catalogReleases.value.map { it.name } + catalogTopTracks.value.map { it.name })
+            .map(::norm).filter { it.isNotEmpty() }
+        if (catalogTitles.any { it in pageTitles }) return
+        Timber.i("Artist $artistId: catalog artist $catalogArtistId shares only the name, showing the YouTube page")
+        catalogArtist.value = null
+        catalogTopTracks.value = emptyList()
+        catalogReleases.value = emptyList()
+        catalogRelated.value = emptyList()
+        catalogArtistId = null
     }
 
     init {
@@ -450,6 +493,7 @@ class ArtistViewModel @Inject constructor(
 
                     artistPage = page.copy(sections = filteredSections)
                     loadCatalogReleases(page.artist.title)
+                    reconcileCatalog()
                     // Store API subscription state. For Spotify-backed profiles the YouTube
                     // channel's subscription is irrelevant — the DB row (synced with Spotify) rules.
                     if (spotifyArtistId == null) _apiSubscribed.value = page.isSubscribed

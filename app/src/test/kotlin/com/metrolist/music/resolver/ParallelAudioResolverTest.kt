@@ -65,6 +65,18 @@ class ParallelAudioResolverTest {
     }
 
     @Test
+    fun aSourceThatLatelySentNoAudioIsNotWaitedFor() = runBlocking {
+        // VK could sound better, but it just failed to deliver: YouTube's exact match goes at once.
+        val youtube = FakeProvider(AudioProviderId.YOUTUBE, 20, found = true, confidence = 1.0)
+        val vk = FakeProvider(AudioProviderId.VK, 1_000, found = true, confidence = 1.0)
+        val order = listOf(AudioProviderId.YOUTUBE, AudioProviderId.VK)
+        val outcome = ParallelAudioResolver(400, 1_500, preferQuality = { true }, isSlow = { it == AudioProviderId.VK })
+            .resolve(query, listOf(youtube, vk), order)
+        assertEquals(AudioProviderId.YOUTUBE, outcome.winner?.provider)
+        assertTrue("decided without waiting: ${outcome.elapsedMs}", outcome.elapsedMs < 500)
+    }
+
+    @Test
     fun qualityModeDoesNotWaitForSourcesThatCannotSoundBetter() = runBlocking {
         // SoundCloud (160) can't beat YouTube's exact 160 kbps match ranked above it: no 4.5 s wait.
         val youtube = FakeProvider(AudioProviderId.YOUTUBE, 20, found = true, confidence = 1.0)

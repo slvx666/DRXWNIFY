@@ -211,6 +211,9 @@ object SpotifyMapper {
 
     /** Per-marker ranking penalty for non-studio variants, capped by [MAX_VARIANT_PENALTY]. */
     private const val VARIANT_PENALTY_PER_MARKER = 0.15
+
+    /** Outweighs a few seconds of length difference (0.04), never a wrong title or artist. */
+    private const val VIDEO_PENALTY = 0.06
     private const val MAX_VARIANT_PENALTY = 0.30
 
     /** Whole-word markers that indicate a non-studio upload (live/MV/edit/cover/…). */
@@ -491,9 +494,13 @@ object SpotifyMapper {
         pool = pool.filter { (durationOff(it) ?: 0) <= DURATION_TOLERANCE_WIDE_S }
         if (pool.isEmpty()) return if (loose) loosePick(titleOk, ::durationOff) else MatchResult.NoMatch
 
-        // Highest adjusted score wins; ties broken toward the duration-closest candidate.
+        // Highest adjusted score wins; ties broken toward the duration-closest candidate. A video
+        // (music clip, fan upload) gives way to the released audio of the same song: clips often
+        // carry their own intro — "The Plot In You – The Sound" began with strings, not the keys.
         val chosen = pool.minWithOrNull(
-            compareByDescending<Candidate> { score(it) - variantPenalty(spotifyTitle, it.title) }
+            compareByDescending<Candidate> {
+                score(it) - variantPenalty(spotifyTitle, it.title) - (if (it.isVideo) VIDEO_PENALTY else 0.0)
+            }
                 .thenBy { durationOff(it) ?: Int.MAX_VALUE },
         ) ?: return MatchResult.NoMatch
 
@@ -573,7 +580,7 @@ object SpotifyMapper {
         // Greek, …) — the previous `[^a-z0-9\s]` filter erased every non-Latin title to an
         // empty string, so those tracks never matched anything. Apostrophes are dropped with
         // no separator so "I'm" -> "im" (not "i m"); other punctuation becomes a space.
-        s = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKD)
+        s = java.text.Normalizer.normalize(LetterFold.fold(s), java.text.Normalizer.Form.NFKD)
             .replace("'", "")
             .replace("’", "")
         val sb = StringBuilder(s.length)

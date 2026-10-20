@@ -1197,6 +1197,7 @@ class MusicService :
             while (isActive) {
                 delay(500)
                 if (player.isPlaying) player.currentMediaItem?.mediaId?.let { lastSeenPlaying = it to player.currentPosition }
+                trackListen()
             }
         }
 
@@ -2596,6 +2597,8 @@ class MusicService :
         reason: Int,
     ) {
         startTiming = mediaItem?.let { it.mediaId to android.os.SystemClock.elapsedRealtime() }
+        // A new play, also of the same track again (repeat one).
+        listenMediaId = null
         // Save previous episode position if it was an episode
         previousEpisodeId?.let { episodeId ->
             if (previousEpisodePosition > 0) {
@@ -3332,7 +3335,18 @@ class MusicService :
 
         // Aggressive cache clearing for all playback errors
         if (mediaId != null) {
+            val serving = fallbackServing[mediaId]
             performAggressiveCacheClear(mediaId)
+            // A source that sent no audio in time: the retry goes to the next source, not to another
+            // upload on the same one (VK has many) — each try cost its own long wait.
+            // A server of that source out of reach (one of VK's many): only that upload is left out,
+            // another upload of the track on a reachable server may still play.
+            if (serving != null && serving.provider != AudioProviderId.YOUTUBE && isNetworkConnected.value &&
+                isNetworkRelatedError(error) && !hasUnreachableHost(error)
+            ) {
+                markFallbackFailed(mediaId, provider = serving.provider)
+                com.metrolist.music.resolver.ProviderHealth.noteSlow(serving.provider)
+            }
         }
 
         // Handle specific error types with strict strategies
@@ -3977,8 +3991,10 @@ class MusicService :
                                     } ?: response.request
                                 }.build()
                                 .let { client ->
-                                    // Playback streams VK tracks from their first segment.
-                                    HlsConcatDataSource.Factory(OkHttpDataSource.Factory(client), client, streamWhole = true)
+                                    // Playback streams VK tracks from their first segment. Their own
+                                    // client: not YouTube's proxy and connection pool, with timeouts
+                                    // of its own, so a stuck request fails in seconds, not minutes.
+                                    HlsConcatDataSource.Factory(OkHttpDataSource.Factory(client), hlsClient, streamWhole = true)
                                 },
                         ),
                     ),
@@ -4237,6 +4253,11 @@ class MusicService :
         }
         if (!bypassCache && usePlayerCache && playerCache.holdsWhole(cacheKey)) {
             if (cachedAudioStillChosen(mediaId, cacheKey)) {
+                // The version dialog shows what really plays: a cached YouTube copy was listed as
+                // "playing now" under the VK version picked by hand.
+                cacheOwners.getString(cacheKey, null)?.substringBefore(':')
+                    ?.let { name -> AudioProviderId.entries.firstOrNull { it.name == name } }
+                    ?.let { com.metrolist.music.resolver.NowServing.set(mediaId, it) }
                 if (dataSpec.position == 0L) {
                     val length = androidx.media3.datasource.cache.ContentMetadata.getContentLength(playerCache.getContentMetadata(cacheKey))
                     AudioDiagnostics.info("playing $mediaId from the cache (${length / 1024} KB, ${cacheOwners.getString(cacheKey, null) ?: "?"})")
@@ -4414,6 +4435,8 @@ class MusicService :
     /** Failures seen while offline say nothing about the track or the sources: try them all again. */
     private fun forgetFailuresForOutage(mediaId: String?) {
         mediaId?.let { fallbackFailures.remove(it) }
+        com.metrolist.music.resolver.ProviderHealth.forgetAll()
+        com.metrolist.music.playback.datasource.CdnHosts.forgetAll()
         youtubeUnavailableUntilMs = 0L
         recentYouTubeRescues.clear()
     }
@@ -4988,9 +5011,24 @@ class MusicService :
             // a minute) searched every provider again each time and kept the player stuck on it.
             object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
                 override fun getRetryDelayMsFor(info: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long =
-                    if (isNoAudioSource(info.exception)) androidx.media3.common.C.TIME_UNSET else super.getRetryDelayMsFor(info)
+                    // A stream server out of reach is final too: the error goes straight to the
+                    // fallback (another upload or source) instead of a minute of retries.
+                    if (isNoAudioSource(info.exception) || hasUnreachableHost(info.exception)) {
+                        androidx.media3.common.C.TIME_UNSET
+                    } else {
+                        super.getRetryDelayMsFor(info)
+                    }
             },
         )
+
+    private fun hasUnreachableHost(error: Throwable?): Boolean {
+        var e = error
+        while (e != null) {
+            if (e is com.metrolist.music.playback.datasource.HostUnreachableException) return true
+            e = e.cause
+        }
+        return false
+    }
 
     private fun createRenderersFactory(
         eqProcessor: CustomEqualizerAudioProcessor,
@@ -5031,41 +5069,27 @@ class MusicService :
         val trackDurationMs = (mediaItem.metadata?.duration ?: 0) * 1000L
         val listened = com.metrolist.music.portrait.Listening.counts(playbackStats.totalPlayTimeMs, trackDurationMs)
         val historyPaused = dataStore.get(PauseListenHistoryKey, false)
+        val savedEarly = earlyListens.containsKey(mediaItem.mediaId)
         if (playbackStats.totalPlayTimeMs > 0) {
             com.metrolist.music.resolver.AudioDiagnostics.info(
                 "listened '${mediaItem.mediaMetadata.title}' ${playbackStats.totalPlayTimeMs / 1000}s of " +
                     "${trackDurationMs / 1000}s → " + when {
+                        savedEarly -> "in history already"
                         historyPaused -> "history paused"
                         listened -> "saved to history"
                         else -> "too short for history"
                     },
             )
         }
-        if (listened && !historyPaused) {
-            // A play from the endless radio counts less in the profile's portrait than a chosen one.
-            if (RecommendedTracks.isRecommended(mediaItem.mediaId)) com.metrolist.music.portrait.RadioPlays.mark(mediaItem.mediaId)
-            database.query {
-                // A listen points at the track's row. Catalog tracks played through another source
-                // ("mfb:" ids — most of the radio and of any queue) often had none, the insert failed
-                // on the foreign key, the error was swallowed, and the history stayed nearly empty.
-                if (!songExistsBlocking(mediaItem.mediaId)) {
-                    mediaItem.metadata?.let { metadata -> runCatching { insert(metadata) } }
-                }
+        if (playbackStats.totalPlayTimeMs > 0 && savedEarly) {
+            // Saved while it played (see trackListen): only the full play time is added now.
+            database.transaction {
+                val eventId = earlyListens.remove(mediaItem.mediaId) ?: return@transaction
                 incrementTotalPlayTime(mediaItem.mediaId, playbackStats.totalPlayTimeMs)
-                try {
-                    insert(
-                        Event(
-                            songId = mediaItem.mediaId,
-                            timestamp = LocalDateTime.now(),
-                            playTime = playbackStats.totalPlayTimeMs,
-                        ),
-                    )
-                } catch (e: SQLException) {
-                    com.metrolist.music.resolver.AudioDiagnostics.warn(
-                        "listen of ${mediaItem.mediaId} not saved: ${e.message?.take(120)}",
-                    )
-                }
+                updateEventPlayTime(eventId, playbackStats.totalPlayTimeMs)
             }
+        } else if (listened && !historyPaused) {
+            saveListen(mediaItem, playbackStats.totalPlayTimeMs, early = false)
         }
 
         if (playbackStats.totalPlayTimeMs >= historyDurationMs && isYouTubeVideoId(mediaItem.mediaId)) {
@@ -5728,9 +5752,78 @@ class MusicService :
         }
     }
 
+    private val hlsClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .dns(com.metrolist.music.utils.FallbackDns)
+            .build()
+    }
+
     /** The track last seen playing and its position then (ms), sampled every half second. */
     @Volatile
     private var lastSeenPlaying: Pair<String, Long>? = null
+
+    /** The current play of a track as the history counts it: see [trackListen]. */
+    private var listenMediaId: String? = null
+    private var listenPlayedMs = 0L
+    private var listenNeededMs = Long.MAX_VALUE
+    private var listenSaved = false
+    private var listenSampledAt = 0L
+
+    /** Tracks saved to the history while still playing, media id → event row. */
+    private val earlyListens = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * Saves a listen as soon as enough of the track was heard, not only when it ends: the player
+     * reports a play when the track is left, so one heard to 70 % and then the app closed or killed
+     * never reached the history (nor what friends see).
+     */
+    private fun trackListen() {
+        val item = player.currentMediaItem
+        val now = android.os.SystemClock.elapsedRealtime()
+        val elapsed = if (listenSampledAt == 0L) 0L else (now - listenSampledAt).coerceIn(0L, 1_000L)
+        listenSampledAt = now
+        if (item?.mediaId != listenMediaId) {
+            listenMediaId = item?.mediaId
+            listenPlayedMs = 0L
+            listenSaved = false
+            val floorMs = (dataStore[HistoryDuration]?.times(1000f) ?: 30000f).toLong()
+            com.metrolist.music.portrait.Listening.floorMs = floorMs
+            listenNeededMs = com.metrolist.music.portrait.Listening.neededMs((item?.metadata?.duration ?: 0) * 1000L)
+            return
+        }
+        if (item == null || !player.isPlaying) return
+        listenPlayedMs += elapsed
+        if (listenSaved || listenPlayedMs < listenNeededMs) return
+        listenSaved = true
+        if (dataStore.get(PauseListenHistoryKey, false)) return
+        AudioDiagnostics.info("'${item.mediaMetadata.title}' heard for ${listenPlayedMs / 1000}s → saved to history")
+        saveListen(item, listenPlayedMs, early = true)
+    }
+
+    private fun saveListen(mediaItem: MediaItem, playTimeMs: Long, early: Boolean) {
+        // A play from the endless radio counts less in the profile's portrait than a chosen one.
+        if (RecommendedTracks.isRecommended(mediaItem.mediaId)) com.metrolist.music.portrait.RadioPlays.mark(mediaItem.mediaId)
+        // One writer in order: an early save and the final play time of the same track never cross.
+        database.transaction {
+            // A listen points at the track's row. Catalog tracks played through another source
+            // ("mfb:" ids — most of the radio and of any queue) often had none, the insert failed
+            // on the foreign key, the error was swallowed, and the history stayed nearly empty.
+            if (!songExistsBlocking(mediaItem.mediaId)) {
+                mediaItem.metadata?.let { metadata -> runCatching { insert(metadata) } }
+            }
+            if (!early) incrementTotalPlayTime(mediaItem.mediaId, playTimeMs)
+            try {
+                val id = insertEvent(Event(songId = mediaItem.mediaId, timestamp = LocalDateTime.now(), playTime = playTimeMs))
+                if (early && id > 0) earlyListens[mediaItem.mediaId] = id
+            } catch (e: SQLException) {
+                AudioDiagnostics.warn("listen of ${mediaItem.mediaId} not saved: ${e.message?.take(120)}")
+            }
+        }
+        com.metrolist.music.friends.FriendsHub.listened()
+    }
 
     /** Tracks whose cached or downloaded copy is broken: played from the network this run. */
     private val cutShortBypass = java.util.Collections.synchronizedSet(HashSet<String>())

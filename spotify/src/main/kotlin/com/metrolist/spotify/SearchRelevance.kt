@@ -18,7 +18,7 @@ object SearchRelevance {
     /** Lower-case, diacritics folded, punctuation → space; letters of every script are kept. */
     fun normalize(value: String?): String {
         if (value.isNullOrBlank()) return ""
-        val folded = Normalizer.normalize(value.lowercase(), Normalizer.Form.NFKD)
+        val folded = Normalizer.normalize(LetterFold.fold(value.lowercase()), Normalizer.Form.NFKD)
         val sb = StringBuilder(folded.length)
         for (ch in folded) {
             when {

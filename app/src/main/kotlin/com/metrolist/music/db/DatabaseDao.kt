@@ -1727,6 +1727,13 @@ interface DatabaseDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insert(event: Event)
 
+    /** Like [insert], returning the new row's id (-1 when nothing was written). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertEvent(event: Event): Long
+
+    @Query("UPDATE event SET playTime = :playTime WHERE id = :id")
+    fun updateEventPlayTime(id: Long, playTime: Long)
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     fun insert(map: RelatedSongMap)
 

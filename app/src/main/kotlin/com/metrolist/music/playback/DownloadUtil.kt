@@ -333,6 +333,7 @@ constructor(
                                 Download.STATE_STOPPED,
                                 Download.STATE_REMOVING -> {
                                     database.updateDownloadedInfo(download.request.id, false, null)
+                                    if (download.state == Download.STATE_FAILED) forgetFailedSource(download.request.id, finalException)
                                 }
                                 else -> {
                                 }
@@ -695,6 +696,31 @@ constructor(
         }
         AudioDiagnostics.warn("download: gave up on $mediaId after several sources failed")
         return null
+    }
+
+    /**
+     * A download that failed is tried again from scratch: the stream address it had is dropped (a
+     * retry within the hour reused it and failed the same way), and when the source answered "not
+     * here" (404 — VK hands out addresses of uploads it deleted) the chosen upload is forgotten, so
+     * the next try picks another upload or source.
+     */
+    private fun forgetFailedSource(mediaId: String, error: Exception?) {
+        songUrlCache.remove(mediaId)
+        var e: Throwable? = error
+        var gone = false
+        while (e != null) {
+            if (e is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException && e.responseCode in setOf(403, 404, 410) ||
+                (e as? androidx.media3.datasource.DataSourceException)?.reason == androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+            ) {
+                gone = true
+                break
+            }
+            e = e.cause
+        }
+        if (!gone || !com.metrolist.music.resolver.FallbackIds.isFallbackId(mediaId)) return
+        scope.launch(Dispatchers.IO) {
+            AudioFallbackEngine.forgetChoice(mediaId, database.getSongByIdBlocking(mediaId))
+        }
     }
 
     fun getDownload(songId: String): Flow<Download?> = visibleDownloads.map { it[songId] }.distinctUntilChanged()

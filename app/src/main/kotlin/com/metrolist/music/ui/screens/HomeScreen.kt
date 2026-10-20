@@ -725,15 +725,16 @@ fun HomeScreen(
             else name ?: key.take(8)
         }
     }
-    // Friends' latest tracks: fetched for a while each time the page shows (not kept open: battery).
+    // Friends' latest tracks: fetched for a while each time the page shows, also when the app comes
+    // back to the front (not kept open: battery).
     if (friendsList.isNotEmpty()) {
-        androidx.compose.runtime.DisposableEffect(Unit) {
+        androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
             com.metrolist.music.friends.FriendsHub.startLive()
             val stop = kotlinx.coroutines.MainScope().launch {
                 kotlinx.coroutines.delay(45_000L)
                 com.metrolist.music.friends.FriendsHub.stopLive()
             }
-            onDispose {
+            onPauseOrDispose {
                 if (stop.isActive) {
                     stop.cancel()
                     com.metrolist.music.friends.FriendsHub.stopLive()

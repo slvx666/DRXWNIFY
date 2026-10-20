@@ -201,11 +201,17 @@ class HlsConcatDataSource(
     }
 
     private fun startStream(playlistUrl: String): WholeStream {
+        CdnHosts.hostOf(playlistUrl)?.takeIf(CdnHosts::isDown)?.let { host ->
+            throw DataSourceException(HostUnreachableException(host, null), PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
+        }
         val started = System.currentTimeMillis()
         val playlistBytes = retrying { fetchBytes(playlistUrl, null) }
             ?: throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
         val playlist = HlsPlaylist.parse(playlistUrl, String(playlistBytes, Charsets.UTF_8), allowAes128 = true)
             ?: throw DataSourceException(PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED)
+        com.metrolist.music.resolver.AudioDiagnostics.info(
+            "hls: playlist (${playlist.segments.size} segments) after ${System.currentTimeMillis() - started} ms",
+        )
         val keyBytes = playlist.keys.filterNotNull().map { it.url }.distinct().associateWith { url ->
             retrying { fetchBytes(url, null) } ?: throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
         }
@@ -278,7 +284,10 @@ class HlsConcatDataSource(
 
     private fun <T : Any> retrying(block: () -> T?): T? {
         repeat(PROBE_ATTEMPTS) { attempt ->
-            runCatching(block).getOrNull()?.let { return it }
+            val result = runCatching(block)
+            result.getOrNull()?.let { return it }
+            // A server out of reach stays out of reach: asking it twice more only adds silence.
+            result.exceptionOrNull()?.takeIf { it is HostUnreachableException || it.cause is HostUnreachableException }?.let { throw it }
             if (attempt < PROBE_ATTEMPTS - 1) Thread.sleep(400L * (attempt + 1))
         }
         return null
@@ -506,14 +515,30 @@ class HlsConcatDataSource(
     private fun fetchBytes(url: String, range: String?): ByteArray {
         val builder = Request.Builder().url(url).header("User-Agent", USER_AGENT)
         if (range != null) builder.header("Range", range)
+        val started = System.currentTimeMillis()
+        // What failed and how: the player only ever said "Source error", so a VK track that never
+        // started left nothing to go on.
+        fun report(what: String) = com.metrolist.music.resolver.AudioDiagnostics.warn(
+            "hls fetch ✘ ${url.toHttpUrlOrNull()?.let { "${it.host}…${it.encodedPath.takeLast(24)}" } ?: "?"}: $what " +
+                "after ${System.currentTimeMillis() - started} ms",
+        )
         try {
             client.newCall(builder.build()).execute().use { r ->
-                if (!r.isSuccessful) throw DataSourceException(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS)
+                if (!r.isSuccessful) {
+                    report("HTTP ${r.code}")
+                    throw DataSourceException(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS)
+                }
                 return r.body?.bytes() ?: throw DataSourceException(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS)
             }
         } catch (e: DataSourceException) {
             throw e
         } catch (e: IOException) {
+            report("${e.javaClass.simpleName} ${e.message?.take(120).orEmpty()}")
+            val host = CdnHosts.hostOf(url)
+            if (host != null && CdnHosts.isUnreachable(e)) {
+                CdnHosts.markDown(host, e.javaClass.simpleName)
+                throw DataSourceException(HostUnreachableException(host, e), PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
+            }
             throw DataSourceException(e, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
         }
     }
@@ -617,6 +642,9 @@ class HlsConcatDataSource(
         /** How long a reader waits for the next segment before giving up. */
         private const val SEGMENT_WAIT_MS = 25_000L
 
+        /** How long a track's first sound may take to arrive. */
+        private const val FIRST_SEGMENT_WAIT_MS = 10_000L
+
         /** Declared length = estimate × this, so the real audio is never cut (the rest is silence). */
         private const val LENGTH_MARGIN = 1.002
 
@@ -670,6 +698,9 @@ class HlsConcatDataSource(
                 chunks[index] = audio
                 ready++
                 if (index == 0) {
+                    com.metrolist.music.resolver.AudioDiagnostics.info(
+                        "hls: first segment after ${System.currentTimeMillis() - started} ms (${audio.size / 1024} KB)",
+                    )
                     val cbr = if (seconds > 0.0) MeasuredAudio.constantMp3(audio) else null
                     declared = cbr?.let { (it.bitrate / 8.0 * seconds * LENGTH_MARGIN).toLong() + it.frameLength } ?: 0L
                     silentFrame = cbr?.silentFrame()
@@ -728,17 +759,17 @@ class HlsConcatDataSource(
             }
         }
 
-        /** Waits under [lock]; gives up when no segment has arrived for [SEGMENT_WAIT_MS]. */
-        private fun waitFor(condition: () -> Boolean) {
+        /** Waits under [lock]; gives up when no segment has arrived for [waitMs]. */
+        private fun waitFor(waitMs: Long = SEGMENT_WAIT_MS, condition: () -> Boolean) {
             var lastProgress = ready
-            var deadline = System.currentTimeMillis() + SEGMENT_WAIT_MS
+            var deadline = System.currentTimeMillis() + waitMs
             while (!condition()) {
                 failure?.let { t ->
                     throw t as? DataSourceException ?: DataSourceException(t, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
                 }
                 if (ready != lastProgress) {
                     lastProgress = ready
-                    deadline = System.currentTimeMillis() + SEGMENT_WAIT_MS
+                    deadline = System.currentTimeMillis() + waitMs
                 }
                 val left = deadline - System.currentTimeMillis()
                 if (left <= 0) throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT)
@@ -751,8 +782,13 @@ class HlsConcatDataSource(
             }
         }
 
+        /**
+         * The start is waited for less long than the rest: a source that sends nothing at all gives
+         * way to the next one in seconds — the track used to stay silent for half a minute before
+         * playing from YouTube anyway.
+         */
         fun awaitDeclaredLength(): Long = synchronized(lock) {
-            waitFor { declared >= 0 }
+            waitFor(FIRST_SEGMENT_WAIT_MS) { declared >= 0 }
             declared
         }
 

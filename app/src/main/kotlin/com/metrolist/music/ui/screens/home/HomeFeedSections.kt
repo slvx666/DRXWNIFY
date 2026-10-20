@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -84,7 +83,7 @@ fun NewReleasesRow(albums: List<SpotifyAlbum>, onOpen: (SpotifyAlbum) -> Unit, m
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier,
     ) {
-        items(albums, key = { "nr_${it.id}" }) { album ->
+        items(albums.distinctBy { it.id }, key = { "nr_${it.id}" }) { album ->
             val cover = album.images.firstOrNull { (it.width ?: 0) in 250..700 }?.url ?: album.images.firstOrNull()?.url
             Column(
                 Modifier
@@ -145,7 +144,10 @@ fun TrackCardsRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier,
     ) {
-        itemsIndexed(tracks, key = { _, t -> "tc_${t.id}" }) { index, track ->
+        // The same track twice in a row (a single and its album version share the id) crashed the
+        // home page on the repeated key: it shows once, a tap still plays the row from that place.
+        val shown = tracks.withIndex().distinctBy { it.value.id }
+        items(shown, key = { "tc_${it.value.id}" }) { (index, track) ->
             val active = currentId != null && currentId.endsWith(track.id)
             Column(
                 Modifier
@@ -187,7 +189,7 @@ fun GenreTilesRow(genres: List<String>, onOpen: (String) -> Unit, modifier: Modi
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = modifier,
     ) {
-        items(genres, key = { "gt_$it" }) { genre ->
+        items(genres.distinct(), key = { "gt_$it" }) { genre ->
             val color = genreColor(genre, hues[genre])
             Box(
                 Modifier
@@ -321,8 +323,10 @@ fun friendsListening(
         if (playing != null) {
             FriendListening(f.pubkey, name, d.avatar, playing.track, now = true, at = playing.at)
         } else {
-            val last = d.history?.maxByOrNull { it.at }?.takeIf { now - it.at < 3 * 24 * 60 * 60_000L }
-                ?: d.now?.takeIf { now - it.at < 3 * 24 * 60 * 60_000L }?.let { it.track.copy(at = it.at) }
+            // The history is sent now and then, what plays on every change: the newer of the two.
+            val last = listOfNotNull(d.history?.maxByOrNull { it.at }, d.now?.let { it.track.copy(at = it.at) })
+                .maxByOrNull { it.at }
+                ?.takeIf { now - it.at < 3 * 24 * 60 * 60_000L }
             last?.let { FriendListening(f.pubkey, name, d.avatar, it, now = false, at = it.at) }
         }
     }.sortedWith(compareByDescending<FriendListening> { it.now }.thenByDescending { it.at }).take(12)

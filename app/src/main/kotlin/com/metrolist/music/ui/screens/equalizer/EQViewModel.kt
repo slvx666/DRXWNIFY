@@ -55,6 +55,12 @@ class EQViewModel @Inject constructor(
 
     fun selectPreset(preset: GraphicEq.Preset) = applyGraphic(preset.gains.copyOf(), preset)
 
+    /** Turns the graphic equalizer on as it was last set, without touching a slider. */
+    fun enable() {
+        val s = _state.value
+        applyGraphic(s.graphicGains.copyOf(), s.graphicPreset)
+    }
+
     fun setBand(index: Int, gain: Float) {
         val gains = _state.value.graphicGains.copyOf()
         gains[index] = gain

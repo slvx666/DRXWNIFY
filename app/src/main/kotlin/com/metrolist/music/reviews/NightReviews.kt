@@ -173,7 +173,8 @@ object NightReviews {
                 country = Countries.normalize(o.optString("c")),
                 label = o.optString("l").takeUnless { it == "[no label]" }.orEmpty(),
                 popularity = o.optInt("pop"),
-                coverUrl = o.optString("img").takeIf { it.isNotBlank() }?.let { if (it.startsWith("http")) it else BASE + it },
+                // The build gives "data/covers/…", the live feed "/cover/85": a doubled slash is a 404.
+                coverUrl = o.optString("img").takeIf { it.isNotBlank() }?.let { if (it.startsWith("http")) it else BASE + it.trimStart('/') },
             )
         }
         return list to root.optString("generatedAt").takeIf { it.isNotBlank() }
@@ -217,9 +218,9 @@ object NightReviews {
         null
     }
 
-    /** Lower case, accents and punctuation gone, "deluxe"/"remaster" notes dropped. */
+    /** Lower case, accents, stroked letters ("LARCɆNIA ROɆ") and punctuation folded, "deluxe"/"remaster" notes dropped. */
     private fun normalize(text: String): String =
-        java.text.Normalizer.normalize(text.lowercase(), java.text.Normalizer.Form.NFD)
+        java.text.Normalizer.normalize(com.metrolist.spotify.LetterFold.fold(text.lowercase()), java.text.Normalizer.Form.NFD)
             .replace(Regex("\\p{M}+"), "")
             .replace(Regex("[(\\[].*?(deluxe|remaster|edition|version|expanded)[^)\\]]*[)\\]]"), " ")
             .replace(Regex("[^\\p{L}\\p{N}]+"), " ")

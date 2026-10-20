@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.media.audiofx.AudioEffect
 import android.media.session.PlaybackState
-import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -30,6 +29,9 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -66,56 +68,10 @@ fun EqScreen(
     val context = LocalContext.current
     val playerConnection = LocalPlayerConnection.current
 
-    var showError by remember { mutableStateOf<String?>(null) }
-
     // Activity result launcher for system equalizer
     val activityResultLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { }
-
-    // File picker for custom EQ import
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            try {
-                val contentResolver = context.contentResolver
-
-                // Extract file name from URI
-                var fileName = "custom_eq.txt"
-                contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val displayNameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (displayNameIndex >= 0) {
-                            val name = cursor.getString(displayNameIndex)
-                            if (!name.isNullOrBlank()) {
-                                fileName = name
-                            }
-                        }
-                    }
-                }
-
-                val inputStream = contentResolver.openInputStream(uri)
-
-                if (inputStream != null) {
-                    viewModel.importCustomProfile(
-                        fileName = fileName,
-                        inputStream = inputStream,
-                        onSuccess = {
-                            Timber.d("Custom EQ profile imported successfully: $fileName")
-                        },
-                        onError = { error ->
-                            Timber.d("Error: Unable to import Custom EQ profile: $fileName")
-                            showError = context.getString(R.string.import_error_title) + ": " + error.message
-                        })
-                } else {
-                    showError = context.getString(R.string.error_file_read)
-                }
-            } catch (e: Exception) {
-                showError = context.getString(R.string.error_file_open, e.message)
-            }
-        }
-    }
 
     EqScreenContent(
         profiles = state.profiles,
@@ -129,10 +85,7 @@ fun EqScreen(
             )
         },
         onProfileSelected = { viewModel.selectProfile(it) },
-        onImportCustomEQ = {
-            // Launch file picker for .txt files
-            filePickerLauncher.launch("text/plain")
-        },
+        onEnable = viewModel::enable,
         onOpenSystemEqualizer = {
             playerConnection?.let { connection ->
                 val intent = Intent(AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL).apply {
@@ -156,24 +109,6 @@ fun EqScreen(
         },
         onDeleteProfile = { viewModel.deleteProfile(it) }
     )
-
-    // Error dialog
-    if (showError != null) {
-        AlertDialog(
-            onDismissRequest = { showError = null },
-            title = {
-                Text(stringResource(R.string.import_error_title))
-            },
-            text = {
-                Text(showError ?: "")
-            },
-            confirmButton = {
-                TextButton(onClick = { showError = null }) {
-                    Text(stringResource(android.R.string.ok))
-                }
-            }
-        )
-    }
 
     // Error dialog for apply failure
     if (state.error != null) {
@@ -201,7 +136,7 @@ private fun EqScreenContent(
     activeProfileId: String?,
     graphic: @Composable () -> Unit,
     onProfileSelected: (String?) -> Unit,
-    onImportCustomEQ: () -> Unit,
+    onEnable: () -> Unit,
     onOpenSystemEqualizer: () -> Unit,
     onDeleteProfile: (String) -> Unit
 ) {
@@ -223,28 +158,11 @@ private fun EqScreenContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
-                    Text(
-                        text = stringResource(R.string.equalizer_header),
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                    Text(
-                        text = pluralStringResource(
-                            id = R.plurals.profiles_count,
-                            count = profiles.size,
-                            profiles.size
-                        ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = stringResource(R.string.equalizer_header),
+                    style = MaterialTheme.typography.headlineSmall
+                )
                 Row {
-                    IconButton(onClick = onImportCustomEQ) {
-                        Icon(
-                            painter = painterResource(R.drawable.add),
-                            contentDescription = stringResource(R.string.import_profile)
-                        )
-                    }
                     IconButton(onClick = onOpenSystemEqualizer) {
                         Icon(
                             painter = painterResource(R.drawable.equalizer),
@@ -259,16 +177,17 @@ private fun EqScreenContent(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                // The graphic equalizer with its presets, on top: what most people come here for.
-                item { graphic() }
-
-                // "No Equalization" option
+                // On / off first: turning the equalizer on used to need a preset or a slider.
                 item {
-                    NoEqualizationItem(
-                        isSelected = activeProfileId == null,
-                        onSelected = { onProfileSelected(null) }
+                    EqPowerRow(
+                        enabled = activeProfileId != null,
+                        onOff = { onProfileSelected(null) },
+                        onOn = onEnable,
                     )
                 }
+
+                // The graphic equalizer with its presets: what most people come here for.
+                item { graphic() }
 
                 // Custom profiles only
                 val customProfiles = profiles.filter { it.isCustom }
@@ -283,43 +202,6 @@ private fun EqScreenContent(
                         )
                     }
                 }
-
-                // Empty state
-                if (customProfiles.isEmpty()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.equalizer),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(48.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = stringResource(R.string.no_profiles),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Button(onClick = onImportCustomEQ) {
-                                    Text(stringResource(R.string.import_profile))
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                OutlinedButton(onClick = onOpenSystemEqualizer) {
-                                    Text(stringResource(R.string.system_equalizer))
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -327,28 +209,31 @@ private fun EqScreenContent(
 
 // --- HELPER COMPOSABLES ---
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NoEqualizationItem(
-    isSelected: Boolean,
-    onSelected: () -> Unit
+private fun EqPowerRow(
+    enabled: Boolean,
+    onOff: () -> Unit,
+    onOn: () -> Unit,
 ) {
-    ListItem(
-        headlineContent = {
-            Text(
-                stringResource(R.string.eq_disabled),
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-            )
-        },
-        leadingContent = {
-            RadioButton(
-                selected = isSelected,
-                onClick = onSelected
-            )
-        },
+    SingleChoiceSegmentedButtonRow(
         modifier = Modifier
-            .clickable(onClick = onSelected)
-            .padding(horizontal = 8.dp) // align with design
-    )
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+    ) {
+        SegmentedButton(
+            selected = !enabled,
+            onClick = onOff,
+            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+            label = { Text(stringResource(R.string.eq_off)) },
+        )
+        SegmentedButton(
+            selected = enabled,
+            onClick = { if (!enabled) onOn() },
+            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+            label = { Text(stringResource(R.string.eq_on)) },
+        )
+    }
 }
 
 @Composable

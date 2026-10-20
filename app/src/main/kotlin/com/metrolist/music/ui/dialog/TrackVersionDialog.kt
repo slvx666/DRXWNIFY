@@ -413,9 +413,10 @@ private suspend fun applyVersion(
         return mediaId
     }
     val fallbackId = FallbackIds.of(catalogId)
+    var oldYouTube: String? = null
     val newId: String = withContext(Dispatchers.IO) {
         val mapper = SpotifyYouTubeMapper(database)
-        val oldYouTube = database.getSpotifyMatch(catalogId)?.youtubeId
+        oldYouTube = database.getSpotifyMatch(catalogId)?.youtubeId
         when {
             match == null -> {
                 // Automatic again: no pinned source, no hand-picked YouTube upload.
@@ -442,11 +443,16 @@ private suspend fun applyVersion(
     val downloaded = listOf(mediaId, fallbackId).distinct().firstOrNull { id ->
         downloadUtil.downloads.value[id]?.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED
     }
-    if (newId == mediaId) {
+    // The track as the queue knows it: from a search result's menu it was the catalog id, the
+    // queue held "mfb:…" or the YouTube video — nothing restarted and the old version played on.
+    val player = playerConnection.player
+    val queued = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }.toSet()
+    val queueId = listOfNotNull(mediaId, fallbackId, oldYouTube).firstOrNull { it in queued } ?: mediaId
+    if (newId == queueId) {
         // Same item (a source id before and after): drop what was cached for it and restart it.
-        playerConnection.service.setAudioSource(mediaId, match, dropDownloaded = downloaded == mediaId)
+        playerConnection.service.setAudioSource(queueId, match, dropDownloaded = downloaded == queueId)
     } else {
-        replaceInQueue(playerConnection, mediaId, mediaMetadata.copy(id = newId))
+        replaceInQueue(playerConnection, queueId, mediaMetadata.copy(id = newId))
     }
     if (downloaded != null) downloadUtil.redownload(downloaded, newId, mediaMetadata.title)
     return newId

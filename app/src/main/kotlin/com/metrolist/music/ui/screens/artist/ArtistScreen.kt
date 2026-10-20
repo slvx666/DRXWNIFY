@@ -157,10 +157,12 @@ fun ArtistScreen(
     val catalogRelated by viewModel.catalogRelated.collectAsState()
     val catalogTopTracks by viewModel.catalogTopTracks.collectAsState()
     val catalogArtist by viewModel.catalogArtist.collectAsState()
+    val catalogLoaded by viewModel.catalogLoaded.collectAsState()
     val monthlyListenersTemplate = stringResource(R.string.spotify_monthly_listeners)
     // With a linked Spotify / Yandex Music account the whole profile (photo, name, tracks, releases,
-    // similar artists) comes from that catalog; the YouTube page is only a fallback.
-    val useCatalog = catalogArtist != null || catalogTopTracks.isNotEmpty() || catalogReleases.isNotEmpty()
+    // similar artists) comes from that catalog; the YouTube page is only a fallback — also when the
+    // catalog's artist turned out to have no music there.
+    val useCatalog = catalogTopTracks.isNotEmpty() || catalogReleases.isNotEmpty() || (catalogArtist != null && !catalogLoaded)
     val isChannelSubscribed by viewModel.isChannelSubscribed.collectAsState()
     val hideExplicit by rememberPreference(key = HideExplicitKey, defaultValue = false)
     val showArtistDescription by rememberPreference(key = ShowArtistDescriptionKey, defaultValue = true)
