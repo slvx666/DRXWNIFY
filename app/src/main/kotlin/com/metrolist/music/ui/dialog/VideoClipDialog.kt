@@ -141,9 +141,10 @@ fun VideoClipDialog(
                     Toast.makeText(context, R.string.video_clip_started, Toast.LENGTH_SHORT).show()
                     onDismiss()
                 },
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) { Text(stringResource(R.string.action_download)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } },
+        dismissButton = { TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) } },
     )
 
     preview?.let { clip ->
@@ -263,7 +264,7 @@ private fun ClipPreview(clip: VideoClipDownloader.Candidate, onPick: () -> Unit,
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onPick) { Text(stringResource(R.string.video_clip_pick)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } },
+        confirmButton = { TextButton(onClick = onPick, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.video_clip_pick)) } },
+        dismissButton = { TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) } },
     )
 }

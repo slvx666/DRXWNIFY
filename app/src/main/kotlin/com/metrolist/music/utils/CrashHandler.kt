@@ -36,6 +36,9 @@ class CrashHandler private constructor(
                     "Swallowed ForegroundServiceStartNotAllowedException",
                 )
                 CrashReporter.reportNonFatal(throwable)
+                // Returning ends the thread: for the main thread that left the app frozen (no
+                // looper — the screen stopped responding until Android killed it). Keep it looping.
+                if (thread === android.os.Looper.getMainLooper().thread) resumeMainLoop()
                 return
             }
 
@@ -60,6 +63,26 @@ class CrashHandler private constructor(
             // If we fail to handle the crash, fall back to default handler
             Timber.e(e, "Error handling crash")
             defaultHandler?.uncaughtException(thread, throwable)
+        }
+    }
+
+    /**
+     * Runs the main looper again from inside this handler (we are on the main thread, whose loop
+     * the exception unwound). A swallowable error thrown later restarts it once more; any other
+     * one is handled as a crash.
+     */
+    private fun resumeMainLoop() {
+        while (true) {
+            try {
+                android.os.Looper.loop()
+            } catch (t: Throwable) {
+                if (isForegroundServiceStartNotAllowed(t)) {
+                    Timber.tag("CrashHandler").w(t, "Swallowed ForegroundServiceStartNotAllowedException")
+                    continue
+                }
+                uncaughtException(Thread.currentThread(), t)
+                return
+            }
         }
     }
 

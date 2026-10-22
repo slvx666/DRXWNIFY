@@ -190,7 +190,7 @@ fun CsvColumnMappingDialog(
                         .padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
             ) {
-                OutlinedButton(onClick = onDismiss) {
+                OutlinedButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.cancel))
                 }
                 Button(
@@ -205,6 +205,7 @@ fun CsvColumnMappingDialog(
                             ),
                         )
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(R.string.continue_action))
                 }
@@ -243,6 +244,7 @@ private fun ColumnSelector(
                     Button(
                         onClick = { onSelected(-1) },
                         modifier = Modifier.height(36.dp),
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(stringResource(R.string.none), style = MaterialTheme.typography.labelSmall)
                     }
@@ -250,6 +252,7 @@ private fun ColumnSelector(
                     OutlinedButton(
                         onClick = { onSelected(-1) },
                         modifier = Modifier.height(36.dp),
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(stringResource(R.string.none), style = MaterialTheme.typography.labelSmall)
                     }
@@ -261,6 +264,7 @@ private fun ColumnSelector(
                     Button(
                         onClick = { onSelected(index) },
                         modifier = Modifier.height(36.dp),
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(
                             stringResource(R.string.column_label, index + 1),
@@ -271,6 +275,7 @@ private fun ColumnSelector(
                     OutlinedButton(
                         onClick = { onSelected(index) },
                         modifier = Modifier.height(36.dp),
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(
                             stringResource(R.string.column_label, index + 1),

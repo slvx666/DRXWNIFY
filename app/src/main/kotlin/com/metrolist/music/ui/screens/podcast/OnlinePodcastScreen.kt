@@ -160,7 +160,7 @@ fun OnlinePodcastScreen(
                             style = MaterialTheme.typography.bodyLarge,
                             textAlign = TextAlign.Center
                         )
-                        Button(onClick = { viewModel.retry() }) {
+                        Button(onClick = { viewModel.retry() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                             Text(stringResource(R.string.retry))
                         }
                     }

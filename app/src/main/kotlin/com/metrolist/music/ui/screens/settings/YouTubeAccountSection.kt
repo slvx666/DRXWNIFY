@@ -137,7 +137,7 @@ fun YouTubeAccountSection(
                                 onClose()
                             }
                         }
-                    ) {
+                    , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.logout_clear))
                     }
                     TextButton(
@@ -151,7 +151,7 @@ fun YouTubeAccountSection(
                                 onClose()
                             }
                         }
-                    ) {
+                    , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.logout_keep))
                     }
                 }
@@ -256,7 +256,7 @@ fun YouTubeAccountSection(
                                     containerColor = MaterialTheme.colorScheme.surfaceContainer,
                                     contentColor = MaterialTheme.colorScheme.onSurface
                                 )
-                            ) {
+                            , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                 Text(stringResource(R.string.action_logout))
                             }
                         }
@@ -299,7 +299,7 @@ fun YouTubeAccountSection(
                     title = { Text(stringResource(R.string.more_content)) },
                     icon = painterResource(R.drawable.cached),
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             enabled = isLoggedIn,
                             checked = useLoginForBrowse,
                             onCheckedChange = {
@@ -323,7 +323,7 @@ fun YouTubeAccountSection(
                     title = { Text(stringResource(R.string.yt_sync)) },
                     icon = painterResource(R.drawable.cached),
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             enabled = isLoggedIn,
                             checked = ytmSync,
                             onCheckedChange = onYtmSyncChange,

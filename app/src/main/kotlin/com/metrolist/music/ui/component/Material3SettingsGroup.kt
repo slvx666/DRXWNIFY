@@ -6,7 +6,10 @@
 package com.metrolist.music.ui.component
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.unit.dp
+import com.metrolist.music.ui.theme.AppThemePreset
+import com.metrolist.music.ui.theme.LocalAppThemePreset
 
 /**
  * A Material 3 Expressive style settings group component
@@ -45,6 +50,23 @@ fun Material3SettingsGroup(
     items: List<Material3SettingsItem>,
     useLowContrast: Boolean = false
 ) {
+    if (LocalAppThemePreset.current == AppThemePreset.LINUX) {
+        TerminalSettingsGroup(title, items)
+        return
+    }
+    // Each theme its own touch: Gruvbox a little sharper, Catppuccin softer, Synthwave neon-edged.
+    val preset = LocalAppThemePreset.current
+    val outer = when (preset) {
+        AppThemePreset.GRUVBOX -> 10.dp
+        AppThemePreset.CATPPUCCIN -> 30.dp
+        else -> 24.dp
+    }
+    val inner = when (preset) {
+        AppThemePreset.GRUVBOX -> 3.dp
+        AppThemePreset.CATPPUCCIN -> 10.dp
+        else -> 6.dp
+    }
+    val neonEdge = preset == AppThemePreset.SYNTHWAVE
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -52,7 +74,7 @@ fun Material3SettingsGroup(
         // Section title
         title?.let {
             Text(
-                text = it,
+                text = if (preset == AppThemePreset.GRUVBOX) "# $it" else it,
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(bottom = 8.dp, top = 8.dp)
@@ -66,10 +88,10 @@ fun Material3SettingsGroup(
         ) {
             items.forEachIndexed { index, item ->
                 val shape = when {
-                    items.size == 1 -> RoundedCornerShape(24.dp)
-                    index == 0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 6.dp, bottomEnd = 6.dp)
-                    index == items.size - 1 -> RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
-                    else -> RoundedCornerShape(6.dp)
+                    items.size == 1 -> RoundedCornerShape(outer)
+                    index == 0 -> RoundedCornerShape(topStart = outer, topEnd = outer, bottomStart = inner, bottomEnd = inner)
+                    index == items.size - 1 -> RoundedCornerShape(topStart = inner, topEnd = inner, bottomStart = outer, bottomEnd = outer)
+                    else -> RoundedCornerShape(inner)
                 }
 
                 Card(
@@ -84,6 +106,7 @@ fun Material3SettingsGroup(
                             MaterialTheme.colorScheme.surfaceContainerLow
                         }
                     ),
+                    border = if (neonEdge) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)) else null,
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Material3SettingsItemRow(item = item)
@@ -94,11 +117,50 @@ fun Material3SettingsGroup(
 }
 
 /**
+ * The Linux theme's settings group: a window of a tiling WM — a border, the title set into the top
+ * edge ("┌─[ title ]"), items as plain rows split by lines, square icon cells.
+ */
+@Composable
+private fun TerminalSettingsGroup(
+    title: String?,
+    items: List<Material3SettingsItem>,
+) {
+    val colors = MaterialTheme.colorScheme
+    Box(Modifier.fillMaxWidth().padding(top = if (title != null) 10.dp else 0.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .border(1.dp, colors.outline)
+                .padding(top = if (title != null) 6.dp else 0.dp)
+        ) {
+            items.forEachIndexed { index, item ->
+                if (index > 0) {
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(1.dp).background(colors.outlineVariant))
+                }
+                Material3SettingsItemRow(item = item, terminal = true)
+            }
+        }
+        title?.let {
+            Text(
+                text = "┌─[ ${it.lowercase()} ]",
+                style = MaterialTheme.typography.labelLarge,
+                color = colors.primary,
+                modifier = Modifier
+                    .offset(x = 8.dp, y = (-9).dp)
+                    .background(colors.surface)
+                    .padding(horizontal = 4.dp)
+            )
+        }
+    }
+}
+
+/**
  * Individual settings item row with Material 3 styling
  */
 @Composable
 private fun Material3SettingsItemRow(
-    item: Material3SettingsItem
+    item: Material3SettingsItem,
+    terminal: Boolean = false,
 ) {
     Row(
         modifier = Modifier
@@ -107,7 +169,7 @@ private fun Material3SettingsItemRow(
                 enabled = item.enabled && item.onClick != null,
                 onClick = { item.onClick?.invoke() }
             )
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(horizontal = if (terminal) 14.dp else 20.dp, vertical = if (terminal) 12.dp else 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Custom leading content or Icon with background
@@ -117,11 +179,11 @@ private fun Material3SettingsItemRow(
         } else if (item.icon != null) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .size(if (terminal) 32.dp else 40.dp)
+                    .clip(RoundedCornerShape(if (terminal) 0.dp else 12.dp))
                     .background(
                         MaterialTheme.colorScheme.primary.copy(
-                            alpha = if (item.isHighlighted) 0.15f else 0.1f
+                            alpha = if (terminal) 0f else if (item.isHighlighted) 0.15f else 0.1f
                         )
                     ),
                 contentAlignment = Alignment.Center

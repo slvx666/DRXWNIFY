@@ -155,6 +155,7 @@ fun SpotifyArtistScreen(
                                         )
                                     )
                                 },
+                                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                             ) {
                                 Icon(painterResource(R.drawable.play), null, Modifier.size(20.dp))
                                 Spacer(Modifier.size(8.dp))
@@ -183,6 +184,7 @@ fun SpotifyArtistScreen(
                                         )
                                     )
                                 },
+                                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                             ) {
                                 Icon(painterResource(R.drawable.shuffle), null, Modifier.size(20.dp))
                                 Spacer(Modifier.size(8.dp))
@@ -192,13 +194,13 @@ fun SpotifyArtistScreen(
                             // Follow/Subscribe on Spotify. Always visible; when follow state is not
                             // yet known we show the outlined "Follow" affordance (tapping resolves it).
                             if (isFollowing == true) {
-                                Button(onClick = { viewModel.toggleFollow() }) {
+                                Button(onClick = { viewModel.toggleFollow() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                     Icon(painterResource(R.drawable.done), null, Modifier.size(20.dp))
                                     Spacer(Modifier.size(8.dp))
                                     Text(stringResource(R.string.following))
                                 }
                             } else {
-                                OutlinedButton(onClick = { viewModel.toggleFollow() }) {
+                                OutlinedButton(onClick = { viewModel.toggleFollow() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                     Icon(painterResource(R.drawable.subscribe), null, Modifier.size(20.dp))
                                     Spacer(Modifier.size(8.dp))
                                     Text(stringResource(R.string.follow))
@@ -225,7 +227,7 @@ fun SpotifyArtistScreen(
                     ) {
                         Text(error ?: "", color = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.height(12.dp))
-                        OutlinedButton(onClick = { viewModel.retry() }) {
+                        OutlinedButton(onClick = { viewModel.retry() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                             Text(stringResource(R.string.retry_button))
                         }
                     }

@@ -300,6 +300,7 @@ fun YouTubePlaylistMenu(
             buttons = {
                 TextButton(
                     onClick = { showRemoveDownloadDialog = false },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -315,6 +316,7 @@ fun YouTubePlaylistMenu(
                             )
                         }
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }

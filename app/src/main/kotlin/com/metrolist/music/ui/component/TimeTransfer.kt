@@ -111,6 +111,7 @@ fun TimeTransfer(
                     enabled = sourceSong.value != null &&
                             targetSong.value != null &&
                             sourceSong.value!!.id != targetSong.value!!.id,
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(
                         text = stringResource(R.string.time_transfer_convert),

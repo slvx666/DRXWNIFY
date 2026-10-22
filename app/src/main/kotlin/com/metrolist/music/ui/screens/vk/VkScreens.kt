@@ -433,7 +433,7 @@ fun VkPlaylistScreen(
                                     downloadedIds = { downloadedIds },
                                     onDownloadRest = ::downloadAll,
                                 ) {
-                                    OutlinedButton(onClick = ::downloadAll) {
+                                    OutlinedButton(onClick = ::downloadAll, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                         Icon(painterResource(R.drawable.download), contentDescription = null, modifier = Modifier.size(20.dp))
                                         Spacer(Modifier.size(8.dp))
                                         Text(stringResource(R.string.action_download))
@@ -539,7 +539,7 @@ private fun RetryPlaceholder(onRetry: () -> Unit) {
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
+            OutlinedButton(onClick = onRetry, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.retry)) }
         }
     }
 }

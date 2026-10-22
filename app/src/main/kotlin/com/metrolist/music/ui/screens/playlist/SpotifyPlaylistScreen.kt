@@ -846,12 +846,13 @@ private fun RenamePlaylistDialog(
             TextButton(
                 onClick = { onConfirm(name) },
                 enabled = name.isNotBlank() && name != currentName,
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Text(stringResource(android.R.string.ok))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(stringResource(android.R.string.cancel))
             }
         },

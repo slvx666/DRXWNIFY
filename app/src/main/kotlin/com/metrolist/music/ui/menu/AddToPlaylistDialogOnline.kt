@@ -462,7 +462,7 @@ fun AddToPlaylistDialogOnline(
                             )
                         }
                     }
-                ) {
+                , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.skip_duplicates))
                 }
 
@@ -474,7 +474,7 @@ fun AddToPlaylistDialogOnline(
                             addSongToPlaylist(selectedPlaylist!!, songIds!!)
                         }
                     }
-                ) {
+                , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.add_anyway))
                 }
 
@@ -482,7 +482,7 @@ fun AddToPlaylistDialogOnline(
                     onClick = {
                         showDuplicateDialog = false
                     }
-                ) {
+                , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(android.R.string.cancel))
                 }
             },

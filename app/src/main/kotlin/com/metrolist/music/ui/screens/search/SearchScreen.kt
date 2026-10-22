@@ -97,7 +97,9 @@ fun SearchScreen(
     var lastHandledCount by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         if (!isPlayerExpanded) {
-            kotlinx.coroutines.delay(100)
+            // After the screen's slide-in (200 ms): the keyboard sliding up at the same time made
+            // both animations drop frames.
+            kotlinx.coroutines.delay(260)
             try {
                 focusRequester.requestFocus()
                 keyboardController?.show()

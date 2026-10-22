@@ -134,7 +134,7 @@ fun LocalFilesScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 16.dp)
                         )
-                        Button(onClick = { permissionLauncher.launch(permissionToRequest) }) {
+                        Button(onClick = { permissionLauncher.launch(permissionToRequest) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                             Text(stringResource(R.string.grant_permission))
                         }
                     }

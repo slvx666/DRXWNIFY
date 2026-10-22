@@ -421,6 +421,7 @@ fun SpotifyLoginScreen(navController: NavController) {
                                     retryCount++
                                 },
                                 modifier = Modifier.padding(horizontal = 16.dp),
+                                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                             ) {
                                 Text(stringResource(R.string.retry))
                             }

@@ -117,6 +117,7 @@ class App :
         // hit disk. Kicked off before any other initialization so the snapshot is
         // populated as early as possible.
         installPreferencesSnapshotCollector(applicationScope, dataStore)
+        applicationScope.launch(Dispatchers.IO) { com.metrolist.music.utils.IconUtils.ensureLauncherEntry(this@App) }
 
         // Seed the context-free resolver holder from the saved preference so strict/loose
         // matching behaves correctly from the first resolve after a cold start.

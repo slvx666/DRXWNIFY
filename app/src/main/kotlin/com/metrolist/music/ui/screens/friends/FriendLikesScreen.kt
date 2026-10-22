@@ -174,7 +174,7 @@ fun FriendLikesScreen(navController: NavController, pubkey: String) {
                     if (refs.isNotEmpty()) {
                         Spacer(Modifier.height(14.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Button(onClick = { play(refs, 0) }) {
+                            Button(onClick = { play(refs, 0) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                 Icon(painterResource(R.drawable.play), null, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text(stringResource(R.string.play))

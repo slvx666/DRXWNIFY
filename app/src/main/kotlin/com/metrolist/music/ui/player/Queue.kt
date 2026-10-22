@@ -436,6 +436,7 @@ fun Queue(
                     TextButton(
                         onClick = { state.expandSoft() },
                         modifier = Modifier.weight(1f),
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -472,6 +473,7 @@ fun Queue(
                             }
                         },
                         modifier = Modifier.weight(1.2f),
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -517,6 +519,7 @@ fun Queue(
                             onToggleLyrics()
                         },
                         modifier = Modifier.weight(1f),
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -619,6 +622,7 @@ fun Queue(
                                             containerColor = MaterialTheme.colorScheme.primary,
                                             contentColor = MaterialTheme.colorScheme.onPrimary,
                                         ),
+                                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                                     ) {
                                         Text(stringResource(R.string.set_as_default))
                                     }
@@ -636,6 +640,7 @@ fun Queue(
                                                 Toast.LENGTH_SHORT,
                                             ).show()
                                         },
+                                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                                     ) {
                                         Text(stringResource(R.string.set_as_default))
                                     }
@@ -648,6 +653,7 @@ fun Queue(
                                             minute = -1,
                                         )
                                     },
+                                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                                 ) {
                                     Text(stringResource(R.string.end_of_song))
                                 }

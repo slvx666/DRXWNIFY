@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.screens.album
 
 import androidx.compose.foundation.clickable
+import com.metrolist.music.ui.theme.tui
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -196,7 +197,7 @@ fun SpotifyAlbumScreen(
                             modifier = Modifier
                                 .size(240.dp)
                                 .coverSource(coverViewer)
-                                .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                .clip(RoundedCornerShape(ThumbnailCornerRadius).tui())
                                 .pointerInput(Unit) {
                                     detectTapGestures(
                                         onTap = { coverViewer.open(largestUrl, coverName) },
@@ -262,6 +263,7 @@ fun SpotifyAlbumScreen(
                                         )
                                     )
                                 },
+                                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                             ) {
                                 Icon(
                                     painterResource(R.drawable.play),
@@ -276,7 +278,7 @@ fun SpotifyAlbumScreen(
                             val startAlbumDownload: () -> Unit = { downloadTracks(tracks) }
                             if (isDownloading) {
                                 // Cancel this album's batch download.
-                                OutlinedButton(onClick = { SpotifyBatchDownload.cancel(downloadSourceId) }) {
+                                OutlinedButton(onClick = { SpotifyBatchDownload.cancel(downloadSourceId) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                     Icon(painterResource(R.drawable.close), null, Modifier.size(20.dp))
                                     Spacer(modifier = Modifier.size(8.dp))
                                     Text(stringResource(R.string.cancel))
@@ -288,6 +290,7 @@ fun SpotifyAlbumScreen(
                                 onDownloadRest = startAlbumDownload,
                             ) { OutlinedButton(
                                 onClick = startAlbumDownload,
+                                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                             ) {
                                 Icon(
                                     painterResource(R.drawable.download),
@@ -360,6 +363,7 @@ fun SpotifyAlbumScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedButton(
                             onClick = { viewModel.retry() },
+                            shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                         ) {
                             Text(stringResource(R.string.retry_button))
                         }
@@ -425,7 +429,7 @@ fun SpotifyAlbumScreen(
                             thumbnailUrl = thumbnailUrl,
                             isActive = isActive,
                             isPlaying = isPlaying,
-                            shape = RoundedCornerShape(ThumbnailCornerRadius),
+                            shape = RoundedCornerShape(ThumbnailCornerRadius).tui(),
                             modifier = Modifier.size(ListThumbnailSize),
                         )
                     },

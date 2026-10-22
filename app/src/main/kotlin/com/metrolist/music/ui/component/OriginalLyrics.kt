@@ -1717,7 +1717,7 @@ fun OriginalLyrics(
                     performSmoothPageScroll(currentLineIndex, 1500)
                 }
                 isAutoScrollEnabled = true
-            }) {
+            }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Icon(
                     painter = painterResource(id = R.drawable.sync),
                     contentDescription = stringResource(R.string.auto_scroll),
@@ -1745,6 +1745,7 @@ fun OriginalLyrics(
                         isSelectionModeActive = false
                         selectedIndices.clear()
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.close),
@@ -1775,6 +1776,7 @@ fun OriginalLyrics(
                         }
                     },
                     enabled = selectedIndices.isNotEmpty(),
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.share),
@@ -2189,6 +2191,7 @@ fun OriginalLyrics(
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
+                            shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                         ) {
                             Text(stringResource(id = R.string.share))
                         }

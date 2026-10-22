@@ -146,11 +146,11 @@ fun ImportPlaylistScreen(navController: NavController, targetPlaylistId: String?
                 ImportProgress(p, onOpen = { id -> navController.navigate("local_playlist/$id") })
                 if (!p.finished) {
                     // Also ends an import left over from an older version that never finishes.
-                    OutlinedButton(onClick = { PlaylistImporter.cancel(context) }, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = { PlaylistImporter.cancel(context) }, modifier = Modifier.fillMaxWidth(), shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.import_cancel))
                     }
                 } else {
-                    OutlinedButton(onClick = { PlaylistImporter.reset() }, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = { PlaylistImporter.reset() }, modifier = Modifier.fillMaxWidth(), shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.import_new))
                     }
                 }
@@ -200,7 +200,7 @@ fun ImportPlaylistScreen(navController: NavController, targetPlaylistId: String?
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }) {
+                OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Icon(painterResource(R.drawable.add), null, Modifier.size(18.dp))
                     Spacer(Modifier.size(6.dp))
                     Text(stringResource(R.string.import_pick_file))
@@ -208,7 +208,7 @@ fun ImportPlaylistScreen(navController: NavController, targetPlaylistId: String?
                 fileName?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1) }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*")) }) {
+                OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*")) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Icon(painterResource(R.drawable.music_note), null, Modifier.size(18.dp))
                     Spacer(Modifier.size(6.dp))
                     Text(stringResource(R.string.import_pick_audio))
@@ -249,6 +249,7 @@ fun ImportPlaylistScreen(navController: NavController, targetPlaylistId: String?
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) { Text(stringResource(if (intoExisting) R.string.import_start_add else R.string.import_start)) }
             Text(
                 text = stringResource(R.string.import_no_download),
@@ -293,7 +294,7 @@ private fun ImportProgress(p: PlaylistImporter.Progress, onOpen: (String) -> Uni
         )
     }
     // The playlist exists from the start and fills as the import goes.
-    p.playlistId?.let { id -> Button(onClick = { onOpen(id) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.import_open)) } }
+    p.playlistId?.let { id -> Button(onClick = { onOpen(id) }, modifier = Modifier.fillMaxWidth(), shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.import_open)) } }
     if (p.finished) {
         if (p.notFound.isNotEmpty()) {
             Text(stringResource(R.string.import_not_found, p.notFound.size), style = MaterialTheme.typography.titleSmall)
@@ -316,10 +317,10 @@ private fun ImportHelpDialog(onDismiss: () -> Unit) {
                 Text(stringResource(R.string.import_help_body), style = MaterialTheme.typography.bodyMedium)
                 Text(stringResource(R.string.import_help_ai_title), style = MaterialTheme.typography.titleSmall)
                 SelectionContainer { Text(prompt, style = MaterialTheme.typography.bodySmall) }
-                TextButton(onClick = { clipboard.setText(AnnotatedString(prompt)) }) { Text(stringResource(R.string.import_copy_prompt)) }
+                TextButton(onClick = { clipboard.setText(AnnotatedString(prompt)) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.import_copy_prompt)) }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.ok)) } },
+        confirmButton = { TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.ok)) } },
     )
 }
 

@@ -133,6 +133,7 @@ fun AudioSourceDialog(
                     selected?.let { service.setAudioSource(mediaId, it) }
                     onDismiss()
                 },
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) { Text(stringResource(android.R.string.ok)) }
         },
         dismissButton = {
@@ -141,9 +142,9 @@ fun AudioSourceDialog(
                     TextButton(onClick = {
                         service.setAudioSource(mediaId, null)
                         onDismiss()
-                    }) { Text(stringResource(R.string.audio_source_auto)) }
+                    }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.audio_source_auto)) }
                 }
-                TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) }
+                TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) }
             }
         },
     )

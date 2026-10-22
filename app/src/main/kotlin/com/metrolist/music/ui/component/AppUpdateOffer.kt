@@ -77,7 +77,7 @@ fun AppUpdateOffer() {
                     )
                 }
             },
-            confirmButton = { TextButton(onClick = { hideProgress = true }) { Text(stringResource(R.string.app_update_hide)) } },
+            confirmButton = { TextButton(onClick = { hideProgress = true }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.app_update_hide)) } },
         )
     }
     LaunchedEffect(downloading == null) { if (downloading == null) hideProgress = false }
@@ -136,13 +136,13 @@ fun AppUpdateDialog(available: AppUpdater.State.Available, onDismiss: () -> Unit
                     }
                 }
                 AppUpdater.startDownloadAndInstall(context, available)
-            }) { Text(stringResource(R.string.app_update_now)) }
+            }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.app_update_now)) }
         },
         dismissButton = {
             TextButton(onClick = {
                 AppUpdater.snooze(context, available.version)
                 onDismiss()
-            }) { Text(stringResource(R.string.app_update_later)) }
+            }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.app_update_later)) }
         },
     )
 }
@@ -188,13 +188,13 @@ fun MigrationRestoreOffer() {
         title = { Text(stringResource(R.string.migration_restore_title)) },
         text = { Text(stringResource(R.string.migration_restore_text)) },
         confirmButton = {
-            TextButton(onClick = { pick.launch(arrayOf("*/*")) }) { Text(stringResource(R.string.migration_restore_pick)) }
+            TextButton(onClick = { pick.launch(arrayOf("*/*")) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.migration_restore_pick)) }
         },
         dismissButton = {
             TextButton(onClick = {
                 com.metrolist.music.utils.AppMigration.markOffered(context)
                 show = false
-            }) { Text(stringResource(R.string.migration_restore_skip)) }
+            }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.migration_restore_skip)) }
         },
     )
 }
@@ -258,13 +258,13 @@ fun DownloadFolderAccessPrompt() {
                     )
                 }.getOrNull()
                 runCatching { pick.launch(initial) }
-            }) { Text(stringResource(R.string.download_folder_access_pick)) }
+            }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.download_folder_access_pick)) }
         },
         dismissButton = {
             TextButton(onClick = {
                 com.metrolist.music.utils.DownloadExportState.folderAccessLost.value = false
                 downloadUtil.downloadExporter.declineFolder(folder)
-            }) { Text(stringResource(R.string.download_folder_access_keep)) }
+            }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.download_folder_access_keep)) }
         },
     )
 }

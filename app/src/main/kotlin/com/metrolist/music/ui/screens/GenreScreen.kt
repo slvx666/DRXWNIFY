@@ -166,7 +166,7 @@ fun GenreScreen(navController: NavController, genre: String) {
                     if (list.isNotEmpty()) {
                         Spacer(Modifier.height(14.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Button(onClick = { play(list, 0) }) {
+                            Button(onClick = { play(list, 0) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                 Icon(painterResource(R.drawable.play), null, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text(stringResource(R.string.play))
@@ -196,7 +196,7 @@ fun GenreScreen(navController: NavController, genre: String) {
                     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(stringResource(R.string.genre_playlist_failed), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(12.dp))
-                        OutlinedButton(onClick = { attempt++ }) { Text(stringResource(R.string.retry)) }
+                        OutlinedButton(onClick = { attempt++ }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.retry)) }
                     }
                 }
             }

@@ -233,7 +233,7 @@ fun WelcomeDialog(
                     Text(stringResource(R.string.welcome_connect_yandex), fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(4.dp))
-                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.welcome_later))
                 }
             }

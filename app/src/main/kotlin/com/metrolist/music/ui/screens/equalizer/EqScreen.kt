@@ -121,7 +121,7 @@ fun EqScreen(
                 Text(stringResource(R.string.error_eq_apply_failed, state.error ?: ""))
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.clearError() }) {
+                TextButton(onClick = { viewModel.clearError() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(android.R.string.ok))
                 }
             }
@@ -297,12 +297,12 @@ private fun EQProfileItem(
                         onDelete()
                         showDeleteDialog = false
                     }
-                ) {
+                , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(android.R.string.ok))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
+                TextButton(onClick = { showDeleteDialog = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(android.R.string.cancel))
                 }
             }

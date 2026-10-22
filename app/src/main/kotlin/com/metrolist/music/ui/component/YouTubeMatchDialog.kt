@@ -132,7 +132,7 @@ fun YouTubeMatchDialog(
             Text(text = stringResource(R.string.change_youtube_version))
         },
         buttons = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(text = stringResource(android.R.string.cancel))
             }
             TextButton(
@@ -150,6 +150,7 @@ fun YouTubeMatchDialog(
                     }
                     onDismiss()
                 },
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Text(text = stringResource(android.R.string.ok))
             }

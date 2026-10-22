@@ -615,13 +615,13 @@ fun ExportDialog(
         onDismiss = onDismiss,
         title = { Text(stringResource(R.string.export_playlist)) },
         buttons = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(text = stringResource(android.R.string.cancel))
             }
-            TextButton(onClick = { onSave(selected) }) {
+            TextButton(onClick = { onSave(selected) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(text = stringResource(R.string.export_option_save))
             }
-            TextButton(onClick = { onShare(selected) }) {
+            TextButton(onClick = { onShare(selected) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(text = stringResource(R.string.export_option_share))
             }
         },

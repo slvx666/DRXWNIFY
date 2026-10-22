@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.player
 
 import androidx.compose.animation.AnimatedVisibility
+import com.metrolist.music.ui.theme.tui
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -639,7 +640,7 @@ private fun ThumbnailItem(
             modifier = Modifier
                 .size(dimensions.thumbnailSize)
                 .coverSource(coverViewer)
-                .clip(RoundedCornerShape(dimensions.cornerRadius))
+                .clip(RoundedCornerShape(dimensions.cornerRadius).tui())
         ) {
             if (hidePlayerThumbnail) {
                 HiddenThumbnailPlaceholder(textBackgroundColor = textBackgroundColor)
@@ -776,7 +777,7 @@ private fun SeekEffectOverlay(
         fontWeight = FontWeight.Bold,
         textAlign = TextAlign.Center,
         modifier = modifier
-            .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(8.dp))
+            .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(8.dp).tui())
             .padding(8.dp)
     )
 }

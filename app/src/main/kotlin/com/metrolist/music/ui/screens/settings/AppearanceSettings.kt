@@ -446,6 +446,7 @@ fun AppearanceSettings(
                     onClick = {
                         tempTextSize = 24f
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(R.string.reset))
                 }
@@ -457,6 +458,7 @@ fun AppearanceSettings(
                         tempTextSize = lyricsTextSize
                         showLyricsTextSizeDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(android.R.string.cancel))
                 }
@@ -465,6 +467,7 @@ fun AppearanceSettings(
                         onLyricsTextSizeChange(tempTextSize)
                         showLyricsTextSizeDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(android.R.string.ok))
                 }
@@ -509,6 +512,7 @@ fun AppearanceSettings(
                     onClick = {
                         tempLineSpacing = 1.3f
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(R.string.reset))
                 }
@@ -520,6 +524,7 @@ fun AppearanceSettings(
                         tempLineSpacing = lyricsLineSpacing
                         showLyricsLineSpacingDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(android.R.string.cancel))
                 }
@@ -528,6 +533,7 @@ fun AppearanceSettings(
                         onLyricsLineSpacingChange(tempLineSpacing)
                         showLyricsLineSpacingDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(android.R.string.ok))
                 }
@@ -702,6 +708,7 @@ fun AppearanceSettings(
             buttons = {
                 TextButton(
                     onClick = { showRestartDialog = false },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -715,6 +722,7 @@ fun AppearanceSettings(
                         context.startActivity(intent)
                         Runtime.getRuntime().exit(0)
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(R.string.restart))
                 }
@@ -741,6 +749,7 @@ fun AppearanceSettings(
             buttons = {
                 TextButton(
                     onClick = { showDensityScaleDialog = false },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -779,6 +788,7 @@ fun AppearanceSettings(
             buttons = {
                 TextButton(
                     onClick = { showSliderOptionDialog = false },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -1026,7 +1036,7 @@ fun AppearanceSettings(
                             icon = painterResource(R.drawable.ic_dynamic_icon),
                             title = { Text(stringResource(R.string.enable_dynamic_icon)) },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = enableDynamicIcon,
                                     onCheckedChange = { handleIconChange(it) },
                                     thumbContent = {
@@ -1050,7 +1060,7 @@ fun AppearanceSettings(
                             title = { Text(stringResource(R.string.enable_high_refresh_rate)) },
                             description = { Text(stringResource(R.string.enable_high_refresh_rate_desc)) },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = enableHighRefreshRate,
                                     onCheckedChange = onEnableHighRefreshRateChange,
                                     thumbContent = {
@@ -1076,7 +1086,7 @@ fun AppearanceSettings(
                                 icon = painterResource(R.drawable.palette),
                                 title = { Text(stringResource(R.string.enable_dynamic_theme)) },
                                 trailingContent = {
-                                    Switch(
+                                    com.metrolist.music.ui.theme.ThemedSwitch(
                                         checked = dynamicTheme,
                                         onCheckedChange = onDynamicThemeChange,
                                         thumbContent = {
@@ -1123,7 +1133,7 @@ fun AppearanceSettings(
                             icon = painterResource(R.drawable.nav_bar),
                             title = { Text(stringResource(R.string.new_mini_player_design)) },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = useNewMiniPlayerDesign,
                                     onCheckedChange = onUseNewMiniPlayerDesignChange,
                                     thumbContent = {
@@ -1195,7 +1205,7 @@ fun AppearanceSettings(
                         icon = painterResource(R.drawable.palette),
                         title = { Text(stringResource(R.string.new_player_design)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = useNewPlayerDesign,
                                 onCheckedChange = onUseNewPlayerDesignChange,
                                 thumbContent = {
@@ -1231,7 +1241,7 @@ fun AppearanceSettings(
                         title = { Text(stringResource(R.string.hide_player_thumbnail)) },
                         description = { Text(stringResource(R.string.hide_player_thumbnail_desc)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = hidePlayerThumbnail,
                                 onCheckedChange = onHidePlayerThumbnailChange,
                                 thumbContent = {
@@ -1253,7 +1263,7 @@ fun AppearanceSettings(
                         title = { Text(stringResource(R.string.crop_album_art)) },
                         description = { Text(stringResource(R.string.crop_album_art_desc)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = cropAlbumArt,
                                 onCheckedChange = onCropAlbumArtChange,
                                 thumbContent = {
@@ -1320,7 +1330,7 @@ fun AppearanceSettings(
                         icon = painterResource(R.drawable.swipe),
                         title = { Text(stringResource(R.string.enable_swipe_thumbnail)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = swipeThumbnail,
                                 onCheckedChange = onSwipeThumbnailChange,
                                 thumbContent = {
@@ -1372,6 +1382,7 @@ fun AppearanceSettings(
                         onClick = {
                             tempSensitivity = 0.73f
                         },
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(stringResource(R.string.reset))
                     }
@@ -1383,6 +1394,7 @@ fun AppearanceSettings(
                             tempSensitivity = swipeSensitivity
                             showSensitivityDialog = false
                         },
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(stringResource(android.R.string.cancel))
                     }
@@ -1391,6 +1403,7 @@ fun AppearanceSettings(
                             onSwipeSensitivityChange(tempSensitivity)
                             showSensitivityDialog = false
                         },
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(stringResource(android.R.string.ok))
                     }
@@ -1439,7 +1452,7 @@ fun AppearanceSettings(
                             description = { Text(stringResource(R.string.experimental_lyrics_desc)) },
                             showBadge = true,
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = experimentalLyrics,
                                     onCheckedChange = {
                                         if (!experimentalLyrics) {
@@ -1477,7 +1490,7 @@ fun AppearanceSettings(
                                 title = { Text(stringResource(R.string.lyrics_glow_effect)) },
                                 description = { Text(stringResource(R.string.lyrics_glow_effect_desc)) },
                                 trailingContent = {
-                                    Switch(
+                                    com.metrolist.music.ui.theme.ThemedSwitch(
                                         checked = lyricsGlowEffect,
                                         onCheckedChange = onLyricsGlowEffectChange,
                                         thumbContent = {
@@ -1554,7 +1567,7 @@ fun AppearanceSettings(
                             title = { Text(stringResource(R.string.respect_agent_positioning)) },
                             description = { Text(stringResource(R.string.respect_agent_positioning_desc)) },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = respectAgentPositioning,
                                     onCheckedChange = onRespectAgentPositioningChange,
                                     thumbContent = {
@@ -1577,7 +1590,7 @@ fun AppearanceSettings(
                             icon = painterResource(R.drawable.lyrics),
                             title = { Text(stringResource(R.string.lyrics_click_change)) },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = lyricsClick,
                                     onCheckedChange = onLyricsClickChange,
                                     thumbContent = {
@@ -1600,7 +1613,7 @@ fun AppearanceSettings(
                             icon = painterResource(R.drawable.lyrics),
                             title = { Text(stringResource(R.string.lyrics_auto_scroll)) },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = lyricsScroll,
                                     onCheckedChange = onLyricsScrollChange,
                                     thumbContent = {
@@ -1624,7 +1637,7 @@ fun AppearanceSettings(
                             title = { Text(stringResource(R.string.hide_status_bar_fullscreen)) },
                             description = { Text(stringResource(R.string.hide_status_bar_fullscreen_desc)) },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = hideStatusBarOnFullscreen,
                                     onCheckedChange = onHideStatusBarOnFullscreenChange,
                                     thumbContent = {
@@ -1687,7 +1700,7 @@ fun AppearanceSettings(
                         icon = painterResource(R.drawable.swipe),
                         title = { Text(stringResource(R.string.swipe_song_to_add)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = swipeToSong,
                                 onCheckedChange = onSwipeToSongChange,
                                 thumbContent = {
@@ -1708,7 +1721,7 @@ fun AppearanceSettings(
                         icon = painterResource(R.drawable.swipe),
                         title = { Text(stringResource(R.string.swipe_song_to_remove)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = swipeToRemoveSong,
                                 onCheckedChange = onSwipeToRemoveSongChange,
                                 thumbContent = {
@@ -1729,7 +1742,7 @@ fun AppearanceSettings(
                         icon = painterResource(R.drawable.nav_bar),
                         title = { Text(stringResource(R.string.slim_navbar)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = slimNav,
                                 onCheckedChange = onSlimNavChange,
                                 thumbContent = {
@@ -1751,7 +1764,7 @@ fun AppearanceSettings(
                         title = { Text(stringResource(R.string.listen_together_in_top_bar)) },
                         description = { Text(stringResource(R.string.listen_together_in_top_bar_desc)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = listenTogetherInTopBar,
                                 onCheckedChange = onListenTogetherInTopBarChange,
                                 thumbContent = {
@@ -1773,7 +1786,7 @@ fun AppearanceSettings(
                         title = { Text(stringResource(R.string.show_recognize_music_button)) },
                         description = { Text(stringResource(R.string.show_recognize_music_button_desc)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = showRecognizeButton,
                                 onCheckedChange = onShowRecognizeButtonChange,
                                 thumbContent = {
@@ -1795,7 +1808,7 @@ fun AppearanceSettings(
                         title = { Text(stringResource(R.string.show_play_random_button)) },
                         description = { Text(stringResource(R.string.show_play_random_button_desc)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = showPlayRandomButton,
                                 onCheckedChange = onShowPlayRandomButtonChange,
                                 thumbContent = {
@@ -1846,7 +1859,7 @@ fun AppearanceSettings(
                         icon = painterResource(R.drawable.favorite),
                         title = { Text(stringResource(R.string.show_liked_playlist)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = showLikedPlaylist,
                                 onCheckedChange = onShowLikedPlaylistChange,
                                 thumbContent = {
@@ -1867,7 +1880,7 @@ fun AppearanceSettings(
                         icon = painterResource(R.drawable.offline),
                         title = { Text(stringResource(R.string.show_downloaded_playlist)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = showDownloadedPlaylist,
                                 onCheckedChange = onShowDownloadedPlaylistChange,
                                 thumbContent = {
@@ -1888,7 +1901,7 @@ fun AppearanceSettings(
                         icon = painterResource(R.drawable.trending_up),
                         title = { Text(stringResource(R.string.show_top_playlist)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = showTopPlaylist,
                                 onCheckedChange = onShowTopPlaylistChange,
                                 thumbContent = {
@@ -1909,7 +1922,7 @@ fun AppearanceSettings(
                         icon = painterResource(R.drawable.cached),
                         title = { Text(stringResource(R.string.show_cached_playlist)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = showCachedPlaylist,
                                 onCheckedChange = onShowCachedPlaylistChange,
                                 thumbContent = {
@@ -1930,7 +1943,7 @@ fun AppearanceSettings(
                         icon = painterResource(R.drawable.backup),
                         title = { Text(stringResource(R.string.show_uploaded_playlist)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = showUploadedPlaylist,
                                 onCheckedChange = onShowUploadedPlaylistChange,
                                 thumbContent = {
@@ -1956,13 +1969,13 @@ fun AppearanceSettings(
                 onDismiss = { showExperimentalLyricsBetaDialog = false },
                 title = { Text(stringResource(R.string.experimental_lyrics_beta_title)) },
                 buttons = {
-                    TextButton(onClick = { showExperimentalLyricsBetaDialog = false }) {
+                    TextButton(onClick = { showExperimentalLyricsBetaDialog = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.cancel))
                     }
                     TextButton(onClick = {
                         showExperimentalLyricsBetaDialog = false
                         onExperimentalLyricsChange(true)
-                    }) {
+                    }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.enable))
                     }
                 },

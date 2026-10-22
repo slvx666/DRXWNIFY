@@ -46,10 +46,13 @@ import java.util.concurrent.TimeUnit
 object YandexMusic {
     private const val BASE_URL = "https://api.music.yandex.net"
 
-    /** Client id of the official Yandex Music Android app, used by the OAuth implicit flow. */
+    /**
+     * Client id of the official Yandex Music Android app, used by the OAuth implicit flow.
+     * `force_confirm` makes Yandex ask which account to use even when one is remembered.
+     */
     const val OAUTH_CLIENT_ID = "23cabbbdc6cd418abb4b39c32c41195d"
     const val OAUTH_URL =
-        "https://oauth.yandex.ru/authorize?response_type=token&client_id=$OAUTH_CLIENT_ID"
+        "https://oauth.yandex.ru/authorize?response_type=token&client_id=$OAUTH_CLIENT_ID&force_confirm=yes"
 
     @Volatile
     var accessToken: String? = null
@@ -252,6 +255,13 @@ object YandexMusic {
                 ?: throw YandexException(404, "Artist not found")
             obj.arr("albums").orEmpty().mapNotNull { it.objOrNull()?.let(YandexParser::album) }
         }
+    }
+
+    /** Albums of other artists this one appears on (brief-info "alsoAlbums": features, compilations). */
+    suspend fun artistAppearsOn(artistId: String): Result<List<SpotifyAlbum>> = runCatching {
+        val obj = getResult("artists/${YandexIds.raw(artistId)}/brief-info") as? JsonObject
+            ?: throw YandexException(404, "Artist not found")
+        obj.arr("alsoAlbums").orEmpty().mapNotNull { it.objOrNull()?.let(YandexParser::album) }
     }
 
     suspend fun similarArtists(artistId: String): Result<List<SpotifyArtist>> = runCatching {

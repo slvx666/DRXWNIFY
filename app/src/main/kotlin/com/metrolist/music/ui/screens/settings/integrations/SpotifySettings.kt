@@ -171,12 +171,13 @@ fun SpotifySettings(
                         // (possibly a different account) never surfaces stale data.
                         SpotifyMetadataRegistry.clearAll()
                         coroutineScope.launch { SpotifyProfileCache.clearAllPersisted(context) }
-                    }) {
+                    }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.action_logout))
                     }
                 } else {
                     OutlinedButton(
                         onClick = { navController.navigate("settings/spotify/login") },
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(stringResource(R.string.action_login))
                     }
@@ -349,6 +350,7 @@ fun SpotifySettings(
                 trailingContent = {
                     OutlinedButton(
                         onClick = { navController.navigate("settings/integrations/spotify/preload") },
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(stringResource(R.string.spotify_preload_start))
                     }
@@ -467,6 +469,7 @@ private fun QobuzBackendHealthSection(currentBackend: QobuzBackend) {
             OutlinedButton(
                 onClick = refresh,
                 enabled = !loading,
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 if (loading) {
                     CircularProgressIndicator(

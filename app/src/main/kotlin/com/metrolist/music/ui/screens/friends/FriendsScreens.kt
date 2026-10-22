@@ -411,12 +411,13 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
                             )
                         },
                         modifier = Modifier.weight(1f),
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Icon(painterResource(R.drawable.link), null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.friends_invite_short), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    FilledTonalButton(onClick = { showAdd = true }, modifier = Modifier.weight(1f)) {
+                    FilledTonalButton(onClick = { showAdd = true }, modifier = Modifier.weight(1f), shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Icon(painterResource(R.drawable.person_add), null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(stringResource(R.string.friends_add_by_code_short), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -438,7 +439,7 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
                         Spacer(Modifier.width(10.dp))
                         val name = displayName(pub, friends.firstOrNull { it.pubkey == pub }?.name ?: data[pub]?.name)
                         Text(stringResource(R.string.friends_listening_with, name), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        TextButton(onClick = FriendsHub::stopListenAlong) { Text(stringResource(R.string.friends_stop)) }
+                        TextButton(onClick = FriendsHub::stopListenAlong, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.friends_stop)) }
                     }
                 }
             }
@@ -589,9 +590,9 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
                 Button(onClick = {
                     FriendsHub.answerInvite(accept = true)
                     Toast.makeText(context, R.string.friends_added, Toast.LENGTH_SHORT).show()
-                }) { Text(stringResource(R.string.friends_accept)) }
+                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.friends_accept)) }
             },
-            dismissButton = { TextButton(onClick = { FriendsHub.answerInvite(accept = false) }) { Text(stringResource(android.R.string.cancel)) } },
+            dismissButton = { TextButton(onClick = { FriendsHub.answerInvite(accept = false) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) } },
         )
     }
     if (showBackup) {
@@ -606,8 +607,8 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
                     Text(key, style = MaterialTheme.typography.bodySmall)
                 }
             },
-            confirmButton = { TextButton(onClick = { copy(context, key); showBackup = false }) { Text(stringResource(R.string.friends_copy_code)) } },
-            dismissButton = { TextButton(onClick = { showBackup = false }) { Text(stringResource(android.R.string.cancel)) } },
+            confirmButton = { TextButton(onClick = { copy(context, key); showBackup = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.friends_copy_code)) } },
+            dismissButton = { TextButton(onClick = { showBackup = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) } },
         )
     }
     if (showRename) {
@@ -617,11 +618,11 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
             title = { Text(stringResource(R.string.friends_name)) },
             text = { OutlinedTextField(value = name, onValueChange = { name = it.take(40) }, singleLine = true) },
             confirmButton = {
-                TextButton(enabled = name.isNotBlank(), onClick = { FriendsHub.rename(name); showRename = false }) {
+                TextButton(enabled = name.isNotBlank(), onClick = { FriendsHub.rename(name); showRename = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(android.R.string.ok))
                 }
             },
-            dismissButton = { TextButton(onClick = { showRename = false }) { Text(stringResource(android.R.string.cancel)) } },
+            dismissButton = { TextButton(onClick = { showRename = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) } },
         )
     }
     if (showAdd) {
@@ -633,7 +634,7 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
             icon = { Icon(painterResource(R.drawable.info), null) },
             title = { Text(stringResource(R.string.friends_how_it_works_title)) },
             text = { Text(stringResource(R.string.friends_how_it_works), style = MaterialTheme.typography.bodyMedium) },
-            confirmButton = { TextButton(onClick = { showHow = false }) { Text(stringResource(android.R.string.ok)) } },
+            confirmButton = { TextButton(onClick = { showHow = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.ok)) } },
         )
     }
     if (showRestore) {
@@ -655,9 +656,9 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
                     } else {
                         Toast.makeText(context, R.string.friends_bad_key, Toast.LENGTH_SHORT).show()
                     }
-                }) { Text(stringResource(R.string.friends_restore)) }
+                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.friends_restore)) }
             },
-            dismissButton = { TextButton(onClick = { showRestore = false }) { Text(stringResource(android.R.string.cancel)) } },
+            dismissButton = { TextButton(onClick = { showRestore = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) } },
         )
     }
 }
@@ -712,8 +713,9 @@ private fun CreateProfileCard() {
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) { Text(stringResource(if (restoring) R.string.friends_restore else R.string.friends_create)) }
-            TextButton(onClick = { restoring = !restoring }) {
+            TextButton(onClick = { restoring = !restoring }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(stringResource(if (restoring) R.string.friends_create_new_instead else R.string.friends_have_key))
             }
         }
@@ -818,7 +820,7 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
                                 if (already) {
                                     Text(stringResource(R.string.friends_already), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 } else {
-                                    TextButton(onClick = { add(found.pubkey, found.name) }) { Text(stringResource(R.string.friends_add)) }
+                                    TextButton(onClick = { add(found.pubkey, found.name) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.friends_add)) }
                                 }
                             }
                         }
@@ -828,12 +830,12 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
         },
         confirmButton = {
             if (code != null) {
-                TextButton(onClick = { add(code) }) { Text(stringResource(R.string.friends_add)) }
+                TextButton(onClick = { add(code) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.friends_add)) }
             } else {
-                TextButton(enabled = text.trim().length >= 2 && !searching, onClick = { search() }) { Text(stringResource(R.string.friends_search)) }
+                TextButton(enabled = text.trim().length >= 2 && !searching, onClick = { search() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.friends_search)) }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) } },
+        dismissButton = { TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) } },
     )
 }
 
@@ -1020,6 +1022,7 @@ fun FriendScreen(navController: NavController, pubkey: String) {
                             Toast.makeText(context, R.string.friends_added, Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.fillMaxWidth(),
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Icon(painterResource(R.drawable.person_add), null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
@@ -1052,11 +1055,11 @@ fun FriendScreen(navController: NavController, pubkey: String) {
                             if (now.listenAlong) {
                                 Spacer(Modifier.height(10.dp))
                                 if (listeningTo == pubkey) {
-                                    OutlinedButton(onClick = FriendsHub::stopListenAlong, modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedButton(onClick = FriendsHub::stopListenAlong, modifier = Modifier.fillMaxWidth(), shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                         Text(stringResource(R.string.friends_stop_listening))
                                     }
                                 } else {
-                                    Button(onClick = { FriendsHub.startListenAlong(pubkey) }, modifier = Modifier.fillMaxWidth()) {
+                                    Button(onClick = { FriendsHub.startListenAlong(pubkey) }, modifier = Modifier.fillMaxWidth(), shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                         Text(stringResource(R.string.friends_listen_along))
                                     }
                                 }
@@ -1156,7 +1159,7 @@ fun FriendScreen(navController: NavController, pubkey: String) {
                                 )
                             }
                             if (history.size > 5) {
-                                TextButton(onClick = { showAllHistory = !showAllHistory }, modifier = Modifier.padding(start = 4.dp)) {
+                                TextButton(onClick = { showAllHistory = !showAllHistory }, modifier = Modifier.padding(start = 4.dp), shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                     Text(
                                         if (showAllHistory) stringResource(R.string.friends_show_less)
                                         else stringResource(R.string.friends_show_all, history.size),
@@ -1185,9 +1188,9 @@ fun FriendScreen(navController: NavController, pubkey: String) {
                     FriendsHub.removeFriend(pubkey)
                     confirmRemove = false
                     navController.navigateUp()
-                }) { Text(stringResource(R.string.friends_remove)) }
+                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.friends_remove)) }
             },
-            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text(stringResource(android.R.string.cancel)) } },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) } },
         )
     }
 }
@@ -1291,6 +1294,6 @@ private fun SwitchRow(title: String, description: String, checked: Boolean, onCh
             Text(title, style = MaterialTheme.typography.titleSmall)
             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onChange)
+        com.metrolist.music.ui.theme.ThemedSwitch(checked = checked, onCheckedChange = onChange)
     }
 }

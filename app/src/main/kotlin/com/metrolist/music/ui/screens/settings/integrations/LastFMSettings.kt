@@ -256,7 +256,7 @@ fun LastFMSettings(
                         }
                     },
                     enabled = !isLoggingIn
-                ) {
+                , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.login))
                 }
             },
@@ -269,7 +269,7 @@ fun LastFMSettings(
                         }
                     },
                     enabled = !isLoggingIn
-                ) {
+                , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.cancel))
                 }
             }
@@ -310,11 +310,11 @@ fun LastFMSettings(
                             OutlinedButton(onClick = {
                                 lastfmSession = ""
                                 lastfmUsername = ""
-                            }) {
+                            }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                 Text(stringResource(R.string.action_logout))
                             }
                         } else {
-                            OutlinedButton(onClick = { showLoginDialog = true }) {
+                            OutlinedButton(onClick = { showLoginDialog = true }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                 Text(stringResource(R.string.action_login))
                             }
                         }
@@ -332,7 +332,7 @@ fun LastFMSettings(
                 Material3SettingsItem(
                     title = { Text(stringResource(R.string.enable_scrobbling)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = lastfmScrobbling,
                             onCheckedChange = onlastfmScrobblingChange,
                             enabled = isLoggedIn,
@@ -344,7 +344,7 @@ fun LastFMSettings(
                 Material3SettingsItem(
                     title = { Text(stringResource(R.string.lastfm_now_playing)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = useNowPlaying,
                             onCheckedChange = onUseNowPlayingChange,
                             enabled = isLoggedIn && lastfmScrobbling,
@@ -357,7 +357,7 @@ fun LastFMSettings(
                     title = { Text(stringResource(R.string.last_fm_send_likes)) },
                     description = { stringResource(R.string.last_fm_send_likes_description) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = useSendLikes,
                             onCheckedChange = onUseSendLikes,
                             enabled = isLoggedIn,
@@ -384,7 +384,7 @@ fun LastFMSettings(
                         onClick = {
                             tempMinTrackDuration = LastFM.DEFAULT_SCROBBLE_MIN_SONG_DURATION
                         }
-                    ) {
+                    , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.reset))
                     }
 
@@ -395,7 +395,7 @@ fun LastFMSettings(
                             tempMinTrackDuration = minTrackDuration
                             showMinTrackDurationDialog = false
                         }
-                    ) {
+                    , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(android.R.string.cancel))
                     }
                     TextButton(
@@ -403,7 +403,7 @@ fun LastFMSettings(
                             onMinTrackDurationChange(tempMinTrackDuration)
                             showMinTrackDurationDialog = false
                         }
-                    ) {
+                    , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(android.R.string.ok))
                     }
                 }
@@ -449,7 +449,7 @@ fun LastFMSettings(
                         onClick = {
                             tempScrobbleDelayPercent = LastFM.DEFAULT_SCROBBLE_DELAY_PERCENT
                         }
-                    ) {
+                    , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.reset))
                     }
 
@@ -460,7 +460,7 @@ fun LastFMSettings(
                             tempScrobbleDelayPercent = scrobbleDelayPercent
                             showScrobbleDelayPercentDialog = false
                         }
-                    ) {
+                    , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(android.R.string.cancel))
                     }
                     TextButton(
@@ -468,7 +468,7 @@ fun LastFMSettings(
                             onScrobbleDelayPercentChange(tempScrobbleDelayPercent)
                             showScrobbleDelayPercentDialog = false
                         }
-                    ) {
+                    , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(android.R.string.ok))
                     }
                 }
@@ -514,7 +514,7 @@ fun LastFMSettings(
                         onClick = {
                             tempScrobbleDelaySeconds = LastFM.DEFAULT_SCROBBLE_DELAY_SECONDS
                         }
-                    ) {
+                    , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.reset))
                     }
 
@@ -525,7 +525,7 @@ fun LastFMSettings(
                             tempScrobbleDelaySeconds = scrobbleDelaySeconds
                             showScrobbleDelaySecondsDialog = false
                         }
-                    ) {
+                    , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(android.R.string.cancel))
                     }
                     TextButton(
@@ -533,7 +533,7 @@ fun LastFMSettings(
                             onScrobbleDelaySecondsChange(tempScrobbleDelaySeconds)
                             showScrobbleDelaySecondsDialog = false
                         }
-                    ) {
+                    , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(android.R.string.ok))
                     }
                 }

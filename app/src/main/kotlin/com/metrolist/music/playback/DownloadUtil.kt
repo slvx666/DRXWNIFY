@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -723,7 +724,42 @@ constructor(
         }
     }
 
-    fun getDownload(songId: String): Flow<Download?> = visibleDownloads.map { it[songId] }.distinctUntilChanged()
+    /**
+     * The download of [songId] — or of the other id the same catalog track goes by. A track is
+     * queued as "mfb:<catalog id>" or as its YouTube video id depending on what the resolver knew at
+     * the time, so an album downloaded under one id and played under the other read as "not
+     * downloaded" in the player (and was shared as a link). The answer's request id is the id to
+     * share or remove.
+     */
+    fun getDownload(songId: String): Flow<Download?> =
+        visibleDownloads.map { all ->
+            val direct = all[songId]
+            if (direct?.state == Download.STATE_COMPLETED) return@map direct
+            val alias = downloadAliasOf(songId)?.let(all::get)
+            if (alias?.state == Download.STATE_COMPLETED) alias else direct ?: alias
+        }.distinctUntilChanged()
+
+    /** songId → (alias or "", when it was looked up); a miss is asked again after a while (a match may appear). */
+    private val downloadAliases = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
+
+    private suspend fun downloadAliasOf(songId: String): String? {
+        if (songId.isEmpty()) return null
+        downloadAliases[songId]?.let { (alias, at) ->
+            if (alias.isNotEmpty() || System.currentTimeMillis() - at < ALIAS_MISS_TTL_MS) return alias.ifEmpty { null }
+        }
+        val alias = withContext(Dispatchers.IO) {
+            runCatching {
+                val catalogId = com.metrolist.music.resolver.FallbackIds.catalogIdOf(songId)
+                if (catalogId != null) {
+                    database.getSpotifyMatch(catalogId)?.youtubeId
+                } else {
+                    database.getSpotifyMatchByYouTubeId(songId)?.spotifyId?.let(com.metrolist.music.resolver.FallbackIds::of)
+                }
+            }.getOrNull()
+        }?.takeIf { it.isNotEmpty() && it != songId }
+        downloadAliases[songId] = (alias ?: "") to System.currentTimeMillis()
+        return alias
+    }
 
     fun release() {
         scope.cancel()
@@ -732,5 +768,6 @@ constructor(
     private companion object {
         /** After the exporter has loaded what it already wrote (and retried its own pending work). */
         const val EXPORT_CATCH_UP_DELAY_MS = 20_000L
+        const val ALIAS_MISS_TTL_MS = 30_000L
     }
 }

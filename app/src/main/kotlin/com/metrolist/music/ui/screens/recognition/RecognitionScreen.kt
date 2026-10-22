@@ -412,7 +412,7 @@ private fun ListeningState(onCancel: () -> Unit) {
             color = MaterialTheme.colorScheme.primary,
         )
 
-        OutlinedButton(onClick = onCancel) {
+        OutlinedButton(onClick = onCancel, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
             Text(stringResource(R.string.cancel))
         }
     }
@@ -554,6 +554,7 @@ private fun SuccessState(
             Button(
                 onClick = { onPlayOnApp(result) },
                 modifier = Modifier.fillMaxWidth(),
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Icon(
                     painter = painterResource(R.drawable.play),
@@ -567,6 +568,7 @@ private fun SuccessState(
             FilledTonalButton(
                 onClick = onTryAgain,
                 modifier = Modifier.fillMaxWidth(),
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Icon(
                     painter = painterResource(R.drawable.mic),
@@ -581,6 +583,7 @@ private fun SuccessState(
             OutlinedButton(
                 onClick = onClose,
                 modifier = Modifier.fillMaxWidth(),
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Icon(
                     painter = painterResource(R.drawable.close),
@@ -633,7 +636,7 @@ private fun NoMatchState(
             modifier = Modifier.padding(horizontal = 32.dp),
         )
 
-        Button(onClick = onTryAgain) {
+        Button(onClick = onTryAgain, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
             Icon(
                 painter = painterResource(R.drawable.refresh),
                 contentDescription = null,
@@ -684,7 +687,7 @@ private fun ErrorState(
             modifier = Modifier.padding(horizontal = 32.dp),
         )
 
-        Button(onClick = onTryAgain) {
+        Button(onClick = onTryAgain, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
             Icon(
                 painter = painterResource(R.drawable.refresh),
                 contentDescription = null,

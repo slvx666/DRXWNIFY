@@ -8,6 +8,7 @@
 package com.metrolist.music.ui.player
 
 import android.content.res.Configuration
+import com.metrolist.music.ui.theme.tui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -388,9 +389,9 @@ private fun NewMiniPlayer(
                     .then(if (isTabletLandscape) Modifier.width(500.dp).align(Alignment.Center) else Modifier.fillMaxWidth())
                     .height(64.dp)
                     .offset { IntOffset(offsetXAnimatable.value.roundToInt(), 0) }
-                    .clip(RoundedCornerShape(32.dp))
+                    .clip(RoundedCornerShape(32.dp).tui())
                     .background(color = backgroundColor)
-                    .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(32.dp)),
+                    .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(32.dp).tui()),
         ) {
             when (miniPlayerBackground) {
                 MiniPlayerBackgroundStyle.BLUR -> {
@@ -577,8 +578,8 @@ private fun NewMiniPlayerPlayButton(
             modifier =
                 Modifier
                     .size(40.dp)
-                    .clip(CircleShape)
-                    .border(1.dp, outlineColor.copy(alpha = 0.3f), CircleShape)
+                    .clip(CircleShape.tui())
+                    .border(1.dp, outlineColor.copy(alpha = 0.3f), CircleShape.tui())
                     .clickable {
                         if (isListenTogetherGuest) {
                             playerConnection.toggleMute()
@@ -603,7 +604,7 @@ private fun NewMiniPlayerPlayButton(
                     model = thumbnailUrl,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                    modifier = Modifier.fillMaxSize().clip(CircleShape.tui()),
                 )
             }
 
@@ -626,7 +627,7 @@ private fun NewMiniPlayerPlayButton(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .background(scrimColor, CircleShape),
+                        .background(scrimColor, CircleShape.tui()),
             )
             Icon(
                 painter = painterResource(iconRes),
@@ -965,7 +966,7 @@ private fun LegacyMiniMediaInfo(
                 Modifier
                     .padding(6.dp)
                     .size(48.dp)
-                    .clip(RoundedCornerShape(ThumbnailCornerRadius)),
+                    .clip(RoundedCornerShape(ThumbnailCornerRadius).tui()),
         ) {
             Box(
                 modifier =
@@ -985,7 +986,7 @@ private fun LegacyMiniMediaInfo(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .clip(RoundedCornerShape(ThumbnailCornerRadius)),
+                        .clip(RoundedCornerShape(ThumbnailCornerRadius).tui()),
             )
 
             androidx.compose.animation.AnimatedVisibility(visible = error != null, enter = fadeIn(), exit = fadeOut()) {
@@ -994,7 +995,7 @@ private fun LegacyMiniMediaInfo(
                         .fillMaxSize()
                         .background(
                             color = if (pureBlack) Color.Black else Color.Black.copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(ThumbnailCornerRadius),
+                            shape = RoundedCornerShape(ThumbnailCornerRadius).tui(),
                         ),
                 ) {
                     Icon(
@@ -1064,14 +1065,14 @@ private fun SubscribeButton(
         modifier =
             Modifier
                 .size(40.dp)
-                .clip(CircleShape)
+                .clip(CircleShape.tui())
                 .border(
                     width = 1.dp,
                     color = if (isSubscribed) primaryColor.copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.3f),
-                    shape = CircleShape,
+                    shape = CircleShape.tui(),
                 ).background(
                     color = if (isSubscribed) primaryColor.copy(alpha = 0.1f) else Color.Transparent,
-                    shape = CircleShape,
+                    shape = CircleShape.tui(),
                 ).clickable {
                     database.transaction {
                         val artist = artistEntity
@@ -1120,7 +1121,8 @@ private fun DownloadButton(
     // export/transcode phase as "in progress". Without this the mini shows "downloaded"
     // the moment ExoPlayer finishes while the fullscreen still shows a spinner.
     val exportingIds by com.metrolist.music.utils.DownloadExportState.exporting.collectAsState()
-    val isExporting = mediaMetadata.id in exportingIds
+    val downloadId = download?.request?.id ?: mediaMetadata.id
+    val isExporting = downloadId in exportingIds
     val state = download?.state
     val isDownloaded = state == Download.STATE_COMPLETED && !isExporting
     val isInProgress = state == Download.STATE_QUEUED || state == Download.STATE_DOWNLOADING || isExporting
@@ -1129,15 +1131,15 @@ private fun DownloadButton(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(40.dp)
-            .clip(CircleShape)
+            .clip(CircleShape.tui())
             .border(
                 width = 1.dp,
                 color = if (isDownloaded) primaryColor.copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.3f),
-                shape = CircleShape,
+                shape = CircleShape.tui(),
             )
             .background(
                 color = if (isDownloaded) primaryColor.copy(alpha = 0.1f) else Color.Transparent,
-                shape = CircleShape,
+                shape = CircleShape.tui(),
             )
             .clickable {
                 when {
@@ -1145,7 +1147,7 @@ private fun DownloadButton(
                         DownloadService.sendRemoveDownload(
                             context,
                             ExoDownloadService::class.java,
-                            mediaMetadata.id,
+                            downloadId,
                             false,
                         )
                     }
@@ -1204,14 +1206,14 @@ private fun FavoriteButton(
         modifier =
             Modifier
                 .size(40.dp)
-                .clip(CircleShape)
+                .clip(CircleShape.tui())
                 .border(
                     width = 1.dp,
                     color = if (isLiked) errorColor.copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.3f),
-                    shape = CircleShape,
+                    shape = CircleShape.tui(),
                 ).background(
                     color = if (isLiked) errorColor.copy(alpha = 0.1f) else Color.Transparent,
-                    shape = CircleShape,
+                    shape = CircleShape.tui(),
                 ).clickable { playerConnection.service.setCurrentFavorite(!isLiked) },
     ) {
         Icon(

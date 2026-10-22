@@ -181,6 +181,7 @@ fun SelectionSongMenu(
                     onClick = {
                         showRemoveDownloadDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -190,6 +191,7 @@ fun SelectionSongMenu(
                         showRemoveDownloadDialog = false
                         downloadUtil.removeDownloads(songSelection.map { it.song.id })
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }
@@ -223,6 +225,7 @@ fun SelectionSongMenu(
                 if (!isDeleting) {
                     TextButton(
                         onClick = { showDeleteUploadedDialog = false },
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(text = stringResource(android.R.string.cancel))
                     }
@@ -261,6 +264,7 @@ fun SelectionSongMenu(
                                 }
                             }
                         },
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(text = stringResource(R.string.delete))
                     }
@@ -741,6 +745,7 @@ fun SelectionMediaMetadataMenu(
                     onClick = {
                         showRemoveDownloadDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -757,6 +762,7 @@ fun SelectionMediaMetadataMenu(
                             )
                         }
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }

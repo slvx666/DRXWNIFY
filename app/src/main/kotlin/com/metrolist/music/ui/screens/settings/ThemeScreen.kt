@@ -34,6 +34,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -80,6 +85,10 @@ import com.metrolist.music.constants.PureBlackMiniPlayerKey
 import com.metrolist.music.constants.SelectedThemeColorKey
 import com.metrolist.music.ui.theme.DefaultThemeColor
 import com.metrolist.music.ui.theme.MetrolistTheme
+import com.metrolist.music.ui.theme.AppThemePreset
+import com.metrolist.music.ui.theme.ThemeTopBarBackground
+import com.metrolist.music.constants.AppThemePresetKey
+import androidx.compose.ui.draw.alpha
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 
@@ -191,14 +200,16 @@ fun PortraitThemeLayout(
     selectedThemeColor: Color,
     onSelectedThemeColorChange: (Color) -> Unit
 ) {
+    // Scrolls: with the theme cards the controls no longer fit under the preview on a phone.
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(innerPadding),
+            .verticalScroll(rememberScrollState())
+            .padding(innerPadding)
+            .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top))
+            .padding(top = 72.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.weight(1f))
-
         Box(
             modifier = Modifier
                 .width(120.dp)
@@ -212,7 +223,7 @@ fun PortraitThemeLayout(
             )
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(20.dp))
 
         ThemeControls(
             darkMode = darkMode,
@@ -304,10 +315,13 @@ fun ThemeControls(
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
+        val preset by rememberEnumPreference(AppThemePresetKey, AppThemePreset.STANDARD)
         Column(
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
+            AppThemePicker()
+
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     text = stringResource(R.string.theme_mode),
@@ -379,12 +393,23 @@ fun ThemeControls(
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                // Another theme brings its own colours: the palette only shapes the standard one.
+                modifier = Modifier.alpha(if (preset == AppThemePreset.STANDARD) 1f else 0.45f),
+            ) {
                 Text(
                     text = stringResource(R.string.color_palette),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+                if (preset != AppThemePreset.STANDARD) {
+                    Text(
+                        text = stringResource(R.string.theme_palette_standard_only),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
@@ -674,10 +699,12 @@ fun ThemeMockup(
         DarkMode.OFF -> false
     }
 
+    val preset by rememberEnumPreference(AppThemePresetKey, AppThemePreset.STANDARD)
     MetrolistTheme(
         darkTheme = useDark,
         pureBlack = pureBlack,
-        themeColor = themeColor
+        themeColor = themeColor,
+        preset = preset,
     ) {
         Card(
             modifier = Modifier
@@ -782,10 +809,12 @@ fun ThemeMockupPortrait(
         DarkMode.OFF -> false
     }
 
+    val preset by rememberEnumPreference(AppThemePresetKey, AppThemePreset.STANDARD)
     MetrolistTheme(
         darkTheme = useDark,
         pureBlack = pureBlack,
-        themeColor = themeColor
+        themeColor = themeColor,
+        preset = preset,
     ) {
         Card(
             modifier = Modifier
@@ -801,16 +830,14 @@ fun ThemeMockupPortrait(
                 modifier = Modifier.fillMaxSize()
             ) {
                 // Header (20% of height)
-                Box(
+                ThemeTopBarBackground(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(0.2f)
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
-                        .padding(6.dp),
-                    contentAlignment = Alignment.CenterStart
+                        .weight(0.2f),
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().align(Alignment.CenterStart).padding(6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {

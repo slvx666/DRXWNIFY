@@ -92,7 +92,7 @@ fun TrackSelectionActions(selection: TrackSelection, allKeys: List<String>) {
             Icon(painterResource(R.drawable.select_all), contentDescription = stringResource(R.string.select_tracks))
         }
     } else {
-        TextButton(onClick = { selection.toggleAll(allKeys) }) {
+        TextButton(onClick = { selection.toggleAll(allKeys) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
             Text(stringResource(if (selection.keys.size == allKeys.size) R.string.select_none else R.string.select_all_short))
         }
         IconButton(onClick = selection::stop) {
@@ -230,10 +230,10 @@ fun TrackSelectionBar(
                     confirmDelete = null
                     onDelete(keys)
                     selection.stop()
-                }) { Text(stringResource(R.string.remove_downloads)) }
+                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.remove_downloads)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = null }) { Text(stringResource(android.R.string.cancel)) }
+                TextButton(onClick = { confirmDelete = null }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) }
             },
         )
     }
@@ -241,7 +241,7 @@ fun TrackSelectionBar(
 
 @Composable
 private fun SelectionAction(icon: Int, label: Int, enabled: Boolean, onClick: () -> Unit) {
-    TextButton(onClick = onClick, enabled = enabled) {
+    TextButton(onClick = onClick, enabled = enabled, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(22.dp))
             Text(stringResource(label), style = MaterialTheme.typography.labelMedium)

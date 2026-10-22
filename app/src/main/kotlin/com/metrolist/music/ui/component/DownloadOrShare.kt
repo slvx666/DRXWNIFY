@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.component
 
 import android.widget.Toast
+import com.metrolist.music.ui.theme.tui
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -144,10 +145,10 @@ fun DownloadOrShare(
                     confirmIds = null
                     downloadUtil.removeDownloads(ids)
                     Toast.makeText(context, R.string.downloads_removed, Toast.LENGTH_SHORT).show()
-                }) { Text(stringResource(R.string.remove_downloads)) }
+                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.remove_downloads)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmIds = null }) { Text(stringResource(android.R.string.cancel)) }
+                TextButton(onClick = { confirmIds = null }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) }
             },
         )
     }
@@ -163,7 +164,7 @@ private fun SplitPill(
     onRight: () -> Unit,
 ) {
     Surface(
-        shape = RoundedCornerShape(50),
+        shape = RoundedCornerShape(50).tui(),
         color = Color.Transparent,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         modifier = Modifier.height(height),

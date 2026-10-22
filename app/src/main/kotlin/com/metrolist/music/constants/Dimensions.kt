@@ -33,7 +33,8 @@ val SmallGridThumbnailHeight = 104.dp
 val GridThumbnailHeight = 128.dp
 val AlbumThumbnailSize = 144.dp
 
-val ThumbnailCornerRadius = 3.dp
+/** Covers: barely rounded; square in the Linux theme (a terminal UI has no rounded corners). */
+val ThumbnailCornerRadius: Dp get() = if (com.metrolist.music.ui.theme.ThemeRuntime.tui) 0.dp else 3.dp
 
 val PlayerHorizontalPadding = 32.dp
 

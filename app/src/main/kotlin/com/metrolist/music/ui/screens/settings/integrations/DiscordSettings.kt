@@ -460,6 +460,7 @@ fun DiscordSettings(
                         TextButton(
                             onClick = { infoDismissed = true },
                             modifier = Modifier.align(Alignment.End),
+                            shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                         ) {
                             Text(stringResource(R.string.dismiss))
                         }
@@ -574,7 +575,7 @@ fun DiscordSettings(
                         discordToken = ""
                         discordUsername = ""
                         discordAvatar = ""
-                    }) {
+                    }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.action_logout))
                     }
                 }
@@ -591,11 +592,13 @@ fun DiscordSettings(
                 ) {
                     OutlinedButton(
                         onClick = { navController.navigate("settings/discord/login") },
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(stringResource(R.string.action_login))
                     }
                     OutlinedButton(
                         onClick = { showTokenDialog = true },
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Icon(
                             painterResource(R.drawable.token),
@@ -617,7 +620,7 @@ fun DiscordSettings(
                     Material3SettingsItem(
                         title = { Text(stringResource(R.string.enable_discord_rpc)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = discordRPC,
                                 onCheckedChange = onDiscordRPCChange,
                                 enabled = isLoggedIn,
@@ -632,7 +635,7 @@ fun DiscordSettings(
                             Text(stringResource(R.string.discord_use_details_description))
                         },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = useDetails,
                                 onCheckedChange = onUseDetailsChange,
                                 enabled = isLoggedIn && discordRPC,
@@ -649,7 +652,7 @@ fun DiscordSettings(
                             Text(stringResource(R.string.discord_advanced_mode_description))
                         },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = advancedMode,
                                 onCheckedChange = onAdvancedModeChange,
                                 enabled = isLoggedIn && discordRPC,
@@ -746,7 +749,7 @@ fun DiscordSettings(
                                     Text(button1Text.ifEmpty { "Listen on YouTube Music" })
                                 },
                                 trailingContent = {
-                                    Switch(
+                                    com.metrolist.music.ui.theme.ThemedSwitch(
                                         checked = button1Visible,
                                         onCheckedChange = { button1Visible = it },
                                     )
@@ -771,7 +774,7 @@ fun DiscordSettings(
                                     Text(button2Text.ifEmpty { "Visit Drxwnify" })
                                 },
                                 trailingContent = {
-                                    Switch(
+                                    com.metrolist.music.ui.theme.ThemedSwitch(
                                         checked = button2Visible,
                                         onCheckedChange = { button2Visible = it },
                                     )
@@ -1031,6 +1034,7 @@ fun RichPresence(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(resolvedButton1)
                 }
@@ -1062,6 +1066,7 @@ fun RichPresence(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(resolvedButton2)
                 }

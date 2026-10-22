@@ -86,7 +86,7 @@ fun SpotifyPreloadScreen(
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(24.dp))
-                OutlinedButton(onClick = { viewModel.startPreload() }) {
+                OutlinedButton(onClick = { viewModel.startPreload() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.spotify_preload_start))
                 }
             }
@@ -99,7 +99,7 @@ fun SpotifyPreloadScreen(
                 Spacer(Modifier.height(16.dp))
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(24.dp))
-                OutlinedButton(onClick = { viewModel.cancel() }) {
+                OutlinedButton(onClick = { viewModel.cancel() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.cancel))
                 }
             }
@@ -112,7 +112,7 @@ fun SpotifyPreloadScreen(
                 Spacer(Modifier.height(16.dp))
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(24.dp))
-                OutlinedButton(onClick = { viewModel.cancel() }) {
+                OutlinedButton(onClick = { viewModel.cancel() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.cancel))
                 }
             }
@@ -129,7 +129,7 @@ fun SpotifyPreloadScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(24.dp))
-                OutlinedButton(onClick = { viewModel.cancel() }) {
+                OutlinedButton(onClick = { viewModel.cancel() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.cancel))
                 }
             }
@@ -140,7 +140,7 @@ fun SpotifyPreloadScreen(
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(24.dp))
-                OutlinedButton(onClick = { viewModel.resetToIdle(); navController.navigateUp() }) {
+                OutlinedButton(onClick = { viewModel.resetToIdle(); navController.navigateUp() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.back_button_desc))
                 }
             }
@@ -151,7 +151,7 @@ fun SpotifyPreloadScreen(
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(24.dp))
-                OutlinedButton(onClick = { viewModel.resetToIdle(); navController.navigateUp() }) {
+                OutlinedButton(onClick = { viewModel.resetToIdle(); navController.navigateUp() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.back_button_desc))
                 }
             }
@@ -163,7 +163,7 @@ fun SpotifyPreloadScreen(
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(24.dp))
-                OutlinedButton(onClick = { viewModel.resetToIdle(); navController.navigateUp() }) {
+                OutlinedButton(onClick = { viewModel.resetToIdle(); navController.navigateUp() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.back_button_desc))
                 }
             }

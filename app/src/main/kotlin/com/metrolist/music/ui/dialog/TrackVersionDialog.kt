@@ -169,7 +169,7 @@ fun TrackVersionDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) }
+            TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) }
         },
         dismissButton = {
             // Back to what the app picks by itself: always possible after a hand-picked version.
@@ -179,7 +179,7 @@ fun TrackVersionDialog(
                     switchVersion(context, database, playerConnection, downloadUtil, mediaMetadata, t, null)
                     onDismiss()
                     onApplied()
-                }) { Text(stringResource(R.string.track_version_auto)) }
+                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.track_version_auto)) }
             }
         },
     )

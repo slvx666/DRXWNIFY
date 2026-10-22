@@ -1914,6 +1914,25 @@ object Spotify {
             )
         }
 
+    /**
+     * Releases of OTHER artists the artist appears on (features, collaborations, compilations) —
+     * Spotify's "Appears On", from the same queryArtistOverview payload (relatedContent.appearsOn).
+     * Album artists are kept so the row can say whose release it is.
+     */
+    suspend fun artistAppearsOn(artistId: String): Result<List<SpotifyAlbum>> =
+        runCatching {
+            val items = artistUnion(artistId).obj("relatedContent")?.obj("appearsOn")?.arr("items")
+                ?: JsonArray(emptyList())
+            items.mapNotNull { elem ->
+                val release = elem.jsonObject.obj("releases")?.arr("items")?.firstOrNull()?.jsonObject
+                    ?: elem.jsonObject
+                val type = release.str("type")?.lowercase() ?: "album"
+                val album = parseGqlRelease(release, type) ?: return@mapNotNull null
+                val artists = release.obj("artists")?.arr("items")?.mapNotNull { parseGqlSimpleArtist(it.jsonObject) }.orEmpty()
+                album.copy(artists = artists)
+            }.distinctBy { it.id }
+        }
+
     suspend fun artistTopTracks(
         artistId: String,
         market: String = "US",

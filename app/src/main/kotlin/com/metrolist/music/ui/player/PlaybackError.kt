@@ -164,7 +164,7 @@ fun PlaybackError(
             }
         }
         if (onNavigate != null) {
-            TextButton(onClick = { onNavigate(ROUTE_LOG) }) {
+            TextButton(onClick = { onNavigate(ROUTE_LOG) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(text = stringResource(R.string.playback_action_log), style = MaterialTheme.typography.bodySmall)
             }
         }

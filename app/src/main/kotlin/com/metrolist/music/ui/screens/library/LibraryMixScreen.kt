@@ -604,6 +604,7 @@ fun LibraryMixScreen(
                                         onClick = {
                                             navController.navigate("settings/spotify/login")
                                         },
+                                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                                     ) {
                                         Text(
                                             text = stringResource(R.string.spotify_relogin),
@@ -1070,6 +1071,7 @@ fun LibraryMixScreen(
                                         onClick = {
                                             navController.navigate("settings/spotify/login")
                                         },
+                                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                                     ) {
                                         Text(
                                             text = stringResource(R.string.spotify_relogin),

@@ -146,4 +146,84 @@ object Suggestions {
         prefs(context).edit().putLong("seenAt", System.currentTimeMillis()).apply()
         _unseen.value = 0
     }
+
+    // ── Replies from the developer ───────────────────────────────────────────────────────────────
+
+    private const val REPLY_TYPE = "drxw-reply"
+    private const val REPLY_LISTEN_MS = 25_000L
+
+    /** The developer's answer to one of this phone's suggestions; [quote] is what it answers. */
+    data class Reply(val id: String, val text: String, val quote: String?, val at: Long)
+
+    private val _replies = MutableStateFlow<List<Reply>>(emptyList())
+
+    /** Answers not shown yet, oldest first (shown at start, one sheet each, like release notes). */
+    val replies: StateFlow<List<Reply>> = _replies
+
+    /** Suggestion ids the developer already answered (from this phone's inbox view). */
+    fun repliedIds(context: Context): Set<String> = prefs(context).getStringSet("replied", emptySet()).orEmpty()
+
+    /**
+     * Developer only: answers [to] with an encrypted direct message to the key it came from — the
+     * sender's phone shows it at its next start.
+     */
+    fun reply(context: Context, to: Suggestion, text: String): Boolean {
+        val body = text.trim().take(MAX_TEXT)
+        val sk = FriendsHub.secretKeyOrNull()
+        if (body.isEmpty() || sk == null || !isDeveloper) return false
+        val payload = JSONObject()
+            .put("t", REPLY_TYPE)
+            .put("text", body)
+            .put("re", to.id)
+            .put("q", to.text.take(400))
+        val content = Nostr.encrypt(sk, to.from, payload.toString())
+        RelayPool.publish(Nostr.sign(sk, KIND_DM, listOf(listOf("p", to.from), listOf("e", to.id)), content))
+        val p = prefs(context)
+        p.edit().putStringSet("replied", repliedIds(context) + to.id).apply()
+        return true
+    }
+
+    /**
+     * Looks for the developer's answers to this phone's suggestions (to the friends key and to the
+     * anonymous one), for a little while after start. There is no push server: an answer shows up
+     * the next time the app is opened.
+     */
+    suspend fun checkReplies(context: Context) {
+        val p = prefs(context)
+        val keys = listOfNotNull(FriendsHub.secretKeyOrNull(), p.getString("anonKey", null)?.hexToBytes())
+            .distinctBy { it.toHex() }
+            .filterNot { Secp256k1.publicKey(it).toHex() == FriendsHub.DEVELOPER_PUBKEY }
+        if (keys.isEmpty()) return
+        val subscriptions = keys.map { sk ->
+            val filter = JSONObject()
+                .put("kinds", org.json.JSONArray().put(KIND_DM))
+                .put("authors", org.json.JSONArray().put(FriendsHub.DEVELOPER_PUBKEY))
+                .put("#p", org.json.JSONArray().put(Secp256k1.publicKey(sk).toHex()))
+                .put("since", System.currentTimeMillis() / 1000 - INBOX_DAYS * 24 * 3600)
+            RelayPool.subscribe(listOf(filter)) { event ->
+                if (event.pubkey != FriendsHub.DEVELOPER_PUBKEY) return@subscribe
+                val plain = Nostr.decrypt(sk, event.pubkey, event.content) ?: return@subscribe
+                val o = runCatching { JSONObject(plain) }.getOrNull()?.takeIf { it.optString("t") == REPLY_TYPE } ?: return@subscribe
+                val reply = Reply(
+                    id = event.id,
+                    text = o.optString("text"),
+                    quote = o.optString("q").takeIf { it.isNotBlank() },
+                    at = event.createdAt * 1000,
+                )
+                synchronized(this) {
+                    val seen = p.getStringSet("seenReplies", emptySet()).orEmpty()
+                    if (reply.id in seen || _replies.value.any { it.id == reply.id } || reply.text.isBlank()) return@subscribe
+                    _replies.value = (_replies.value + reply).sortedBy { it.at }
+                }
+            }
+        }
+        kotlinx.coroutines.delay(REPLY_LISTEN_MS)
+        subscriptions.forEach(RelayPool::close)
+    }
+
+    fun markReplySeen(context: Context, id: String) {
+        val p = prefs(context)
+        p.edit().putStringSet("seenReplies", p.getStringSet("seenReplies", emptySet()).orEmpty() + id).apply()
+        _replies.value = _replies.value.filterNot { it.id == id }
+    }
 }

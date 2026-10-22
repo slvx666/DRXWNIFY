@@ -556,6 +556,11 @@ class MainActivity : ComponentActivity() {
             }
 
         val (selectedThemeColorInt) = rememberPreference(SelectedThemeColorKey, defaultValue = DefaultThemeColor.toArgb())
+        val appThemePreset by rememberEnumPreference(
+            com.metrolist.music.constants.AppThemePresetKey,
+            defaultValue = com.metrolist.music.ui.theme.AppThemePreset.STANDARD,
+        )
+        val themeAnimations by rememberPreference(com.metrolist.music.constants.ThemeAnimationsKey, defaultValue = true)
         val selectedThemeColor = Color(selectedThemeColorInt)
 
         val showChangelog = rememberSaveable { mutableStateOf(false) }
@@ -612,10 +617,13 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        com.metrolist.music.ui.theme.ThemeRuntime.preset = appThemePreset
         MetrolistTheme(
             darkTheme = useDarkTheme,
             pureBlack = pureBlack,
             themeColor = themeColor,
+            preset = appThemePreset,
+            animations = themeAnimations,
         ) {
             BoxWithConstraints(
                 modifier =
@@ -990,6 +998,20 @@ class MainActivity : ComponentActivity() {
                         ChangelogScreen(onDismiss = { showChangelog.value = false })
                     }
                     if (!introVisible && !showChangelog.value && startupWelcomeDone.value) {
+                        // An answer from the developer to a suggestion sent from here.
+                        val developerReplies by com.metrolist.music.friends.Suggestions.replies.collectAsState()
+                        developerReplies.firstOrNull()?.let { reply ->
+                            com.metrolist.music.ui.screens.settings.DeveloperReplySheet(
+                                reply = reply,
+                                onDismiss = { com.metrolist.music.friends.Suggestions.markReplySeen(this@MainActivity, reply.id) },
+                            )
+                        }
+                        LaunchedEffect(Unit) {
+                            withContext(Dispatchers.IO) {
+                                kotlinx.coroutines.delay(3_000)
+                                com.metrolist.music.friends.Suggestions.checkReplies(this@MainActivity)
+                            }
+                        }
                         com.metrolist.music.ui.component.AppUpdateOffer()
                         com.metrolist.music.ui.component.MigrationRestoreOffer()
                         com.metrolist.music.ui.component.DownloadFolderAccessPrompt()
@@ -1014,10 +1036,12 @@ class MainActivity : ComponentActivity() {
                                 enter = fadeIn(animationSpec = tween(durationMillis = 300)),
                                 exit = fadeOut(animationSpec = tween(durationMillis = 200)),
                             ) {
-                                Row {
+                                com.metrolist.music.ui.theme.ThemeTopBarBackground(
+                                    containerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer,
+                                ) {
                                     TopAppBar(
                                         title = {
-                                            Text(
+                                            com.metrolist.music.ui.theme.ThemeTitle(
                                                 text = currentTitleRes?.let { stringResource(it) } ?: "",
                                                 style = MaterialTheme.typography.titleLarge,
                                             )
@@ -1065,8 +1089,9 @@ class MainActivity : ComponentActivity() {
                                         scrollBehavior = topAppBarScrollBehavior,
                                         colors =
                                             TopAppBarDefaults.topAppBarColors(
-                                                containerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer,
-                                                scrolledContainerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer,
+                                                // The background (and the theme's ornament) is drawn by ThemeTopBarBackground.
+                                                containerColor = Color.Transparent,
+                                                scrolledContainerColor = Color.Transparent,
                                                 titleContentColor = MaterialTheme.colorScheme.onSurface,
                                                 actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 navigationIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1313,6 +1338,12 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             Box(Modifier.weight(1f)) {
+                                // Under the pages: the theme's background art (sakura petals, drifting code)
+                                // shows only where a page is see-through, never over covers or text.
+                                com.metrolist.music.ui.theme.ThemeContentBackground(
+                                    visible = (currentRoute == "home" || currentRoute == "library") &&
+                                        !playerBottomSheetState.isExpanded,
+                                )
                                 // NavHost with animations (Material 3 Expressive style)
                                 NavHost(
                                     navController = navController,
@@ -1400,6 +1431,9 @@ class MainActivity : ComponentActivity() {
                                         snackbarHostState = snackbarHostState,
                                     )
                                 }
+                                // Over the pages, under the bars and the player (touches pass through):
+                                // only thin frames, nothing that covers content.
+                                com.metrolist.music.ui.theme.ThemeContentOverlay()
                             }
                         }
                     }

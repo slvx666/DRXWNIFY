@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.SaverScope
@@ -33,14 +34,20 @@ fun MetrolistTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     pureBlack: Boolean = false,
     themeColor: Color = DefaultThemeColor,
+    preset: AppThemePreset = AppThemePreset.STANDARD,
+    animations: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
+    val presetScheme = preset.colorScheme(darkTheme)
     // Determine if system dynamic colors should be used (Android S+ and default theme color)
     val useSystemDynamicColor = (themeColor == DefaultThemeColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
 
     // Select the appropriate color scheme generation method
-    val baseColorScheme = if (useSystemDynamicColor) {
+    val baseColorScheme = if (presetScheme != null) {
+        // A whole-app theme has its own palette; the cover/seed colour doesn't recolour it.
+        presetScheme
+    } else if (useSystemDynamicColor) {
         // Use standard Material 3 dynamic color functions for system wallpaper colors
         if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     } else {
@@ -63,11 +70,17 @@ fun MetrolistTheme(
     }
 
     // Use standard MaterialTheme instead of MaterialExpressiveTheme
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = AppTypography, // Use the defined AppTypography
-        content = content
-    )
+    CompositionLocalProvider(
+        LocalAppThemePreset provides preset,
+        LocalThemeAnimations provides animations,
+    ) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = remember(preset) { preset.typography() },
+            shapes = remember(preset) { preset.shapes() ?: androidx.compose.material3.Shapes() },
+            content = content
+        )
+    }
 }
 
 fun Bitmap.extractThemeColor(): Color {

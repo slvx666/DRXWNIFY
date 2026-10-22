@@ -86,7 +86,7 @@ fun RecognitionHistoryScreen(navController: NavController) {
             },
             title = { Text(stringResource(R.string.clear_recognition_history)) },
             buttons = {
-                TextButton(onClick = { showClearDialog = false }) {
+                TextButton(onClick = { showClearDialog = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.cancel))
                 }
                 TextButton(
@@ -98,6 +98,7 @@ fun RecognitionHistoryScreen(navController: NavController) {
                         }
                         showClearDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(R.string.clear))
                 }
@@ -121,7 +122,7 @@ fun RecognitionHistoryScreen(navController: NavController) {
             },
             title = { Text(stringResource(R.string.delete)) },
             buttons = {
-                TextButton(onClick = { itemToDelete = null }) {
+                TextButton(onClick = { itemToDelete = null }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.cancel))
                 }
                 TextButton(
@@ -133,6 +134,7 @@ fun RecognitionHistoryScreen(navController: NavController) {
                         }
                         itemToDelete = null
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(R.string.delete))
                 }

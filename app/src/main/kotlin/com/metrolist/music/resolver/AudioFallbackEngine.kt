@@ -241,9 +241,16 @@ object AudioFallbackEngine {
                 .takeIf { it.winner != null || lastResort.isEmpty() }
                 ?: racer.resolve(query, lastResort, ResolverPreferences.order)
             val winner = outcome.winner
+            // Both races are reported: with only the last resort's lines a miss didn't say what the
+            // regular sources answered (or that one of them was switched off / not ready).
+            val skipped = ResolverPreferences.order.filter { id ->
+                id !in exclude && providers[id] != null && active.none { it.id == id }
+            }
+            val report = (if (outcome !== regularOutcome) regularOutcome.report else emptyList()) + outcome.report +
+                listOfNotNull(skipped.takeIf { it.isNotEmpty() }?.let { "not asked (off / not ready): ${it.joinToString()}" })
             AudioDiagnostics.info(
                 "search ${query.label()} ${query.durationMs / 1000}s → ${winner?.provider ?: "NOT FOUND"} in ${outcome.elapsedMs}ms\n  " +
-                    outcome.report.joinToString("\n  "),
+                    report.joinToString("\n  "),
             )
             if (winner == null) {
                 // "Not found" only when every source really searched and came back empty. A timeout,

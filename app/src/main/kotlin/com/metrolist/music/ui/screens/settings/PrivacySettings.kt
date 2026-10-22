@@ -87,6 +87,7 @@ fun PrivacySettings(
             buttons = {
                 TextButton(
                     onClick = { showClearListenHistoryDialog = false },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -98,6 +99,7 @@ fun PrivacySettings(
                             clearListenHistory()
                         }
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }
@@ -122,6 +124,7 @@ fun PrivacySettings(
             buttons = {
                 TextButton(
                     onClick = { showClearSearchHistoryDialog = false },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -133,6 +136,7 @@ fun PrivacySettings(
                             clearSearchHistory()
                         }
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }
@@ -165,7 +169,7 @@ fun PrivacySettings(
                     icon = painterResource(R.drawable.history),
                     title = { Text(stringResource(R.string.pause_listen_history)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = pauseListenHistory,
                             onCheckedChange = onPauseListenHistoryChange,
                             thumbContent = {
@@ -198,7 +202,7 @@ fun PrivacySettings(
                     icon = painterResource(R.drawable.search_off),
                     title = { Text(stringResource(R.string.pause_search_history)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = pauseSearchHistory,
                             onCheckedChange = onPauseSearchHistoryChange,
                             thumbContent = {
@@ -232,7 +236,7 @@ fun PrivacySettings(
                     title = { Text(stringResource(R.string.disable_screenshot)) },
                     description = { Text(stringResource(R.string.disable_screenshot_desc)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = disableScreenshot,
                             onCheckedChange = onDisableScreenshotChange,
                             thumbContent = {
@@ -253,7 +257,7 @@ fun PrivacySettings(
                     title = { Text(stringResource(R.string.crash_reporting)) },
                     description = { Text(stringResource(R.string.crash_reporting_desc)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = crashReportingEnabled,
                             onCheckedChange = onCrashReportingEnabledChange,
                             thumbContent = {

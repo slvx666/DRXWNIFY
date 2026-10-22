@@ -237,6 +237,9 @@ class VkAudioProvider(
 
         // The best upload whose server isn't known to be out of reach: VK keeps the same track on
         // many servers, and one cut off by the network only played after a minute of retries.
+        // When every upload sits on such a server the best one is still the answer — "down" is a
+        // guess that lasts 10 minutes (a whole /24 at a time), and dropping the only upload of a
+        // track made a downloaded album miss it as "not found anywhere"; stream() probes it.
         val ranked = ProviderGate.ranked(
             query,
             items.map { SpotifyMapper.Candidate(it.fullId, it.title, it.artist, it.durationSec.takeIf { d -> d > 0 }, thumbnailUrl = it.thumb) },
@@ -246,7 +249,7 @@ class VkAudioProvider(
             !com.metrolist.music.playback.datasource.CdnHosts.likelyDown(
                 com.metrolist.music.playback.datasource.CdnHosts.hostOf(items.first { it.fullId == c.id }.url),
             )
-        } ?: return null
+        } ?: ranked.firstOrNull() ?: return null
         val audio = items.first { it.fullId == chosen.id }
         audio.url?.let { recentUrls[audio.fullId] = it to System.currentTimeMillis() }
         return ProviderMatch(

@@ -318,6 +318,7 @@ fun StorageSettings(
                         onConfirmAction()
                         showCacheWarningDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(
                         stringResource(R.string.cache_size_warning_confirm),
@@ -326,7 +327,7 @@ fun StorageSettings(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCacheWarningDialog = false }) {
+                TextButton(onClick = { showCacheWarningDialog = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(id = android.R.string.cancel))
                 }
             },
@@ -399,7 +400,7 @@ fun StorageSettings(
                     title = { Text(stringResource(R.string.enable_song_cache)) },
                     description = { Text(stringResource(R.string.enable_song_cache_desc)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = enableSongCache,
                             onCheckedChange = onEnableSongCacheChange,
                             thumbContent = {
@@ -524,7 +525,7 @@ fun StorageSettings(
                     enabled = enableSongCache && preCacheTracks > 0,
                     description = { Text(stringResource(R.string.pre_cache_only_wifi_desc)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = preCacheOnlyWifi,
                             onCheckedChange = onPreCacheOnlyWifiChange,
                             enabled = enableSongCache && preCacheTracks > 0,

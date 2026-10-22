@@ -236,7 +236,7 @@ fun AndroidAutoSettings(
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Spacer(Modifier.width(12.dp))
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = enabled,
                                     onCheckedChange = { newValue ->
                                         sections = sections.map { (s, e) ->
@@ -335,7 +335,7 @@ fun AndroidAutoSettings(
                     title = { Text(stringResource(R.string.android_auto_youtube_playlists)) },
                     description = { Text(stringResource(R.string.android_auto_youtube_playlists_desc)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = youtubePlaylistsEnabled,
                             onCheckedChange = onYoutubePlaylistsChange,
                             thumbContent = {

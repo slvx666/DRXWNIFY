@@ -35,7 +35,7 @@ fun PreferenceGroupTitle(
     modifier: Modifier = Modifier,
 ) {
     Text(
-        text = title.uppercase(),
+        text = if (com.metrolist.music.ui.theme.ThemeRuntime.tui) "── ${title.lowercase()} ──" else title.uppercase(),
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
         modifier = modifier.padding(16.dp),
@@ -119,7 +119,7 @@ fun SwitchPreference(
         description = description,
         icon = icon,
         trailingContent = {
-            Switch(
+            com.metrolist.music.ui.theme.ThemedSwitch(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 enabled = isEnabled,

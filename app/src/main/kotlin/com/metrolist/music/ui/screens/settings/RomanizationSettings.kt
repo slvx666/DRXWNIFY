@@ -107,7 +107,7 @@ fun RomanizationSettings(
                 Material3SettingsItem(
                     title = { Text(stringResource(R.string.lyrics_romanize_as_main)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = lyricsRomanizeAsMain,
                             onCheckedChange = onLyricsRomanizeAsMainChange,
                         )
@@ -117,7 +117,7 @@ fun RomanizationSettings(
                 Material3SettingsItem(
                     title = { Text(stringResource(R.string.line_by_line_option_title)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = lyricsRomanizeCyrillicByLine,
                             onCheckedChange = onLyricsRomanizeCyrillicByLineChange,
                         )

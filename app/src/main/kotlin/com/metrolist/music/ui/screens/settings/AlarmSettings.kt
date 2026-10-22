@@ -297,10 +297,10 @@ private fun AlarmTimePickerDialog(
         title = { Text(title) },
         onDismiss = onDismiss,
         buttons = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(stringResource(android.R.string.cancel))
             }
-            TextButton(onClick = { onConfirm(timePickerState.hour, timePickerState.minute) }) {
+            TextButton(onClick = { onConfirm(timePickerState.hour, timePickerState.minute) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(stringResource(android.R.string.ok))
             }
         }
@@ -315,7 +315,7 @@ private fun AlarmSwitch(
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true
 ) {
-    Switch(
+    com.metrolist.music.ui.theme.ThemedSwitch(
         checked = checked,
         onCheckedChange = onCheckedChange,
         enabled = enabled,
@@ -376,7 +376,7 @@ private fun AlarmEditorDialog(
             onDismiss = { showPlaylistDialog = false },
             title = { Text(stringResource(R.string.alarm_playlist)) },
             buttons = {
-                TextButton(onClick = { showPlaylistDialog = false }) {
+                TextButton(onClick = { showPlaylistDialog = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(android.R.string.ok))
                 }
             }
@@ -455,7 +455,7 @@ private fun AlarmEditorDialog(
             )
         },
         buttons = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(stringResource(android.R.string.cancel))
             }
             TextButton(
@@ -478,7 +478,7 @@ private fun AlarmEditorDialog(
                         )
                     )
                 }
-            ) {
+            , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(stringResource(R.string.alarm_save))
             }
         }
@@ -498,7 +498,7 @@ private fun AlarmEditorDialog(
             FilledTonalButton(
                 onClick = { showTimePickerDialog = true },
                 modifier = Modifier.fillMaxWidth()
-            ) {
+            , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(
                     text = stringResource(
                         R.string.alarm_time_picker_value,
@@ -519,7 +519,7 @@ private fun AlarmEditorDialog(
                 },
                 enabled = playlists.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth()
-            ) {
+            , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(text = selectedPlaylist?.title ?: selectPlaylistText)
             }
 

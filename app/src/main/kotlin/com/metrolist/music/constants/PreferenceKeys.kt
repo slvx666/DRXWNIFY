@@ -19,6 +19,11 @@ val EnableHighRefreshRateKey = booleanPreferencesKey("enableHighRefreshRate")
 val DynamicThemeKey = booleanPreferencesKey("dynamicTheme")
 val SelectedThemeColorKey = intPreferencesKey("selectedThemeColor")
 val DarkModeKey = stringPreferencesKey("darkMode")
+/** Whole-app theme (ui.theme.AppThemePreset name). */
+val AppThemePresetKey = stringPreferencesKey("appThemePreset")
+val ThemeAnimationsKey = booleanPreferencesKey("themeAnimations")
+/** Picked app icon (utils.AppIcon name). */
+val AppIconKey = stringPreferencesKey("appIcon")
 val PureBlackKey = booleanPreferencesKey("pureBlack")
 val PureBlackMiniPlayerKey = booleanPreferencesKey("pureBlackMiniPlayer")
 val MiniPlayerOutlineKey = booleanPreferencesKey("miniPlayerOutline")

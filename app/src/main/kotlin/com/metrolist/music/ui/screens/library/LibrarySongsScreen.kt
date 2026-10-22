@@ -307,6 +307,7 @@ fun LibrarySongsScreen(
                         }
                         showUploadDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(R.string.cancel))
                 }

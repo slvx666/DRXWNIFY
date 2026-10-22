@@ -155,6 +155,7 @@ fun ArtistScreen(
     val libraryAlbums by viewModel.libraryAlbums.collectAsState()
     val catalogReleases by viewModel.catalogReleases.collectAsState()
     val catalogRelated by viewModel.catalogRelated.collectAsState()
+    val catalogAppearsOn by viewModel.catalogAppearsOn.collectAsState()
     val catalogTopTracks by viewModel.catalogTopTracks.collectAsState()
     val catalogArtist by viewModel.catalogArtist.collectAsState()
     val catalogLoaded by viewModel.catalogLoaded.collectAsState()
@@ -985,6 +986,32 @@ fun ArtistScreen(
                         }
                     }
                     catalogRows()
+                    if (catalogAppearsOn.isNotEmpty()) {
+                        item(key = "catalog_appears_on_title") {
+                            NavigationTitle(title = stringResource(R.string.artist_appears_on), modifier = Modifier.animateItem())
+                        }
+                        item(key = "catalog_appears_on_list") {
+                            LazyRow(
+                                contentPadding = WindowInsets.systemBars.only(WindowInsetsSides.Horizontal).asPaddingValues(),
+                            ) {
+                                items(items = catalogAppearsOn, key = { "catalog_appears_on_${it.id}" }) { release ->
+                                    val albumItem = remember(release.id) { release.toAlbumItem() }
+                                    YouTubeGridItem(
+                                        item = albumItem,
+                                        isActive = mediaMetadata?.album?.id == albumItem.id,
+                                        isPlaying = isPlaying,
+                                        coroutineScope = coroutineScope,
+                                        thumbnailRatio = 1f,
+                                        modifier = Modifier
+                                            .combinedClickable(
+                                                onClick = { navController.navigate("spotify_album/${release.id}") },
+                                            )
+                                            .animateItem(),
+                                    )
+                                }
+                            }
+                        }
+                    }
                     if (catalogRelated.isNotEmpty()) {
                         item(key = "catalog_related_title") {
                             NavigationTitle(title = stringResource(R.string.similar_artists), modifier = Modifier.animateItem())

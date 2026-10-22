@@ -1285,6 +1285,8 @@ fun HomeScreen(
                     )
                 }
 
+            val linuxTheme = com.metrolist.music.ui.theme.LocalAppThemePreset.current ==
+                com.metrolist.music.ui.theme.AppThemePreset.LINUX
             LazyColumn(
                 state = lazylistState,
                 // A little extra at the bottom: the last row's artist names otherwise sit under
@@ -1298,6 +1300,8 @@ fun HomeScreen(
                     )
                 },
             ) {
+                if (linuxTheme) item(key = "linux_fetch") { com.metrolist.music.ui.theme.LinuxFetch() }
+
                 if (youtubeHome) item {
                     ChipsRow(
                         chips = homePage?.chips?.map { it to it.title } ?: emptyList(),
@@ -1541,7 +1545,7 @@ fun HomeScreen(
                                             Spacer(modifier = Modifier.height(16.dp))
                                             Button(onClick = {
                                                 navController.navigate("wrapped")
-                                            }) {
+                                            }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                                                 Text(stringResource(R.string.open))
                                             }
                                         }

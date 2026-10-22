@@ -139,6 +139,6 @@ fun GraphicEqSection(
             }
         }
         Spacer(Modifier.height(4.dp))
-        TextButton(onClick = { onPreset(GraphicEq.Preset.FLAT) }) { Text(stringResource(R.string.eq_reset)) }
+        TextButton(onClick = { onPreset(GraphicEq.Preset.FLAT) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.eq_reset)) }
     }
 }

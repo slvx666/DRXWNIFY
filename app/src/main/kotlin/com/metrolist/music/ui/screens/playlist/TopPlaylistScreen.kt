@@ -219,6 +219,7 @@ fun TopPlaylistScreen(
             buttons = {
                 TextButton(
                     onClick = { showRemoveDownloadDialog = false },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -235,6 +236,7 @@ fun TopPlaylistScreen(
                             )
                         }
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }

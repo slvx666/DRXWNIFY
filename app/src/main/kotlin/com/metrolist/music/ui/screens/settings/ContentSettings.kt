@@ -218,7 +218,7 @@ fun ContentSettings(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(stringResource(R.string.enable_authentication))
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = authEnabled,
                             onCheckedChange = {
                                 authEnabled = it
@@ -256,14 +256,14 @@ fun ContentSettings(
                         onProxyPasswordChange(if (authEnabled) tempProxyPassword else "")
                         showProxyConfigurationDialog = false
                     }
-                ) {
+                , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.save))
                 }
             },
             dismissButton = {
                 TextButton(onClick = {
                     showProxyConfigurationDialog = false
-                }) {
+                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.cancel))
                 }
             }
@@ -359,7 +359,7 @@ fun ContentSettings(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = enableLrclib,
                             onCheckedChange = onEnableLrclibChange,
                             thumbContent = {
@@ -388,7 +388,7 @@ fun ContentSettings(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = enableKugou,
                             onCheckedChange = onEnableKugouChange,
                             thumbContent = {
@@ -417,7 +417,7 @@ fun ContentSettings(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = enableBetterLyrics,
                             onCheckedChange = onEnableBetterLyricsChange,
                             thumbContent = {
@@ -446,7 +446,7 @@ fun ContentSettings(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = enablePaxsenix,
                             onCheckedChange = onEnablePaxsenixChange,
                             thumbContent = {
@@ -475,7 +475,7 @@ fun ContentSettings(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = enableLyricsPlus,
                             onCheckedChange = onEnableLyricsPlusChange,
                             thumbContent = {
@@ -504,7 +504,7 @@ fun ContentSettings(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = enableMusixmatch,
                             onCheckedChange = onEnableMusixmatchChange,
                             thumbContent = {
@@ -530,7 +530,7 @@ fun ContentSettings(
             confirmButton = {
                 TextButton(
                     onClick = { showProviderSelectionDialog = false }
-                ) {
+                , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.close))
                 }
             }
@@ -591,7 +591,7 @@ fun ContentSettings(
                         onLengthTopChange(tempLength.toInt().toString())
                         showTopLengthDialog = false
                     }
-                ) {
+                , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.save))
                 }
             }
@@ -667,7 +667,7 @@ fun ContentSettings(
             confirmButton = {
                 TextButton(
                     onClick = { showProviderPriorityDialog = false }
-                ) {
+                , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.close))
                 }
             }
@@ -707,7 +707,7 @@ fun ContentSettings(
                     icon = painterResource(R.drawable.explicit),
                     title = { Text(stringResource(R.string.hide_explicit)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = hideExplicit,
                             onCheckedChange = onHideExplicitChange,
                             thumbContent = {
@@ -727,7 +727,7 @@ fun ContentSettings(
                     icon = painterResource(R.drawable.slow_motion_video),
                     title = { Text(stringResource(R.string.hide_video_songs)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = hideVideoSongs,
                             onCheckedChange = onHideVideoSongsChange,
                             thumbContent = {
@@ -747,7 +747,7 @@ fun ContentSettings(
                     icon = painterResource(R.drawable.hide_image),
                     title = { Text(stringResource(R.string.hide_youtube_shorts)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = hideYoutubeShorts,
                             onCheckedChange = onHideYoutubeShortsChange,
                             thumbContent = {
@@ -775,7 +775,7 @@ fun ContentSettings(
                     icon = painterResource(R.drawable.info),
                     title = { Text(stringResource(R.string.show_artist_description)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = showArtistDescription,
                             onCheckedChange = onShowArtistDescriptionChange,
                             thumbContent = {
@@ -795,7 +795,7 @@ fun ContentSettings(
                     icon = painterResource(R.drawable.person),
                     title = { Text(stringResource(R.string.show_artist_subscriber_count)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = showArtistSubscriberCount,
                             onCheckedChange = onShowArtistSubscriberCountChange,
                             thumbContent = {
@@ -815,7 +815,7 @@ fun ContentSettings(
                     icon = painterResource(R.drawable.person),
                     title = { Text(stringResource(R.string.show_artist_monthly_listeners)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = showMonthlyListeners,
                             onCheckedChange = onShowMonthlyListenersChange,
                             thumbContent = {
@@ -860,7 +860,7 @@ fun ContentSettings(
                         icon = painterResource(R.drawable.wifi_proxy),
                         title = { Text(stringResource(R.string.enable_proxy)) },
                         trailingContent = {
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = proxyEnabled,
                                 onCheckedChange = onProxyEnabledChange,
                                 thumbContent = {
@@ -923,7 +923,7 @@ fun ContentSettings(
                     icon = painterResource(R.drawable.trending_up),
                     title = { Text(stringResource(R.string.show_wrapped_card)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = showWrappedCard,
                             onCheckedChange = onShowWrappedCardChange,
                             thumbContent = {
@@ -952,7 +952,7 @@ fun ContentSettings(
                     title = { Text(stringResource(R.string.randomize_home_order)) },
                     description = { Text(stringResource(R.string.randomize_home_order_desc)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = randomizeHomeOrder,
                             onCheckedChange = onRandomizeHomeOrderChange,
                             thumbContent = {

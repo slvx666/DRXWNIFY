@@ -403,7 +403,7 @@ fun VkLoginScreen(navController: NavController) {
                         now = System.currentTimeMillis()
                     }
                     val wait = ((SMS_RESEND_MS - (now - smsSentAt)) / 1000).coerceAtLeast(0)
-                    TextButton(enabled = !busy && wait == 0L, onClick = { sendSms(sid) }) {
+                    TextButton(enabled = !busy && wait == 0L, onClick = { sendSms(sid) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(
                             when {
                                 wait > 0 -> stringResource(R.string.vk_sms_resend_in, wait)
@@ -451,6 +451,7 @@ fun VkLoginScreen(navController: NavController) {
                 onClick = ::submit,
                 enabled = !busy && loginReady && password.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth(),
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 if (busy) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -461,7 +462,7 @@ fun VkLoginScreen(navController: NavController) {
             Spacer(Modifier.height(4.dp))
             // A token made elsewhere (by a tool that performs VK's full music-client handshake) is
             // the one sure way in while the in-app login cannot produce a music-capable token.
-            TextButton(onClick = { showPasteToken = true }, modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = { showPasteToken = true }, modifier = Modifier.fillMaxWidth(), shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(stringResource(R.string.login_paste_token))
             }
             Text(
@@ -563,7 +564,21 @@ private fun OAuthTokenLoginScreen(
                 ) {
                     Icon(painterResource(R.drawable.language), contentDescription = stringResource(R.string.login_open_in_browser))
                 }
-                TextButton(onClick = { showPasteDialog = true }) {
+                // Start over with no remembered account: the page otherwise keeps offering the one
+                // signed in last (one phone number can have several accounts).
+                IconButton(
+                    onClick = {
+                        CookieManager.getInstance().removeAllCookies {
+                            webView?.clearCache(true)
+                            webView?.loadUrl(startUrl)
+                        }
+                        android.webkit.WebStorage.getInstance().deleteAllData()
+                    },
+                    onLongClick = {},
+                ) {
+                    Icon(painterResource(R.drawable.sync), contentDescription = stringResource(R.string.login_switch_account))
+                }
+                TextButton(onClick = { showPasteDialog = true }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.login_paste_token))
                 }
             },
@@ -584,6 +599,13 @@ private fun OAuthTokenLoginScreen(
                     WebView(ctx).also { webView = it }.apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        settings.javaScriptCanOpenWindowsAutomatically = true
+                        // Yandex signs in across its domains (passport, sso, oauth): without third-party
+                        // cookies the account chooser's "the one I need isn't here" step failed with a
+                        // flash of "contact support".
+                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                        // Some login pages cut flows short for an embedded browser ("; wv" in the agent).
+                        settings.userAgentString = settings.userAgentString.replace("; wv", "")
                         // Without an explicit focus the page's inputs can end up sharing focus with
                         // the Compose host, which made typed characters land in reverse order.
                         isFocusable = true
@@ -598,8 +620,28 @@ private fun OAuthTokenLoginScreen(
                         }
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                val params = tokenParams(request?.url?.toString()) ?: return false
-                                finish(params)
+                                val url = request?.url ?: return false
+                                tokenParams(url.toString())?.let {
+                                    finish(it)
+                                    return true
+                                }
+                                if (url.scheme == "http" || url.scheme == "https") return false
+                                // An app link (intent://, yandexauth://, market://…): the WebView can't open
+                                // it and showed an error page. Use the page's web fallback, else hand it
+                                // to the app it is for.
+                                if (url.scheme == "intent") {
+                                    val intent = runCatching {
+                                        android.content.Intent.parseUri(url.toString(), android.content.Intent.URI_INTENT_SCHEME)
+                                    }.getOrNull()
+                                    intent?.getStringExtra("browser_fallback_url")?.let {
+                                        view?.loadUrl(it)
+                                        return true
+                                    }
+                                    return true
+                                }
+                                runCatching {
+                                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, url))
+                                }
                                 return true
                             }
 
@@ -663,6 +705,7 @@ private fun OAuthTokenLoginScreen(
                                 loadFailed = false
                                 webView?.loadUrl(startUrl)
                             },
+                            shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                         ) {
                             Text(stringResource(R.string.retry))
                         }

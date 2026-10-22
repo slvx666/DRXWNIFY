@@ -119,6 +119,9 @@ class ArtistViewModel @Inject constructor(
     /** Similar artists and top tracks from the same catalog (YouTube pages often lack them). */
     val catalogRelated = MutableStateFlow<List<com.metrolist.spotify.models.SpotifyArtist>>(emptyList())
     val catalogTopTracks = MutableStateFlow<List<com.metrolist.spotify.models.SpotifyTrack>>(emptyList())
+
+    /** Other artists' releases this artist appears on (features, collaborations) — Spotify's "Appears On". */
+    val catalogAppearsOn = MutableStateFlow<List<com.metrolist.spotify.models.SpotifyAlbum>>(emptyList())
     val catalogArtist = MutableStateFlow<com.metrolist.spotify.models.SpotifyArtist?>(null)
     var catalogArtistId: String? = null
         private set
@@ -166,6 +169,11 @@ class ArtistViewModel @Inject constructor(
             }
             launch { catalog.artist(id).onSuccess { catalogArtist.value = it } }
             launch { catalog.relatedArtists(id).onSuccess { catalogRelated.value = it } }
+            launch {
+                catalog.artistAppearsOn(id)
+                    .onSuccess { catalogAppearsOn.value = it }
+                    .onFailure { Timber.w(it, "Appears-on failed for $id") }
+            }
             val topTracks = async {
                 catalog.artistTopTracks(id).onSuccess { catalogTopTracks.value = it.tracks.filter { t -> t.id.isNotBlank() } }
             }
@@ -205,6 +213,7 @@ class ArtistViewModel @Inject constructor(
         catalogTopTracks.value = emptyList()
         catalogReleases.value = emptyList()
         catalogRelated.value = emptyList()
+        catalogAppearsOn.value = emptyList()
         catalogArtistId = null
     }
 

@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.player
 
 import com.metrolist.music.ui.utils.backToMain
+import com.metrolist.music.ui.theme.tui
 import androidx.activity.compose.BackHandler
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -663,6 +664,7 @@ fun BottomSheetPlayer(
                             fadeOut = sleepTimerFadeOut,
                         )
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(android.R.string.ok))
                 }
@@ -670,6 +672,7 @@ fun BottomSheetPlayer(
             dismissButton = {
                 TextButton(
                     onClick = { showSleepTimerDialog = false },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(android.R.string.cancel))
                 }
@@ -950,7 +953,7 @@ fun BottomSheetPlayer(
                                     modifier =
                                         Modifier
                                             .size(56.dp)
-                                            .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                            .clip(RoundedCornerShape(ThumbnailCornerRadius).tui())
                                             .background(MaterialTheme.colorScheme.surfaceVariant),
                                     contentAlignment = Alignment.Center,
                                 ) {
@@ -971,7 +974,7 @@ fun BottomSheetPlayer(
                                     modifier =
                                         Modifier
                                             .size(56.dp)
-                                            .clip(RoundedCornerShape(ThumbnailCornerRadius)),
+                                            .clip(RoundedCornerShape(ThumbnailCornerRadius).tui()),
                                 )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
@@ -1172,7 +1175,7 @@ fun BottomSheetPlayer(
                             bottomStart = 50.dp,
                             topEnd = 3.dp,
                             bottomEnd = 3.dp,
-                        )
+                        ).tui()
 
                     val favShape =
                         RoundedCornerShape(
@@ -1180,9 +1183,9 @@ fun BottomSheetPlayer(
                             bottomStart = 3.dp,
                             topEnd = 50.dp,
                             bottomEnd = 50.dp,
-                        )
+                        ).tui()
 
-                    val middleShape = RoundedCornerShape(3.dp)
+                    val middleShape = RoundedCornerShape(3.dp).tui()
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1213,7 +1216,8 @@ fun BottomSheetPlayer(
                                         // the button is for once it is on the phone); everything else
                                         // shares a link to it.
                                         if (download?.state == Download.STATE_COMPLETED) {
-                                            val songId = mediaMetadata.id
+                                            // The download may sit under the track's other id (see getDownload).
+                                            val songId = download?.request?.id ?: mediaMetadata.id
                                             val appContext = context.applicationContext
                                             scope.launch {
                                                 com.metrolist.music.utils.shareDownloadedFile(
@@ -1255,7 +1259,7 @@ fun BottomSheetPlayer(
                         // Middle slot: download button (idle → downloading% → processing → done),
                         // always visible without opening the "…" menu.
                         run {
-                            val dlId = mediaMetadata.id
+                            val dlId = download?.request?.id ?: mediaMetadata.id
                             val isExporting = dlId != null && dlId in exportingIds
                             val dlState = download?.state
                             val active = dlState == Download.STATE_DOWNLOADING ||
@@ -1381,7 +1385,7 @@ fun BottomSheetPlayer(
                                 modifier =
                                     Modifier
                                         .size(40.dp)
-                                        .clip(RoundedCornerShape(24.dp))
+                                        .clip(RoundedCornerShape(24.dp).tui())
                                         .background(sideButtonContainerColor)
                                         .clickable { isFullScreen = !isFullScreen },
                             ) {
@@ -1400,9 +1404,21 @@ fun BottomSheetPlayer(
                                 modifier =
                                     Modifier
                                         .size(40.dp)
-                                        .clip(RoundedCornerShape(24.dp))
+                                        .clip(RoundedCornerShape(24.dp).tui())
                                         .background(sideButtonContainerColor)
                                         .clickable {
+                                            if (download?.state == Download.STATE_COMPLETED) {
+                                                val songId = download?.request?.id ?: mediaMetadata.id
+                                                val appContext = context.applicationContext
+                                                scope.launch {
+                                                    com.metrolist.music.utils.shareDownloadedFile(
+                                                        appContext,
+                                                        downloadUtil.downloadExporter,
+                                                        songId,
+                                                    )
+                                                }
+                                                return@clickable
+                                            }
                                             val intent =
                                                 Intent().apply {
                                                     action = Intent.ACTION_SEND
@@ -1437,7 +1453,7 @@ fun BottomSheetPlayer(
                                 modifier =
                                     Modifier
                                         .size(40.dp)
-                                        .clip(RoundedCornerShape(24.dp))
+                                        .clip(RoundedCornerShape(24.dp).tui())
                                         .background(sideButtonContainerColor)
                                         .clickable {
                                             menuState.show {
@@ -1731,7 +1747,7 @@ fun BottomSheetPlayer(
                             FilledIconButton(
                                 onClick = playerConnection::seekToPrevious,
                                 enabled = canSkipPrevious && !isListenTogetherGuest,
-                                shape = RoundedCornerShape(50),
+                                shape = RoundedCornerShape(50).tui(),
                                 interactionSource = backInteractionSource,
                                 colors =
                                     IconButtonDefaults.filledIconButtonColors(
@@ -1771,7 +1787,7 @@ fun BottomSheetPlayer(
                                         playerConnection.togglePlayPause()
                                     }
                                 },
-                                shape = RoundedCornerShape(50),
+                                shape = RoundedCornerShape(50).tui(),
                                 interactionSource = playPauseInteractionSource,
                                 colors =
                                     IconButtonDefaults.filledIconButtonColors(
@@ -1822,7 +1838,7 @@ fun BottomSheetPlayer(
                             FilledIconButton(
                                 onClick = playerConnection::seekToNext,
                                 enabled = canSkipNext && !isListenTogetherGuest,
-                                shape = RoundedCornerShape(50),
+                                shape = RoundedCornerShape(50).tui(),
                                 interactionSource = nextInteractionSource,
                                 colors =
                                     IconButtonDefaults.filledIconButtonColors(
@@ -1891,7 +1907,7 @@ fun BottomSheetPlayer(
                                 modifier =
                                     Modifier
                                         .size(72.dp)
-                                        .clip(RoundedCornerShape(playPauseRoundness))
+                                        .clip(RoundedCornerShape(playPauseRoundness).tui())
                                         .background(textButtonColor)
                                         .clickable {
                                             if (isListenTogetherGuest) {
@@ -1975,7 +1991,7 @@ fun BottomSheetPlayer(
                             // Download button: idle -> download; downloading -> progress; processing
                             // (transcode/export) -> spinner; done -> "offline" icon (tap to remove).
                             Box(modifier = Modifier.weight(1f)) {
-                                val currentId = mediaMetadata?.id
+                                val currentId = download?.request?.id ?: mediaMetadata?.id
                                 val isExporting = currentId != null && currentId in exportingIds
                                 val state = download?.state
                                 when {
@@ -2274,7 +2290,7 @@ fun InlineLyricsView(
         modifier =
             Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(12.dp)),
+                .clip(RoundedCornerShape(12.dp).tui()),
         contentAlignment = Alignment.Center,
     ) {
         when {
@@ -2328,7 +2344,7 @@ fun MoreActionsButton(
         modifier =
             Modifier
                 .size(40.dp)
-                .clip(RoundedCornerShape(24.dp))
+                .clip(RoundedCornerShape(24.dp).tui())
                 .background(textButtonColor)
                 .clickable {
                     menuState.show {
@@ -2372,7 +2388,7 @@ private fun PlayerMoreMenuButton(
         modifier =
             Modifier
                 .size(40.dp)
-                .clip(RoundedCornerShape(24.dp))
+                .clip(RoundedCornerShape(24.dp).tui())
                 .background(textButtonColor)
                 .clickable {
                     menuState.show {

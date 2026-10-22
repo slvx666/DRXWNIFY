@@ -593,7 +593,7 @@ fun AlbumScreen(
                         color = MaterialTheme.colorScheme.error,
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedButton(onClick = { viewModel.fetchAlbum() }) {
+                    OutlinedButton(onClick = { viewModel.fetchAlbum() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.retry_button))
                     }
                 }

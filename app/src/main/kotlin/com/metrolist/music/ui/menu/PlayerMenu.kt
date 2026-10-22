@@ -1278,6 +1278,7 @@ fun TempoPitchDialog(onDismiss: () -> Unit) {
                     transposeValue = 0
                     updatePlaybackParameters()
                 },
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Text(stringResource(R.string.reset))
             }
@@ -1285,6 +1286,7 @@ fun TempoPitchDialog(onDismiss: () -> Unit) {
         confirmButton = {
             TextButton(
                 onClick = onDismiss,
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Text(stringResource(android.R.string.ok))
             }
@@ -1362,7 +1364,7 @@ private fun BalanceAdjuster(modifier: Modifier = Modifier) {
             Text(stringResource(R.string.stereo_right_short), style = MaterialTheme.typography.labelLarge)
         }
         if (balance != 0f) {
-            TextButton(onClick = { apply(0f) }) { Text(stringResource(R.string.stereo_balance_center)) }
+            TextButton(onClick = { apply(0f) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.stereo_balance_center)) }
         }
     }
 }
@@ -1391,6 +1393,7 @@ fun SpeedDialog(onDismiss: () -> Unit) {
                     speed = 1f
                     updatePlaybackParameters()
                 },
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Text(stringResource(R.string.reset))
             }
@@ -1398,6 +1401,7 @@ fun SpeedDialog(onDismiss: () -> Unit) {
         confirmButton = {
             TextButton(
                 onClick = onDismiss,
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Text(stringResource(android.R.string.ok))
             }
@@ -1523,6 +1527,7 @@ fun ListenTogetherDialog(
                             ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
                             ),
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(stringResource(android.R.string.ok))
                     }
@@ -1906,6 +1911,7 @@ fun ListenTogetherDialog(
                                     ButtonDefaults.buttonColors(
                                         containerColor = MaterialTheme.colorScheme.primary,
                                     ),
+                                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                             ) {
                                 Text(stringResource(R.string.connect), fontWeight = FontWeight.SemiBold)
                             }
@@ -1917,12 +1923,14 @@ fun ListenTogetherDialog(
                                     ButtonDefaults.buttonColors(
                                         containerColor = MaterialTheme.colorScheme.primary,
                                     ),
+                                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                             ) {
                                 Text(stringResource(R.string.disconnect), fontWeight = FontWeight.SemiBold)
                             }
                             FilledTonalButton(
                                 onClick = { listenTogetherManager.forceReconnect() },
                                 modifier = Modifier.weight(1f),
+                                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                             ) {
                                 Text(androidx.compose.ui.res.stringResource(R.string.lt_reconnect), fontWeight = FontWeight.SemiBold)
                             }
@@ -2001,6 +2009,7 @@ fun ListenTogetherDialog(
                                             clipboard.setPrimaryClip(clip)
                                             Toast.makeText(context, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show()
                                         },
+                                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                                     ) {
                                         Icon(
                                             painter = painterResource(R.drawable.link),
@@ -2023,6 +2032,7 @@ fun ListenTogetherDialog(
                                             clipboard.setPrimaryClip(clip)
                                             Toast.makeText(context, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show()
                                         },
+                                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                                     ) {
                                         Icon(
                                             painter = painterResource(R.drawable.content_copy),
@@ -2368,6 +2378,7 @@ fun ListenTogetherDialog(
                         TextButton(
                             onClick = onDismiss,
                             modifier = Modifier.weight(1f),
+                            shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                         ) {
                             Text(
                                 stringResource(R.string.cancel),
@@ -2384,6 +2395,7 @@ fun ListenTogetherDialog(
                                 ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.error,
                                 ),
+                            shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.logout),
@@ -2578,6 +2590,7 @@ fun ListenTogetherDialog(
                                 ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primary,
                                 ),
+                            shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.add),
@@ -2617,6 +2630,7 @@ fun ListenTogetherDialog(
                                     ButtonDefaults.buttonColors(
                                         containerColor = MaterialTheme.colorScheme.secondary,
                                     ),
+                                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                             ) {
                                 Icon(
                                     painter = painterResource(R.drawable.login),
@@ -2632,6 +2646,7 @@ fun ListenTogetherDialog(
                     TextButton(
                         onClick = onDismiss,
                         modifier = Modifier.fillMaxWidth(),
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(
                             stringResource(R.string.cancel),

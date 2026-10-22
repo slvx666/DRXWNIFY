@@ -393,6 +393,7 @@ fun AutoPlaylistScreen(
             buttons = {
                 TextButton(
                     onClick = { showRemoveDownloadDialog = false },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -404,6 +405,7 @@ fun AutoPlaylistScreen(
                             downloadUtil.removeDownloads(sList.map { it.song.id })
                         }
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }
@@ -437,6 +439,7 @@ fun AutoPlaylistScreen(
                         }
                         showUploadDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(R.string.cancel))
                 }

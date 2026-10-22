@@ -141,7 +141,7 @@ fun UpdaterScreen(
                             title = { Text(stringResource(R.string.check_for_updates)) },
                             icon = painterResource(R.drawable.update),
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = checkForUpdates,
                                     onCheckedChange = onCheckForUpdatesChange,
                                 )
@@ -156,7 +156,7 @@ fun UpdaterScreen(
                                 title = { Text(stringResource(R.string.update_notifications)) },
                                 icon = painterResource(R.drawable.notification),
                                 trailingContent = {
-                                    Switch(
+                                    com.metrolist.music.ui.theme.ThemedSwitch(
                                         checked = updateNotifications,
                                         onCheckedChange = onUpdateNotificationsChange,
                                     )
@@ -222,6 +222,7 @@ fun UpdaterScreen(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Text(if (showChangelog) stringResource(R.string.hide_changelog) else stringResource(R.string.view_changelog))
             }

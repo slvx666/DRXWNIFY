@@ -5,6 +5,11 @@
 
 package com.metrolist.music.ui.screens.settings
 
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -64,6 +69,57 @@ fun SuggestScreen(navController: NavController) {
     var text by rememberSaveable { mutableStateOf("") }
     val isDeveloper = Suggestions.isDeveloper
     val inbox by Suggestions.inbox.collectAsState()
+    var replyTo by remember { mutableStateOf<Suggestions.Suggestion?>(null) }
+    var replied by remember { mutableStateOf(Suggestions.repliedIds(context)) }
+
+    replyTo?.let { target ->
+        var answer by rememberSaveable(target.id) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { replyTo = null },
+            title = { Text(stringResource(R.string.suggest_reply_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        target.text,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    OutlinedTextField(
+                        value = answer,
+                        onValueChange = { answer = it.take(2000) },
+                        placeholder = { Text(stringResource(R.string.suggest_reply_hint)) },
+                        minLines = 4,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        stringResource(R.string.suggest_reply_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = answer.isNotBlank(),
+                    onClick = {
+                        if (Suggestions.reply(context, target, answer)) {
+                            replied = Suggestions.repliedIds(context)
+                            Toast.makeText(context, R.string.suggest_reply_sent, Toast.LENGTH_SHORT).show()
+                        }
+                        replyTo = null
+                    },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
+                ) { Text(stringResource(R.string.suggest_send)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { replyTo = null }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
 
     if (isDeveloper) {
         DisposableEffect(Unit) {
@@ -141,6 +197,7 @@ fun SuggestScreen(navController: NavController) {
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) { Text(stringResource(R.string.suggest_send)) }
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -184,6 +241,22 @@ fun SuggestScreen(navController: NavController) {
                             )
                             Spacer(Modifier.height(6.dp))
                             SelectionContainer { Text(s.text, style = MaterialTheme.typography.bodyMedium) }
+                            Spacer(Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (s.id in replied) {
+                                    Text(
+                                        stringResource(R.string.suggest_replied),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                } else {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                                TextButton(onClick = { replyTo = s }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
+                                    Text(stringResource(R.string.suggest_reply))
+                                }
+                            }
                         }
                     }
                 }

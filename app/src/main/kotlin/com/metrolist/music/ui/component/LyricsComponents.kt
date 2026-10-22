@@ -190,7 +190,7 @@ internal fun LyricsActionOverlay(
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut()
         ) {
-            FilledTonalButton(onClick = onSyncClick) {
+            FilledTonalButton(onClick = onSyncClick, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Icon(painterResource(R.drawable.sync), stringResource(R.string.auto_scroll), Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(stringResource(R.string.auto_scroll))
@@ -206,13 +206,13 @@ internal fun LyricsActionOverlay(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                FilledTonalButton(onClick = onCancelSelection) {
+                FilledTonalButton(onClick = onCancelSelection, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Icon(painterResource(R.drawable.close), stringResource(R.string.cancel), Modifier.size(20.dp))
                 }
                 FilledTonalButton(
                     onClick = onShareSelection,
                     enabled = anySelected
-                ) {
+                , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Icon(painterResource(R.drawable.share), stringResource(R.string.share_selected), Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.share))
@@ -406,7 +406,7 @@ internal fun LyricsColorPickerDialog(
                 
                 Button(onClick = {
                     onShare(previewBackgroundColor, previewTextColor, previewSecondaryTextColor, bgStyle)
-                }, Modifier.fillMaxWidth()) {
+                }, Modifier.fillMaxWidth(), shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.share))
                 }
             }

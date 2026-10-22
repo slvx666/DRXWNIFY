@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_gruvbox_background">#1D2021</color>
+    <color name="ic_launcher_sakura_background">#1A1219</color>
+    <color name="ic_launcher_linux_background">#1D2021</color>
+    <color name="ic_launcher_synthwave_background">#1A1033</color>
+    <color name="ic_launcher_mono_background">#000000</color>
+    <color name="ic_launcher_paper_background">#ECE3CE</color>
+    <color name="ic_launcher_catppuccin_background">#1E1E2E</color>
+</resources>

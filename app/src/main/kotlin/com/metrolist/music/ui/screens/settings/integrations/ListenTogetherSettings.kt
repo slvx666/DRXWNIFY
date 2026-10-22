@@ -195,14 +195,14 @@ fun ListenTogetherSettings(
                 TextButton(onClick = {
                     username = ""
                     showUsernameDialog = false
-                }) {
+                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.reset))
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(onClick = {
                     username = tempUsername.trim()
                     showUsernameDialog = false
-                }) {
+                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(android.R.string.ok))
                 }
             },
@@ -235,7 +235,7 @@ fun ListenTogetherSettings(
             icon = { Icon(painterResource(R.drawable.add), contentDescription = null) },
             title = { Text(stringResource(R.string.listen_together_create_room)) },
             buttons = {
-                TextButton(onClick = { showCreateRoomDialog = false }) {
+                TextButton(onClick = { showCreateRoomDialog = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(android.R.string.cancel))
                 }
                 Spacer(modifier = Modifier.width(8.dp))
@@ -251,6 +251,7 @@ fun ListenTogetherSettings(
                         }
                     },
                     enabled = createUsername.trim().isNotBlank(),
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(R.string.create))
                 }
@@ -286,7 +287,7 @@ fun ListenTogetherSettings(
             icon = { Icon(painterResource(R.drawable.group_add), contentDescription = null) },
             title = { Text(stringResource(R.string.listen_together_join_room)) },
             buttons = {
-                TextButton(onClick = { showJoinRoomDialog = false }) {
+                TextButton(onClick = { showJoinRoomDialog = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(android.R.string.cancel))
                 }
                 Spacer(modifier = Modifier.width(8.dp))
@@ -303,6 +304,7 @@ fun ListenTogetherSettings(
                         }
                     },
                     enabled = joinUsername.trim().isNotBlank() && roomCodeInput.length == 8,
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(R.string.join))
                 }
@@ -430,7 +432,7 @@ fun ListenTogetherSettings(
                                 Text(stringResource(R.string.listen_together_auto_approval_joins_desc))
                             },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = autoApprovalJoins,
                                     onCheckedChange = { autoApprovalJoins = it },
                                     // Only disable for guests in a room (hosts can always change)
@@ -457,7 +459,7 @@ fun ListenTogetherSettings(
                                 Text(stringResource(R.string.listen_together_auto_approval_suggestions_desc))
                             },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = autoApproveSuggestions,
                                     onCheckedChange = { autoApproveSuggestions = it },
                                     // Only disable for guests in a room (hosts can always change)
@@ -484,7 +486,7 @@ fun ListenTogetherSettings(
                                 Text(stringResource(R.string.listen_together_sync_volume_desc))
                             },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = syncHostVolume,
                                     onCheckedChange = { syncHostVolume = it },
                                     thumbContent = {
@@ -572,14 +574,15 @@ fun LogsDialog(
                     Toast.makeText(context, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show()
                 },
                 enabled = logs.isNotEmpty(),
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Text(stringResource(R.string.copy))
             }
-            TextButton(onClick = onClear) {
+            TextButton(onClick = onClear, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(stringResource(R.string.clear))
             }
             Spacer(modifier = Modifier.width(8.dp))
-            Button(onClick = onDismiss) {
+            Button(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(stringResource(android.R.string.ok))
             }
         },
@@ -630,7 +633,7 @@ private fun ServerChooserDialog(
         icon = { Icon(painterResource(R.drawable.cloud), contentDescription = null) },
         title = { Text(stringResource(R.string.listen_together_choose_server)) },
         buttons = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(stringResource(android.R.string.cancel))
             }
         },
@@ -803,7 +806,7 @@ fun BlockedUsersDialog(
         icon = { Icon(painterResource(R.drawable.person), contentDescription = null) },
         title = { Text(stringResource(R.string.listen_together_blocked_users)) },
         buttons = {
-            Button(onClick = onDismiss) {
+            Button(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(stringResource(android.R.string.ok))
             }
         },
@@ -859,6 +862,7 @@ fun BlockedUsersDialog(
                             }
                             TextButton(
                                 onClick = { onUnblock(username) },
+                                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                             ) {
                                 Text(stringResource(R.string.unblock))
                             }

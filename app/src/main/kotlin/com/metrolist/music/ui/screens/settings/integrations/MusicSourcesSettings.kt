@@ -132,7 +132,7 @@ fun MusicSourcesSettings(
             onClick = { navController.navigate("settings/integrations/spotify") },
             trailingContent = if (!spotifyConnected) {
                 {
-                    OutlinedButton(onClick = { navController.navigate("settings/spotify/login") }) {
+                    OutlinedButton(onClick = { navController.navigate("settings/spotify/login") }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.action_login))
                     }
                 }
@@ -152,9 +152,9 @@ fun MusicSourcesSettings(
                         YandexMusic.accessToken = null
                         YandexMusic.uid = null
                         Catalog.invalidateCaches()
-                    }) { Text(stringResource(R.string.action_logout)) }
+                    }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.action_logout)) }
                 } else {
-                    OutlinedButton(onClick = { navController.navigate("settings/yandex/login") }) {
+                    OutlinedButton(onClick = { navController.navigate("settings/yandex/login") }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         Text(stringResource(R.string.action_login))
                     }
                 }
@@ -275,7 +275,7 @@ fun MusicSourcesSettings(
                         IconButton(onClick = { move(id, 1) }, onLongClick = {}) {
                             Icon(painterResource(R.drawable.arrow_downward), contentDescription = stringResource(R.string.move_down))
                         }
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             // Soulseek can't work without an account: locked until it is set.
                             enabled = !needsAccount(id),
                             checked = checked && !needsAccount(id),
@@ -303,7 +303,7 @@ fun MusicSourcesSettings(
                     description = sharedVk?.let { stringResource(R.string.vk_shared_in_use, it.dailyTracks) },
                     icon = { Spacer(Modifier.size(24.dp)) },
                     trailingContent = {
-                        OutlinedButton(onClick = { navController.navigate("settings/vk/login") }) {
+                        OutlinedButton(onClick = { navController.navigate("settings/vk/login") }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                             Text(stringResource(R.string.action_login))
                         }
                     },
@@ -317,7 +317,7 @@ fun MusicSourcesSettings(
                         if (vkLikesToAccount) R.string.vk_likes_to_account_on else R.string.vk_likes_to_account_off,
                     ),
                     icon = { Spacer(Modifier.size(24.dp)) },
-                    trailingContent = { Switch(checked = vkLikesToAccount, onCheckedChange = setVkLikesToAccount) },
+                    trailingContent = { com.metrolist.music.ui.theme.ThemedSwitch(checked = vkLikesToAccount, onCheckedChange = setVkLikesToAccount) },
                 )
             }
             if (id == AudioProviderId.SOULSEEK) {
@@ -330,9 +330,9 @@ fun MusicSourcesSettings(
                             OutlinedButton(onClick = {
                                 slskUser = ""
                                 slskPass = ""
-                            }) { Text(stringResource(R.string.action_logout)) }
+                            }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.action_logout)) }
                         } else {
-                            OutlinedButton(onClick = { showSlskLogin = true }) { Text(stringResource(R.string.action_login)) }
+                            OutlinedButton(onClick = { showSlskLogin = true }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.action_login)) }
                         }
                     },
                 )
@@ -340,7 +340,7 @@ fun MusicSourcesSettings(
                     title = { Text(stringResource(R.string.soulseek_wifi_only)) },
                     description = stringResource(R.string.soulseek_wifi_only_description),
                     icon = { Spacer(Modifier.size(24.dp)) },
-                    trailingContent = { Switch(checked = slskWifiOnly, onCheckedChange = setSlskWifiOnly) },
+                    trailingContent = { com.metrolist.music.ui.theme.ThemedSwitch(checked = slskWifiOnly, onCheckedChange = setSlskWifiOnly) },
                 )
             }
         }
@@ -528,7 +528,7 @@ fun AudioSearchLogScreen(navController: NavController) {
                 }
             },
             actions = {
-                TextButton(onClick = { AudioDiagnostics.clear() }) { Text(stringResource(R.string.audio_search_log_clear)) }
+                TextButton(onClick = { AudioDiagnostics.clear() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.audio_search_log_clear)) }
                 TextButton(onClick = {
                     // As a .txt file: a long log pasted as a message gets cut or split by messengers.
                     runCatching {
@@ -549,7 +549,7 @@ fun AudioSearchLogScreen(navController: NavController) {
                         }
                         context.startActivity(Intent.createChooser(send, null))
                     }
-                }) { Text(stringResource(R.string.audio_search_log_share)) }
+                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.audio_search_log_share)) }
             },
         )
         if (lines.isEmpty()) {

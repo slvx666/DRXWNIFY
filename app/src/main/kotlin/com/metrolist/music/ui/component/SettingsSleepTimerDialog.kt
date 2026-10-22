@@ -347,7 +347,7 @@ fun SleepTimerDialog(
                                 text = stringResource(R.string.sleep_timer_weekdays),
                                 modifier = Modifier.weight(1f),
                             )
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = weekdaysEnabled,
                                 onCheckedChange = { weekdaysEnabled = it },
                                 thumbContent = {
@@ -399,7 +399,7 @@ fun SleepTimerDialog(
                                 text = stringResource(R.string.sleep_timer_weekends),
                                 modifier = Modifier.weight(1f),
                             )
-                            Switch(
+                            com.metrolist.music.ui.theme.ThemedSwitch(
                                 checked = weekendsEnabled,
                                 onCheckedChange = { weekendsEnabled = it },
                                 thumbContent = {
@@ -492,7 +492,7 @@ fun SleepTimerDialog(
                                         modifier = Modifier.weight(1f),
                                         style = MaterialTheme.typography.bodyMedium,
                                     )
-                                    Switch(
+                                    com.metrolist.music.ui.theme.ThemedSwitch(
                                         checked = isDaySelected,
                                         onCheckedChange = {
                                             selectedDays =
@@ -605,13 +605,13 @@ private fun TimeRangeRow(
         modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        FilledTonalButton(onClick = onStartClick, modifier = Modifier.weight(1f)) {
+        FilledTonalButton(onClick = onStartClick, modifier = Modifier.weight(1f), shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(stringResource(R.string.sleep_timer_start_time), style = MaterialTheme.typography.labelSmall)
                 Text(startTime, style = MaterialTheme.typography.bodyLarge)
             }
         }
-        FilledTonalButton(onClick = onEndClick, modifier = Modifier.weight(1f)) {
+        FilledTonalButton(onClick = onEndClick, modifier = Modifier.weight(1f), shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(stringResource(R.string.sleep_timer_end_time), style = MaterialTheme.typography.labelSmall)
                 Text(endTime, style = MaterialTheme.typography.bodyLarge)
@@ -645,12 +645,12 @@ fun SleepTimerTimePickerDialog(
         title = { Text(title) },
         onDismiss = onDismiss,
         buttons = {
-            TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) }
+            TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) }
             Button(onClick = {
                 val hour = timePickerState.hour.toString().padStart(2, '0')
                 val minute = timePickerState.minute.toString().padStart(2, '0')
                 onConfirm("$hour:$minute")
-            }) { Text(stringResource(android.R.string.ok)) }
+            }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.ok)) }
         },
     ) { TimePicker(state = timePickerState) }
 }

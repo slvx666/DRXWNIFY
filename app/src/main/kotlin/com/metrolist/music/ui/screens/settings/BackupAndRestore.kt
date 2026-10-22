@@ -325,6 +325,7 @@ fun BackupAndRestore(
                         backupPreviewInfo = null
                         accountCheckFailed = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(android.R.string.cancel))
                 }
@@ -338,6 +339,7 @@ fun BackupAndRestore(
                         backupPreviewInfo = null
                         accountCheckFailed = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(R.string.restore))
                 }

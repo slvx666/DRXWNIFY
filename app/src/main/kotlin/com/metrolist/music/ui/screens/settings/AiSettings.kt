@@ -175,7 +175,7 @@ fun AiSettings(navController: NavController) {
         AlertDialog(
             onDismissRequest = { showProviderHelpDialog = false },
             confirmButton = {
-                TextButton(onClick = { showProviderHelpDialog = false }) {
+                TextButton(onClick = { showProviderHelpDialog = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(android.R.string.ok))
                 }
             },
@@ -242,7 +242,7 @@ fun AiSettings(navController: NavController) {
         AlertDialog(
             onDismissRequest = { showTranslateModeHelpDialog = false },
             confirmButton = {
-                TextButton(onClick = { showTranslateModeHelpDialog = false }) {
+                TextButton(onClick = { showTranslateModeHelpDialog = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(android.R.string.ok))
                 }
             },
@@ -457,6 +457,7 @@ fun AiSettings(navController: NavController) {
                                 aiSystemPrompt = ""
                                 showSystemPromptDialog = false
                             },
+                            shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                         ) {
                             Text(stringResource(R.string.ai_system_prompt_reset))
                         }

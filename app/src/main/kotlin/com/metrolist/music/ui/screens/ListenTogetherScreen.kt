@@ -1376,7 +1376,7 @@ private fun UserActionDialog(
             }
         },
         buttons = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(stringResource(android.R.string.cancel))
             }
         },

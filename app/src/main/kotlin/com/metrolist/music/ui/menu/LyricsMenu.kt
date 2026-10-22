@@ -189,6 +189,7 @@ fun LyricsMenu(
             buttons = {
                 TextButton(
                     onClick = { showSearchDialog = false },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(android.R.string.cancel))
                 }
@@ -211,6 +212,7 @@ fun LyricsMenu(
                         } catch (_: Exception) {
                         }
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(R.string.search_online))
                 }
@@ -235,6 +237,7 @@ fun LyricsMenu(
                             Toast.makeText(context, context.getString(R.string.error_no_internet), Toast.LENGTH_SHORT).show()
                         }
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(android.R.string.ok))
                 }
@@ -502,7 +505,7 @@ fun LyricsMenu(
                                     }
                                 },
                                 trailingContent = {
-                                    Switch(
+                                    com.metrolist.music.ui.theme.ThemedSwitch(
                                         checked = hasTranslations,
                                         onCheckedChange = { newCheckedState ->
                                             if (newCheckedState) {
@@ -553,7 +556,7 @@ fun LyricsMenu(
                                 respectAgentPositioning = !respectAgentPositioning
                             },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = respectAgentPositioning,
                                     onCheckedChange = { newCheckedState ->
                                         respectAgentPositioning = newCheckedState
@@ -591,7 +594,7 @@ fun LyricsMenu(
                                 showIntervalIndicator = !showIntervalIndicator
                             },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = showIntervalIndicator,
                                     onCheckedChange = { newCheckedState ->
                                         showIntervalIndicator = newCheckedState
@@ -656,7 +659,7 @@ fun LyricsMenu(
                                 }
                             },
                             trailingContent = {
-                                Switch(
+                                com.metrolist.music.ui.theme.ThemedSwitch(
                                     checked = isChecked,
                                     onCheckedChange = { newCheckedState ->
                                         isChecked = newCheckedState

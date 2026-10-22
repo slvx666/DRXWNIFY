@@ -191,6 +191,7 @@ fun PlaylistMenu(
                     onClick = {
                         showRemoveDownloadDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -207,6 +208,7 @@ fun PlaylistMenu(
                             )
                         }
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }
@@ -233,6 +235,7 @@ fun PlaylistMenu(
                     onClick = {
                         showDeletePlaylistDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -255,6 +258,7 @@ fun PlaylistMenu(
                             playlist.playlist.browseId?.let { YouTube.deletePlaylist(it) }
                         }
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }

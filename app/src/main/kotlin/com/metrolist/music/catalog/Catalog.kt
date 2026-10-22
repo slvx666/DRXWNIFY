@@ -253,6 +253,11 @@ object Catalog {
             Spotify.artistDiscography(id).map { d -> (listOfNotNull(d.latest) + d.albums + d.singles).distinctBy { it.id } }
         }
 
+    /** Releases of other artists [id] appears on (features, collaborations), newest first. */
+    suspend fun artistAppearsOn(id: String): Result<List<SpotifyAlbum>> =
+        (if (isYandexId(id)) YandexMusic.artistAppearsOn(id) else Spotify.artistAppearsOn(id))
+            .map { list -> list.filter { it.id.isNotBlank() }.sortedByDescending { it.releaseDate.orEmpty() } }
+
     suspend fun relatedArtists(id: String): Result<List<SpotifyArtist>> =
         if (isYandexId(id)) YandexMusic.similarArtists(id) else Spotify.artistRelatedArtists(id)
 

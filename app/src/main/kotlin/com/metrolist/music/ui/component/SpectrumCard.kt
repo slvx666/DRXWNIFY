@@ -171,12 +171,12 @@ fun SpectrumCard(
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (v == null) {
-                    OutlinedButton(enabled = !running, onClick = ::run) {
+                    OutlinedButton(enabled = !running, onClick = ::run, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                         if (running) CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
                         else Text(stringResource(R.string.spectrum_run))
                     }
                 }
-                OutlinedButton(enabled = !rendering, onClick = ::renderFull) {
+                OutlinedButton(enabled = !rendering, onClick = ::renderFull, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     if (rendering) CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
                     else Text(stringResource(if (fullFile != null) R.string.spectrum_full_open else R.string.spectrum_full))
                 }
@@ -270,7 +270,7 @@ private fun FullSpectrogramViewer(file: java.io.File, title: String, onRedo: () 
                         )
                     }
                 }
-                OutlinedButton(onClick = onRedo, modifier = Modifier.padding(top = 8.dp)) {
+                OutlinedButton(onClick = onRedo, modifier = Modifier.padding(top = 8.dp), shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.spectrum_full_redo), color = Color.White)
                 }
             }

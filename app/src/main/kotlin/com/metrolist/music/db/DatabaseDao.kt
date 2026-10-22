@@ -1535,6 +1535,10 @@ interface DatabaseDao {
     @Query("SELECT COUNT(*) FROM event")
     fun eventCount(): Flow<Int>
 
+    /** Listens since [fromTimeStamp] (event time, stored as local wall-clock millis). */
+    @Query("SELECT COUNT(*) AS plays, COALESCE(SUM(playTime), 0) AS playTime FROM event WHERE timestamp >= :fromTimeStamp")
+    fun listenStats(fromTimeStamp: Long): Flow<com.metrolist.music.db.entities.ListenStats>
+
     @Transaction
     @Query("DELETE FROM event")
     fun clearListenHistory()

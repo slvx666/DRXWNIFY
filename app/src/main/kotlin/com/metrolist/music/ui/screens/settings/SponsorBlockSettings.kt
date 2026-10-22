@@ -76,7 +76,7 @@ fun SponsorBlockSettings(navController: NavController) {
                     title = { Text(stringResource(R.string.sponsorblock_enable)) },
                     description = { Text(stringResource(R.string.sponsorblock_enable_desc)) },
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = enabled,
                             onCheckedChange = onEnabledChange,
                             thumbContent = {
@@ -98,7 +98,7 @@ fun SponsorBlockSettings(navController: NavController) {
                     description = { Text(stringResource(R.string.sponsorblock_show_toast_desc)) },
                     enabled = enabled,
                     trailingContent = {
-                        Switch(
+                        com.metrolist.music.ui.theme.ThemedSwitch(
                             checked = showToast,
                             enabled = enabled,
                             onCheckedChange = onShowToastChange,

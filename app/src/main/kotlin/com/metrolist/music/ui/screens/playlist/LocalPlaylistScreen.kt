@@ -363,6 +363,7 @@ fun LocalPlaylistScreen(
             buttons = {
                 TextButton(
                     onClick = { showRemoveDownloadDialog = false },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -384,6 +385,7 @@ fun LocalPlaylistScreen(
                             )
                         }
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }
@@ -413,6 +415,7 @@ fun LocalPlaylistScreen(
                     onClick = {
                         showDeletePlaylistDialog = false
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -427,6 +430,7 @@ fun LocalPlaylistScreen(
                         }
                         navController.popBackStack()
                     },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }
@@ -840,6 +844,7 @@ fun LocalPlaylistScreen(
                                 selection.addAll(songs.map { it.map.id })
                             }
                         },
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(stringResource(if (selection.size == songs.size && selection.isNotEmpty()) R.string.select_none else R.string.select_all_short))
                     }

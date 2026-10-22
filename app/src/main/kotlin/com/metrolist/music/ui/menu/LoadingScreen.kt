@@ -107,7 +107,7 @@ fun LoadingScreen(
                 TextButton(
                     onClick = onCancel,
                     modifier = Modifier.align(Alignment.End)
-                ) {
+                , shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                     Text(stringResource(R.string.cancel))
                 }
             }

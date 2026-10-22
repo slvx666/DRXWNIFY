@@ -148,6 +148,22 @@ fun AppNavigationBar(
     val haptics = LocalHapticFeedback.current
     val viewConfiguration = LocalViewConfiguration.current
 
+    if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.LINUX) {
+        com.metrolist.music.ui.theme.TmuxStatusBar(
+            items = navigationItems.map { screen ->
+                com.metrolist.music.ui.theme.TmuxTab(
+                    label = stringResource(screen.titleId),
+                    selected = isRouteSelected(currentRoute, screen.route, navigationItems),
+                    onClick = { selected -> onItemClick(screen, selected) },
+                    onLongClick = onSearchLongClick?.takeIf { screen == Screens.Search },
+                )
+            },
+            containerColor = containerColor,
+            modifier = modifier,
+        )
+        return
+    }
+
     NavigationBar(
         modifier = modifier,
         containerColor = containerColor,

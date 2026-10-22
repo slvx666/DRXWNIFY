@@ -215,6 +215,7 @@ fun ActionPromptDialog(
                 Row(modifier = Modifier.weight(1f)) {
                     TextButton(
                         onClick = { onReset() },
+                        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                     ) {
                         Text(stringResource(R.string.reset))
                     }
@@ -224,6 +225,7 @@ fun ActionPromptDialog(
             if (onCancel != null) {
                 TextButton(
                     onClick = { onCancel() },
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
                 ) {
                     Text(stringResource(android.R.string.cancel))
                 }
@@ -231,6 +233,7 @@ fun ActionPromptDialog(
 
             TextButton(
                 onClick = { onConfirm() },
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Text(stringResource(android.R.string.ok))
             }
@@ -327,7 +330,7 @@ fun TextFieldDialog(
         icon = icon,
         title = title,
         buttons = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
                 Text(text = stringResource(android.R.string.cancel))
             }
 
@@ -345,6 +348,7 @@ fun TextFieldDialog(
                         onDone(legacyFieldState.value.text)
                     }
                 },
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
             ) {
                 Text(text = stringResource(android.R.string.ok))
             }
