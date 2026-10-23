@@ -251,6 +251,7 @@ class App :
             secret = BuildConfig.LASTFM_SECRET.takeIf { it.isNotEmpty() } ?: "",
         )
 
+        com.metrolist.music.playback.SpotifyPlays.init(this)
         // Wire up Spotify API logging to Timber
         Spotify.logger = { level, message ->
             when (level) {

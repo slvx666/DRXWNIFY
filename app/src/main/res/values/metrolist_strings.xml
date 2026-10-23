@@ -1349,6 +1349,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="password_show">Show password</string>
     <string name="password_hide">Hide password</string>
     <string name="low_quality_badge">Low quality · %1$d kbps</string>
+    <string name="spotify_plays">%1$s plays on Spotify</string>
     <string name="low_quality">low quality</string>
     <string name="vk_albums_and_playlists">VK albums</string>
     <string name="vk_library_needs_login">Connect VK in Settings → Music sources to see its playlists here</string>
@@ -1881,4 +1882,10 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="developer_reply_your_message">Your message</string>
     <string name="developer_reply_ok">Got it</string>
     <string name="changelog_2_1_4">### New\n+ Themes (beta): Gruvbox, Linux, Sakura, Synthwave and Catppuccin\n+ Pick the app icon\n+ "Appears on" on artist pages — albums they are featured on\n+ The developer can answer a suggestion\n### Fixed\n• A downloaded track wasn\'t marked downloaded in the player and was shared as a link\n• Stutter when opening search\n• Yandex sign-in when a phone number has several accounts\n### Also\n• Closed beta testing of the PC version has begun</string>
+    <string name="changelog_2_1_5">### New
++ Spotify play counts next to every track in an album and in the full-screen player (under the quality line)
++ Full release date on album and single pages
+### Fixed
+• The same album twice in the library (Spotify sometimes has two ids for one release)
+• Old albums that Spotify re-delivered showed up in New releases</string>
 </resources>

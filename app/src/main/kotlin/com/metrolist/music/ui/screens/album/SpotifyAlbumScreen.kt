@@ -227,7 +227,7 @@ fun SpotifyAlbumScreen(
 
                     val metaInfo = buildList {
                         album?.albumType?.replaceFirstChar { it.uppercase() }?.let { add(it) }
-                        album?.releaseDate?.take(4)?.let { add(it) }
+                        com.metrolist.music.playback.SpotifyPlays.releaseDate(album?.releaseDate)?.let { add(it) }
                         if (tracks.isNotEmpty()) {
                             add(pluralStringResource(R.plurals.n_song, tracks.size, tracks.size))
                         }
@@ -418,7 +418,19 @@ fun SpotifyAlbumScreen(
                     },
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            com.metrolist.music.ui.component.Icon.Download(trackDownloadState)
+                            track.playCount?.takeIf { it > 0 }?.let { plays ->
+                                Text(
+                                    text = com.metrolist.music.playback.SpotifyPlays.format(plays),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(end = 6.dp),
+                                )
+                            }
+                            // The slot of the downloaded-mark is always reserved, so the counts line up either way.
+                            Box(modifier = Modifier.width(20.dp), contentAlignment = Alignment.CenterEnd) {
+                                com.metrolist.music.ui.component.Icon.Download(trackDownloadState)
+                            }
                             com.metrolist.music.ui.component.TrackSelectionCheck(selection.active, selection.isSelected(track.id)) {
                                 selection.toggle(track.id)
                             }

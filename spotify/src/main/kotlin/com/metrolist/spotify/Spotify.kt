@@ -447,6 +447,10 @@ object Spotify {
                 )
             }
 
+        val playCount = trackData.str("playcount")?.toLongOrNull()
+            ?: trackData.str("playCount")?.toLongOrNull()
+        if (playCount != null && trackId.isNotEmpty()) com.metrolist.spotify.models.SpotifyPlayCounts.put(trackId, playCount)
+
         return SpotifyTrack(
             id = trackId,
             name = trackData.str("name") ?: "",
@@ -454,6 +458,7 @@ object Spotify {
             album = album,
             durationMs = parseGqlTrackDurationMs(trackData),
             uri = uri.ifEmpty { null },
+            playCount = playCount,
         )
     }
 

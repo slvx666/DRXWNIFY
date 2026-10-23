@@ -185,7 +185,7 @@ object Catalog {
 
     /** Where catalog entities are kept between launches (the app's cache directory). */
     fun setCacheDir(dir: java.io.File) {
-        cacheDir = java.io.File(dir, "catalog_albums").also { it.mkdirs() }
+        cacheDir = java.io.File(dir, "catalog_albums_v2").also { it.mkdirs() }
     }
 
     private fun albumFile(id: String): java.io.File? =

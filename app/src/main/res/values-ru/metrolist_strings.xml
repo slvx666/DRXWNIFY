@@ -1054,6 +1054,7 @@
     <string name="password_show">Показать пароль</string>
     <string name="password_hide">Скрыть пароль</string>
     <string name="low_quality_badge">Низкое качество · %1$d kbps</string>
+    <string name="spotify_plays">%1$s прослушиваний в Spotify</string>
     <string name="low_quality">низкое качество</string>
     <string name="vk_albums_and_playlists">Альбомы VK</string>
     <string name="vk_library_needs_login">Подключи VK в «Настройки → Источники музыки», чтобы видеть здесь его плейлисты</string>
@@ -1822,4 +1823,10 @@
     <string name="developer_reply_your_message">Твоё сообщение</string>
     <string name="developer_reply_ok">Понятно</string>
     <string name="changelog_2_1_4">### Новое\n+ Темы оформления (beta): Gruvbox, Linux, Сакура, Синтвейв и Catppuccin\n+ Выбор значка приложения\n+ «Участие» в профиле исполнителя — альбомы, где он на фитах\n+ Разработчик может ответить на сообщение из предложки\n### Исправлено\n• Скачанный трек в плеере не отмечался скачанным и отправлялся ссылкой\n• Подтормаживание при открытии поиска\n• Вход в Яндекс, когда на номер привязано несколько аккаунтов\n### Ещё\n• Началось закрытое бета-тестирование версии для ПК</string>
+    <string name="changelog_2_1_5">### Новое
++ Количество прослушиваний Spotify у каждого трека в альбоме и в полноэкранном плеере (под строкой качества)
++ Полная дата релиза на странице альбома и сингла
+### Исправлено
+• Один и тот же альбом дважды в библиотеке (у Spotify бывает два id на релиз)
+• В «Новых релизах» появлялись старые альбомы, которые Spotify перевыложил заново</string>
 </resources>

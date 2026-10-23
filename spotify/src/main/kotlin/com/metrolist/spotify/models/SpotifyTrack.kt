@@ -17,6 +17,8 @@ data class SpotifyTrack(
     val uri: String? = null,
     val popularity: Int? = null,
     @SerialName("external_ids") val externalIds: SpotifyExternalIds? = null,
+    /** Spotify's stream count, when the response carried it (GQL album / playlist / top tracks). */
+    val playCount: Long? = null,
 ) {
     val isrc: String? get() = externalIds?.isrc
 }
@@ -54,3 +56,21 @@ data class SpotifySavedTrack(
     @SerialName("added_at") val addedAt: String? = null,
     val track: SpotifyTrack,
 )
+
+/** Stream counts seen in Spotify responses, by track id; [onNew] lets the app keep them between launches. */
+object SpotifyPlayCounts {
+    private val counts = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    @Volatile
+    var onNew: (() -> Unit)? = null
+
+    operator fun get(trackId: String?): Long? = trackId?.let { counts[it] }
+
+    fun put(trackId: String, count: Long) {
+        if (counts.put(trackId, count) != count) onNew?.invoke()
+    }
+
+    fun load(saved: Map<String, Long>) { counts.putAll(saved) }
+
+    fun snapshot(): Map<String, Long> = HashMap(counts)
+}

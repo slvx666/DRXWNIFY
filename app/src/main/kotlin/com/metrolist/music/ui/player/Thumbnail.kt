@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -517,6 +518,22 @@ private fun ThumbnailHeader(
                 color = textColor,
                 modifier = Modifier.padding(top = 4.dp),
             )
+            // Spotify's stream count, under the quality line.
+            com.metrolist.music.playback.rememberPlayCount(mediaId)?.takeIf { it > 0 }?.let { plays ->
+                Text(
+                    text = stringResource(R.string.spotify_plays, com.metrolist.music.playback.SpotifyPlays.format(plays)),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = textColor.copy(alpha = 0.75f),
+                    maxLines = 1,
+                    // Takes no height of its own: the cover stays where it was and the line sits in the gap above it.
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            layout(placeable.width, 0) { placeable.place(0, 0) }
+                        },
+                )
+            }
         }
         if (onHome != null) {
             androidx.compose.material3.IconButton(

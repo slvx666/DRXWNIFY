@@ -157,7 +157,11 @@ class SpotifyLibraryViewModel @Inject constructor(
                     Filter.ARTISTS -> entry.kind == SpotifyLibraryEntry.Kind.ARTIST
                 }
             }
-            applySort(own, saved + c[f].orEmpty(), s, reversed)
+            // Spotify keeps a second album id for some re-delivered releases; both can end up saved.
+            val merged = (saved + c[f].orEmpty()).distinctBy { e ->
+                if (e.kind == SpotifyLibraryEntry.Kind.ALBUM) "album:" + e.name.trim().lowercase() + "|" + e.creator.orEmpty().trim().lowercase() else e.kind.name + e.id
+            }
+            applySort(own, merged, s, reversed)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {

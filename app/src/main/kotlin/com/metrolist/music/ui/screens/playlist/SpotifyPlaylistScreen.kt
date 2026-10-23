@@ -589,6 +589,15 @@ fun SpotifyPlaylistScreen(
                                         )
                                     }
                                 } else {
+                                    track.playCount?.takeIf { it > 0 }?.let { plays ->
+                                        Text(
+                                            text = com.metrolist.music.playback.SpotifyPlays.format(plays),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            modifier = Modifier.padding(end = 6.dp),
+                                        )
+                                    }
                                     com.metrolist.music.ui.component.TrackSelectionCheck(selection.active, selection.isSelected(track.id)) {
                                         selection.toggle(track.id)
                                     }

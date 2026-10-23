@@ -798,7 +798,11 @@ class HomeViewModel @Inject constructor(
         val mixes = LinkedHashMap<String, SpotifyPlaylist>()
 
         newReleasesDeferred.await().onSuccess { newReleases ->
+            // The feed also lists re-delivered old albums (new id, old date) and twin ids of one album.
+            val cutoff = java.time.LocalDate.now().minusDays(90).toString()
             val albums = newReleases.albums?.items.orEmpty()
+                .filter { a -> a.releaseDate.isNullOrBlank() || a.releaseDate!!.take(10) >= cutoff }
+                .distinctBy { a -> a.name.trim().lowercase() + "|" + a.artists.firstOrNull()?.name.orEmpty().trim().lowercase() }
             if (albums.isNotEmpty()) sections += SpotifyHomeSection(title = "spotify_new_releases", type = SectionType.ALBUMS, albums = albums)
         }.onFailure { Timber.w(it, "spotifyHome: newReleases failed") }
 
