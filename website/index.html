@@ -273,10 +273,17 @@
     <section class="final reveal">
       <img src="/assets/icon.jpg" alt="" width="96" height="96" loading="lazy">
       <h2>Готов слушать?</h2>
-      <a class="btn btn--primary js-download" href="#">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" /></svg>
-        <span>Скачать <span class="js-version">1.3.0</span></span>
-      </a>
+      <div class="final__buttons">
+        <a class="btn btn--primary js-download" href="#">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16" /></svg>
+          <span>Android <span class="js-version">1.3.0</span></span>
+        </a>
+        <!-- The PC build is in a closed beta: offered, but quieter than Android. -->
+        <a class="btn btn--pc" id="pc-download" href="https://github.com/slvx666/drxwnify_pc/releases" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v11H3zM8 20h8M12 16v4" /></svg>
+          <span>PC <small>beta</small></span>
+        </a>
+      </div>
       <a class="final__alt" id="all-builds" href="#" target="_blank" rel="noopener">Все сборки и прошлые версии</a>
     </section>
   </main>
@@ -285,7 +292,6 @@
     <img src="/assets/logo_dark.png" alt="Drxwnify" height="24">
     <p>Независимый проект с открытым кодом под лицензией GPL-3.0. Не связан со Spotify AB, Google LLC, Yandex или VK.</p>
     <a id="repo-link" href="#" target="_blank" rel="noopener">Исходный код на GitHub</a>
-    <a class="footer__pc" href="https://github.com/slvx666/drxwnify_pc/releases" target="_blank" rel="noopener">для ПК (beta)</a>
   </footer>
 
   <!-- Липкая кнопка на телефоне -->

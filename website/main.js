@@ -496,7 +496,29 @@ function initQr() {
 }
 
 /* ───────── Старт ───────── */
+/* ───────── ПК (beta) ─────────
+ * On Windows the button downloads the newest PC installer at once (prereleases included, so it
+ * reads the release list rather than /releases/latest); elsewhere it opens the releases page. */
+async function setupPcDownload() {
+  const a = document.getElementById("pc-download");
+  if (!a || !/Windows/i.test(navigator.userAgent)) return;
+  try {
+    const res = await fetch("https://api.github.com/repos/slvx666/drxwnify_pc/releases?per_page=10");
+    if (!res.ok) return;
+    for (const rel of await res.json()) {
+      const msi = (rel.assets || []).find((x) => /\.msi$/i.test(x.name));
+      if (msi) {
+        a.href = msi.browser_download_url;
+        a.removeAttribute("target");
+        a.setAttribute("download", "");
+        return;
+      }
+    }
+  } catch (_) { /* the releases page link stays */ }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
+  setupPcDownload();
   if (!releaseAnchor) scrollTo(0, 0);
   $("#all-builds").href = ghReleasesPage;
   $("#repo-link").href = `https://github.com/${CONFIG.repo}`;
