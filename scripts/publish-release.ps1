@@ -1,6 +1,6 @@
 # Publishes a GitHub release for an already pushed tag and attaches the APK as "Drxwnify.apk"
 # (the name the site and the in-app updater download). The token is asked for here and never
-# stored. Usage (from Meld-main):
+# stored. Usage (from android/):
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\publish-release.ps1 -Version 1.4.1
 #
