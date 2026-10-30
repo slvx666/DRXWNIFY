@@ -739,6 +739,19 @@ constructor(
             if (alias?.state == Download.STATE_COMPLETED) alias else direct ?: alias
         }.distinctUntilChanged()
 
+    /**
+     * The id [songId]'s download actually sits under: itself, or its other id (catalog "mfb:" ↔
+     * YouTube), the same lookup [getDownload] does for the rows. Null when neither is downloaded.
+     * Sending and deleting a selection go through this, or a row could show "downloaded" while
+     * "send" found nothing.
+     */
+    suspend fun downloadedIdOf(songId: String): String? {
+        val visible = visibleDownloads.value
+        if (visible[songId]?.state == Download.STATE_COMPLETED) return songId
+        val alias = downloadAliasOf(songId) ?: return null
+        return alias.takeIf { visible[it]?.state == Download.STATE_COMPLETED }
+    }
+
     /** songId → (alias or "", when it was looked up); a miss is asked again after a while (a match may appear). */
     private val downloadAliases = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
 

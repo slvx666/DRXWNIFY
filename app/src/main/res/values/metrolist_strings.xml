@@ -1981,4 +1981,8 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="integration_soundcloud_description">Import likes and playlists by profile link</string>
     <string name="import_from_soundcloud">From a SoundCloud profile</string>
     <string name="send_files_failed">Could not send the files. If a download is still running, wait for it to finish and try again.</string>
+    <string name="vk_captcha_title">VK: not a robot check</string>
+    <string name="vk_captcha_web_hint">VK asks to confirm this is a person. Pass the check below and the login continues by itself.</string>
+    <string name="vk_captcha_open">Pass the VK check</string>
+    <string name="vk_captcha_again">VK asked for the check again. Pass it once more; if it keeps asking, wait a few minutes or use Paste token.</string>
 </resources>

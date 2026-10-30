@@ -52,6 +52,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -255,17 +256,22 @@ fun VkLoginScreen(navController: NavController) {
         }
     }
 
-    fun submit() {
+    var captchaPage by remember { mutableStateOf<VkDirectAuth.Result.NeedCaptcha?>(null) }
+
+    fun submit(captchaToken: String? = null) {
         if (busy || !loginReady || password.isEmpty()) return
         busy = true
         error = null
         scope.launch {
+            val answered = captcha
             val result = VkDirectAuth.login(
                 username = login,
                 password = password,
                 code = code.takeIf { needCode != null },
-                captchaSid = captcha?.captchaSid,
-                captchaKey = captchaKey.takeIf { captcha != null },
+                captchaSid = answered?.captchaSid?.takeIf { answered.redirectUri == null },
+                captchaKey = captchaKey.takeIf { answered != null && answered.redirectUri == null },
+                captchaSuccessToken = captchaToken,
+                captchaFor = answered.takeIf { captchaToken != null },
             )
             when (result) {
                 is VkDirectAuth.Result.Success -> {
@@ -287,6 +293,11 @@ fun VkLoginScreen(navController: NavController) {
                 is VkDirectAuth.Result.NeedCaptcha -> {
                     captcha = result
                     captchaKey = ""
+                    // The new captcha is a page to pass, not a picture to read: it opens by itself.
+                    if (result.redirectUri != null) {
+                        if (captchaToken != null) error = context.getString(R.string.vk_captcha_again)
+                        captchaPage = result
+                    }
                 }
                 is VkDirectAuth.Result.Error -> error = result.message
             }
@@ -448,7 +459,28 @@ fun VkLoginScreen(navController: NavController) {
                 }
             }
 
-            captcha?.let { request ->
+            captchaPage?.redirectUri?.let { page ->
+                VkCaptchaDialog(
+                    url = page,
+                    onToken = { token ->
+                        captchaPage = null
+                        submit(token)
+                    },
+                    onDismiss = { captchaPage = null },
+                )
+            }
+
+            captcha?.takeIf { it.redirectUri != null }?.let { request ->
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = { captchaPage = request },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = com.metrolist.music.ui.theme.tuiButtonShape(),
+                ) { Text(stringResource(R.string.vk_captcha_open)) }
+            }
+
+            captcha?.takeIf { it.redirectUri == null }?.let { request ->
                 Spacer(Modifier.height(12.dp))
                 Text(
                     text = stringResource(R.string.vk_captcha_hint),
@@ -481,7 +513,7 @@ fun VkLoginScreen(navController: NavController) {
 
             Spacer(Modifier.height(16.dp))
             Button(
-                onClick = ::submit,
+                onClick = { submit() },
                 enabled = !busy && loginReady && password.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth(),
                 shape = com.metrolist.music.ui.theme.tuiButtonShape(),

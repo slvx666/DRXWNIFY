@@ -32,8 +32,19 @@ object VkDirectAuth {
          */
         data class NeedCode(val viaApp: Boolean, val phoneMask: String?, val validationSid: String? = null) : Result
 
-        /** VK wants a captcha solved; repeat with [captchaSid] and the text from [imageUrl]. */
-        data class NeedCaptcha(val captchaSid: String, val imageUrl: String) : Result
+        /**
+         * VK wants a captcha solved. The old kind: repeat with [captchaSid] and the text from
+         * [imageUrl]. The new "I'm not a robot" kind comes with [redirectUri]: that page is solved in
+         * a browser window (its image link only says "picture not supported, update the app") and
+         * the token it gives back is sent as [success token][login] with [captchaTs]/[captchaAttempt].
+         */
+        data class NeedCaptcha(
+            val captchaSid: String,
+            val imageUrl: String,
+            val redirectUri: String? = null,
+            val captchaTs: String? = null,
+            val captchaAttempt: String? = null,
+        ) : Result
 
         data class Error(val message: String) : Result
     }
@@ -90,6 +101,9 @@ object VkDirectAuth {
         code: String? = null,
         captchaSid: String? = null,
         captchaKey: String? = null,
+        /** The new captcha: the token its page handed back, and the request it answered. */
+        captchaSuccessToken: String? = null,
+        captchaFor: Result.NeedCaptcha? = null,
     ): Result = withContext(Dispatchers.IO) {
         runCatching {
             val body = FormBody.Builder()
@@ -108,6 +122,12 @@ object VkDirectAuth {
                     if (!captchaSid.isNullOrBlank() && !captchaKey.isNullOrBlank()) {
                         add("captcha_sid", captchaSid)
                         add("captcha_key", captchaKey.trim())
+                    }
+                    if (!captchaSuccessToken.isNullOrBlank()) {
+                        add("success_token", captchaSuccessToken)
+                        captchaFor?.captchaSid?.takeIf { it.isNotBlank() }?.let { add("captcha_sid", it) }
+                        captchaFor?.captchaTs?.let { add("captcha_ts", it) }
+                        captchaFor?.captchaAttempt?.let { add("captcha_attempt", it) }
                     }
                 }
                 .build()
@@ -152,7 +172,16 @@ object VkDirectAuth {
             "need_captcha" -> Result.NeedCaptcha(
                 captchaSid = json.optString("captcha_sid"),
                 imageUrl = json.optString("captcha_img"),
-            )
+                redirectUri = json.optString("redirect_uri").takeIf { it.startsWith("https://") },
+                captchaTs = json.opt("captcha_ts")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+                captchaAttempt = json.opt("captcha_attempt")?.toString()?.takeIf { it.isNotBlank() && it != "null" },
+            ).also {
+                timber.log.Timber.tag("VkAuth").i(
+                    "captcha requested: %s (fields: %s)",
+                    if (it.redirectUri != null) "not-robot page" else "picture",
+                    json.keys().asSequence().joinToString(),
+                )
+            }
             else -> Result.Error(
                 json.optString("error_description").takeIf { it.isNotBlank() }
                     ?: json.optString("error").takeIf { it.isNotBlank() }

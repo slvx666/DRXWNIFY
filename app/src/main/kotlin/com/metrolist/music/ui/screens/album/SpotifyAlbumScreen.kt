@@ -37,6 +37,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -306,20 +308,35 @@ fun SpotifyAlbumScreen(
                             val albumSaved by viewModel.isSaved.collectAsState()
                             if (viewModel.canSave) {
                                 Spacer(modifier = Modifier.width(4.dp))
+                                val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+                                val heartScale = remember { androidx.compose.animation.core.Animatable(1f) }
+                                val heartScope = rememberCoroutineScope()
+                                // Always tappable: the heart answers the tap at once, even while the
+                                // account's state is still loading (it used to ignore taps until then).
                                 androidx.compose.material3.IconButton(
                                     onClick = {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                        heartScope.launch {
+                                            heartScale.snapTo(0.75f)
+                                            heartScale.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.4f, stiffness = 600f))
+                                        }
                                         viewModel.toggleSaved { error ->
                                             android.widget.Toast.makeText(context, error, android.widget.Toast.LENGTH_SHORT).show()
                                         }
                                     },
-                                    enabled = albumSaved != null,
                                 ) {
+                                    val heartTint by androidx.compose.animation.animateColorAsState(
+                                        if (albumSaved == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                                        animationSpec = tween(150),
+                                        label = "albumHeart",
+                                    )
                                     Icon(
                                         painterResource(if (albumSaved == true) R.drawable.favorite else R.drawable.favorite_border),
                                         contentDescription = stringResource(
                                             if (albumSaved == true) R.string.remove_from_library else R.string.add_to_library,
                                         ),
-                                        tint = if (albumSaved == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                                        tint = heartTint,
+                                        modifier = Modifier.graphicsLayer { scaleX = heartScale.value; scaleY = heartScale.value },
                                     )
                                 }
                             }

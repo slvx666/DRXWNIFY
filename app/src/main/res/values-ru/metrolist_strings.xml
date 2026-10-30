@@ -1924,4 +1924,8 @@
     <string name="integration_soundcloud_description">Перенос лайков и плейлистов по ссылке на профиль</string>
     <string name="import_from_soundcloud">Из профиля SoundCloud</string>
     <string name="send_files_failed">Не получилось отправить файлы. Если ещё идёт загрузка — дождитесь её и попробуйте снова.</string>
+    <string name="vk_captcha_title">VK: я не робот</string>
+    <string name="vk_captcha_web_hint">VK просит подтвердить, что ты не робот. Пройди проверку ниже, и вход продолжится сам.</string>
+    <string name="vk_captcha_open">Пройти проверку VK</string>
+    <string name="vk_captcha_again">VK снова попросил проверку. Пройди её ещё раз; если просит снова и снова, подожди пару минут или используй «Вставить токен».</string>
 </resources>

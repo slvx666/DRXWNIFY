@@ -29,8 +29,9 @@ object SelectedTracks {
     fun share(context: Context, downloadUtil: DownloadUtil, mediaIds: suspend () -> List<String>) {
         val appContext = context.applicationContext
         scope.launch {
-            val exported = com.metrolist.music.utils.DownloadExportState.exported.value
-            val ids = withContext(Dispatchers.IO) { mediaIds() }.filter { it in exported }
+            val selected = withContext(Dispatchers.IO) { mediaIds() }
+            val ids = downloadedIds(downloadUtil, selected)
+            timber.log.Timber.i("share: %d of %d selected id(s) are downloaded", ids.size, selected.size)
             if (ids.isEmpty()) {
                 Toast.makeText(appContext, R.string.nothing_selected_downloaded, Toast.LENGTH_SHORT).show()
                 return@launch
@@ -42,11 +43,16 @@ object SelectedTracks {
     fun delete(context: Context, downloadUtil: DownloadUtil, mediaIds: suspend () -> List<String>) {
         val appContext = context.applicationContext
         scope.launch {
-            val ids = withContext(Dispatchers.IO) { mediaIds() }
+            val selected = withContext(Dispatchers.IO) { mediaIds() }
+            val ids = (selected + downloadedIds(downloadUtil, selected)).distinct()
             downloadUtil.removeDownloads(ids)
             Toast.makeText(appContext, R.string.downloads_removed, Toast.LENGTH_SHORT).show()
         }
     }
+
+    /** The ids the downloads of [ids] sit under (each one's own, or its other id), as the rows see them. */
+    private suspend fun downloadedIds(downloadUtil: DownloadUtil, ids: List<String>): List<String> =
+        ids.mapNotNull { downloadUtil.downloadedIdOf(it) }.distinct()
 
     /** Writes the song rows of catalog [tracks] (as their menu would) and returns their song ids. */
     suspend fun songIdsOf(

@@ -108,30 +108,54 @@ constructor(
     /** The album can be liked only when the account that owns it is signed in. */
     val canSave: Boolean get() = Catalog.canWrite(albumId)
 
+    /** What the account is known to hold (the last state read from it or written to it). */
+    private var syncedSaved: Boolean? = null
+    private var userTouched = false
+    private var syncJob: kotlinx.coroutines.Job? = null
+
     init {
         viewModelScope.launch(Dispatchers.IO) {
             if (!canSave) return@launch
             Catalog.isAlbumSaved(albumId)
-                .onSuccess { isSaved.value = it }
+                .onSuccess {
+                    syncedSaved = it
+                    // A tap made while this was loading wins over the loaded state.
+                    if (!userTouched) isSaved.value = it
+                }
                 .onFailure {
                     Timber.w(it, "Album saved-state check failed for $albumId")
-                    isSaved.value = false
+                    if (!userTouched) isSaved.value = false
                 }
         }
     }
 
-    /** Two-way like: saves/removes the album in the account and reverts on failure. */
+    /**
+     * Two-way like. The heart flips on the tap itself, even before the account's state has loaded;
+     * the account gets only the state the taps settle on (several quick taps send one request, and
+     * none if they cancel out), and the heart goes back if that request fails.
+     */
     fun toggleSaved(onError: (String) -> Unit) {
-        val current = isSaved.value ?: return
-        val target = !current
+        userTouched = true
+        val target = !(isSaved.value ?: false)
         isSaved.value = target
-        viewModelScope.launch(Dispatchers.IO) {
+        syncJob?.cancel()
+        syncJob = viewModelScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(LIKE_SETTLE_MS)
+            if (target == syncedSaved) return@launch
+            Timber.i("Album %s: %s in the account", albumId, if (target) "saving" else "removing")
             val result = if (target) Catalog.saveAlbum(albumId) else Catalog.removeAlbum(albumId)
-            result.onFailure { e ->
-                isSaved.value = current
-                val message = e.message ?: "sync failed"
-                kotlinx.coroutines.withContext(Dispatchers.Main) { onError(message) }
-            }
+            result
+                .onSuccess { syncedSaved = target }
+                .onFailure { e ->
+                    Timber.w(e, "Album %s: like sync failed", albumId)
+                    if (isSaved.value == target) isSaved.value = syncedSaved ?: !target
+                    val message = e.message ?: "sync failed"
+                    kotlinx.coroutines.withContext(Dispatchers.Main) { onError(message) }
+                }
         }
+    }
+
+    private companion object {
+        const val LIKE_SETTLE_MS = 600L
     }
 }
