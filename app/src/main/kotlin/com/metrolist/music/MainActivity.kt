@@ -1365,9 +1365,9 @@ class MainActivity : ComponentActivity() {
                                             }
 
                                         if (currentRouteIndex == -1 || currentRouteIndex > previousRouteIndex) {
-                                            slideInHorizontally { it / 8 } + fadeIn(tween(200))
+                                            slideInHorizontally(tween(200)) { it / 8 } + fadeIn(tween(200))
                                         } else {
-                                            slideInHorizontally { -it / 8 } + fadeIn(tween(200))
+                                            slideInHorizontally(tween(200)) { -it / 8 } + fadeIn(tween(200))
                                         }
                                     },
                                     // Exit Transition - smoother with smaller offset and longer duration
@@ -1382,9 +1382,9 @@ class MainActivity : ComponentActivity() {
                                             }
 
                                         if (targetRouteIndex == -1 || targetRouteIndex > currentRouteIndex) {
-                                            slideOutHorizontally { -it / 8 } + fadeOut(tween(200))
+                                            slideOutHorizontally(tween(200)) { -it / 8 } + fadeOut(tween(200))
                                         } else {
-                                            slideOutHorizontally { it / 8 } + fadeOut(tween(200))
+                                            slideOutHorizontally(tween(200)) { it / 8 } + fadeOut(tween(200))
                                         }
                                     },
                                     // Pop Enter Transition - smoother with smaller offset and longer duration
@@ -1399,9 +1399,9 @@ class MainActivity : ComponentActivity() {
                                             }
 
                                         if (previousRouteIndex != -1 && previousRouteIndex < currentRouteIndex) {
-                                            slideInHorizontally { it / 8 } + fadeIn(tween(200))
+                                            slideInHorizontally(tween(200)) { it / 8 } + fadeIn(tween(200))
                                         } else {
-                                            slideInHorizontally { -it / 8 } + fadeIn(tween(200))
+                                            slideInHorizontally(tween(200)) { -it / 8 } + fadeIn(tween(200))
                                         }
                                     },
                                     // Pop Exit Transition - smoother with smaller offset and longer duration
@@ -1416,9 +1416,9 @@ class MainActivity : ComponentActivity() {
                                             }
 
                                         if (currentRouteIndex != -1 && currentRouteIndex < targetRouteIndex) {
-                                            slideOutHorizontally { -it / 8 } + fadeOut(tween(200))
+                                            slideOutHorizontally(tween(200)) { -it / 8 } + fadeOut(tween(200))
                                         } else {
-                                            slideOutHorizontally { it / 8 } + fadeOut(tween(200))
+                                            slideOutHorizontally(tween(200)) { it / 8 } + fadeOut(tween(200))
                                         }
                                     },
                                     modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),

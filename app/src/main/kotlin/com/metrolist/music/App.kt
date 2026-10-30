@@ -167,6 +167,14 @@ class App :
         // was mistaken for the source choice); YouTube always streams its best, and everyone starts
         // on the new Auto source choice once.
         applicationScope.launch(Dispatchers.IO) {
+            // Tracks matched once (often to YouTube before VK was linked) were never asked of the
+            // other sources again: each is compared with every source once more on its next play,
+            // and a better version found is kept from then on.
+            val recheck = androidx.datastore.preferences.core.booleanPreferencesKey("sourcesRecheck220")
+            if (dataStore.data.first()[recheck] != true) {
+                getSharedPreferences("quality_checked", MODE_PRIVATE).edit().clear().apply()
+                dataStore.edit { it[recheck] = true }
+            }
             val migrated = androidx.datastore.preferences.core.booleanPreferencesKey("qualityModes220")
             dataStore.edit { prefs ->
                 if (prefs[migrated] != true) {
