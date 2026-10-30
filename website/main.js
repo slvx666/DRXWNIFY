@@ -176,6 +176,52 @@ function renderDownloadCount(releases) {
   const el = $(".js-downloads");
   el.textContent = `${total.toLocaleString("ru-RU")} ${plural(total, "скачивание", "скачивания", "скачиваний")}`;
   el.hidden = false;
+  return total;
+}
+
+// Короткая статистика перед финалом: несколько цифр и посетители по дням за месяц
+// (красным — сколько из них нажали «Скачать»). Без счётчика блок не показывается.
+async function renderPulse(githubTotal) {
+  let stats;
+  try {
+    stats = await fetchJson("/api/stats", 6000);
+  } catch (_) {
+    return;
+  }
+  const n = (v) => Number(v || 0).toLocaleString("ru-RU");
+  const nums = [
+    [stats.total.visitors, plural(stats.total.visitors, "посетитель", "посетителя", "посетителей")],
+    [stats.today.visitors, "сегодня"],
+    [stats.total.apkVisitors, "нажали «Скачать»"],
+  ];
+  if (githubTotal != null) nums.push([githubTotal, plural(githubTotal, "скачивание APK", "скачивания APK", "скачиваний APK")]);
+  $("#pulse .pulse__nums").innerHTML = nums.map(([v, label]) => `<div><b>${n(v)}</b><span>${label}</span></div>`).join("");
+
+  const byDay = new Map(stats.days.map((d) => [d.day, d]));
+  const days = [];
+  for (let t = Date.parse(stats.since + "T00:00:00Z"); t <= Date.parse(stats.until + "T00:00:00Z"); t += 86400000) {
+    const day = new Date(t).toISOString().slice(0, 10);
+    days.push(byDay.get(day) || { day, visitors: 0, apkVisitors: 0 });
+  }
+  const max = Math.max(1, ...days.map((d) => d.visitors));
+  const chart = $("#pulse .pulse__chart");
+  chart.innerHTML = days.map((d, i) =>
+    `<div data-i="${i}"${i === days.length - 1 ? ' class="is-today"' : ""}>` +
+    `<i style="height:${(d.visitors / max) * 100}%"></i>` +
+    `<u style="height:${(Math.min(d.apkVisitors, d.visitors) / max) * 100}%"></u></div>`
+  ).join("");
+  const tip = $("#pulse .pulse__tip");
+  const show = (d) => {
+    const date = new Date(d.day + "T12:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+    tip.textContent = `${date}: ${n(d.visitors)} ${plural(d.visitors, "посетитель", "посетителя", "посетителей")}, «Скачать» — ${n(d.apkVisitors)}`;
+  };
+  chart.addEventListener("pointerover", (e) => {
+    const bar = e.target.closest("[data-i]");
+    if (bar) show(days[bar.dataset.i]);
+  });
+  chart.addEventListener("pointerleave", () => show(days[days.length - 1]));
+  show(days[days.length - 1]);
+  $("#pulse").hidden = false;
 }
 
 function renderBanner(latest) {
@@ -573,7 +619,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const releases = await loadReleases();
   const latest = releases.find((r) => !r.upcoming) || releases[0];
   renderDownload(latest);
-  renderDownloadCount(releases);
+  renderPulse(renderDownloadCount(releases));
   renderBanner(latest);
   renderTimeline(releases);
 });

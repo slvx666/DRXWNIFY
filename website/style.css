@@ -318,6 +318,29 @@ code { font-size: 0.92em; background: var(--card-2); padding: 1px 6px; border-ra
 .faq details[open] summary::after { transform: rotate(135deg); }
 .faq details p { padding: 0 24px 22px; color: var(--muted); }
 
+/* ───────── Короткая статистика ───────── */
+.pulse { padding-top: 110px; }
+.pulse__head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.pulse__head .eyebrow { margin-bottom: 0; }
+.pulse__more { color: var(--muted); font-size: 14px; font-weight: 700; }
+.pulse__more:hover { color: var(--text); }
+.pulse__nums { display: flex; flex-wrap: wrap; gap: 14px 40px; margin-top: 20px; }
+.pulse__nums b { display: block; font-family: var(--display); font-size: 26px; font-weight: 900; line-height: 1.1; }
+.pulse__nums span { color: var(--muted); font-size: 13px; font-weight: 600; }
+.pulse__chart { display: grid; grid-template-columns: repeat(30, 1fr); align-items: end; gap: 3px; height: 72px; margin-top: 26px; }
+.pulse__chart div { position: relative; height: 100%; display: flex; align-items: end; }
+.pulse__chart i, .pulse__chart u { min-height: 2px; border-radius: 3px 3px 0 0; }
+.pulse__chart i { width: 100%; background: rgba(185, 199, 220, 0.3); transition: background 0.2s; }
+.pulse__chart u { position: absolute; left: 0; right: 0; bottom: 0; background: var(--red); }
+.pulse__chart div:hover i, .pulse__chart div.is-today i { background: var(--ice); }
+.pulse__axis { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--dim); font-size: 12px; font-weight: 600; }
+.pulse__axis > span { white-space: nowrap; }
+.pulse__tip { color: var(--muted); text-align: center; }
+@media (max-width: 640px) {
+  .pulse__axis { flex-wrap: wrap; }
+  .pulse__tip { order: 3; flex-basis: 100%; text-align: left; }
+}
+
 /* ───────── Финал / футер ───────── */
 .final { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 22px; margin: 140px auto 0; padding: 0 16px; text-align: center; }
 .final img { border-radius: 24px; box-shadow: 0 0 60px -6px var(--red-glow); }
