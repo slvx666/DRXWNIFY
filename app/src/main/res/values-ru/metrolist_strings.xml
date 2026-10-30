@@ -1942,4 +1942,6 @@
     <string name="concerts_where">Где</string>
     <string name="concerts_genres">Жанры</string>
     <string name="concerts_venues">Площадки</string>
+    <string name="vk_login_revoked">Вход в VK больше не действует (VK завершил сессию). Войди в VK заново: Настройки → Интеграции → VK</string>
+    <string name="vk_login_revoked_short">Вход больше не действует — нажми, чтобы войти заново</string>
 </resources>

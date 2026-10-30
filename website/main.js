@@ -113,7 +113,7 @@ async function fetchJson(url, timeoutMs) {
 async function loadReleases() {
   const [local, gh] = await Promise.allSettled([
     fetchJson("/releases.json", 6000),
-    fetchJson(`https://api.github.com/repos/${CONFIG.repo}/releases?per_page=30`, 5000),
+    fetchJson(`https://api.github.com/repos/${CONFIG.repo}/releases?per_page=100`, 5000),
   ]);
 
   const releases = local.status === "fulfilled" ? local.value.releases.map((r) => ({ ...r })) : [];
@@ -136,6 +136,7 @@ async function loadReleases() {
     if (apk) {
       rel.apkUrl = apk.browser_download_url;
       rel.apkSize = apk.size;
+      rel.apkDownloads = apk.download_count;
     }
   }
 
@@ -164,6 +165,17 @@ function renderDownload(latest) {
     size.hidden = false;
   }
   $(".js-date").textContent = latest.date ? `от ${formatDate(latest.date)}` : "";
+}
+
+// Сколько раз скачали APK всех версий — счётчик GitHub Releases (вместе с обновлениями
+// из приложения). Уникальных людей GitHub не считает.
+function renderDownloadCount(releases) {
+  const counted = releases.filter((r) => r.apkDownloads != null);
+  if (!counted.length) return;
+  const total = counted.reduce((n, r) => n + r.apkDownloads, 0);
+  const el = $(".js-downloads");
+  el.textContent = `${total.toLocaleString("ru-RU")} ${plural(total, "скачивание", "скачивания", "скачиваний")}`;
+  el.hidden = false;
 }
 
 function renderBanner(latest) {
@@ -530,6 +542,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const releases = await loadReleases();
   const latest = releases.find((r) => !r.upcoming) || releases[0];
   renderDownload(latest);
+  renderDownloadCount(releases);
   renderBanner(latest);
   renderTimeline(releases);
 });

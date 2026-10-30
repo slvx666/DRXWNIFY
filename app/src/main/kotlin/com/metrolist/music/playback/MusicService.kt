@@ -4310,6 +4310,11 @@ class MusicService :
                 if (dataSpec.position == 0L) {
                     val length = androidx.media3.datasource.cache.ContentMetadata.getContentLength(playerCache.getContentMetadata(cacheKey))
                     AudioDiagnostics.info("playing $mediaId from the cache (${length / 1024} KB, ${cacheOwners.getString(cacheKey, null) ?: "?"})")
+                    scope.launch(Dispatchers.IO) {
+                        val kbps = runCatching { database.format(mediaId).first()?.bitrate }.getOrNull()
+                            ?.takeIf { it > 0 }?.let { (it + 500) / 1000 }
+                        AudioFallbackEngine.checkForBetterVersion(mediaId, database.getSongById(mediaId), kbps)
+                    }
                 }
                 return dataSpec.buildUpon().setKey(cacheKey).build()
             }

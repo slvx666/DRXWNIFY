@@ -1999,4 +1999,6 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="concerts_where">Where</string>
     <string name="concerts_genres">Genres</string>
     <string name="concerts_venues">Venues</string>
+    <string name="vk_login_revoked">The VK login no longer works (VK ended the session). Sign in to VK again: Settings → Integrations → VK</string>
+    <string name="vk_login_revoked_short">The login no longer works — tap to sign in again</string>
 </resources>

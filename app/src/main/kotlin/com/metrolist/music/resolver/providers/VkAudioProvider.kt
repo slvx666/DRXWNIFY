@@ -55,7 +55,7 @@ class VkAudioProvider(
 
     // Out of the race once the shared account's tracks for today are used up: VK still "found"
     // every track, then couldn't stream it, and the whole search ran again without it.
-    override fun isReady(): Boolean = hasToken() && hasTracksLeft()
+    override fun isReady(): Boolean = hasToken() && hasTracksLeft() && !VkTokenHealth.isRevoked(token())
 
     /** Signed in (or the shared account offered): browsing, albums and the library work regardless of the day's tracks. */
     private fun hasToken(): Boolean = !token().isNullOrBlank()
@@ -124,6 +124,7 @@ class VkAudioProvider(
             root.optJSONObject("error")?.let { err ->
                 val code = err.optInt("error_code")
                 if (code == FLOOD_CONTROL && method == "audio.search") searchFlooded()
+                if (code == AUTH_FAILED) VkTokenHealth.revoked(accessToken, err.optString("error_msg"))
                 throw VkApiException(code, "VK error $code: ${err.optString("error_msg")}")
             }
             if (method == "audio.search") searchBackoffMs = 0L
@@ -654,6 +655,9 @@ class VkAudioProvider(
         private const val MAX_MY_TRACKS = 5000
         private const val MIN_CALL_SPACING_MS = 350L
         private const val TOO_MANY_REQUESTS = 6
+
+        /** "User authorization failed": the token was revoked (password changed, sessions ended). */
+        private const val AUTH_FAILED = 5
         private const val FLOOD_CONTROL = 9
         private const val FLOOD_PAUSE_FIRST_MS = 10 * 60_000L
         private const val FLOOD_PAUSE_MAX_MS = 2 * 60 * 60_000L
@@ -692,3 +696,40 @@ data class VkPlaylist(
     /** Stable key used in navigation and caches. */
     val key: String get() = "${ownerId}_$id"
 }
+
+/**
+ * VK tokens VK has refused ("User authorization failed", error 5). Such a token never works again:
+ * VK leaves the race at once instead of failing every search (each such miss counted as "VK didn't
+ * answer", so tracks were searched over and over), and the user is told once to sign in again.
+ * A new login is a new token, so it is ready again by itself.
+ */
+object VkTokenHealth {
+    private val revokedTokens = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /** Set when the user's own login stopped working (the app shows "sign in to VK again"). */
+    val ownLoginRevoked = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    /** Says whether [token] belongs to the user (vs the shared demo account). */
+    @Volatile
+    var isOwnToken: (String) -> Boolean = { false }
+
+    /** Called once when the user's own login is found revoked. */
+    @Volatile
+    var onOwnLoginRevoked: () -> Unit = {}
+
+    fun isRevoked(token: String?): Boolean = token != null && token in revokedTokens
+
+    fun revoked(token: String, message: String) {
+        if (!revokedTokens.add(token)) return
+        val own = isOwnToken(token)
+        com.metrolist.music.resolver.AudioDiagnostics.warn(
+            if (own) "VK: your login no longer works ($message) — VK is left out until you sign in to VK again (Settings → Integrations → VK)"
+            else "VK: the shared demo account was refused ($message) — VK is left out; sign in with your own VK",
+        )
+        if (own) {
+            ownLoginRevoked.value = true
+            onOwnLoginRevoked()
+        }
+    }
+}
+

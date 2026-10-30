@@ -85,6 +85,7 @@ fun IntegrationScreen(
         }
         var vkToken by rememberPreference(com.metrolist.music.constants.VkAccessTokenKey, "")
         var vkUserId by rememberPreference(com.metrolist.music.constants.VkUserIdKey, "")
+        val vkRevoked by com.metrolist.music.resolver.providers.VkTokenHealth.ownLoginRevoked.collectAsState()
         var showVkLogout by androidx.compose.runtime.saveable.rememberSaveable {
             androidx.compose.runtime.mutableStateOf(false)
         }
@@ -157,6 +158,12 @@ fun IntegrationScreen(
                     title = { Text(stringResource(R.string.vk_music)) },
                     description = {
                         val shared = com.metrolist.music.utils.RemoteConfig.config.collectAsState().value.vkShared
+                        val revoked by com.metrolist.music.resolver.providers.VkTokenHealth.ownLoginRevoked.collectAsState()
+                        // VK ended the session: said here, where signing in again is one tap away.
+                        if (revoked) {
+                            Text(stringResource(R.string.vk_login_revoked_short), color = MaterialTheme.colorScheme.error)
+                            return@IntegrationCardItem
+                        }
                         Text(
                             if (vkToken.isEmpty() && shared != null) {
                                 stringResource(R.string.vk_shared_demo_short, shared.dailyTracks)
@@ -165,9 +172,9 @@ fun IntegrationScreen(
                             },
                         )
                     },
-                    trailingContent = if (vkToken.isNotEmpty()) connected else null,
+                    trailingContent = if (vkToken.isNotEmpty() && !vkRevoked) connected else null,
                     onClick = {
-                        if (vkToken.isNotEmpty()) showVkLogout = true else navController.navigate("settings/vk/login")
+                        if (vkToken.isNotEmpty() && !vkRevoked) showVkLogout = true else navController.navigate("settings/vk/login")
                     }
                 ),
                 IntegrationCardItem(

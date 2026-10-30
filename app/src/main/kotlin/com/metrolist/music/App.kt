@@ -453,7 +453,12 @@ class App :
     private object CrashSafeInterceptor : Interceptor {
         override suspend fun intercept(chain: Interceptor.Chain): ImageResult =
             try {
-                chain.proceed()
+                chain.proceed().also { r ->
+                    if (r is ErrorResult) Timber.w(r.throwable, "TMPIMG fail %s", chain.request.data)
+                    if (r is coil3.request.SuccessResult && "scdn" in chain.request.data.toString()) {
+                        Timber.i("TMPIMG ok %s %dx%d from %s key=%s", chain.request.data, r.image.width, r.image.height, r.dataSource, r.diskCacheKey)
+                    }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {

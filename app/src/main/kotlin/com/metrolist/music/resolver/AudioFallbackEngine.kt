@@ -88,6 +88,23 @@ object AudioFallbackEngine {
         appContext = context.applicationContext
         this.database = database
         AudioDiagnostics.init(appContext)
+        // A revoked VK login is said once, plainly: VK simply gave nothing before, with no hint why.
+        com.metrolist.music.resolver.providers.VkTokenHealth.isOwnToken = { token ->
+            token == appContext.dataStore.get(VkAccessTokenKey, "")
+        }
+        com.metrolist.music.resolver.providers.VkTokenHealth.onOwnLoginRevoked = {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(appContext, com.metrolist.music.R.string.vk_login_revoked, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+        scope.launch {
+            // Signing in again gives a new token: the warning goes away by itself.
+            appContext.dataStore.data.collect { prefs ->
+                val token = prefs[VkAccessTokenKey].orEmpty()
+                com.metrolist.music.resolver.providers.VkTokenHealth.ownLoginRevoked.value =
+                    token.isNotEmpty() && com.metrolist.music.resolver.providers.VkTokenHealth.isRevoked(token)
+            }
+        }
         // A new network (VPN back up, Wi-Fi ↔ mobile) may well find what the previous one couldn't.
         runCatching {
             appContext.getSystemService(android.net.ConnectivityManager::class.java)
