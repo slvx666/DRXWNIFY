@@ -529,7 +529,38 @@ async function setupPcDownload() {
   } catch (_) { /* the releases page link stays */ }
 }
 
+/* ───────── Счётчик ─────────
+ * Свой счётчик на Cloudflare (functions/api): просмотр страницы и нажатия «Скачать».
+ * Посетитель — случайный id в localStorage, без cookies и IP. Цифры — на /stats. */
+function visitorId() {
+  try {
+    let id = localStorage.getItem("drxw-visitor");
+    if (!/^[0-9a-f]{32}$/.test(id || "")) {
+      id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
+      localStorage.setItem("drxw-visitor", id);
+    }
+    return id;
+  } catch (_) {
+    return null;
+  }
+}
+
+function track(kind) {
+  const visitor = visitorId();
+  if (!visitor || navigator.webdriver) return;
+  const body = JSON.stringify({ kind, visitor });
+  if (!navigator.sendBeacon?.("/api/hit", body)) {
+    fetch("/api/hit", { method: "POST", body, keepalive: true }).catch(() => {});
+  }
+}
+
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".js-download, .release__dl")) track("apk");
+  else if (e.target.closest("#pc-download")) track("pc");
+});
+
 document.addEventListener("DOMContentLoaded", async () => {
+  track("view");
   setupPcDownload();
   if (!releaseAnchor) scrollTo(0, 0);
   $("#all-builds").href = ghReleasesPage;

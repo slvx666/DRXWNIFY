@@ -1,0 +1,12 @@
+# Cloudflare Pages: сайт (website/) + счётчик посещений (functions/api, база D1).
+# Выкладывать из android/:  npx wrangler pages deploy
+# Загрузка папки через панель Cloudflare функции не выкладывает — счётчик тогда не работает.
+name = "drxwnify"
+pages_build_output_dir = "website"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "drxwnify-stats"
+database_id = "b57ee3ef-bc09-440a-9f28-772a389d6863"
+migrations_dir = "functions/migrations"
