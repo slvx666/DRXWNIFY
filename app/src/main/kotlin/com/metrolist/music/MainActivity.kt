@@ -67,6 +67,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
@@ -639,25 +640,6 @@ class MainActivity : ComponentActivity() {
                 val bottomInsetDp = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
 
                 val navController = rememberNavController()
-                // "Back" right after opening a screen (settings) was lost: the screen's own back handling
-                // switches on only once it has composed, and a swipe in that first moment did
-                // nothing. This one is registered first (so every sheet and dialog still comes before
-                // it) and goes back whenever there is a screen to go back to.
-                DisposableEffect(navController) {
-                    val early = object : androidx.activity.OnBackPressedCallback(true) {
-                        override fun handleOnBackPressed() {
-                            if (navController.previousBackStackEntry != null) {
-                                navController.popBackStack()
-                            } else {
-                                isEnabled = false
-                                onBackPressedDispatcher.onBackPressed()
-                                isEnabled = true
-                            }
-                        }
-                    }
-                    onBackPressedDispatcher.addCallback(early)
-                    onDispose { early.remove() }
-                }
 
                 // Launch intro. While it plays, the app itself is not composed at all (so the animation
                 // gets the main thread); home loads in its activity-scoped view model and the library
@@ -1449,6 +1431,45 @@ class MainActivity : ComponentActivity() {
                                         activity = this@MainActivity,
                                         snackbarHostState = snackbarHostState,
                                     )
+                                }
+                                // "Back" while a screen is still opening was lost: settings takes over half
+                                // a second to build, and a back in that time reached the navigation's own
+                                // handler mid-transition, which drops it. A callback is put on top right
+                                // when the screen changes (synchronously, no recomposition needed) and
+                                // taken off once the new screen has settled; sheets, search and the
+                                // screens' own handlers, registered later, still come first.
+                                DisposableEffect(navController) {
+                                    val opening = object : androidx.activity.OnBackPressedCallback(false) {
+                                        override fun handleOnBackPressed() {
+                                            isEnabled = false
+                                            if (navController.previousBackStackEntry != null) navController.popBackStack()
+                                        }
+                                    }
+                                    val listener = androidx.navigation.NavController.OnDestinationChangedListener { controller, _, _ ->
+                                        val entry = controller.currentBackStackEntry
+                                        if (entry == null || controller.previousBackStackEntry == null ||
+                                            entry.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.RESUMED
+                                        ) {
+                                            opening.isEnabled = false
+                                            return@OnDestinationChangedListener
+                                        }
+                                        opening.remove()
+                                        onBackPressedDispatcher.addCallback(opening)
+                                        opening.isEnabled = true
+                                        entry.lifecycle.addObserver(object : androidx.lifecycle.LifecycleEventObserver {
+                                            override fun onStateChanged(source: androidx.lifecycle.LifecycleOwner, event: androidx.lifecycle.Lifecycle.Event) {
+                                                if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME || event == androidx.lifecycle.Lifecycle.Event.ON_DESTROY) {
+                                                    if (controller.currentBackStackEntry === entry || event == androidx.lifecycle.Lifecycle.Event.ON_DESTROY) opening.isEnabled = false
+                                                    source.lifecycle.removeObserver(this)
+                                                }
+                                            }
+                                        })
+                                    }
+                                    navController.addOnDestinationChangedListener(listener)
+                                    onDispose {
+                                        navController.removeOnDestinationChangedListener(listener)
+                                        opening.remove()
+                                    }
                                 }
                                 // Over the pages, under the bars and the player (touches pass through):
                                 // only thin frames, nothing that covers content.
