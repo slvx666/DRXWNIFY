@@ -27,6 +27,7 @@ import java.util.concurrent.TimeUnit
 object CoverSaver {
     private val http by lazy {
         OkHttpClient.Builder()
+            .addInterceptor(SpotifyImageCdn)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()

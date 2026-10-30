@@ -109,7 +109,26 @@ fun PlayerQualityLine(mediaId: String?, color: androidx.compose.ui.graphics.Colo
                 ?.let(::providerLabel)
         }
     }
-    val current = format ?: return
+    // No format record (a track that started from the cache or its file): what is known of the
+    // chosen version still shows — the line used to be missing for such tracks.
+    val chosenKbps by androidx.compose.runtime.produceState<Int?>(null, mediaId, served) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.metrolist.music.resolver.AudioFallbackEngine.currentChoice(mediaId, database.getSongByIdBlocking(mediaId))
+                ?.let { com.metrolist.music.resolver.AudioFallbackEngine.knownBitrate(it.provider, it.trackId) }
+        }
+    }
+    val current = format ?: run {
+        val parts = listOfNotNull(chosenKbps?.let { "$it kbps" }, source)
+        if (parts.isEmpty()) return
+        Text(
+            text = parts.joinToString(" · "),
+            style = MaterialTheme.typography.labelMedium,
+            color = color.copy(alpha = 0.75f),
+            maxLines = 1,
+            modifier = modifier,
+        )
+        return
+    }
     val codec = AudioQualityLevel.codecName(current.mimeType, current.codecs)
     val lossless = codec.equals("FLAC", ignoreCase = true) || codec.equals("ALAC", ignoreCase = true)
     val verdict by com.metrolist.music.playback.SpectrumCheck.verdictFlow(mediaId).collectAsState(initial = null)

@@ -43,6 +43,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import timber.log.Timber
+import com.metrolist.music.db.entities.FormatEntity
 import java.io.File
 import java.io.OutputStream
 import javax.inject.Inject
@@ -174,6 +175,13 @@ class DownloadExporter @Inject constructor(
                 runCatching { exportInternal(songId, playlistFolder) }
                     .onSuccess { uri -> markExported(songId, uri) }
                     .onFailure {
+                        if (it is CacheGoneException) {
+                            // Nothing to retry: off the pending list, quietly (the file, if any, stays).
+                            context.dataStore.edit { prefs ->
+                                prefs[PendingExportSongIdsKey] = (prefs[PendingExportSongIdsKey] ?: emptySet()) - songId
+                            }
+                            return@onFailure
+                        }
                         // Left in the pending set so the next app start tries again.
                         DownloadExportState.markFailed(songId)
                         Timber.e(it, "DownloadExporter: export failed for %s", songId)
@@ -222,7 +230,8 @@ class DownloadExporter @Inject constructor(
         // The files would only be written to Music/Drxwnify again (and the old ones deleted).
         if (!canWriteFolder(folder)) return 0
         val ids = DownloadExportState.exported.value.filter { id ->
-            exportedUri(id)?.let { !isInFolder(it, folder) } ?: false
+            // Only what can be written again: a file whose downloaded copy is gone stays where it is.
+            downloadCache.getCachedBytes(id, 0, 1) > 0 && (exportedUri(id)?.let { !isInFolder(it, folder) } ?: false)
         }
         var moved = 0
         ids.forEachIndexed { index, id ->
@@ -378,14 +387,51 @@ class DownloadExporter @Inject constructor(
             ?.substringAfter(HINT_SEPARATOR)
             ?.takeIf { it.isNotBlank() }
 
+    /**
+     * The downloaded bytes of a track are gone from the app's storage (cleared, or the download
+     * removed): there is nothing to write, ever. Such a track used to be tried — and reported as a
+     * failure — on every start.
+     */
+    class CacheGoneException(songId: String) : Exception("No downloaded bytes left for $songId")
+
     /** Thrown (as a [Result.failure]) when a track was already exported; not an error. */
     class AlreadyExportedException(songId: String) : Exception("Already exported: $songId")
+
+    /** The container of [songId]'s downloaded bytes, from their magic numbers; null when unknown. */
+    private fun sniffFormat(songId: String): FormatEntity? = runCatching {
+        val first = downloadCache.getCachedSpans(songId).firstOrNull { it.position == 0L && it.isCached }?.file ?: return null
+        val head = ByteArray(12)
+        val read = first.inputStream().use { it.read(head) }
+        if (read < 4) return null
+        fun at(i: Int) = head[i].toInt() and 0xFF
+        val mime = when {
+            head.copyOfRange(0, 3).contentEquals("ID3".toByteArray()) -> "audio/mpeg"
+            at(0) == 0xFF && (at(1) and 0xF6) == 0xF0 -> "audio/aac" // ADTS
+            at(0) == 0xFF && (at(1) and 0xE0) == 0xE0 -> "audio/mpeg"
+            read >= 8 && head.copyOfRange(4, 8).contentEquals("ftyp".toByteArray()) -> "audio/mp4"
+            head.copyOfRange(0, 4).contentEquals("OggS".toByteArray()) -> "audio/ogg"
+            head.copyOfRange(0, 4).contentEquals("fLaC".toByteArray()) -> "audio/flac"
+            at(0) == 0x1A && at(1) == 0x45 && at(2) == 0xDF && at(3) == 0xA3 -> "audio/webm"
+            else -> return null
+        }
+        val length = androidx.media3.datasource.cache.ContentMetadata.getContentLength(downloadCache.getContentMetadata(songId))
+        FormatEntity(
+            id = songId, itag = -1, mimeType = mime, codecs = "", bitrate = 0, sampleRate = null,
+            contentLength = length.coerceAtLeast(0L), loudnessDb = null, perceptualLoudnessDb = null, playbackUrl = null,
+        )
+    }.getOrNull()
 
     private fun exportInternal(songId: String, playlistFolder: String?): Uri {
         val song = database.getSongByIdBlocking(songId)
             ?: error("Song not found in database: $songId")
+        // Some downloads came without their format row (an old path, a cache copy): the container
+        // is read from the file's own first bytes instead of failing the export on every start.
         val format = song.format
-            ?: error("No FormatEntity for $songId — cannot determine container")
+            ?: sniffFormat(songId)?.also { found ->
+                database.query { upsert(found) }
+                com.metrolist.music.resolver.AudioDiagnostics.info("file: $songId had no format record — read ${found.mimeType} from the file itself")
+            }
+            ?: error("No format record for $songId and its first bytes are no known audio container")
 
         val rawTitle = song.song.title
         val mimeType = format.mimeType.substringBefore(';').trim()
@@ -500,6 +546,7 @@ class DownloadExporter @Inject constructor(
             "DownloadExporter: preflight %s expected=%d cached=%d",
             songId, contentLength, cachedBytes,
         )
+        if (cachedBytes == 0L) throw CacheGoneException(songId)
         if (!downloadCache.isCached(songId, 0, contentLength.coerceAtLeast(1))) {
             Timber.w("Not fully cached: %s, cached=%d", songId, cachedBytes)
             error("Resource not fully cached for $songId (cached=$cachedBytes, expected=$contentLength)")

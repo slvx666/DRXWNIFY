@@ -325,15 +325,19 @@ object AudioFallbackEngine {
         }
         scope.launch {
             runCatching {
-                val query = queryFor(mediaId, dbSong) ?: return@launch
-                val catalogId = query.catalogId ?: return@launch
+                fun skip(why: String) = AudioDiagnostics.info("better-version check for $mediaId skipped: $why")
+                val query = queryFor(mediaId, dbSong) ?: return@launch skip("no catalog metadata")
+                val catalogId = query.catalogId ?: return@launch skip("not a catalog track")
                 val now = System.currentTimeMillis()
                 if (now - betterChecked.getLong(catalogId, 0L) < BETTER_CHECK_EVERY_MS) return@launch
                 if (!betterCheckedThisRun.add(catalogId)) return@launch
                 // A version the user picked by hand is their choice: nothing is offered over it.
-                if (storedCandidates(query).any { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }) return@launch
+                if (storedCandidates(query).any { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }) {
+                    return@launch skip("a version was picked by hand")
+                }
                 val providers = activeProviders(setOf(AudioProviderId.SOULSEEK))
-                if (providers.isEmpty()) return@launch
+                if (providers.isEmpty()) return@launch skip("no source ready")
+                AudioDiagnostics.info("better-version check ${query.label()}: asking ${providers.joinToString { it.id.name }}")
                 val outcome = thoroughRacer.resolve(query, providers, ResolverPreferences.order)
                 // Checked for the week only when every source really answered: a check made while
                 // VK's login was dead (or the network down) found nothing and then kept the track
@@ -341,7 +345,7 @@ object AudioFallbackEngine {
                 val answered = outcome.matches.map { it.provider }.toSet() + outcome.definitiveMisses
                 if (providers.all { it.id in answered }) betterChecked.edit().putLong(catalogId, now).apply()
                 val playing = currentChoice(mediaId, dbSong)
-                val playingNow = playingKbps ?: playing?.let(::effectiveKbps) ?: return@launch
+                val playingNow = playingKbps ?: playing?.let(::effectiveKbps) ?: return@launch skip("the playing version's bitrate is unknown")
                 val best = outcome.matches.firstOrNull { it.usableFor(query, emptySet()) } ?: return@launch
                 val bestKbps = effectiveKbps(best)
                 val exact = playing == null || best.confidence >= playing.confidence - ParallelAudioResolver.AUTO_CONFIDENCE_MARGIN

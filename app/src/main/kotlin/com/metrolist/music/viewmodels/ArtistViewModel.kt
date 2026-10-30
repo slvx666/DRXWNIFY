@@ -195,7 +195,7 @@ class ArtistViewModel @Inject constructor(
             }
             val profile = async {
                 (pairedProfile?.let { Result.success(it) } ?: catalog.artist(shownId))
-                    .onSuccess { catalogArtist.value = it; Timber.i("TMPIMG artist %s", it.images?.map { i -> i.url }) }
+                    .onSuccess { catalogArtist.value = it }
                     .onFailure { Timber.w(it, "Catalog artist failed for $shownId") }
             }
             launch { catalog.relatedArtists(shownId).onSuccess { catalogRelated.value = it } }
@@ -208,7 +208,7 @@ class ArtistViewModel @Inject constructor(
                 catalog.artistTopTracks(shownId).onSuccess { catalogTopTracks.value = it.tracks.filter { t -> t.id.isNotBlank() } }
             }
             catalog.artistReleases(shownId)
-                .onSuccess { catalogReleases.value = it; Timber.i("TMPIMG releases %s", it.toString().take(1500)) }
+                .onSuccess { catalogReleases.value = it }
                 .onFailure {
                     Timber.w(it, "Catalog releases failed for $id")
                     catalogReleasesRequested = false

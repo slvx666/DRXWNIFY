@@ -425,6 +425,18 @@ class App :
             .apply {
                 components {
                     add(CrashSafeInterceptor)
+                    // Spotify pictures by an address that answers without a VPN (see SpotifyImageCdn),
+                    // and a stalled download gives up instead of keeping a placeholder for good.
+                    add(
+                        coil3.network.okhttp.OkHttpNetworkFetcherFactory(
+                            callFactory = {
+                                okhttp3.OkHttpClient.Builder()
+                                    .addInterceptor(com.metrolist.music.utils.SpotifyImageCdn)
+                                    .callTimeout(IMAGE_CALL_TIMEOUT_SEC, java.util.concurrent.TimeUnit.SECONDS)
+                                    .build()
+                            },
+                        ),
+                    )
                 }
                 crossfade(true)
                 allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
@@ -454,13 +466,7 @@ class App :
     private object CrashSafeInterceptor : Interceptor {
         override suspend fun intercept(chain: Interceptor.Chain): ImageResult =
             try {
-                if ("scdn" in chain.request.data.toString()) Timber.i("TMPIMG start %s", chain.request.data)
-                chain.proceed().also { r ->
-                    if (r is ErrorResult) Timber.w(r.throwable, "TMPIMG fail %s", chain.request.data)
-                    if (r is coil3.request.SuccessResult && "scdn" in chain.request.data.toString()) {
-                        Timber.i("TMPIMG ok %s %dx%d from %s key=%s", chain.request.data, r.image.width, r.image.height, r.dataSource, r.diskCacheKey)
-                    }
-                }
+                chain.proceed()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -470,6 +476,9 @@ class App :
     }
 
     companion object {
+        /** A picture's whole download at most (a throttled address otherwise hangs it for good). */
+        private const val IMAGE_CALL_TIMEOUT_SEC = 30L
+
         /** Spotify match-cache rows older than this are evicted on startup. */
         private const val SPOTIFY_MATCH_TTL_MS = 90L * 24 * 60 * 60 * 1000 // 90 days
 
