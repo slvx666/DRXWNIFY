@@ -318,8 +318,11 @@ object AudioFallbackEngine {
      * matched once to YouTube never learned that VK had it at 320 kbps.
      */
     fun checkForBetterVersion(mediaId: String, dbSong: Song?, playingKbps: Int?) {
-        if (ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.SPEED) return
         if (!::appContext.isInitialized) return
+        if (ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.SPEED) {
+            AudioDiagnostics.info("better-version check for $mediaId skipped: source choice is Speed")
+            return
+        }
         scope.launch {
             runCatching {
                 val query = queryFor(mediaId, dbSong) ?: return@launch
