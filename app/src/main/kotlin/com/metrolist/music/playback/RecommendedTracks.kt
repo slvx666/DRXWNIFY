@@ -13,7 +13,7 @@ import androidx.media3.common.MediaItem
  * in the middle of a radio is worse than the next song.
  */
 object RecommendedTracks {
-    const val MIN_KBPS = 127
+    const val MIN_KBPS = 120
 
     private const val MAX_REMEMBERED = 4_000
 

@@ -49,9 +49,9 @@ class ParallelAudioResolverTest {
 
     /** Speed mode: the provider order decides between comparable matches (the tests below). */
     private fun resolver(soft: Long = 400, hard: Long = 1_500) =
-        ParallelAudioResolver(soft, hard, preferQuality = { false })
+        ParallelAudioResolver(soft, hard, mode = { com.metrolist.music.constants.SourcePickMode.SPEED })
 
-    private fun qualityResolver() = ParallelAudioResolver(400, 1_500, preferQuality = { true })
+    private fun qualityResolver() = ParallelAudioResolver(400, 1_500, mode = { com.metrolist.music.constants.SourcePickMode.QUALITY })
 
     @Test
     fun qualityModePicksTheBetterSoundingExactMatch() = runBlocking {
@@ -64,13 +64,54 @@ class ParallelAudioResolverTest {
         assertEquals(AudioProviderId.VK, outcome.winner?.provider)
     }
 
+    private class Fixed(override val id: AudioProviderId, private val delayMs: Long, private val kbps: Int?, private val confidence: Double = 1.0) : AudioProvider {
+        override val searchTimeoutMs: Long = 5_000
+        override suspend fun search(query: AudioQuery): ProviderMatch? {
+            delay(delayMs)
+            return ProviderMatch(id, "$id-track", query.title, query.primaryArtist, query.durationMs, confidence, qualityKbps = kbps)
+        }
+        override suspend fun stream(query: AudioQuery, match: ProviderMatch): AudioStream? = null
+    }
+
+    @Test
+    fun autoPlaysTheFirstExactMatchAndReportsTheBetterOneLater() = runBlocking {
+        val background = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
+        val youtube = Fixed(AudioProviderId.YOUTUBE, 20, 160)
+        val vk = Fixed(AudioProviderId.VK, 400, 320)
+        val outcome = ParallelAudioResolver(400, 3_000, mode = { com.metrolist.music.constants.SourcePickMode.AUTO }, background = background)
+            .resolve(query, listOf(youtube, vk), listOf(AudioProviderId.YOUTUBE, AudioProviderId.VK))
+        assertEquals(AudioProviderId.YOUTUBE, outcome.winner?.provider)
+        assertTrue("played without waiting: ${outcome.elapsedMs}", outcome.elapsedMs < 300)
+        val late = outcome.late!!.await()
+        assertEquals(AudioProviderId.VK, late.matches.first().provider)
+    }
+
+    @Test
+    fun autoGivesALowBitrateMatchAMomentForABetterOne() = runBlocking {
+        val bandcamp = Fixed(AudioProviderId.BANDCAMP, 20, 96)
+        val youtube = Fixed(AudioProviderId.YOUTUBE, 300, 160)
+        val outcome = ParallelAudioResolver(400, 3_000, mode = { com.metrolist.music.constants.SourcePickMode.AUTO })
+            .resolve(query, listOf(bandcamp, youtube), listOf(AudioProviderId.BANDCAMP, AudioProviderId.YOUTUBE))
+        assertEquals(AudioProviderId.YOUTUBE, outcome.winner?.provider)
+    }
+
+    @Test
+    fun qualityTakesA256MatchAtOnceWhenNothingBetterIsPending() = runBlocking {
+        val vk = Fixed(AudioProviderId.VK, 20, 320)
+        val youtube = Fixed(AudioProviderId.YOUTUBE, 2_000, 160)
+        val outcome = ParallelAudioResolver(400, 3_000, mode = { com.metrolist.music.constants.SourcePickMode.QUALITY })
+            .resolve(query, listOf(vk, youtube), listOf(AudioProviderId.YOUTUBE, AudioProviderId.VK))
+        assertEquals(AudioProviderId.VK, outcome.winner?.provider)
+        assertTrue("no wait: ${outcome.elapsedMs}", outcome.elapsedMs < 500)
+    }
+
     @Test
     fun aSourceThatLatelySentNoAudioIsNotWaitedFor() = runBlocking {
         // VK could sound better, but it just failed to deliver: YouTube's exact match goes at once.
         val youtube = FakeProvider(AudioProviderId.YOUTUBE, 20, found = true, confidence = 1.0)
         val vk = FakeProvider(AudioProviderId.VK, 1_000, found = true, confidence = 1.0)
         val order = listOf(AudioProviderId.YOUTUBE, AudioProviderId.VK)
-        val outcome = ParallelAudioResolver(400, 1_500, preferQuality = { true }, isSlow = { it == AudioProviderId.VK })
+        val outcome = ParallelAudioResolver(400, 1_500, mode = { com.metrolist.music.constants.SourcePickMode.QUALITY }, isSlow = { it == AudioProviderId.VK })
             .resolve(query, listOf(youtube, vk), order)
         assertEquals(AudioProviderId.YOUTUBE, outcome.winner?.provider)
         assertTrue("decided without waiting: ${outcome.elapsedMs}", outcome.elapsedMs < 500)
@@ -96,7 +137,7 @@ class ParallelAudioResolverTest {
         val order = listOf(AudioProviderId.YOUTUBE, AudioProviderId.SOUNDCLOUD)
         val speed = resolver(soft = 300, hard = 2_000).resolve(query, listOf(youtube, soundcloud), order)
         assertEquals(AudioProviderId.YOUTUBE, speed.winner?.provider)
-        val quality = ParallelAudioResolver(300, 2_000, preferQuality = { true })
+        val quality = ParallelAudioResolver(300, 2_000, mode = { com.metrolist.music.constants.SourcePickMode.QUALITY })
             .resolve(query, listOf(youtube, soundcloud), order)
         assertEquals(AudioProviderId.YOUTUBE, quality.winner?.provider)
     }

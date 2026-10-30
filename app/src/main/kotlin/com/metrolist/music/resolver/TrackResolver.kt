@@ -71,12 +71,9 @@ object ResolverPreferences {
     @Volatile
     var soulseekEnabled: Boolean = true
 
-    /**
-     * ACCURACY (default): every source is asked and waited for (a few seconds at most); among the
-     * matches that are equally exact, the best-sounding one plays. SPEED: the first good match plays.
-     */
+    /** How the source is chosen; see [com.metrolist.music.constants.SourcePickMode]. */
     @Volatile
-    var pickMode: com.metrolist.music.constants.SourcePickMode = com.metrolist.music.constants.SourcePickMode.QUALITY
+    var pickMode: com.metrolist.music.constants.SourcePickMode = com.metrolist.music.constants.SourcePickMode.AUTO
 
     /** Provider ranking used to choose between matches, best first. */
     @Volatile

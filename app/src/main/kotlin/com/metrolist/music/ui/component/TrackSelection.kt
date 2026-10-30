@@ -41,6 +41,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.metrolist.music.R
 
 /**
@@ -195,7 +196,7 @@ fun TrackSelectionBar(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Row(horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     SelectionAction(R.drawable.download, R.string.action_download, enabled) { onDownload(selection.keys.toList()) }
                     SelectionAction(R.drawable.share, R.string.send_files, enabled) { onShare(selection.keys.toList()) }
                     if (songIdsForPlaylist != null) {
@@ -239,12 +240,28 @@ fun TrackSelectionBar(
     }
 }
 
+/**
+ * One action of the bar: an equal share of the width, its label on one line (shrunk to fit when a
+ * wide font doesn't leave room — "Удалить" used to break into "Уда / лит / ь").
+ */
 @Composable
-private fun SelectionAction(icon: Int, label: Int, enabled: Boolean, onClick: () -> Unit) {
-    TextButton(onClick = onClick, enabled = enabled, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
+private fun androidx.compose.foundation.layout.RowScope.SelectionAction(icon: Int, label: Int, enabled: Boolean, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 6.dp),
+        modifier = Modifier.weight(1f),
+    ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(22.dp))
-            Text(stringResource(label), style = MaterialTheme.typography.labelMedium)
+            Text(
+                stringResource(label),
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                softWrap = false,
+                autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = MaterialTheme.typography.labelMedium.fontSize),
+            )
         }
     }
 }

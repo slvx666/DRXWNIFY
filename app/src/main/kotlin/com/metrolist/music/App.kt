@@ -144,7 +144,7 @@ class App :
                         prefs[com.metrolist.music.constants.VkLikesToAccountKey] ?: true
                     pickMode = prefs[com.metrolist.music.constants.SourcePickModeKey]
                         ?.let { runCatching { com.metrolist.music.constants.SourcePickMode.valueOf(it) }.getOrNull() }
-                        ?: com.metrolist.music.constants.SourcePickMode.QUALITY
+                        ?: com.metrolist.music.constants.SourcePickMode.AUTO
                     order = com.metrolist.music.resolver.AudioProviderId.parseOrder(
                         prefs[com.metrolist.music.constants.AudioSourceOrderKey],
                     )
@@ -163,14 +163,15 @@ class App :
                 )
             }
         }
-        // Everyone starts on High playback quality, also those who had the old Auto stored once.
+        // 2.2.0: the separate "audio quality" setting is gone (it only lowered YouTube's stream and
+        // was mistaken for the source choice); YouTube always streams its best, and everyone starts
+        // on the new Auto source choice once.
         applicationScope.launch(Dispatchers.IO) {
-            val migrated = androidx.datastore.preferences.core.booleanPreferencesKey("qualityHighByDefault")
+            val migrated = androidx.datastore.preferences.core.booleanPreferencesKey("qualityModes220")
             dataStore.edit { prefs ->
                 if (prefs[migrated] != true) {
-                    if (prefs[com.metrolist.music.constants.AudioQualityKey] != com.metrolist.music.constants.AudioQuality.LOW.name) {
-                        prefs[com.metrolist.music.constants.AudioQualityKey] = com.metrolist.music.constants.AudioQuality.HIGH.name
-                    }
+                    prefs[com.metrolist.music.constants.AudioQualityKey] = com.metrolist.music.constants.AudioQuality.HIGH.name
+                    prefs[com.metrolist.music.constants.SourcePickModeKey] = com.metrolist.music.constants.SourcePickMode.AUTO.name
                     prefs[migrated] = true
                 }
             }

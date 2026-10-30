@@ -6,6 +6,9 @@
 package com.metrolist.music.ui.component
 
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -24,7 +27,7 @@ import com.metrolist.music.R
 
 /** Where "low quality" starts, per codec family. */
 object AudioQualityLevel {
-    /** "Low quality" means below 127 kbps, whatever the codec (the user's line, same as for radio). */
+    /** "Low quality" means 119 kbps and below, whatever the codec (the user's line, same as for radio). */
     private const val MIN_GOOD = com.metrolist.music.playback.RecommendedTracks.MIN_KBPS * 1000
 
     @Suppress("UNUSED_PARAMETER")
@@ -145,11 +148,49 @@ fun PlayerQualityLine(mediaId: String?, color: androidx.compose.ui.graphics.Colo
         source?.let { sep(); append(it) }
     }
     if (text.isEmpty()) return
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelMedium,
-        color = color.copy(alpha = 0.75f),
-        maxLines = 1,
+    val catalogId by androidx.compose.runtime.produceState<String?>(null, mediaId) {
+        value = com.metrolist.music.playback.SpotifyMetadataRegistry.catalogIdOf(database, mediaId)
+    }
+    val upgrades by com.metrolist.music.resolver.SourceUpgrades.available.collectAsState()
+    // A better version turned up after this track had started: a quiet hint, the user decides.
+    val upgrade = catalogId?.let { upgrades[it] }?.takeIf { up -> kbps == null || up.kbps > kbps }
+    androidx.compose.foundation.layout.Row(
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         modifier = modifier,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = color.copy(alpha = 0.75f),
+            maxLines = 1,
+        )
+        if (upgrade != null) BetterVersionArrow(upgrade.kbps)
+    }
+}
+
+/** The small green "a better version exists" arrow, bobbing gently. Not a button. */
+@Composable
+fun BetterVersionArrow(kbps: Int, modifier: Modifier = Modifier) {
+    val bob = androidx.compose.animation.core.rememberInfiniteTransition(label = "betterVersion")
+    val offset by bob.animateFloat(
+        initialValue = 1.5f,
+        targetValue = -1.5f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            androidx.compose.animation.core.tween(900, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "bob",
+    )
+    androidx.compose.material3.Icon(
+        painter = androidx.compose.ui.res.painterResource(R.drawable.arrow_upward),
+        contentDescription = stringResource(R.string.better_version_available, kbps),
+        tint = BetterVersionGreen,
+        modifier = modifier
+            .padding(start = 4.dp)
+            .size(14.dp)
+            .graphicsLayer { translationY = offset * density },
     )
 }
+
+val BetterVersionGreen = androidx.compose.ui.graphics.Color(0xFF5BC86A)
+

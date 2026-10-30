@@ -28,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -297,6 +298,12 @@ private fun VersionRow(
             )
         }
         Spacer(Modifier.width(10.dp))
+        // The version found after the track had started (the arrow next to the player's bitrate).
+        val upgrades by com.metrolist.music.resolver.SourceUpgrades.available.collectAsState()
+        if (!isCurrent && upgrades.values.any { it.match.provider == match.provider && it.match.trackId == match.trackId }) {
+            com.metrolist.music.ui.component.BetterVersionArrow(candidate.bitrateKbps ?: 0)
+            Spacer(Modifier.width(4.dp))
+        }
         BitratePill(candidate.bitrateKbps)
     }
 }

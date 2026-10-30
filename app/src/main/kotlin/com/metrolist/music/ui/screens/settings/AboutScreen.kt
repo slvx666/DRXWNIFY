@@ -36,6 +36,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -58,6 +59,10 @@ private const val DEVELOPER_NAME = "DrxwnSlvt"
 private const val DEVELOPER_GITHUB = "https://github.com/slvx666"
 private const val REPOSITORY_URL = "https://github.com/slvx666/DRXWNIFY"
 private const val LICENSE_URL = "https://github.com/slvx666/DRXWNIFY/blob/master/LICENSE"
+private const val WEBSITE_URL = "https://drxwnify.pages.dev/"
+
+/** What the QR code on this screen encodes (res/drawable/qr_download_apk.xml): the latest release's APK. */
+private const val APK_DOWNLOAD_URL = "https://github.com/slvx666/DRXWNIFY/releases/latest/download/Drxwnify.apk"
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -191,6 +196,50 @@ fun AboutScreen(
                         onClick = { uriHandler.openUri(REPOSITORY_URL) },
                         modifier = Modifier.weight(1f),
                     )
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            // Share the app in person: the camera opens the download of the latest APK.
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+            ) {
+                androidx.compose.foundation.layout.Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(20.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.about_qr_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    // Dark modules on white in both themes: scanners read them reliably.
+                    Surface(shape = RoundedCornerShape(16.dp), color = Color.White) {
+                        Image(
+                            painter = painterResource(R.drawable.qr_download_apk),
+                            contentDescription = stringResource(R.string.about_qr_title),
+                            modifier = Modifier
+                                .padding(14.dp)
+                                .size(180.dp)
+                                .clickable { uriHandler.openUri(APK_DOWNLOAD_URL) },
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = stringResource(R.string.about_qr_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    androidx.compose.material3.TextButton(onClick = { uriHandler.openUri(WEBSITE_URL) }) {
+                        Text("drxwnify.pages.dev")
+                    }
                 }
             }
 

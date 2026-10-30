@@ -289,11 +289,11 @@ val AudioSourceLosslessKey = booleanPreferencesKey("audioSourceLossless")
 val DownloadFormatKey = stringPreferencesKey("downloadFormat")
 
 /**
- * How the audio source is chosen. ACCURACY: the most exact match, quality only breaks near-ties (least
- * risk of a remix or another version). QUALITY: among close matches the best-sounding wins. SPEED: the
- * first good match plays.
+ * How the audio source is chosen (see ParallelAudioResolver). AUTO: the first exact match plays at
+ * once and the sources still searching may find a better-sounding version for later. SPEED: the first
+ * good match, whatever its bitrate. QUALITY: waits up to 5 s for 256+ kbps.
  */
-enum class SourcePickMode { QUALITY, ACCURACY, SPEED }
+enum class SourcePickMode { AUTO, SPEED, QUALITY }
 
 /** BEST: as the source gives it (MP3/AAC/FLAC copied, Opus to AAC 256). The others force one format. */
 enum class DownloadFormat { BEST, MP3_320, M4A_256 }

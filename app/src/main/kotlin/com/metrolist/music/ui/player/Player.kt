@@ -1267,7 +1267,13 @@ fun BottomSheetPlayer(
                             FilledIconButton(
                                 onClick = {
                                     when {
-                                        active -> {} // in progress; ignore taps
+                                        // In progress: the cross on the spinner cancels it.
+                                        active -> dlId?.let {
+                                            timber.log.Timber.i("player: download of %s cancelled by the user", it)
+                                            DownloadService.sendRemoveDownload(
+                                                context, ExoDownloadService::class.java, it, false,
+                                            )
+                                        }
                                         dlState == Download.STATE_COMPLETED ->
                                             dlId?.let {
                                                 DownloadService.sendRemoveDownload(
@@ -1295,11 +1301,28 @@ fun BottomSheetPlayer(
                                 modifier = Modifier.size(42.dp),
                             ) {
                                 when {
-                                    active -> CircularProgressIndicator(
-                                        modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
-                                        color = sideButtonContentColor,
-                                    )
+                                    active -> Box(contentAlignment = Alignment.Center) {
+                                        val pct = download?.percentDownloaded ?: -1f
+                                        if (!isExporting && dlState == Download.STATE_DOWNLOADING && pct in 0f..100f) {
+                                            CircularProgressIndicator(
+                                                progress = { pct / 100f },
+                                                modifier = Modifier.size(26.dp),
+                                                strokeWidth = 2.dp,
+                                                color = sideButtonContentColor,
+                                            )
+                                        } else {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(26.dp),
+                                                strokeWidth = 2.dp,
+                                                color = sideButtonContentColor,
+                                            )
+                                        }
+                                        Icon(
+                                            painter = painterResource(R.drawable.close),
+                                            contentDescription = stringResource(R.string.cancel_download),
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    }
                                     dlState == Download.STATE_COMPLETED -> Icon(
                                         painter = painterResource(R.drawable.offline),
                                         contentDescription = null,
@@ -1996,6 +2019,19 @@ fun BottomSheetPlayer(
                                 val state = download?.state
                                 when {
                                     state == Download.STATE_DOWNLOADING || state == Download.STATE_QUEUED || isExporting -> {
+                                        ResizableIconButton(
+                                            icon = R.drawable.close,
+                                            color = TextBackgroundColor,
+                                            modifier = Modifier.size(24.dp).padding(5.dp).align(Alignment.Center),
+                                            onClick = {
+                                                currentId?.let {
+                                                    timber.log.Timber.i("player: download of %s cancelled by the user", it)
+                                                    DownloadService.sendRemoveDownload(
+                                                        context, ExoDownloadService::class.java, it, false,
+                                                    )
+                                                }
+                                            },
+                                        )
                                         val pct = download?.percentDownloaded ?: -1f
                                         if (!isExporting && state == Download.STATE_DOWNLOADING && pct in 0f..100f) {
                                             CircularProgressIndicator(

@@ -1568,9 +1568,9 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="spectrum_verdict_doubt">Doubtful · %d%% chance it is inflated</string>
     <string name="spectrum_verdict_fake">Probably inflated · %d%%</string>
     <string name="spectrum_cutoff">Sound ends at %1$.1f kHz; this format should reach ~%2$.1f kHz</string>
-    <string name="source_pick_mode">Picking the audio source</string>
-    <string name="source_pick_accuracy">Accuracy: the most exact match plays, quality only decides between near-identical ones (least risk of a remix or another version)</string>
-    <string name="source_pick_speed">Speed — the first good match plays</string>
+    <string name="source_pick_mode">Sound quality and speed</string>
+    <string name="source_pick_accuracy">Accuracy</string>
+    <string name="source_pick_speed">Speed: the first exact match plays, whatever its bitrate. Tracks start fastest, but the sound may suffer</string>
     <string name="download_format">Downloaded files</string>
     <string name="download_format_best">Best quality — MP3/AAC/FLAC as they are, YouTube as M4A 256</string>
     <string name="download_format_mp3">Always MP3 320</string>
@@ -1682,7 +1682,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="changelog_1_5_0">### Added\n+ \"Together\" tab: \"Friends\" and \"Listen together\" at the top (friends moved out of Integrations); Listen together takes the Friends name by default\n+ Profile pictures in Friends: tap yours, pick a photo, crop and zoom\n+ Invite by link: a friend opens it and the app asks \"Accept / Cancel\"\n+ The developer drxwnslvt is in everyone\'s friends from the start (a normal friend, can be removed)\n+ Friends privacy also in Settings → Privacy\n+ \"Loudness bars\" seek bar: Appearance → Slider style; drawn for the whole track at once, no jumping\n+ New \"Drxwnify · player\" widget: colour taken from the cover (as in AIMP), live equalizer, like, every button\n+ Playlists: the cover opens full screen, \"Select all\", a Download / Send / Delete bar, a download-or-share button\n+ The spectrogram looks for a former encoder ceiling (e.g. 16 kHz in a blown-up 320) and shows the real bitrate\n+ A shared VK account for everyone without their own VK\n### Fixed\n• Import: tracks with \"(feat. …)\" are no longer lost; a second, closer pass looks for what was missed (typos, a year in the title, track numbers)\n• The seek bar of SoundCloud tracks sometimes froze and the track jumped back to the start\n• Downloading all likes: \"errors\" counts only this run\'s real failures; failed tracks get a second try; a setting picks \"Quality\" or \"Accuracy\" for choosing the source\n• \"Download\" in the long-press menu works again, the like there shows at once\n• After an update or a restart the tracks of the restored queue are found again\n• Switching a track\'s version (e.g. YouTube → VK) works at once again\n• The widget no longer says \"nothing is playing\" while a Spotify track plays\n• The spectrogram no longer mistakes dense music for a ceiling (a clean 320 is no longer called 80 kbps)\n• Loudness bars of a downloaded track appear almost at once\n• A downloaded album no longer \"loads\" with bad or no internet\n• A track that YouTube has only as an official music video is found now\n• VK login: the SMS code really arrives now (and can be requested again), a workaround for \"unable to resolve oauth.vk.com\", login and password can be saved to the password manager; the broken page login is gone\n### Removed\n• The toilet-paper and pixel-pet widgets</string>
     <string name="friends_avatar_crop">Profile picture</string>
     <string name="spectrum_legend">Green dashes: what the file\'s format and bitrate promise (MP3 320 → ~20 kHz, Opus even at 128 → ~20 kHz, FLAC → 22 kHz). Solid red: where the sound really ends. Red dots: a former encoder ceiling.</string>
-    <string name="source_pick_quality">Quality: among close matches the best sound plays (FLAC, 320); now and then another version of the track may slip in</string>
+    <string name="source_pick_quality">Quality: waits up to 5 seconds for a 256+ kbps version, then plays what there is. Tracks start noticeably slower, not recommended</string>
     <string name="vk_shared_in_use">Demo mode: a shared VK account for everyone, to try music from VK without your own account. Up to %d tracks a day: this protects it from VK\'s anti-fraud system so the shared account doesn\'t get banned. Link your own VK for no limit.</string>
     <string name="friends_view_as_others">How others see me</string>
     <string name="spectrum_shelf_weak">A possible trace of a former ceiling at %1$.1f kHz (in %2$d%% of the track): a weak sign, not counted.</string>
@@ -1985,4 +1985,9 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="vk_captcha_web_hint">VK asks to confirm this is a person. Pass the check below and the login continues by itself.</string>
     <string name="vk_captcha_open">Pass the VK check</string>
     <string name="vk_captcha_again">VK asked for the check again. Pass it once more; if it keeps asking, wait a few minutes or use Paste token.</string>
+    <string name="source_pick_auto">Auto (recommended): a track starts as soon as the exact same track is found. While it plays the search goes on: the next tracks play in the best quality found, and the current one gets a green ↑ arrow when a better version turns up</string>
+    <string name="better_version_available">A better version was found: %1$d kbps</string>
+    <string name="cancel_download">Cancel download</string>
+    <string name="about_qr_title">Install on another phone</string>
+    <string name="about_qr_hint">Point the camera at the code: the latest APK starts downloading. The site below has the release notes and older builds.</string>
 </resources>

@@ -62,12 +62,16 @@ object AudioFallbackEngine {
     private lateinit var database: MusicDatabase
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** A later-found version is only "better" with at least this many more kbps. */
+    private const val MIN_UPGRADE_KBPS = 32
+
     private const val UNANSWERED_TTL_MS = 30L * 60 * 1000
 
     /** After a network change, so a VPN coming up has settled before YouTube is asked. */
     private const val REGION_CHECK_DELAY_MS = 4_000L
 
-    private val racer = ParallelAudioResolver()
+    /** The sources still searching when a winner is chosen finish on [scope] (see [onLateAnswers]). */
+    private val racer by lazy { ParallelAudioResolver(background = scope) }
     private val misses = LruCache<String, Long>(512)
 
     /** Searches that came back empty only because a source failed to answer (see [sourcesDidNotAnswer]). */
@@ -272,8 +276,41 @@ object AudioFallbackEngine {
             unanswered.remove(key)
             memory.put(key, winner)
             remember(query, outcome.matches, winner)
+            regularOutcome.late?.let { late -> scope.launch { onLateAnswers(query, winner, late.await()) } }
             winner
         }
+
+    /** What a match really sounds like when it was measured before, else what its source usually gives. */
+    private fun effectiveKbps(match: ProviderMatch): Int = knownBitrate(match.provider, match.trackId) ?: match.expectedKbps
+
+    /**
+     * The sources that were still searching when [winner] started have answered. When one of them
+     * has the same track in clearly better sound, it becomes the track's choice for the next play
+     * and download, and the player offers it for the track playing now (see [SourceUpgrades]).
+     */
+    private fun onLateAnswers(query: AudioQuery, winner: ProviderMatch, late: ParallelAudioResolver.Late) {
+        if (late.report.isNotEmpty()) {
+            AudioDiagnostics.info("search ${query.label()} — late answers:\n  " + late.report.joinToString("\n  "))
+        }
+        val best = late.matches.firstOrNull { it.usableFor(query, emptySet()) } ?: return
+        val same = best.provider == winner.provider && best.trackId == winner.trackId
+        val bestKbps = effectiveKbps(best)
+        val winnerKbps = effectiveKbps(winner)
+        val better = !same && bestKbps >= winnerKbps + MIN_UPGRADE_KBPS &&
+            best.confidence >= winner.confidence - ParallelAudioResolver.AUTO_CONFIDENCE_MARGIN
+        if (!better) {
+            // The alternates are kept all the same (a stream failure can switch without a search).
+            remember(query, late.matches, winner)
+            return
+        }
+        memory.put(query.cacheKey, best)
+        remember(query, late.matches, best)
+        AudioDiagnostics.info(
+            "better version for ${query.label()}: ${best.provider} ~$bestKbps kbps " +
+                "(${"%.2f".format(best.confidence)}) instead of ${winner.provider} ~$winnerKbps kbps — used from the next play/download",
+        )
+        query.catalogId?.let { SourceUpgrades.offer(it, best, bestKbps) }
+    }
 
     /**
      * True when the last search for [query] found nothing because some source didn't answer
@@ -581,6 +618,8 @@ object AudioFallbackEngine {
         val catalogId = query.catalogId ?: return@withContext
         memory.remove(query.cacheKey)
         misses.evictAll()
+        // The user chose: the "better version" hint has done its job.
+        SourceUpgrades.clear(catalogId)
         runCatching {
             if (match == null) {
                 database.deleteAudioFallbackMatches(catalogId)

@@ -211,7 +211,7 @@ fun PlayerSettings(
     }
     val (pickMode, onPickModeChange) = rememberEnumPreference(
         key = com.metrolist.music.constants.SourcePickModeKey,
-        defaultValue = com.metrolist.music.constants.SourcePickMode.QUALITY,
+        defaultValue = com.metrolist.music.constants.SourcePickMode.AUTO,
     )
     val (downloadFormat, onDownloadFormatChange) = rememberEnumPreference(
         key = com.metrolist.music.constants.DownloadFormatKey,
@@ -221,9 +221,9 @@ fun PlayerSettings(
     var showDownloadFormatDialog by remember { mutableStateOf(false) }
     @Composable
     fun pickModeText(mode: com.metrolist.music.constants.SourcePickMode) = when (mode) {
-        com.metrolist.music.constants.SourcePickMode.QUALITY -> stringResource(R.string.source_pick_quality)
-        com.metrolist.music.constants.SourcePickMode.ACCURACY -> stringResource(R.string.source_pick_accuracy)
+        com.metrolist.music.constants.SourcePickMode.AUTO -> stringResource(R.string.source_pick_auto)
         com.metrolist.music.constants.SourcePickMode.SPEED -> stringResource(R.string.source_pick_speed)
+        com.metrolist.music.constants.SourcePickMode.QUALITY -> stringResource(R.string.source_pick_quality)
     }
     @Composable
     fun downloadFormatText(format: com.metrolist.music.constants.DownloadFormat) = when (format) {
@@ -321,20 +321,6 @@ fun PlayerSettings(
         Material3SettingsGroup(
             title = stringResource(R.string.player),
             items = buildList {
-                add(Material3SettingsItem(
-                    icon = painterResource(R.drawable.graphic_eq),
-                    title = { Text(stringResource(R.string.audio_quality)) },
-                    description = {
-                        Text(
-                            when (audioQuality) {
-                                AudioQuality.AUTO -> stringResource(R.string.audio_quality_auto)
-                                AudioQuality.HIGH -> stringResource(R.string.audio_quality_high)
-                                AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
-                            }
-                        )
-                    },
-                    onClick = { showAudioQualityDialog = true }
-                ))
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.graphic_eq),
                     title = { Text(stringResource(R.string.source_pick_mode)) },
