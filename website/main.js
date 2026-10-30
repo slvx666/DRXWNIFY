@@ -179,6 +179,21 @@ function renderDownloadCount(releases) {
   return total;
 }
 
+// «Сейчас слушают»: люди, у которых приложение за последние минуты отправило друзьям «что играет»
+// (functions/api/online.js). Ноль не показываем.
+async function renderLive() {
+  let online;
+  try {
+    online = await fetchJson("/api/online", 8000);
+  } catch (_) {
+    return;
+  }
+  const n = online.listening;
+  if (!n) return;
+  $("#live span").textContent = `${n} ${plural(n, "человек слушает", "человека слушают", "человек слушают")} сейчас`;
+  $("#live").hidden = false;
+}
+
 // Короткая статистика перед финалом: несколько цифр и посетители по дням за месяц
 // (красным — сколько из них нажали «Скачать»). Без счётчика блок не показывается.
 async function renderPulse(githubTotal) {
@@ -607,6 +622,7 @@ document.addEventListener("click", (e) => {
 
 document.addEventListener("DOMContentLoaded", async () => {
   track("view");
+  renderLive();
   setupPcDownload();
   if (!releaseAnchor) scrollTo(0, 0);
   $("#all-builds").href = ghReleasesPage;

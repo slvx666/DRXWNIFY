@@ -214,9 +214,10 @@ class SpotifyLibraryViewModel @Inject constructor(
                     Filter.ARTISTS -> entry.kind == SpotifyLibraryEntry.Kind.ARTIST
                 }
             }
-            // The account's own likes say whose they are, next to the app's "All liked songs".
-            val account = c[f].orEmpty().map { e ->
-                if (e.kind == SpotifyLibraryEntry.Kind.LIKED_SONGS && e.uri != APP_LIKED_URI) e.copy(name = accountLikedTitle()) else e
+            // The account's own "Liked songs" is left out: the app's "All liked songs" holds them
+            // (and the likes made in the app), so a second list of the same tracks only confused.
+            val account = c[f].orEmpty().filterNot { e ->
+                e.kind == SpotifyLibraryEntry.Kind.LIKED_SONGS && e.uri != APP_LIKED_URI
             }
             // Spotify keeps a second album id for some re-delivered releases; both can end up saved.
             val merged = (saved + account).distinctBy { e ->
@@ -312,6 +313,10 @@ class SpotifyLibraryViewModel @Inject constructor(
                     offset += PAGE
                     if (page.items.isEmpty() || offset >= page.total) break
                 }
+                // Cut short (another chip opened meanwhile): what was read is incomplete and must not
+                // replace the saved library — a cancelled load used to save a half list, and saved
+                // albums disappeared from the library.
+                kotlinx.coroutines.yield()
                 // The Liked Songs pseudo-playlist belongs to Playlists and "All" only.
                 val cleaned = all.distinctBy { it.uri }.filter { e ->
                     when (f) {

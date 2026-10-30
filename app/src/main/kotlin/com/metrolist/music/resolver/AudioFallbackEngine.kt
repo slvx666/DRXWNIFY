@@ -319,10 +319,9 @@ object AudioFallbackEngine {
      */
     fun checkForBetterVersion(mediaId: String, dbSong: Song?, playingKbps: Int?) {
         if (!::appContext.isInitialized) return
-        if (ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.SPEED) {
-            AudioDiagnostics.info("better-version check for $mediaId skipped: source choice is Speed")
-            return
-        }
+        // In every mode: the arrow is only a hint and slows nothing down. With Speed the version found
+        // is offered but not made the choice (the user said the bitrate doesn't matter to them).
+        val speed = ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.SPEED
         scope.launch {
             runCatching {
                 fun skip(why: String) = AudioDiagnostics.info("better-version check for $mediaId skipped: $why")
@@ -358,8 +357,10 @@ object AudioFallbackEngine {
                         "\n  " + outcome.report.joinToString("\n  "),
                 )
                 if (!better) return@launch
-                memory.put(query.cacheKey, best)
-                remember(query, outcome.matches, best)
+                if (!speed) {
+                    memory.put(query.cacheKey, best)
+                    remember(query, outcome.matches, best)
+                }
                 SourceUpgrades.offer(catalogId, best, bestKbps)
             }.onFailure { AudioDiagnostics.warn("better-version check for $mediaId failed: ${AudioDiagnostics.explain(it)}") }
         }
