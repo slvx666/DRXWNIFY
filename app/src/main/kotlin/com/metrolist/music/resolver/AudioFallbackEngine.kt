@@ -227,7 +227,11 @@ object AudioFallbackEngine {
                 }
             }
 
-            misses.get(missKey)?.takeIf { System.currentTimeMillis() - it < MISS_TTL_MS }?.let {
+            misses.get(missKey)?.takeIf { System.currentTimeMillis() - it < MISS_TTL_MS }?.let { at ->
+                AudioDiagnostics.info(
+                    "not searched again: ${query.label()} — every source answered \"no such track\" " +
+                        "${(System.currentTimeMillis() - at) / 1000}s ago (asked again after ${MISS_TTL_MS / 1000}s)",
+                )
                 return@withContext null
             }
 
@@ -645,7 +649,7 @@ object AudioFallbackEngine {
                 )
                 memory.put(query.cacheKey, match.copy(confidence = ParallelAudioResolver.MANUAL_CONFIDENCE))
             }
-        }.onFailure { AudioDiagnostics.warn("manual source choice for $mediaId failed: ${it.message}") }
+        }.onFailure { AudioDiagnostics.warn("manual source choice for $mediaId failed: ${com.metrolist.music.resolver.AudioDiagnostics.explain(it)}") }
         AudioDiagnostics.info(
             if (match == null) "source for ${query.label()} set back to automatic"
             else "source for ${query.label()} pinned to ${match.provider} '${match.artist} – ${match.title}'",
@@ -826,7 +830,16 @@ object AudioFallbackEngine {
         val streamFailures = HashMap<AudioProviderId, Int>()
         repeat(6) {
             val match = resolve(query.copy(excludedTrackIds = badTracks), exclude = tried) ?: run {
-                AudioDiagnostics.warn("no playable audio for ${query.label()} (failed providers=$tried, bad uploads=${badTracks.size})")
+                val why = when {
+                    activeProviders().isEmpty() -> "every audio source is off or not ready (Settings → Music sources)"
+                    sourcesDidNotAnswer(query) -> "some sources did not answer (network / VPN / VK pause) — it will be searched again"
+                    tried.isNotEmpty() || badTracks.isNotEmpty() -> "what was found would not stream"
+                    else -> "no source has this track (or it is named differently there)"
+                }
+                AudioDiagnostics.warn(
+                    "no playable audio for ${query.label()}: $why " +
+                        "(sources that failed to stream: ${tried.ifEmpty { "none" }}, uploads that failed: ${badTracks.size})",
+                )
                 AudioDiagnostics.recordFailure(
                     mediaId,
                     if (activeProviders().isEmpty()) AudioDiagnostics.FailureKind.ALL_SOURCES_DISABLED
@@ -857,7 +870,7 @@ object AudioFallbackEngine {
         val provider = providers[match.provider] ?: return null
         if (!provider.isReady()) return null
         val stream = runCatching { provider.stream(query, match) }
-            .onFailure { AudioDiagnostics.warn("stream ${match.provider} ✘ ${query.label()}: ${it.message}") }
+            .onFailure { AudioDiagnostics.warn("stream ${match.provider} ✘ ${query.label()}: ${com.metrolist.music.resolver.AudioDiagnostics.explain(it)}") }
             .getOrNull()
         if (stream == null) {
             AudioDiagnostics.warn("stream ${match.provider} ✘ ${query.label()} (track ${match.trackId}): no playable stream")

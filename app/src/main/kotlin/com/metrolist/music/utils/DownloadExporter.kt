@@ -177,7 +177,7 @@ class DownloadExporter @Inject constructor(
                         // Left in the pending set so the next app start tries again.
                         DownloadExportState.markFailed(songId)
                         Timber.e(it, "DownloadExporter: export failed for %s", songId)
-                        android.util.Log.w("DrxwnifyExport", "export failed for $songId: ${it.message}")
+                        com.metrolist.music.resolver.AudioDiagnostics.warn("file: writing the downloaded $songId into the music folder failed: ${com.metrolist.music.resolver.AudioDiagnostics.explain(it)}")
                     }
             } finally {
                 DownloadExportState.end(songId)
@@ -583,7 +583,7 @@ class DownloadExporter @Inject constructor(
                     if (folderPrefs.getString(KEY_DECLINED_FOLDER, null) != folder) {
                         DownloadExportState.folderAccessLost.value = true
                     }
-                    android.util.Log.w("DrxwnifyExport", "no write access to $folder, writing to Music/Drxwnify")
+                    com.metrolist.music.resolver.AudioDiagnostics.warn("file: the chosen download folder can't be written (access lost after reinstall?) — saving to Music/Drxwnify; pick the folder again in settings")
                     ""
                 }
             }

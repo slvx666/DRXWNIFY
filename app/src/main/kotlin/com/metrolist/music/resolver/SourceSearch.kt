@@ -109,7 +109,7 @@ object SourceSearch {
                     val found = withTimeoutOrNull(provider.searchTimeoutMs) {
                         runCatching { provider.searchFree(query, perProvider) }
                             .onFailure {
-                                AudioDiagnostics.warn("source search ${provider.id} ✘ '$query': ${it.message}")
+                                AudioDiagnostics.warn("source search ${provider.id} ✘ '$query': ${com.metrolist.music.resolver.AudioDiagnostics.explain(it)}")
                             }
                             .getOrDefault(emptyList())
                     }

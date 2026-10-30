@@ -324,9 +324,9 @@ constructor(
                                     } else {
                                         // No file will come of it: say so instead of spinning forever.
                                         DownloadExportState.markFailed(download.request.id)
-                                        Timber.tag(TAG).w(
-                                            "Skipping export for ${download.request.id}: incomplete " +
-                                                "(${download.bytesDownloaded}/${download.contentLength})"
+                                        AudioDiagnostics.warn(
+                                            "download: ${download.request.id} finished incomplete " +
+                                                "(${download.bytesDownloaded}/${download.contentLength} bytes) — no file written; the stream was cut off",
                                         )
                                     }
                                 }
@@ -334,7 +334,13 @@ constructor(
                                 Download.STATE_STOPPED,
                                 Download.STATE_REMOVING -> {
                                     database.updateDownloadedInfo(download.request.id, false, null)
-                                    if (download.state == Download.STATE_FAILED) forgetFailedSource(download.request.id, finalException)
+                                    if (download.state == Download.STATE_FAILED) {
+                                        AudioDiagnostics.warn(
+                                            "download: ${download.request.id} failed after ${download.bytesDownloaded / 1024} KB: " +
+                                                (finalException?.let(AudioDiagnostics::explain) ?: "no reason given"),
+                                        )
+                                        forgetFailedSource(download.request.id, finalException)
+                                    }
                                 }
                                 else -> {
                                 }
@@ -602,7 +608,7 @@ constructor(
                 runBlocking(Dispatchers.IO) {
                     withTimeout(210_000L) { AudioFallbackEngine.streamPlan(mediaId, dbSong, failedProviders, badTracks) }
                 }
-            }.onFailure { AudioDiagnostics.warn("download: resolve for $mediaId failed: ${it.message}") }
+            }.onFailure { AudioDiagnostics.warn("download: resolve for $mediaId failed: ${com.metrolist.music.resolver.AudioDiagnostics.explain(it)}") }
                 .getOrNull() ?: return null
 
             val streamUri: String

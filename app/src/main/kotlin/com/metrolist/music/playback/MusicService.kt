@@ -4340,7 +4340,7 @@ class MusicService :
                     AudioFallbackEngine.streamPlan(mediaId, dbSong, failures.providers, failures.tracks)
                 }
             }
-        }.onFailure { AudioDiagnostics.warn("audio resolve for $mediaId failed: ${it.message}") }
+        }.onFailure { AudioDiagnostics.warn("audio resolve for $mediaId failed: ${com.metrolist.music.resolver.AudioDiagnostics.explain(it)}") }
             .getOrNull() ?: return null
 
         return when (plan) {

@@ -83,7 +83,7 @@ private suspend fun existingExportUri(
                 .getOrNull()?.takeIf(::readable)
     }
     if (uri == null) {
-        android.util.Log.w("DrxwnifyExport", "no file for $songId: ${failure?.message}")
+        com.metrolist.music.resolver.AudioDiagnostics.warn("send: no file for $songId: ${failure?.let { com.metrolist.music.resolver.AudioDiagnostics.explain(it) } ?: "not exported"}")
         withContext(Dispatchers.Main) {
             Toast.makeText(context, context.getString(R.string.file_not_found), Toast.LENGTH_SHORT).show()
         }
@@ -116,7 +116,7 @@ suspend fun shareDownloadedFiles(
                 // Still being written (a download finishing right now): left out, not written over.
                 existing != null -> existing.takeUnless { stillWriting(context, it) }
                 else -> exporter.export(id, force = true)
-                    .onFailure { android.util.Log.w("DrxwnifyExport", "no file for $id: ${it.message}") }
+                    .onFailure { com.metrolist.music.resolver.AudioDiagnostics.warn("send: no file for $id: ${com.metrolist.music.resolver.AudioDiagnostics.explain(it)}") }
                     .getOrNull()?.takeIf(::readable)
             }
             uri?.let { found[id] = it }

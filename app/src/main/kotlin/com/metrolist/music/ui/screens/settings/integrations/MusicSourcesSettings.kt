@@ -536,11 +536,7 @@ fun AudioSearchLogScreen(navController: NavController) {
                         val dir = java.io.File(context.cacheDir, "logs").apply { mkdirs() }
                         dir.listFiles()?.forEach { it.delete() }
                         val file = java.io.File(dir, "drxwnify-log-$stamp.txt")
-                        val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
-                        file.writeText(
-                            "Drxwnify $version · ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE}\n\n" +
-                                AudioDiagnostics.asText(),
-                        )
+                        file.writeText(AudioDiagnostics.environment(context) + "\n" + AudioDiagnostics.asText())
                         val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", file)
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"

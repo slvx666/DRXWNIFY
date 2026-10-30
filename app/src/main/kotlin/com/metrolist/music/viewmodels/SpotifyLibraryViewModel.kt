@@ -281,8 +281,13 @@ class SpotifyLibraryViewModel @Inject constructor(
     }
 
     private fun load(f: Filter, force: Boolean = false) {
-        if (!force && loadJob?.isActive == true && _filter.value == f) return
-        loadJob = viewModelScope.launch(Dispatchers.IO) {
+        if (!force && loadJob?.isActive == true && loadingFilter == f) return
+        // Only the chip on screen loads: an earlier one still running used to switch the spinner
+        // off when it finished, and Artists then sat empty with no sign it was still loading.
+        loadJob?.cancel()
+        _loading.value = false
+        loadingFilter = f
+        val job = viewModelScope.launch(Dispatchers.IO, start = kotlinx.coroutines.CoroutineStart.LAZY) {
             // What was loaded last time shows at once; a fresh copy needs no request at all.
             val account = Catalog.source?.name ?: "none"
             val cached = com.metrolist.music.catalog.LibraryCache.get(f.name, account)
@@ -324,10 +329,16 @@ class SpotifyLibraryViewModel @Inject constructor(
                     com.metrolist.music.catalog.LibraryCache.put(f.name, account, cleaned)
                 }
             } finally {
-                _loading.value = false
+                if (loadJob === coroutineContext[kotlinx.coroutines.Job]) _loading.value = false
             }
         }
+        loadJob = job
+        job.start()
     }
+
+    /** The filter [loadJob] is loading. */
+    @Volatile
+    private var loadingFilter: Filter? = null
 
     private fun applySort(
         own: List<SpotifyLibraryEntry>,

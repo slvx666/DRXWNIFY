@@ -115,4 +115,60 @@ object AudioDiagnostics {
     }
 
     fun asText(): String = _lines.value.joinToString("\n")
+
+    /**
+     * An error as it is worth reading in a log: the exception chain (class and message of each
+     * cause, "failed: null" said nothing) and, for the usual network troubles, what they mean for
+     * the user (no internet, a VPN in the way, a blocked service) or that it was no error at all.
+     */
+    fun explain(error: Throwable): String {
+        val chain = generateSequence(error) { it.cause }.take(4).toList()
+        val text = chain.joinToString(" ← ") { e ->
+            e.javaClass.simpleName + (e.message?.takeIf { it.isNotBlank() }?.let { ": " + it.take(180) } ?: "")
+        }
+        val meaning = chain.firstNotNullOfOrNull { e ->
+            when (e) {
+                is kotlinx.coroutines.TimeoutCancellationException -> "gave up waiting — slow network or VPN, or every source was slow"
+                is java.net.UnknownHostException -> "host not found — no internet, or the service is blocked here (try with/without VPN)"
+                is java.net.SocketTimeoutException -> "timed out — slow or unstable network / VPN"
+                is java.net.ConnectException -> "connection refused — the server is blocked from this network (VPN?) or down"
+                is java.net.NoRouteToHostException -> "no route — the network or VPN is down"
+                is javax.net.ssl.SSLException -> "TLS failed — a VPN/proxy or antivirus is interfering, or the phone's clock is wrong"
+                is java.io.InterruptedIOException, is InterruptedException,
+                is kotlinx.coroutines.CancellationException -> "cancelled (track switched, app closed) — not an error"
+                else -> null
+            }
+        }
+        return if (meaning != null) "$text [$meaning]" else text
+    }
+
+    /**
+     * The header of a shared log: what the app and the phone were set to. Many reports are answered
+     * by it alone (all sources off, no VPN while a service is blocked, the shared VK account used up).
+     */
+    fun environment(context: android.content.Context): String = buildString {
+        val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+        appendLine("Drxwnify $version · ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} · Android ${android.os.Build.VERSION.RELEASE}")
+        runCatching {
+            val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
+            val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
+            val net = when {
+                caps == null -> "NO NETWORK"
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+                else -> "other"
+            }
+            val vpn = caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true
+            val validated = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+            appendLine("network: $net · VPN ${if (vpn) "on" else "off"} · internet ${if (validated) "checked OK" else "NOT confirmed"}")
+        }
+        val sources = AudioProviderId.entries.filter { it != AudioProviderId.QOBUZ }.joinToString { id ->
+            id.name.lowercase() + if (ResolverPreferences.isEnabled(id)) "" else " (off)"
+        }
+        appendLine("sources: $sources · order ${ResolverPreferences.order.joinToString(">") { it.name.lowercase() }}")
+        appendLine("source choice: ${ResolverPreferences.pickMode}")
+        appendLine("VK: ${if (VkMusic.ownAccount) "own account" else "shared demo account"} · ready ${VkMusic.isReady}")
+        runCatching { appendLine("free space: ${context.filesDir.usableSpace / (1024 * 1024)} MB") }
+    }
 }
