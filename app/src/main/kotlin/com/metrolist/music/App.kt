@@ -170,7 +170,7 @@ class App :
             // Tracks matched once (often to YouTube before VK was linked) were never asked of the
             // other sources again: each is compared with every source once more on its next play,
             // and a better version found is kept from then on.
-            val recheck = androidx.datastore.preferences.core.booleanPreferencesKey("sourcesRecheck220b")
+            val recheck = androidx.datastore.preferences.core.booleanPreferencesKey("sourcesRecheck220c")
             if (dataStore.data.first()[recheck] != true) {
                 getSharedPreferences("quality_checked", MODE_PRIVATE).edit().clear().apply()
                 getSharedPreferences("better_checked", MODE_PRIVATE).edit().clear().apply()

@@ -632,7 +632,16 @@ class HomeViewModel @Inject constructor(
     private suspend fun loadForYou(hideExplicit: Boolean) {
         // A newcomer's squares are the starter ones (set by loadStarterPicks), not these.
         if (newcomer.value) return
-        forYou.value = com.metrolist.music.playback.ForYouRecommender.build(database, hideExplicit).ifEmpty { null }
+        // Right after launch the account often isn't signed in yet (the network or VPN still coming
+        // up): the build came back empty and the squares stayed missing until a pull to refresh.
+        // A few more tries, a little apart, while the old squares (if any) stay on screen.
+        var built = com.metrolist.music.playback.ForYouRecommender.build(database, hideExplicit)
+        for (waitMs in FOR_YOU_RETRY_MS) {
+            if (built.isNotEmpty()) break
+            kotlinx.coroutines.delay(waitMs)
+            built = com.metrolist.music.playback.ForYouRecommender.build(database, hideExplicit)
+        }
+        if (built.isNotEmpty() || forYou.value == null) forYou.value = built.ifEmpty { null }
         preparedRadio = null
         prepareRadio()
     }
@@ -1141,6 +1150,9 @@ class HomeViewModel @Inject constructor(
         val firstLoadDone = MutableStateFlow(false)
 
         private const val SECTION_TIMEOUT_MS = 40_000L
+
+        /** Pauses before trying "For you" again when the account wasn't ready yet. */
+        private val FOR_YOU_RETRY_MS = listOf(3_000L, 8_000L, 15_000L)
 
         /** How long the home waits for the accounts' likes before going by the last known ones. */
         private const val ACCOUNT_LIKES_WAIT_MS = 15_000L

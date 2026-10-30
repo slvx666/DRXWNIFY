@@ -324,11 +324,43 @@ object SpotifyMapper {
 
     private fun symbolsOf(s: String): String = s.filterNot { it.isWhitespace() }
 
-    /** Normalized artist tokens from a (possibly multi-artist) credit string, empties removed. */
+    /**
+     * Normalized artist tokens from a (possibly multi-artist) credit string, empties removed. A band
+     * that changed its name brings its old one too: uploads made before carry it (Spotify says
+     * "Electric Callboy", VK and YouTube have the 2014 album as "Eskimo Callboy").
+     */
     fun artistTokens(spotifyArtists: String): List<String> =
         ARTIST_SPLIT_REGEX.split(spotifyArtists)
             .map { cachedNormalize(it) }
             .filter { it.isNotEmpty() }
+            .flatMap { listOf(it) + normalizedAliases[it].orEmpty() }
+            .distinct()
+
+    /** The other names [artist] is known under (a band's old name), as written; empty for most. */
+    fun artistAliases(artist: String): List<String> {
+        val key = cachedNormalize(artist)
+        return ARTIST_RENAMES.firstOrNull { group -> group.any { cachedNormalize(it) == key } }
+            ?.filter { cachedNormalize(it) != key }
+            .orEmpty()
+    }
+
+    /** Acts that changed their name, or are commonly written another way. Each line: one act. */
+    private val ARTIST_RENAMES = listOf(
+        listOf("Electric Callboy", "Eskimo Callboy"),
+        listOf("Ghost", "Ghost B.C."),
+        listOf("Ye", "Kanye West"),
+        listOf("Bring Me The Horizon", "BMTH"),
+        listOf("\$uicideboy\$", "Suicideboys"),
+        listOf("Lorna Shore", "Lorna Shore Band"),
+        listOf("Our Last Night", "OLN"),
+    )
+
+    private val normalizedAliases: Map<String, List<String>> by lazy {
+        ARTIST_RENAMES.flatMap { group ->
+            val keys = group.map { cachedNormalize(it) }.filter { it.isNotEmpty() }
+            keys.map { k -> k to keys.filter { it != k } }
+        }.toMap()
+    }
 
     /**
      * True when an expected artist appears in the candidate's title, or in its artist field without

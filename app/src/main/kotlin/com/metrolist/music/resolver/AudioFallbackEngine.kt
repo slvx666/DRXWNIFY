@@ -347,16 +347,31 @@ object AudioFallbackEngine {
                 val playingNow = playingKbps ?: playing?.let(::effectiveKbps) ?: return@launch skip("the playing version's bitrate is unknown")
                 val best = outcome.matches.firstOrNull { it.usableFor(query, emptySet()) } ?: return@launch
                 val bestKbps = effectiveKbps(best)
+                val sameUpload = playing != null && best.provider == playing.provider && best.trackId == playing.trackId
                 val exact = playing == null || best.confidence >= playing.confidence - ParallelAudioResolver.AUTO_CONFIDENCE_MARGIN
-                val better = bestKbps >= playingNow + MIN_UPGRADE_KBPS && exact &&
-                    !(playing != null && best.provider == playing.provider && best.trackId == playing.trackId)
+                val betterSound = bestKbps >= playingNow + MIN_UPGRADE_KBPS && exact && !sameUpload
+                // The exact track found where only a doubtful one was (a 71 % Soulseek file for
+                // a renamed band): the right recording wins whatever the bitrate, in every mode —
+                // another version is worse than a lower bitrate.
+                val moreExact = !sameUpload && playing != null &&
+                    playing.confidence < ParallelAudioResolver.STRONG_MATCH && best.confidence >= ParallelAudioResolver.STRONG_MATCH
                 AudioDiagnostics.info(
-                    "better-version check ${query.label()}: playing ~$playingNow kbps (${playing?.provider ?: "?"}), " +
-                        "best found ${best.provider} ~$bestKbps kbps (${"%.2f".format(best.confidence)}) → " +
-                        (if (better) "offered, used from the next play/download" else "nothing better") +
+                    "better-version check ${query.label()}: playing ~$playingNow kbps (${playing?.provider ?: "?"}, " +
+                        "${playing?.let { "%.2f".format(it.confidence) } ?: "?"}), best found ${best.provider} ~$bestKbps kbps " +
+                        "(${"%.2f".format(best.confidence)}) → " +
+                        when {
+                            moreExact -> "the exact track, used from the next play/download"
+                            betterSound -> "offered, used from the next play/download"
+                            else -> "nothing better"
+                        } +
                         "\n  " + outcome.report.joinToString("\n  "),
                 )
-                if (!better) return@launch
+                if (moreExact) {
+                    memory.put(query.cacheKey, best)
+                    remember(query, outcome.matches, best)
+                    return@launch
+                }
+                if (!betterSound) return@launch
                 if (!speed) {
                     memory.put(query.cacheKey, best)
                     remember(query, outcome.matches, best)

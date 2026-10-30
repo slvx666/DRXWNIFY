@@ -241,6 +241,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -987,8 +988,10 @@ class MusicService :
                 if (key != null && enabled) {
                     discordRpc = DiscordRPC(this, key)
                     if (player.playbackState == Player.STATE_READY && player.playWhenReady) {
+                        // No toast here: this runs at every start, and a Discord that doesn't answer
+                        // (no VPN) popped "Discord RPC update failed" over the first track.
                         currentSong.value?.let {
-                            updateDiscordRPC(it, true)
+                            updateDiscordRPC(it, false)
                         }
                     }
                 }
@@ -1010,6 +1013,9 @@ class MusicService :
                 )
             }.debounce(300)
             .distinctUntilChanged()
+            // The values as they are at start aren't a change: only a setting changed by hand
+            // gets a "failed" toast (it came up on every launch).
+            .drop(1)
             .collect(scope) {
                 if (player.playbackState == Player.STATE_READY) {
                     currentSong.value?.let { song ->
@@ -4132,6 +4138,7 @@ class MusicService :
                         activityType,
                         activityName,
                     )?.onFailure {
+                        com.metrolist.music.resolver.AudioDiagnostics.info("Discord status not updated: ${com.metrolist.music.resolver.AudioDiagnostics.explain(it)}")
                         // Rate limited or error
                         if (showFeedback) {
                             Handler(Looper.getMainLooper()).post {

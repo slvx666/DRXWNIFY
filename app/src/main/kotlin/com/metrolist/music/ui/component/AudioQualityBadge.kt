@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.component
 
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.animateFloat
@@ -104,11 +105,17 @@ fun PlayerQualityLine(mediaId: String?, color: androidx.compose.ui.graphics.Colo
     val served by com.metrolist.music.resolver.NowServing.version.collectAsState()
     val source by androidx.compose.runtime.produceState<String?>(null, mediaId, served, format) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            (com.metrolist.music.resolver.NowServing.of(mediaId)
-                ?: com.metrolist.music.resolver.AudioFallbackEngine.sourceOf(mediaId, database.getSongByIdBlocking(mediaId)))
-                ?.let(::providerLabel)
+            runCatching {
+                (com.metrolist.music.resolver.NowServing.of(mediaId)
+                    ?: com.metrolist.music.resolver.AudioFallbackEngine.sourceOf(mediaId, database.getSongByIdBlocking(mediaId)))
+                    ?.let(::providerLabel)
+            }.getOrNull()
         }
     }
+    // A downloaded track plays from its file: said as such when the service it came from isn't known.
+    val exportedIds by com.metrolist.music.utils.DownloadExportState.exported.collectAsState()
+    val fileLabel = androidx.compose.ui.res.stringResource(R.string.quality_source_file)
+    val sourceShown = source ?: fileLabel.takeIf { mediaId in exportedIds }
     // No format record (a track that started from the cache or its file): what is known of the
     // chosen version still shows — the line used to be missing for such tracks.
     val chosenKbps by androidx.compose.runtime.produceState<Int?>(null, mediaId, served) {
@@ -118,7 +125,7 @@ fun PlayerQualityLine(mediaId: String?, color: androidx.compose.ui.graphics.Colo
         }
     }
     val current = format ?: run {
-        val parts = listOfNotNull(chosenKbps?.let { "$it kbps" }, source)
+        val parts = listOfNotNull(chosenKbps?.let { "$it kbps" }, sourceShown)
         if (parts.isEmpty()) return
         Text(
             text = parts.joinToString(" · "),
@@ -164,7 +171,7 @@ fun PlayerQualityLine(mediaId: String?, color: androidx.compose.ui.graphics.Colo
             codec?.let { sep(); append(it) }
         }
         khz?.let { sep(); append(it) }
-        source?.let { sep(); append(it) }
+        sourceShown?.let { sep(); append(it) }
     }
     if (text.isEmpty()) return
     val catalogId by androidx.compose.runtime.produceState<String?>(null, mediaId) {
@@ -172,20 +179,31 @@ fun PlayerQualityLine(mediaId: String?, color: androidx.compose.ui.graphics.Colo
     }
     val upgrades by com.metrolist.music.resolver.SourceUpgrades.available.collectAsState()
     // A better version turned up after this track had started: a quiet hint, the user decides.
-    val upgrade = catalogId?.let { upgrades[it] }?.takeIf { up -> kbps == null || up.kbps > kbps }
+    // Only a clearly better version, while another one plays: an unknown bitrate here (a VK
+    // stream states 0) or a version already switched to showed the arrow for the same 320 kbps.
+    val servingNow = com.metrolist.music.resolver.NowServing.of(mediaId)
+    val upgrade = catalogId?.let { upgrades[it] }?.takeIf { up ->
+        kbps != null && up.kbps >= kbps + MIN_BETTER_KBPS && up.match.provider != servingNow
+    }
     androidx.compose.foundation.layout.Row(
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         modifier = modifier,
     ) {
+        // A long line ("1126 kbps · FLAC · 44.1 kHz · Soulseek") scrolls instead of cutting off
+        // the source at its end.
         Text(
             text = text,
             style = MaterialTheme.typography.labelMedium,
             color = color.copy(alpha = 0.75f),
             maxLines = 1,
+            modifier = Modifier.weight(1f, fill = false).basicMarquee(),
         )
         if (upgrade != null) BetterVersionArrow(upgrade.kbps)
     }
 }
+
+/** How much better a version must sound to earn the arrow (the same as the engine's upgrade line). */
+private const val MIN_BETTER_KBPS = 32
 
 /** The small green "a better version exists" arrow, bobbing gently. Not a button. */
 @Composable

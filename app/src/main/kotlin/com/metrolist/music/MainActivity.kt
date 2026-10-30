@@ -639,6 +639,25 @@ class MainActivity : ComponentActivity() {
                 val bottomInsetDp = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
 
                 val navController = rememberNavController()
+                // "Back" right after opening a screen (settings) was lost: the screen's own back handling
+                // switches on only once it has composed, and a swipe in that first moment did
+                // nothing. This one is registered first (so every sheet and dialog still comes before
+                // it) and goes back whenever there is a screen to go back to.
+                DisposableEffect(navController) {
+                    val early = object : androidx.activity.OnBackPressedCallback(true) {
+                        override fun handleOnBackPressed() {
+                            if (navController.previousBackStackEntry != null) {
+                                navController.popBackStack()
+                            } else {
+                                isEnabled = false
+                                onBackPressedDispatcher.onBackPressed()
+                                isEnabled = true
+                            }
+                        }
+                    }
+                    onBackPressedDispatcher.addCallback(early)
+                    onDispose { early.remove() }
+                }
 
                 // Launch intro. While it plays, the app itself is not composed at all (so the animation
                 // gets the main thread); home loads in its activity-scoped view model and the library

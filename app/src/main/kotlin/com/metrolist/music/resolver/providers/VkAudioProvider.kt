@@ -233,19 +233,33 @@ class VkAudioProvider(
         if (text.isBlank()) return null
         // Errors (bad token, API refused) propagate so the audio search log shows the real reason.
         // VK leaves URLs out of search results for most accounts; stream() fetches them via audio.getById.
-        val items = fetch(text, 30, requireUrl = false)
-        if (items.isEmpty()) return null
+        var items = fetch(text, 30, requireUrl = false)
+
+        fun rank(found: List<VkAudio>) = ProviderGate.ranked(
+            query,
+            found.map { SpotifyMapper.Candidate(it.fullId, it.title, it.artist, it.durationSec.takeIf { d -> d > 0 }, thumbnailUrl = it.thumb) },
+            limit = 5,
+        )
 
         // The best upload whose server isn't known to be out of reach: VK keeps the same track on
         // many servers, and one cut off by the network only played after a minute of retries.
         // When every upload sits on such a server the best one is still the answer — "down" is a
         // guess that lasts 10 minutes (a whole /24 at a time), and dropping the only upload of a
         // track made a downloaded album miss it as "not found anywhere"; stream() probes it.
-        val ranked = ProviderGate.ranked(
-            query,
-            items.map { SpotifyMapper.Candidate(it.fullId, it.title, it.artist, it.durationSec.takeIf { d -> d > 0 }, thumbnailUrl = it.thumb) },
-            limit = 5,
-        )
+        var ranked = rank(items)
+        // A band that changed its name: its older records are uploaded under the old one, and the
+        // new name finds only re-uploads of whole albums ("Electric Callboy – Cstrp" vs "Eskimo Callboy").
+        if (ranked.isEmpty()) {
+            for (alias in SpotifyMapper.artistAliases(query.primaryArtist)) {
+                val again = fetch(ProviderGate.searchText(query.copy(artists = listOf(alias))), 30, requireUrl = false)
+                ranked = rank(again)
+                if (ranked.isNotEmpty()) {
+                    items = again
+                    break
+                }
+            }
+        }
+        if (ranked.isEmpty()) return null
         val chosen = ranked.firstOrNull { c ->
             !com.metrolist.music.playback.datasource.CdnHosts.likelyDown(
                 com.metrolist.music.playback.datasource.CdnHosts.hostOf(items.first { it.fullId == c.id }.url),
