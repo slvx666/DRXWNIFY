@@ -159,6 +159,7 @@ fun ArtistScreen(
     val catalogTopTracks by viewModel.catalogTopTracks.collectAsState()
     val catalogArtist by viewModel.catalogArtist.collectAsState()
     val catalogLoaded by viewModel.catalogLoaded.collectAsState()
+    val catalogFailed by viewModel.catalogFailed.collectAsState()
     val monthlyListenersTemplate = stringResource(R.string.spotify_monthly_listeners)
     // With a linked Spotify / Yandex Music account the whole profile (photo, name, tracks, releases,
     // similar artists) comes from that catalog; the YouTube page is only a fallback — also when the
@@ -209,7 +210,33 @@ fun ArtistScreen(
             state = lazyListState,
             contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
         ) {
-            if (artistPage == null && !showLocal && !useCatalog) {
+            if (artistPage == null && !showLocal && !useCatalog && catalogFailed) {
+                item(key = "artist_failed") {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 120.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.artist_open_failed),
+                            style = MaterialTheme.typography.titleMedium,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = stringResource(R.string.artist_open_failed_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        androidx.compose.material3.TextButton(onClick = viewModel::retryCatalog) {
+                            Text(stringResource(R.string.retry))
+                        }
+                    }
+                }
+            } else if (artistPage == null && !showLocal && !useCatalog) {
                 item(key = "shimmer") {
                     ShimmerHost(
                         modifier =
@@ -551,6 +578,21 @@ fun ArtistScreen(
                                 }
                             }
                         }
+                    }
+                }
+
+                // A saved artist the catalog has no music for (and no YouTube page either): says so.
+                if (showLocal && catalogFailed && librarySongs.isEmpty() && libraryAlbums.isEmpty()) {
+                    item(key = "artist_no_music") {
+                        Text(
+                            text = stringResource(R.string.artist_open_failed_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 48.dp),
+                        )
                     }
                 }
 

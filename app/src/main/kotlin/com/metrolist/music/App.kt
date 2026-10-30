@@ -215,6 +215,8 @@ class App :
         com.metrolist.music.friends.FriendLikesSync.init(this, database)
         com.metrolist.music.friends.FriendsHub.init(this, database)
         com.metrolist.music.catalog.Catalog.init(dataStore, applicationScope, getString(R.string.liked_songs))
+        com.metrolist.music.catalog.CrossCatalog.init(this, applicationScope)
+        com.metrolist.music.catalog.AccountLikes.init(this)
 
         // تهيئة إعدادات التطبيق عند الإقلاع
         applicationScope.launch {
@@ -328,6 +330,7 @@ class App :
             }
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(channel)
+        com.metrolist.music.concerts.ConcertAlerts.schedule(this)
     }
 
     private fun observeSettingsChanges() {

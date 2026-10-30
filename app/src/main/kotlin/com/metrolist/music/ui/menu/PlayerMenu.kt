@@ -1125,9 +1125,10 @@ fun PlayerMenu(
             Material3MenuGroup(
                 items =
                     buildList {
-                        // Other recordings of the track to pick from, closest first, with bitrates.
-                        val canChangeVersion = !mediaMetadata.isEpisode &&
-                            !com.metrolist.music.resolver.SourceSearch.isSourceTrack(mediaMetadata.id)
+                        // Other recordings of the track to pick from, closest first, with bitrates. A
+                        // track from a source (a SoundCloud import) too: its upload may be gone or fail
+                        // to download, and the same song is often on VK or YouTube.
+                        val canChangeVersion = !mediaMetadata.isEpisode
                         if (canChangeVersion) {
                             add(
                                 Material3MenuItemData(

@@ -218,6 +218,11 @@ fun ImportPlaylistScreen(navController: NavController, targetPlaylistId: String?
                     IconButton(onClick = { audioUris = emptyList() }) { Icon(painterResource(R.drawable.close), null) }
                 }
             }
+            OutlinedButton(onClick = { navController.navigate("soundcloud_import") }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
+                Icon(painterResource(R.drawable.cloud), null, Modifier.size(18.dp))
+                Spacer(Modifier.size(6.dp))
+                Text(stringResource(R.string.import_from_soundcloud))
+            }
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
@@ -285,6 +290,9 @@ private fun ImportProgress(p: PlaylistImporter.Progress, onOpen: (String) -> Uni
             stringResource(R.string.import_deep_pass, deep.first, deep.second),
             style = MaterialTheme.typography.bodyMedium,
         )
+    }
+    if (p.queued > 0) {
+        Text(stringResource(R.string.import_queued, p.queued), style = MaterialTheme.typography.bodyMedium)
     }
     if (!p.finished) {
         Text(

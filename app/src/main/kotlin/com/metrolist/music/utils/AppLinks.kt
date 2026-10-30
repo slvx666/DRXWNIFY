@@ -65,11 +65,37 @@ object AppLinks {
                 val rest = segments.dropWhile { it.startsWith("intl-") }
                 (rest.getOrNull(0) ?: return null) to (rest.getOrNull(1) ?: return null)
             }
+            isYandexMusicHost(uri.host) -> return yandexTarget(segments)
             else -> return null
         }
         val kind = Kind.entries.firstOrNull { it.path == kindName } ?: return null
         if (id.isBlank()) return null
         return Target(kind, id, uri.getQueryParameter("n"), uri.getQueryParameter("by"))
+    }
+
+    /** music.yandex.ru and its other domains (.com, .by, .kz, .uz), the new player's too. */
+    private fun isYandexMusicHost(host: String?): Boolean {
+        val h = host?.lowercase()?.removePrefix("www.")?.removePrefix("next.") ?: return false
+        return h.startsWith("music.yandex.")
+    }
+
+    /**
+     * A Yandex Music link: /album/<a>/track/<t>, /track/<t>, /album/<a>, /artist/<id>[/…] and
+     * /users/<owner>/playlists/<kind>. The newer /playlists/<uuid> links aren't understood.
+     */
+    private fun yandexTarget(segments: List<String>): Target? {
+        fun at(i: Int) = segments.getOrNull(i)?.takeIf { it.isNotBlank() }
+        val numeric = Regex("^\\d+$")
+        return when {
+            at(0) == "album" && at(2) == "track" && at(3)?.matches(numeric) == true ->
+                Target(Kind.TRACK, YandexIds.track(at(3)!!), null, null)
+            at(0) == "track" && at(1)?.matches(numeric) == true -> Target(Kind.TRACK, YandexIds.track(at(1)!!), null, null)
+            at(0) == "album" && at(1)?.matches(numeric) == true -> Target(Kind.ALBUM, YandexIds.album(at(1)!!), null, null)
+            at(0) == "artist" && at(1)?.matches(numeric) == true -> Target(Kind.ARTIST, YandexIds.artist(at(1)!!), null, null)
+            at(0) == "users" && at(2) == "playlists" && at(1) != null && at(3)?.matches(numeric) == true ->
+                Target(Kind.PLAYLIST, YandexIds.playlist(at(1)!!, at(3)!!), null, null)
+            else -> null
+        }
     }
 
     /**

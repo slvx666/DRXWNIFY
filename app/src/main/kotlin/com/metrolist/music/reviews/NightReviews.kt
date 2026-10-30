@@ -38,6 +38,8 @@ object NightReviews {
         val year: Int?,
         val rating: Double,
         val genres: List<String>,
+        /** [genres] without the influences: the album's own genres. */
+        val mainGenres: List<String> = genres,
         val country: String,
         val label: String,
         /** Listener popularity as the site states it (Last.fm-based). */
@@ -61,6 +63,9 @@ object NightReviews {
     /** The bot's fresh posts and edits since the last site build (the site lays them over the build). */
     private const val LIVE_URL = BASE + "api/live"
     private const val CACHE_FILE = "night_reviews.json"
+
+    /** The site's list as it was at build time, without review texts or covers (see [offline]). */
+    private const val SNAPSHOT = "night_reviews_snapshot.json"
     private const val PREFS = "night_reviews"
 
     private val _state = MutableStateFlow(State())
@@ -112,6 +117,20 @@ object NightReviews {
                 newIds = _state.value.newIds + fresh,
             )
         }
+    }
+
+    /**
+     * The list without waiting for the site (it doesn't open everywhere without a VPN): what is
+     * loaded, else the last list fetched, else the snapshot shipped with the app (facts only).
+     */
+    fun offline(context: Context): List<Review> {
+        _state.value.reviews.takeIf { it.isNotEmpty() }?.let { return it }
+        val app = context.applicationContext
+        val cached = File(app.filesDir, CACHE_FILE).takeIf { it.exists() }
+            ?.let { runCatching { parse(it.readText()).first }.getOrNull() }
+        return cached?.takeIf { it.isNotEmpty() }
+            ?: runCatching { parse(app.assets.open(SNAPSHOT).bufferedReader().use { it.readText() }).first }
+                .getOrDefault(emptyList())
     }
 
     private fun fetchText(url: String): String? = runCatching {
@@ -170,6 +189,11 @@ object NightReviews {
                 year = o.optInt("y").takeIf { it > 0 },
                 rating = o.optDouble("r", 0.0).takeUnless { it.isNaN() } ?: 0.0,
                 genres = o.optJSONArray("g")?.let { g -> (0 until g.length()).map { g.optString(it) }.filter { it.isNotBlank() } }.orEmpty(),
+                // "gi" marks which of them are influences (the site shows them as such), not the album's genres.
+                mainGenres = o.optJSONArray("g")?.let { g ->
+                    val influence = o.optJSONArray("gi")
+                    (0 until g.length()).filter { influence?.optBoolean(it) != true }.map { g.optString(it) }.filter { it.isNotBlank() }
+                }.orEmpty(),
                 country = Countries.normalize(o.optString("c")),
                 label = o.optString("l").takeUnless { it == "[no label]" }.orEmpty(),
                 popularity = o.optInt("pop"),
@@ -184,14 +208,24 @@ object NightReviews {
      * The catalog album (Spotify / Yandex Music id) of [review], found by artist + title. Remembered,
      * so an album opens at once the next time.
      */
-    suspend fun findAlbum(context: Context, review: Review): String? = withContext(Dispatchers.IO) {
+    suspend fun findAlbum(
+        context: Context,
+        review: Review,
+        /** A catalog to look in instead of the account's (the starter home searches Spotify like the search box). */
+        target: com.metrolist.music.constants.MetadataSource? = null,
+    ): String? = withContext(Dispatchers.IO) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        prefs.getString("album:${review.id}", null)?.let { return@withContext it }
+        // Per account: an id found in Spotify's catalog means nothing to a Yandex one, and back.
+        val key = "album:${(target ?: Catalog.source)?.name ?: "none"}:${review.id}"
+        prefs.getString(key, null)?.let { return@withContext it }
         val wantedTitle = normalize(review.album)
         val wantedArtist = normalize(review.artist)
         val queries = listOf("${review.artist} ${review.album}", review.album)
         for (query in queries) {
-            val albums = runCatching { Catalog.search(query, listOf("album"), 20).getOrNull()?.albums?.items }
+            val albums = runCatching {
+                (if (target != null) Catalog.searchIn(target, query, listOf("album"), 20) else Catalog.search(query, listOf("album"), 20))
+                    .getOrNull()?.albums?.items
+            }
                 .getOrNull().orEmpty()
             val best = albums
                 .map { album ->
@@ -211,7 +245,7 @@ object NightReviews {
                 .sortedWith(compareByDescending<Triple<*, Int, Boolean>> { it.second }.thenByDescending { it.third })
                 .firstOrNull()?.first
             if (best != null && best.id.isNotBlank()) {
-                prefs.edit().putString("album:${review.id}", best.id).apply()
+                prefs.edit().putString(key, best.id).apply()
                 return@withContext best.id
             }
         }

@@ -77,6 +77,16 @@ fun LibraryScreen(navController: NavController) {
     val reviewsOpen = showReviews && reviewsAccess
     if (reviewsOpen) androidx.activity.compose.BackHandler { showReviews = false }
 
+    // "Афиша": the concert poster as a section of its own (when switched on).
+    val concertsOn by com.metrolist.music.concerts.Concerts.enabledFlow(androidx.compose.ui.platform.LocalContext.current).collectAsState()
+    var showConcerts by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(resetRequested) {
+        if (resetRequested) showConcerts = false
+    }
+    val openConcerts: (() -> Unit)? = if (concertsOn == true) ({ showConcerts = true }) else null
+    val concertsOpen = showConcerts && concertsOn == true
+    if (concertsOpen) androidx.activity.compose.BackHandler { showConcerts = false }
+
     // Same row proportions everywhere in the library, so the sections don't look like different apps.
     androidx.compose.runtime.CompositionLocalProvider(
         com.metrolist.music.ui.component.LocalListItemSizes provides
@@ -84,6 +94,7 @@ fun LibraryScreen(navController: NavController) {
     ) {
         AnimatedContent(
             targetState = when {
+                concertsOpen -> "concerts"
                 reviewsOpen -> "reviews"
                 vkOpen -> "vk"
                 else -> "library"
@@ -96,6 +107,19 @@ fun LibraryScreen(navController: NavController) {
                 "vk" -> com.metrolist.music.ui.screens.vk.VkLibraryScreen(
                     navController = navController,
                     onClose = { showVk = false },
+                )
+                "concerts" -> com.metrolist.music.ui.screens.ConcertsContent(
+                    navController = navController,
+                    header = {
+                        LibraryChips(
+                            selected = SpotifyLibraryViewModel.Filter.ALL,
+                            localSelected = false,
+                            onSelect = { showConcerts = false },
+                            onClear = { showConcerts = false },
+                            onLocal = { showConcerts = false },
+                            concertsSelected = true,
+                        )
+                    },
                 )
                 "reviews" -> com.metrolist.music.ui.screens.reviews.ReviewsContent(
                     navController = navController,
@@ -111,7 +135,7 @@ fun LibraryScreen(navController: NavController) {
                     },
                 )
                 // One library, account or not: without one it lists what is saved in the app.
-                else -> AccountLibrary(navController, resetRequested, openVk, openReviews)
+                else -> AccountLibrary(navController, resetRequested, openVk, openReviews, openConcerts)
             }
         }
     }
@@ -119,7 +143,7 @@ fun LibraryScreen(navController: NavController) {
 
 /** The library of the connected Spotify / Yandex Music account, with "Local" one chip away. */
 @Composable
-private fun AccountLibrary(navController: NavController, resetRequested: Boolean, openVk: (() -> Unit)?, openReviews: (() -> Unit)?) {
+private fun AccountLibrary(navController: NavController, resetRequested: Boolean, openVk: (() -> Unit)?, openReviews: (() -> Unit)?, openConcerts: (() -> Unit)?) {
     var showLocal by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(resetRequested) {
         if (resetRequested) showLocal = false
@@ -146,7 +170,7 @@ private fun AccountLibrary(navController: NavController, resetRequested: Boolean
                 },
             )
         } else {
-            SpotifyLibraryScreen(navController, onLocalSelected = { showLocal = true }, onVkSelected = openVk, onReviewsSelected = openReviews)
+            SpotifyLibraryScreen(navController, onLocalSelected = { showLocal = true }, onVkSelected = openVk, onReviewsSelected = openReviews, onConcertsSelected = openConcerts)
         }
     }
 }

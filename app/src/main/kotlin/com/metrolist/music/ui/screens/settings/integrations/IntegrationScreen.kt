@@ -51,7 +51,38 @@ fun IntegrationScreen(
         val (discordToken) = rememberPreference(DiscordTokenKey, "")
         val (ytCookie) = rememberPreference(InnerTubeCookieKey, "")
         val (spotifyToken) = rememberPreference(SpotifyAccessTokenKey, "")
-        val (yandexToken) = rememberPreference(YandexAccessTokenKey, "")
+        var yandexToken by rememberPreference(YandexAccessTokenKey, "")
+        var yandexUid by rememberPreference(com.metrolist.music.constants.YandexUidKey, "")
+        var yandexName by rememberPreference(com.metrolist.music.constants.YandexUsernameKey, "")
+        var showYandexAccount by androidx.compose.runtime.saveable.rememberSaveable {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+        // The connected account, and the two things to do with it, like VK's.
+        if (showYandexAccount) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showYandexAccount = false },
+                icon = { Icon(painterResource(R.drawable.yandex_music), contentDescription = null) },
+                title = { Text(stringResource(R.string.yandex_music)) },
+                text = { Text(stringResource(R.string.yandex_connected_as, yandexName.ifBlank { yandexUid })) },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showYandexAccount = false
+                        navController.navigate("settings/yandex/login")
+                    }) { Text(stringResource(R.string.login_switch_account)) }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        yandexToken = ""
+                        yandexUid = ""
+                        yandexName = ""
+                        com.metrolist.yandex.YandexMusic.accessToken = null
+                        com.metrolist.yandex.YandexMusic.uid = null
+                        com.metrolist.music.catalog.Catalog.invalidateCaches()
+                        showYandexAccount = false
+                    }) { Text(stringResource(R.string.action_logout)) }
+                },
+            )
+        }
         var vkToken by rememberPreference(com.metrolist.music.constants.VkAccessTokenKey, "")
         var vkUserId by rememberPreference(com.metrolist.music.constants.VkUserIdKey, "")
         var showVkLogout by androidx.compose.runtime.saveable.rememberSaveable {
@@ -118,9 +149,7 @@ fun IntegrationScreen(
                     description = { Text(stringResource(R.string.integration_yandex_description)) },
                     trailingContent = if (yandexToken.isNotEmpty()) connected else null,
                     onClick = {
-                        navController.navigate(
-                            if (yandexToken.isNotEmpty()) "settings/integrations/sources" else "settings/yandex/login",
-                        )
+                        if (yandexToken.isNotEmpty()) showYandexAccount = true else navController.navigate("settings/yandex/login")
                     }
                 ),
                 IntegrationCardItem(
@@ -139,6 +168,14 @@ fun IntegrationScreen(
                     trailingContent = if (vkToken.isNotEmpty()) connected else null,
                     onClick = {
                         if (vkToken.isNotEmpty()) showVkLogout = true else navController.navigate("settings/vk/login")
+                    }
+                ),
+                IntegrationCardItem(
+                    icon = painterResource(R.drawable.cloud),
+                    title = { Text(stringResource(R.string.audio_source_soundcloud)) },
+                    description = { Text(stringResource(R.string.integration_soundcloud_description)) },
+                    onClick = {
+                        navController.navigate("soundcloud_import")
                     }
                 ),
                 IntegrationCardItem(

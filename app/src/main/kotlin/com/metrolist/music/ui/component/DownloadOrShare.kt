@@ -58,6 +58,7 @@ import kotlinx.coroutines.launch
  *  - part of it: one pill, "download the rest | send 13/16";
  *  - all of it: one pill, "remove | send 16".
  * The count on the send half says exactly what will go out. [compact] = the round VK style.
+ * [downloading]: the rest is on its way, so its half spins instead of offering it again.
  */
 @Composable
 fun DownloadOrShare(
@@ -67,6 +68,7 @@ fun DownloadOrShare(
     onDownloadRest: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    downloading: Boolean = false,
     downloadButton: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -119,7 +121,9 @@ fun DownloadOrShare(
         SplitPill(
             height = if (compact) 48.dp else 40.dp,
             left = {
-                if (s == 1) {
+                if (s == 1 && downloading) {
+                    androidx.compose.material3.CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                } else if (s == 1) {
                     Icon(painterResource(R.drawable.download), stringResource(R.string.download_the_rest_short), Modifier.size(20.dp))
                 } else {
                     Icon(painterResource(R.drawable.delete), stringResource(R.string.remove_downloads), Modifier.size(20.dp))

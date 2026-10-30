@@ -368,6 +368,10 @@ fun NavGraphBuilder.navigationBuilder(
         com.metrolist.music.ui.screens.ImportPlaylistScreen(navController, entry.arguments?.getString("target"))
     }
 
+    composable("soundcloud_import") {
+        com.metrolist.music.ui.screens.SoundCloudImportScreen(navController)
+    }
+
     composable(
         route = "local_playlist/{playlistId}",
         arguments =
@@ -590,6 +594,9 @@ fun NavGraphBuilder.navigationBuilder(
         UpdaterScreen(navController)
     }
 
+    composable("concerts") {
+        com.metrolist.music.ui.screens.ConcertsScreen(navController)
+    }
     composable("suggest") {
         com.metrolist.music.ui.screens.settings.SuggestScreen(navController)
     }

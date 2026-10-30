@@ -60,7 +60,14 @@ constructor(
             _isLoading.value = true
             _error.value = null
 
-            Catalog.album(albumId).onSuccess { album ->
+            Catalog.album(albumId).onSuccess { own ->
+                // A Yandex album (from the Yandex library) is shown from Spotify when Spotify has it:
+                // its catalog is fuller. Saving it still goes to the account, by [albumId].
+                val album = com.metrolist.music.catalog.CrossCatalog
+                    .spotifyAlbumFor(albumId, own.name, own.artists.firstOrNull()?.name)
+                    ?.let { Catalog.album(it).getOrNull() }
+                    ?.takeIf { !it.tracks?.items.isNullOrEmpty() }
+                    ?: own
                 _album.value = album
                 val loaded = album.tracks?.items?.filter { !it.isLocal } ?: emptyList()
                 _tracks.value = loaded

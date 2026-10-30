@@ -405,6 +405,18 @@
             android:exported="false" />
 
         <receiver
+            android:name=".concerts.ConcertAlertReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="com.metrolist.music.CONCERT_ALERTS" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".playback.alarm.MusicAlarmReceiver"
             android:enabled="true"
             android:exported="false" />

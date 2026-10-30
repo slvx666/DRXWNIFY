@@ -1074,10 +1074,15 @@ fun LocalPlaylistHeader(
     }
 
     var downloadedIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    // Some of the list still on its way (downloadState says so only when the whole list is).
+    var downloadingAny by remember { mutableStateOf(false) }
     LaunchedEffect(songs) {
         if (songs.isEmpty()) return@LaunchedEffect
         downloadUtil.visibleDownloads.collect { downloads ->
             downloadedIds = songs.map { it.song.id }.filter { downloads[it]?.state == Download.STATE_COMPLETED }
+            downloadingAny = songs.any {
+                downloads[it.song.id]?.state == Download.STATE_QUEUED || downloads[it.song.id]?.state == Download.STATE_DOWNLOADING
+            }
             downloadState =
                 if (songs.all { downloads[it.song.id]?.state == Download.STATE_COMPLETED }) {
                     Download.STATE_COMPLETED
@@ -1441,6 +1446,7 @@ fun LocalPlaylistHeader(
                     downloadedIds = { downloadedIds },
                     onDownloadRest = downloadRest,
                     compact = true,
+                    downloading = downloadingAny,
                 ) {
                     Surface(
                         onClick = downloadRest,
@@ -1449,7 +1455,7 @@ fun LocalPlaylistHeader(
                         modifier = Modifier.size(48.dp),
                     ) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            if (downloadState == Download.STATE_DOWNLOADING) {
+                            if (downloadState == Download.STATE_DOWNLOADING || downloadingAny) {
                                 CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
                             } else {
                                 Icon(

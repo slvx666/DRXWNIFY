@@ -6,6 +6,7 @@
 package com.metrolist.music.playback
 
 import kotlinx.coroutines.sync.withLock
+import com.metrolist.music.catalog.AccountLikes
 import com.metrolist.music.catalog.Catalog
 import com.metrolist.music.constants.ArtistSortType
 import com.metrolist.music.constants.MetadataSource
@@ -19,6 +20,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import java.time.Duration
 import java.time.LocalDateTime
@@ -40,7 +42,7 @@ import kotlin.math.exp
  */
 object ForYouRecommender {
     /** 35 covers + the dice = 36 cells: four full pages of 3×3. */
-    private const val TARGET = 35
+    const val TARGET = 35
     private const val MAX_PER_ARTIST = 2
 
     /** Below this share of Cyrillic in what was listened to, Cyrillic results are left out. */
@@ -133,6 +135,8 @@ object ForYouRecommender {
 
     private const val MAX_EMPTY_ROUNDS = 6
 
+    private const val ACCOUNT_LIKES_WAIT_MS = 15_000L
+
     // ── Taste ────────────────────────────────────────────────────────────────────────────────────
 
     private suspend fun taste(database: MusicDatabase): Taste {
@@ -175,13 +179,13 @@ object ForYouRecommender {
             addArtist(a.artist.id, a.artist.name, 3.0)
         }
 
-        if (Catalog.isActive) {
-            Catalog.likedSongs(limit = 50, offset = 0).getOrNull()?.items?.forEach { saved ->
-                val t = saved.track
-                sample(t.artists.firstOrNull()?.name.orEmpty(), t.name)
-                t.artists.take(2).forEach { a -> addArtist(a.id?.let { SPOTIFY_ID_PREFIX + it }, a.name, 2.0) }
-            }
+        // Likes and follows in the linked accounts (Spotify, Yandex Music, VK) count like the app's own.
+        val account = withTimeoutOrNull(ACCOUNT_LIKES_WAIT_MS) { AccountLikes.all() } ?: AccountLikes.lastKnown()
+        account.tracks.forEach { t ->
+            sample(t.artist, t.title)
+            t.artists.forEach { (id, name) -> addArtist(id?.let { SPOTIFY_ID_PREFIX + it }, name, 2.0) }
         }
+        account.artists.forEach { addArtist(null, it, 3.0) }
 
         return Taste(
             artists = weights,
@@ -213,17 +217,30 @@ object ForYouRecommender {
         interleave(lists)
     }
 
-    /** Catalog ids of the listener's strongest artists (top 20) with their weights. */
-    private suspend fun resolveSeeds(taste: Taste): List<Pair<String, Double>> =
-        taste.artists.entries.sortedByDescending { it.value }.take(20).mapNotNull { (key, weight) ->
-            val id = if (key.startsWith(ID_KEY)) {
-                key.removePrefix(ID_KEY)
-            } else {
-                Catalog.search(taste.artistNames[key] ?: key.removePrefix(NAME_KEY), types = listOf("artist"), limit = 1)
-                    .getOrNull()?.artists?.items?.firstOrNull()?.id?.takeIf { it.isNotEmpty() }
-            }
+    /**
+     * Catalog ids of the listener's strongest artists (top 20) with their weights. Spotify first, as
+     * everywhere; when it can't be reached (no VPN) the account's catalog, the followed Spotify
+     * artists looked up there by name. A name counts only when the catalog has an artist of exactly
+     * that name: a SoundCloud uploader ("mellstroyCR7") used to bring whoever came up first, and the
+     * row filled with that stranger's "similar" (Polish pop, lo-fi jazz).
+     */
+    private suspend fun resolveSeeds(taste: Taste): List<Pair<String, Double>> {
+        val spotify = Catalog.ensureSearchable(MetadataSource.SPOTIFY)
+        val target = if (spotify) MetadataSource.SPOTIFY else Catalog.source ?: return emptyList()
+        return taste.artists.entries.sortedByDescending { it.value }.take(20).mapNotNull { (key, weight) ->
+            val name = taste.artistNames[key] ?: key.removePrefix(NAME_KEY)
+            val id = if (key.startsWith(ID_KEY) && spotify) key.removePrefix(ID_KEY) else exactArtist(target, name)
             id?.let { it to weight }
         }.distinctBy { it.first }
+    }
+
+    private suspend fun exactArtist(target: MetadataSource, name: String): String? {
+        val wanted = nameKey(name).ifEmpty { return null }
+        return Catalog.searchIn(target, name, listOf("artist"), 5).getOrNull()?.artists?.items.orEmpty()
+            .firstOrNull { it.id.isNotEmpty() && nameKey(it.name) == wanted }?.id
+    }
+
+    private fun nameKey(name: String): String = name.lowercase().filter { it.isLetterOrDigit() }
 
     /**
      * One round of tracks from artists close to the listener's: six seeds drawn at random,

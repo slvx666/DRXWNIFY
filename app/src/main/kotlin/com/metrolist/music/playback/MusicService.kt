@@ -1451,6 +1451,34 @@ class MusicService :
         }
     }
 
+    @Volatile
+    private var lastFailureExplainedAt = 0L
+
+    /**
+     * A track that couldn't play says why, in a word the listener can act on, instead of the
+     * player just moving on: YouTube turning the VPN's address away as a bot, YouTube out of reach
+     * without a VPN, or no source having the track. At most every [FAILURE_EXPLAIN_EVERY_MS].
+     */
+    private fun explainFailure(error: PlaybackException) {
+        val now = System.currentTimeMillis()
+        if (now - lastFailureExplainedAt < FAILURE_EXPLAIN_EVERY_MS) return
+        lastFailureExplainedAt = now
+        val text = generateSequence<Throwable>(error) { it.cause }.take(10).mapNotNull { it.message }.joinToString(" ")
+        val botCheck = Regex("(?i)не бот|not a bot|LOGIN_REQUIRED|sign in to confirm").containsMatchIn(text)
+        val vpn = runCatching {
+            connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+                ?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true
+        }.getOrDefault(false)
+        val message = when {
+            botCheck && vpn -> R.string.playback_fail_youtube_vpn
+            !vpn && (botCheck || isNetworkRelatedError(error)) -> R.string.playback_fail_youtube_no_vpn
+            else -> R.string.playback_fail_no_source
+        }
+        scope.launch(Dispatchers.Main) {
+            Toast.makeText(this@MusicService, getString(message), Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun skipOnError() {
         /**
          * Auto skip to the next media item on error.
@@ -2337,15 +2365,27 @@ class MusicService :
                 }
             }
 
-            // Mirror the like to the account that owns the track's metadata: the heart means
-            // "add to Liked Songs" on Spotify or Yandex Music. No-ops when not linked or unmapped.
+            // Mirror the like to the linked account: the heart means "add to Liked Songs" on Spotify
+            // or Yandex Music. A track from the other catalog goes on the same track in the account's
+            // (see CrossCatalog); one the account doesn't have stays liked in the app, marked so.
             scope.launch(Dispatchers.IO) {
                 runCatching {
-                    if (catalogId != null && com.metrolist.music.catalog.Catalog.canWrite(catalogId)) {
+                    val target = catalogId?.let {
+                        com.metrolist.music.catalog.CrossCatalog.trackForAccount(
+                            id = it,
+                            title = songEntity.title,
+                            artists = librarySong.artists.map { a -> a.name },
+                            durationSec = songEntity.duration,
+                            liked = liked,
+                            songId = songEntity.id,
+                            album = songEntity.albumName,
+                        )
+                    }
+                    if (target != null) {
                         if (liked) {
-                            com.metrolist.music.catalog.Catalog.saveTrack(catalogId).getOrThrow()
+                            com.metrolist.music.catalog.Catalog.saveTrack(target).getOrThrow()
                         } else {
-                            com.metrolist.music.catalog.Catalog.removeTrack(catalogId).getOrThrow()
+                            com.metrolist.music.catalog.Catalog.removeTrack(target).getOrThrow()
                         }
                     }
                 }.onFailure {
@@ -3321,6 +3361,7 @@ class MusicService :
 
         // No source has the track at all: on to the next one (or stop at the end of the queue).
         if (isNoAudioSource(error)) {
+            explainFailure(error)
             if (player.hasNextMediaItem()) skipOnError() else stopOnError()
             return
         }
@@ -3328,6 +3369,7 @@ class MusicService :
         // Check if this song has failed too many times
         if (mediaId != null && hasExceededRetryLimit(mediaId)) {
             Timber.tag(TAG).w("Song $mediaId has exceeded retry limit, skipping")
+            explainFailure(error)
             markSongAsFailed(mediaId)
             handleFinalFailure()
             return
@@ -3417,6 +3459,7 @@ class MusicService :
         }
 
         // Final fallback
+        explainFailure(error)
         if (dataStore.get(AutoSkipNextOnErrorKey, false)) {
             Timber.tag(TAG).d("Auto-skipping to next track due to unrecoverable error")
             skipOnError()
@@ -6197,6 +6240,9 @@ class MusicService :
 
         /** Cache-key prefix for audio rescued from another provider for a regular YouTube id. */
         const val RESCUE_CACHE_PREFIX = "fbrescue:"
+
+        /** How often a playback failure is explained at most (a run of skips says it once). */
+        private const val FAILURE_EXPLAIN_EVERY_MS = 30_000L
         private const val CUT_SHORT_KEY_PREFIX = "cutshort:"
         private const val FALLBACK_FAILED_TTL_MS = 10 * 60 * 1000L
         // Generous: a Soulseek last-resort download has to finish before the track can start.

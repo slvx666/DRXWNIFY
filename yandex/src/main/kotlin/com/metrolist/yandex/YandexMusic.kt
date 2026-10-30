@@ -91,9 +91,17 @@ object YandexMusic {
 
     // ── Core ─────────────────────────────────────────────────────────────────────────────────────
 
-    private fun io.ktor.client.request.HttpRequestBuilder.commonHeaders() {
-        val token = accessToken ?: throw YandexException(401, "Not authenticated")
-        header("Authorization", "OAuth $token")
+    /**
+     * [anonymous]: a catalogue read (a track, album, artist, public playlist) that works without an
+     * account too — links to Yandex Music open for everyone. The token goes along when there is one.
+     */
+    private fun io.ktor.client.request.HttpRequestBuilder.commonHeaders(anonymous: Boolean = false) {
+        val token = accessToken
+        if (token != null) {
+            header("Authorization", "OAuth $token")
+        } else if (!anonymous) {
+            throw YandexException(401, "Not authenticated")
+        }
         header("X-Yandex-Music-Client", "YandexMusicAndroid/24023621")
         header("User-Agent", "Yandex-Music-API")
         header("Accept-Language", "ru")
@@ -111,18 +119,22 @@ object YandexMusic {
         return root["result"] ?: throw YandexException(500, "Empty result")
     }
 
-    private suspend fun getResult(path: String, params: Map<String, String> = emptyMap()): JsonElement =
+    private suspend fun getResult(
+        path: String,
+        params: Map<String, String> = emptyMap(),
+        anonymous: Boolean = false,
+    ): JsonElement =
         unwrap(
             client.get("$BASE_URL/$path") {
-                commonHeaders()
+                commonHeaders(anonymous)
                 params.forEach { (k, v) -> parameter(k, v) }
             },
         )
 
-    private suspend fun postForm(path: String, form: Map<String, String>): JsonElement =
+    private suspend fun postForm(path: String, form: Map<String, String>, anonymous: Boolean = false): JsonElement =
         unwrap(
             client.post("$BASE_URL/$path") {
-                commonHeaders()
+                commonHeaders(anonymous)
                 setBody(FormDataContent(Parameters.build { form.forEach { (k, v) -> append(k, v) } }))
             },
         )
@@ -151,7 +163,7 @@ object YandexMusic {
         coroutineScope {
             requestIds.chunked(TRACKS_CHUNK).map { chunk ->
                 async {
-                    val arr = postForm("tracks", mapOf("track-ids" to chunk.joinToString(","), "with-positions" to "true"))
+                    val arr = postForm("tracks", mapOf("track-ids" to chunk.joinToString(","), "with-positions" to "true"), anonymous = true)
                         as? JsonArray
                     arr.orEmpty().mapNotNull { it.objOrNull()?.let(YandexParser::track) }
                 }
@@ -224,19 +236,19 @@ object YandexMusic {
     // ── Albums / artists / playlists ─────────────────────────────────────────────────────────────
 
     suspend fun album(albumId: String): Result<SpotifyAlbum> = runCatching {
-        val obj = getResult("albums/${YandexIds.raw(albumId)}/with-tracks") as? JsonObject
+        val obj = getResult("albums/${YandexIds.raw(albumId)}/with-tracks", anonymous = true) as? JsonObject
             ?: throw YandexException(404, "Album not found")
         YandexParser.album(obj) ?: throw YandexException(500, "Invalid album payload")
     }
 
     suspend fun artist(artistId: String): Result<SpotifyArtist> = runCatching {
-        val obj = getResult("artists/${YandexIds.raw(artistId)}/brief-info") as? JsonObject
+        val obj = getResult("artists/${YandexIds.raw(artistId)}/brief-info", anonymous = true) as? JsonObject
             ?: throw YandexException(404, "Artist not found")
         obj.obj("artist")?.let(YandexParser::fullArtist) ?: throw YandexException(500, "Invalid artist payload")
     }
 
     suspend fun artistTopTracks(artistId: String): Result<ArtistTopTracksResponse> = runCatching {
-        val obj = getResult("artists/${YandexIds.raw(artistId)}/brief-info") as? JsonObject
+        val obj = getResult("artists/${YandexIds.raw(artistId)}/brief-info", anonymous = true) as? JsonObject
             ?: throw YandexException(404, "Artist not found")
         ArtistTopTracksResponse(
             tracks = obj.arr("popularTracks").orEmpty().mapNotNull { it.objOrNull()?.let(YandexParser::track) },
@@ -259,7 +271,7 @@ object YandexMusic {
 
     /** Albums of other artists this one appears on (brief-info "alsoAlbums": features, compilations). */
     suspend fun artistAppearsOn(artistId: String): Result<List<SpotifyAlbum>> = runCatching {
-        val obj = getResult("artists/${YandexIds.raw(artistId)}/brief-info") as? JsonObject
+        val obj = getResult("artists/${YandexIds.raw(artistId)}/brief-info", anonymous = true) as? JsonObject
             ?: throw YandexException(404, "Artist not found")
         obj.arr("alsoAlbums").orEmpty().mapNotNull { it.objOrNull()?.let(YandexParser::album) }
     }
@@ -277,7 +289,7 @@ object YandexMusic {
 
     suspend fun playlist(playlistId: String): Result<SpotifyPlaylist> = runCatching {
         val (owner, kind) = YandexIds.parsePlaylist(playlistId) ?: throw YandexException(400, "Bad playlist id")
-        val obj = getResult("users/$owner/playlists/$kind") as? JsonObject
+        val obj = getResult("users/$owner/playlists/$kind", anonymous = true) as? JsonObject
             ?: throw YandexException(404, "Playlist not found")
         YandexParser.playlist(obj) ?: throw YandexException(500, "Invalid playlist payload")
     }

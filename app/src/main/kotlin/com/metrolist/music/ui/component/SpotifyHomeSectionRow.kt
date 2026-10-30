@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.component
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
@@ -173,14 +174,30 @@ fun SpotifyArtistSectionRow(
                         onClick = { onArtistClick(artist) },
                     ),
             ) {
-                AsyncImage(
-                    model = thumbnail,
-                    contentDescription = artist.name,
-                    contentScale = ContentScale.Crop,
+                // Some artists (often from Yandex) have no photo: a plain circle, not an invisible one.
+                androidx.compose.foundation.layout.Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .size(GridThumbnailHeight)
-                        .clip(CircleShape),
-                )
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    if (thumbnail == null) {
+                        androidx.compose.material3.Icon(
+                            painter = androidx.compose.ui.res.painterResource(com.metrolist.music.R.drawable.person),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(GridThumbnailHeight / 2),
+                        )
+                    } else {
+                        AsyncImage(
+                            model = thumbnail,
+                            contentDescription = artist.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(GridThumbnailHeight),
+                        )
+                    }
+                }
                 Text(
                     text = artist.name,
                     style = MaterialTheme.typography.bodySmall,

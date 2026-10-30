@@ -524,6 +524,8 @@ class HlsConcatDataSource(
         )
         try {
             client.newCall(builder.build()).execute().use { r ->
+                // A range from the start of an empty segment: there is nothing to send, not an error.
+                if (r.code == 416 && range?.startsWith("bytes=0-") == true) return ByteArray(0)
                 if (!r.isSuccessful) {
                     report("HTTP ${r.code}")
                     throw DataSourceException(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS)
@@ -570,6 +572,7 @@ class HlsConcatDataSource(
     /** ADTS output size of one fMP4 segment, from just its fragment header. */
     private fun adtsSizeOf(url: String): Long? {
         var head = fetchBytes(url, "bytes=0-${HEADER_PROBE_BYTES - 1}")
+        if (head.isEmpty()) return 0L
         val moofEnd = Fmp4AdtsTransmuxer.moofEnd(head) ?: return null
         if (moofEnd > head.size) head = fetchBytes(url, "bytes=0-${moofEnd + 64}")
         return Fmp4AdtsTransmuxer.parseFragment(head)?.adtsSize

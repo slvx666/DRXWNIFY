@@ -134,6 +134,25 @@ class ArtistViewModel @Inject constructor(
      */
     val catalogLoaded = MutableStateFlow(false)
 
+    /**
+     * Nothing came for a catalog artist (no profile, tracks or releases, and no name to look the
+     * artist up elsewhere): the screen says so instead of showing its placeholder forever.
+     */
+    val catalogFailed = MutableStateFlow(false)
+
+    /** The YouTube lookup by name is over (found a page or not). */
+    @Volatile
+    private var youtubeLookupDone = false
+
+    /**
+     * Gives up once both ways in are over with nothing to show: an artist can exist in the catalog
+     * with no tracks at all (AS&MK on Yandex: a profile, 0 tracks), which kept the placeholder up.
+     */
+    private fun giveUpIfNothing() {
+        val catalogEmpty = catalogLoaded.value && catalogTopTracks.value.isEmpty() && catalogReleases.value.isEmpty()
+        if (artistPage == null && catalogEmpty && youtubeLookupDone) catalogFailed.value = true
+    }
+
     /** The catalog artist was picked by name only, so it may be another artist of that name. */
     private var catalogFoundByName = false
 
@@ -153,12 +172,19 @@ class ArtistViewModel @Inject constructor(
                 return@launch
             }
             if (known != null) catalog.ensureAuthenticated()
-            catalogArtistId = id
+            // A Yandex artist (from the Yandex library) is shown from Spotify when Spotify has one of
+            // that name: its catalog is fuller. Follows still go to the account, by [accountId].
+            val accountId = id
+            val paired = com.metrolist.music.catalog.CrossCatalog.spotifyArtistFor(accountId, nameHint)
+            // Spotify may not answer (no VPN where it is blocked): then the page is the account's own.
+            val pairedProfile = paired?.let { catalog.artist(it).getOrNull() }
+            val shownId = if (pairedProfile != null) paired else accountId
+            catalogArtistId = shownId
             catalogFoundByName = known == null
-            if (catalog.canWrite(id)) {
+            if (catalog.canWrite(accountId)) {
                 launch {
                     // Two-way: an artist followed/unfollowed in the Spotify (or Yandex) app shows so here.
-                    catalog.isFollowingArtist(id).onSuccess { following ->
+                    catalog.isFollowingArtist(accountId).onSuccess { following ->
                         _apiSubscribed.value = following
                         val row = libraryArtist.value?.artist
                         if (!following && row?.bookmarkedAt != null && (row.spotifyId == null || row.spotifyId == id)) {
@@ -167,25 +193,31 @@ class ArtistViewModel @Inject constructor(
                     }
                 }
             }
-            launch { catalog.artist(id).onSuccess { catalogArtist.value = it } }
-            launch { catalog.relatedArtists(id).onSuccess { catalogRelated.value = it } }
+            val profile = async {
+                (pairedProfile?.let { Result.success(it) } ?: catalog.artist(shownId))
+                    .onSuccess { catalogArtist.value = it }
+                    .onFailure { Timber.w(it, "Catalog artist failed for $shownId") }
+            }
+            launch { catalog.relatedArtists(shownId).onSuccess { catalogRelated.value = it } }
             launch {
-                catalog.artistAppearsOn(id)
+                catalog.artistAppearsOn(shownId)
                     .onSuccess { catalogAppearsOn.value = it }
                     .onFailure { Timber.w(it, "Appears-on failed for $id") }
             }
             val topTracks = async {
-                catalog.artistTopTracks(id).onSuccess { catalogTopTracks.value = it.tracks.filter { t -> t.id.isNotBlank() } }
+                catalog.artistTopTracks(shownId).onSuccess { catalogTopTracks.value = it.tracks.filter { t -> t.id.isNotBlank() } }
             }
-            catalog.artistReleases(id)
+            catalog.artistReleases(shownId)
                 .onSuccess { catalogReleases.value = it }
                 .onFailure {
                     Timber.w(it, "Catalog releases failed for $id")
                     catalogReleasesRequested = false
                 }
             topTracks.await()
+            profile.await()
             catalogLoaded.value = true
             reconcileCatalog()
+            giveUpIfNothing()
         }
     }
 
@@ -218,6 +250,7 @@ class ArtistViewModel @Inject constructor(
     }
 
     init {
+        Timber.i("Artist open: id=%s catalogId=%s youtube=%s", artistId, spotifyArtistId, isYouTubeArtistId(artistId))
         if (isYouTubeArtistId(artistId)) {
             // YouTube artist: load page directly, reload when settings change
             viewModelScope.launch {
@@ -242,20 +275,37 @@ class ArtistViewModel @Inject constructor(
             // on an empty screen.
             // The catalog id is already known: its profile, top tracks and releases load right away
             // and the screen shows them without waiting for the YouTube page found by name.
-            if (spotifyArtistId != null) loadCatalogReleases(null)
-            viewModelScope.launch {
-                // The row's first answer, absent or not: waiting for a non-null one cost a full
-                // 1.5 s for every artist not saved locally.
-                val dbName = kotlinx.coroutines.withTimeoutOrNull(1500) {
-                    artistRowFlow.first()
-                }?.artist?.name
-                val name = dbName ?: resolveSpotifyName(artistId)
-                loadCatalogReleases(name)
-                if (name != null) {
-                    resolveAndFetchByName(name)
-                }
+            loadCatalogArtist()
+        }
+    }
+
+    private fun loadCatalogArtist() {
+        if (spotifyArtistId != null) loadCatalogReleases(null)
+        viewModelScope.launch {
+            // The row's first answer, absent or not: waiting for a non-null one cost a full
+            // 1.5 s for every artist not saved locally.
+            val dbName = kotlinx.coroutines.withTimeoutOrNull(1500) {
+                artistRowFlow.first()
+            }?.artist?.name
+            val name = dbName ?: resolveSpotifyName(artistId)
+            Timber.i("Artist open: %s → name from db=%s, resolved=%s", artistId, dbName, name)
+            loadCatalogReleases(name)
+            if (name != null) {
+                resolveAndFetchByName(name)
+            } else {
+                youtubeLookupDone = true
+                if (spotifyArtistId == null) catalogFailed.value = true else giveUpIfNothing()
             }
         }
+    }
+
+    /** Another go after [catalogFailed] (a dropped connection, a VPN turned off meanwhile). */
+    fun retryCatalog() {
+        catalogFailed.value = false
+        catalogLoaded.value = false
+        catalogReleasesRequested = false
+        youtubeLookupDone = false
+        loadCatalogArtist()
     }
 
     /** Fetches an artist's display name from Spotify by its id (for non-DB Spotify artists). */
@@ -478,16 +528,21 @@ class ArtistViewModel @Inject constructor(
                         ?: artists.firstOrNull()
                     if (match != null) {
                         resolvedYouTubeId = match.id
-                        fetchArtistPage(match.id)
+                        fetchArtistPage(match.id, lookup = true)
+                    } else {
+                        youtubeLookupDone = true
+                        giveUpIfNothing()
                     }
                 }
                 .onFailure {
                     reportException(it)
+                    youtubeLookupDone = true
+                    giveUpIfNothing()
                 }
         }
     }
 
-    private fun fetchArtistPage(ytArtistId: String) {
+    private fun fetchArtistPage(ytArtistId: String, lookup: Boolean = false) {
         viewModelScope.launch {
             val hideExplicit = context.dataStore.get(HideExplicitKey, false)
             val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
@@ -508,6 +563,10 @@ class ArtistViewModel @Inject constructor(
                     if (spotifyArtistId == null) _apiSubscribed.value = page.isSubscribed
                 }.onFailure {
                     reportException(it)
+                    if (lookup) {
+                        youtubeLookupDone = true
+                        giveUpIfNothing()
+                    }
                 }
         }
     }
@@ -572,9 +631,12 @@ class ArtistViewModel @Inject constructor(
             val spotifyTarget = spotifyArtistId ?: libraryArtist.value?.artist?.spotifyId ?: catalogArtistId
             if (spotifyTarget != null) {
                 // Spotify artist: follow/unfollow on Spotify instead of a YouTube channel.
-                if (com.metrolist.music.catalog.Catalog.canWrite(spotifyTarget)) {
-                    com.metrolist.music.catalog.Catalog.setFollowingArtist(spotifyTarget, shouldBeSubscribed)
-                        .onFailure { Timber.w(it, "Spotify follow sync failed for $spotifyTarget") }
+                // An artist from the other catalog is followed under the same name in the account's.
+                val name = catalogArtist.value?.name ?: libraryArtist.value?.artist?.name ?: artistPage?.artist?.title
+                val target = com.metrolist.music.catalog.CrossCatalog.artistForAccount(spotifyTarget, name.orEmpty(), shouldBeSubscribed)
+                if (target != null) {
+                    com.metrolist.music.catalog.Catalog.setFollowingArtist(target, shouldBeSubscribed)
+                        .onFailure { Timber.w(it, "Account follow sync failed for $target") }
                 }
             } else {
                 Timber.d("[CHANNEL_TOGGLE] Calling syncUtils.subscribeChannel($channelId, $shouldBeSubscribed)")

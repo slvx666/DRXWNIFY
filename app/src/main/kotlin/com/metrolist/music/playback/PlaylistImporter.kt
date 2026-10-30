@@ -13,6 +13,11 @@ import com.metrolist.music.catalog.Catalog
 import com.metrolist.music.constants.MetadataSource
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.PlaylistEntity
+import com.metrolist.music.resolver.AudioFallbackEngine
+import com.metrolist.music.resolver.AudioProviderId
+import com.metrolist.music.resolver.ProviderMatch
+import com.metrolist.music.resolver.SourceSearch
+import com.metrolist.music.resolver.providers.SoundCloudAudioProvider
 import com.metrolist.music.utils.FuzzyTrackMatch
 import com.metrolist.music.utils.PlaylistImportParser
 import com.metrolist.spotify.SpotifyMapper
@@ -54,6 +59,8 @@ object PlaylistImporter {
         val finished: Boolean,
         /** The second, slower pass over what the first one missed: (checked, of how many); null before it. */
         val deep: Pair<Int, Int>? = null,
+        /** Imports waiting for this one (a SoundCloud profile brings several playlists). */
+        val queued: Int = 0,
     )
 
     private val _progress = MutableStateFlow<Progress?>(null)
@@ -62,6 +69,52 @@ object PlaylistImporter {
     private fun jobFile(context: Context) = File(context.filesDir, "playlist_import.json")
 
     fun isRunning(context: Context): Boolean = jobFile(context).exists()
+
+    private fun queueFile(context: Context) = File(context.filesDir, "playlist_import_queue.json")
+
+    /** One import waiting in line: a playlist [name] filled from [link], into [targetPlaylistId] if set. */
+    data class Queued(val name: String, val link: String, val targetPlaylistId: String? = null)
+
+    private fun readQueue(context: Context): List<Queued> = runCatching {
+        val a = JSONArray(queueFile(context).readText())
+        (0 until a.length()).map { i ->
+            val o = a.getJSONObject(i)
+            Queued(o.getString("name"), o.getString("link"), o.optString("target").takeIf { it.isNotBlank() })
+        }
+    }.getOrDefault(emptyList())
+
+    private fun writeQueue(context: Context, queue: List<Queued>) {
+        val file = queueFile(context)
+        if (queue.isEmpty()) {
+            file.delete()
+            return
+        }
+        file.writeText(JSONArray(queue.map { q -> JSONObject().put("name", q.name).put("link", q.link).put("target", q.targetPlaylistId ?: "") }).toString())
+    }
+
+    /** Several imports one after another; they join the line when one is already running. */
+    fun enqueue(context: Context, imports: List<Queued>) {
+        if (imports.isEmpty()) return
+        val queue = readQueue(context) + imports
+        if (isRunning(context)) {
+            writeQueue(context, queue)
+            return
+        }
+        writeQueue(context, queue.drop(1))
+        val first = queue.first()
+        start(context, first.name, PlaylistImportParser.Parsed(emptyList(), listOf(first.link)), first.targetPlaylistId)
+    }
+
+    /** Turns the next waiting import into the job; false when the line is empty. */
+    fun startNextQueued(context: Context): Boolean {
+        val queue = readQueue(context)
+        val next = queue.firstOrNull() ?: return false
+        writeQueue(context, queue.drop(1))
+        cancelled = false
+        val parsed = PlaylistImportParser.Parsed(emptyList(), listOf(next.link))
+        jobFile(context).writeText(jobOf(next.name, parsed, next.targetPlaylistId, emptyList()).toString())
+        return true
+    }
 
     /** Clears a finished import from the screen. */
     fun reset() {
@@ -78,6 +131,7 @@ object PlaylistImporter {
     fun cancel(context: Context) {
         cancelled = true
         jobFile(context).delete()
+        queueFile(context).delete()
         _progress.value = null
         context.stopService(Intent(context, PlaylistImportService::class.java))
     }
@@ -94,23 +148,23 @@ object PlaylistImporter {
         targetPlaylistId: String? = null,
         localSongIds: List<String> = emptyList(),
     ) {
-        val job = JSONObject().apply {
+        cancelled = false
+        jobFile(context).writeText(jobOf(name, parsed, targetPlaylistId, localSongIds).toString())
+        _progress.value = Progress(name, parsed.entries.size + parsed.links.size + localSongIds.size, 0, 0, emptyList(), targetPlaylistId, false)
+        ContextCompat.startForegroundService(context, Intent(context, PlaylistImportService::class.java))
+    }
+
+    private fun jobOf(name: String, parsed: PlaylistImportParser.Parsed, targetPlaylistId: String?, localSongIds: List<String>) =
+        JSONObject().apply {
             put("name", name)
             targetPlaylistId?.let { put("playlistId", it) }
             put("local", JSONArray(localSongIds))
             put("links", JSONArray(parsed.links))
-            put("entries", JSONArray(parsed.entries.map { e ->
-                JSONObject().put("a", e.artist ?: "").put("t", e.title).put("d", e.durationSec ?: 0)
-            }))
+            put("entries", JSONArray(parsed.entries.map(::entryToJson)))
             put("index", 0)
             put("found", 0)
             put("notFound", JSONArray())
         }
-        cancelled = false
-        jobFile(context).writeText(job.toString())
-        _progress.value = Progress(name, parsed.entries.size + parsed.links.size + localSongIds.size, 0, 0, emptyList(), targetPlaylistId, false)
-        ContextCompat.startForegroundService(context, Intent(context, PlaylistImportService::class.java))
-    }
 
     /** Runs (or resumes) the saved job; called by the service. */
     suspend fun run(context: Context, database: MusicDatabase, onProgress: (Progress) -> Unit) {
@@ -136,6 +190,9 @@ object PlaylistImporter {
             }
         }.toMutableList()
         val added = HashSet<String>()
+        // The uploads behind lines from a SoundCloud link: added as they are when the catalog hasn't the track.
+        val originals = HashMap<String, ProviderMatch>()
+        job.optJSONObject("sc")?.let { o -> o.keys().forEach { key -> o.optJSONObject(key)?.let { originals[key] = matchFromJson(it) } } }
 
         // The user's own files first: nothing to look up.
         job.optJSONArray("local")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.takeIf { it.isNotEmpty() }?.let { local ->
@@ -150,11 +207,12 @@ object PlaylistImporter {
             val links = job.optJSONArray("links")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty()
             for (link in links) {
                 val direct = mutableListOf<SpotifyTrack>()
-                runCatching { expandLink(link, direct, entries) }.onFailure { Timber.w(it, "PlaylistImporter: link %s", link) }
+                runCatching { expandLink(link, direct, entries, originals) }.onFailure { Timber.w(it, "PlaylistImporter: link %s", link) }
                 addTracks(database, mapper, playlistId, direct, added)
                 job.put("found", job.optInt("found") + direct.size)
             }
-            job.put("entries", JSONArray(entries.map { e -> JSONObject().put("a", e.artist ?: "").put("t", e.title).put("d", e.durationSec ?: 0) }))
+            job.put("entries", JSONArray(entries.map(::entryToJson)))
+            job.put("sc", JSONObject().apply { originals.forEach { (key, match) -> put(key, matchToJson(match)) } })
             job.put("linksDone", true)
             file.writeText(job.toString())
         }
@@ -167,7 +225,7 @@ object PlaylistImporter {
         var deepIndex = job.optInt("deepIndex", -1)
         fun publish(finished: Boolean) {
             val deep = if (deepIndex >= 0) deepIndex.coerceAtMost(retry.size) to retry.size else null
-            val p = Progress(name, entries.size, index, found, notFound.toList(), playlistId, finished, deep)
+            val p = Progress(name, entries.size, index, found, notFound.toList(), playlistId, finished, deep, readQueue(context).size)
             _progress.value = p
             onProgress(p)
         }
@@ -179,15 +237,29 @@ object PlaylistImporter {
             val results = coroutineScope {
                 batch.map { entry -> async { gate.withPermit { lookupWithRetry(entry) } } }.awaitAll()
             }
-            val tracks = results.filterNotNull()
+            // In the list's order: the catalog track, else the SoundCloud upload itself, else "not found".
+            val ids = mutableListOf<String>()
             batch.forEachIndexed { i, entry ->
-                if (results[i] == null) {
-                    notFound += entry.label
-                    retry += entry
+                val track = results[i]
+                val original = if (track == null) originals[keyOf(entry)] else null
+                when {
+                    track != null -> {
+                        found++
+                        if (added.add(track.id)) ids += mapper.persistWithoutResolving(track).id
+                    }
+                    original != null -> {
+                        found++
+                        if (added.add(SourceSearch.catalogIdOf(original))) {
+                            ids += com.metrolist.music.ui.component.SelectedTracks.songIdsOf(database, listOf(original))
+                        }
+                    }
+                    else -> {
+                        notFound += entry.label
+                        retry += entry
+                    }
                 }
             }
-            addTracks(database, mapper, playlistId, tracks, added)
-            found += tracks.size
+            addSongIds(database, playlistId, ids)
             index += batch.size
             if (cancelled) return
             job.put("index", index).put("found", found).put("notFound", JSONArray(notFound))
@@ -223,7 +295,23 @@ object PlaylistImporter {
         if (cancelled) return
         publish(true)
         file.delete()
+        startNextQueued(context)
     }
+
+    private fun keyOf(e: PlaylistImportParser.Entry) = e.label.lowercase()
+
+    private fun matchToJson(m: ProviderMatch) = JSONObject()
+        .put("id", m.trackId).put("t", m.title).put("a", m.artist).put("ms", m.durationMs ?: 0L).put("img", m.thumbnailUrl ?: "")
+
+    private fun matchFromJson(o: JSONObject) = ProviderMatch(
+        provider = AudioProviderId.SOUNDCLOUD,
+        trackId = o.getString("id"),
+        title = o.optString("t"),
+        artist = o.optString("a"),
+        durationMs = o.optLong("ms").takeIf { it > 0 },
+        confidence = 1.0,
+        thumbnailUrl = o.optString("img").takeIf { it.isNotBlank() },
+    )
 
     private fun entryToJson(e: PlaylistImportParser.Entry) =
         JSONObject().put("a", e.artist ?: "").put("t", e.title).put("d", e.durationSec ?: 0)
@@ -347,7 +435,17 @@ object PlaylistImporter {
         link: String,
         direct: MutableList<SpotifyTrack>,
         entries: MutableList<PlaylistImportParser.Entry>,
+        originals: MutableMap<String, ProviderMatch>,
     ) {
+        if ("soundcloud.com/" in link) {
+            val soundCloud = AudioFallbackEngine.provider(AudioProviderId.SOUNDCLOUD) as? SoundCloudAudioProvider ?: return
+            soundCloud.importTracks(link, MAX_LINK_TRACKS).orEmpty().forEach { t ->
+                val entry = PlaylistImportParser.Entry(t.artist, t.title, t.durationSec)
+                entries += entry
+                t.source?.let { originals[keyOf(entry)] = it }
+            }
+            return
+        }
         val spotifyId = Regex("open\\.spotify\\.com/(?:intl-[a-z]+/)?(playlist|album)/([A-Za-z0-9]+)").find(link)
         if (spotifyId != null) {
             val (kind, id) = spotifyId.destructured

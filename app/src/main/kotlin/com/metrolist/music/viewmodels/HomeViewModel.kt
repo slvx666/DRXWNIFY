@@ -38,6 +38,7 @@ import com.metrolist.music.utils.SpotifyTokenManager
 import com.metrolist.music.constants.SpotifyTokenExpiryKey
 import com.metrolist.music.constants.UseSpotifyHomeKey
 import com.metrolist.music.constants.WrappedSeenKey
+import com.metrolist.music.R
 import com.metrolist.music.constants.YandexAccessTokenKey
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.withTimeoutOrNull
@@ -74,6 +75,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -111,6 +113,12 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
     val isRefreshing = MutableStateFlow(false)
     val isLoading = MutableStateFlow(false)
+
+    /**
+     * Rows still on their way. [isLoading] ends after a few seconds by design (the launch intro waits
+     * on it) while a slow source (YouTube without a VPN) can take much longer; an empty page says so.
+     */
+    val sectionsLoading = MutableStateFlow(true)
     val isRandomizing = MutableStateFlow(false)
 
     private val quickPicksEnum = context.dataStore.data.map {
@@ -497,7 +505,8 @@ class HomeViewModel @Inject constructor(
     fun forYouRadioFrom(
         start: SpotifyTrack,
         mapper: com.metrolist.music.playback.SpotifyYouTubeMapper,
-    ): com.metrolist.music.playback.queues.ForYouQueue {
+    ): com.metrolist.music.playback.queues.SpotifyPagedQueue {
+        starterRadio(start, mapper)?.let { return it }
         // The prepared picks follow the tapped track straight away, so the next track is there
         // to swipe to from the start instead of arriving after the radio has been worked out.
         val ready = preparedRadio?.also { preparedRadio = null }
@@ -516,7 +525,8 @@ class HomeViewModel @Inject constructor(
     /** The dice: fresh picks (prepared in the background, so usually instant). */
     suspend fun forYouRadio(
         mapper: com.metrolist.music.playback.SpotifyYouTubeMapper,
-    ): com.metrolist.music.playback.queues.ForYouQueue? {
+    ): com.metrolist.music.playback.queues.SpotifyPagedQueue? {
+        starterRadio(null, mapper)?.let { return it }
         val ready = preparedRadio?.also { preparedRadio = null } ?: run {
             forYouStarting.value = true
             try {
@@ -539,8 +549,89 @@ class HomeViewModel @Inject constructor(
         )
     }
 
+    /**
+     * A listener the app knows next to nothing about: the home page is only the starter rows (and
+     * friends), until their own history is enough for the usual one.
+     */
+    // Remembered from the last time: right after a start the page doesn't show the usual rows (built
+    // from a history too short for them) for a moment before the starter ones replace them.
+    private val homePrefs = context.getSharedPreferences("home_state", Context.MODE_PRIVATE)
+    val newcomer = MutableStateFlow(homePrefs.getBoolean("newcomer", false))
+
+    /** The starter rows for a [newcomer] (see [com.metrolist.music.home.StarterPicks]). */
+    val starterPicks = MutableStateFlow<com.metrolist.music.home.StarterPicks.Shown?>(null)
+
+    /**
+     * A newcomer's "For you" radio (the covers and the dice): the app has no history to pick from,
+     * so it plays the starter picks — squares and rows — in a new order, the tapped one first.
+     */
+    private fun starterRadio(
+        start: SpotifyTrack?,
+        mapper: com.metrolist.music.playback.SpotifyYouTubeMapper,
+    ): com.metrolist.music.playback.queues.SpotifyPagedQueue? {
+        if (!newcomer.value) return null
+        val picks = starterPicks.value ?: return null
+        val pool = (picks.grid + picks.genreRows.flatMap { it.tracks } + picks.artistRows.flatMap { it.tracks })
+            .shuffled().filter { it.id != start?.id }
+        val tracks = (listOfNotNull(start) + pool).distinctBy { it.id }.ifEmpty { return null }
+        return com.metrolist.music.playback.queues.SpotifyPlaylistQueue(
+            playlistId = "starter_radio_${System.currentTimeMillis()}",
+            initialTracks = tracks,
+            startIndex = 0,
+            mapper = mapper,
+        )
+    }
+
+    private suspend fun loadStarterPicks(hideExplicit: Boolean) {
+        val starter = com.metrolist.music.home.StarterPicks
+        val plays = database.eventCount().first()
+        // Likes and follows count wherever they were made: here, or in a linked Spotify, Yandex Music
+        // or VK account. A track liked in two places counts once.
+        val account = withTimeoutOrNull(ACCOUNT_LIKES_WAIT_MS) { com.metrolist.music.catalog.AccountLikes.all() }
+            ?: com.metrolist.music.catalog.AccountLikes.lastKnown()
+        val likes = com.metrolist.music.catalog.AccountLikes
+        val likedKeys = HashSet<String>()
+        database.likedSongs(com.metrolist.music.constants.SongSortType.CREATE_DATE, true).first().forEach {
+            likedKeys += likes.trackKey(it.artists.firstOrNull()?.name.orEmpty(), it.song.title)
+        }
+        account.tracks.forEach { likedKeys += likes.trackKey(it.artist, it.title) }
+        val followedKeys = HashSet<String>()
+        database.artistsBookmarkedByCreateDateAsc().first().forEach { followedKeys += likes.artistKey(it.artist.name) }
+        account.artists.forEach { followedKeys += likes.artistKey(it) }
+        val isNewcomer = starter.isNewcomer(plays = plays, liked = likedKeys.size, followed = followedKeys.size)
+        Timber.i("home: %d listens, %d liked, %d followed → newcomer %s", plays, likedKeys.size, followedKeys.size, isNewcomer)
+        val wasNewcomer = newcomer.value
+        newcomer.value = isNewcomer
+        homePrefs.edit().putBoolean("newcomer", isNewcomer).apply()
+        // Just grown out of it: loadForYou skipped its squares this time, so they come now.
+        if (wasNewcomer && !isNewcomer) loadForYou(hideExplicit)
+        val shown = if (isNewcomer) starter.build(context, hideExplicit) else null
+        starterPicks.value = shown
+        // A newcomer's "For you" is the site's squares, in the usual grid with its dice.
+        if (shown != null) forYou.value = withOwnPicks(shown.grid, starter.personalShare(plays), hideExplicit).ifEmpty { null }
+    }
+
+    /**
+     * [share] of the site's squares swapped for the listener's own recommendations, spread evenly
+     * through the grid; the site's picks fill in whatever the recommender can't find yet.
+     */
+    private suspend fun withOwnPicks(site: List<SpotifyTrack>, share: Double, hideExplicit: Boolean): List<SpotifyTrack> {
+        val wanted = kotlin.math.round(site.size * share).toInt()
+        if (wanted <= 0) return site
+        val own = runCatching {
+            com.metrolist.music.playback.ForYouRecommender.Session(database, hideExplicit, exclude = site.map { it.id }).next(wanted)
+        }.onFailure { Timber.w(it, "home: own picks for a newcomer failed") }.getOrDefault(emptyList())
+        if (own.isEmpty()) return site
+        val out = site.toMutableList()
+        val step = site.size.toDouble() / own.size
+        own.forEachIndexed { i, track -> out[((i + 0.5) * step).toInt().coerceIn(0, out.lastIndex)] = track }
+        return out
+    }
+
     /** See [com.metrolist.music.playback.ForYouRecommender] for how the row is chosen. */
     private suspend fun loadForYou(hideExplicit: Boolean) {
+        // A newcomer's squares are the starter ones (set by loadStarterPicks), not these.
+        if (newcomer.value) return
         forYou.value = com.metrolist.music.playback.ForYouRecommender.build(database, hideExplicit).ifEmpty { null }
         preparedRadio = null
         prepareRadio()
@@ -561,12 +652,14 @@ class HomeViewModel @Inject constructor(
             loadSections(force)
         } finally {
             isLoading.value = false
+            sectionsLoading.value = false
             firstLoadDone.value = true
         }
     }
 
     private suspend fun loadSections(force: Boolean = false) = coroutineScope {
         isLoading.value = true
+        sectionsLoading.value = true
         val hideExplicit = context.dataStore.get(HideExplicitKey, false)
         val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
         val hideYoutubeShorts = context.dataStore.get(HideYoutubeShortsKey, false)
@@ -595,7 +688,13 @@ class HomeViewModel @Inject constructor(
         // Every row loads side by side and shows as soon as it is ready: one after another, a slow or
         // blocked source (YouTube without a VPN) kept the whole page on placeholders for minutes.
         val jobs = mutableListOf<kotlinx.coroutines.Job>()
-        jobs += launch { section("forYou", Unit) { withTimeoutOrNull(SECTION_TIMEOUT_MS) { loadForYou(hideExplicit) } } }
+        val forYouJob = launch { section("forYou", Unit) { withTimeoutOrNull(SECTION_TIMEOUT_MS) { loadForYou(hideExplicit) } } }
+        jobs += forYouJob
+        // After "For you": the starter squares stand in for it only when the app has none of its own.
+        jobs += launch {
+            forYouJob.join()
+            section("starterPicks", Unit) { withTimeoutOrNull(SECTION_TIMEOUT_MS) { loadStarterPicks(hideExplicit) } }
+        }
         // The personal rows are rebuilt behind the page (their genre lookups can take a while) and
         // show row by row; the saved ones stay meanwhile. Not waited for, so a pull-to-refresh ends.
         viewModelScope.launch(Dispatchers.IO) {
@@ -686,6 +785,7 @@ class HomeViewModel @Inject constructor(
         }
 
         jobs.joinAll()
+        sectionsLoading.value = false
 
         if (withYouTube) {
             allLocalItems.value = (quickPicks.value.orEmpty() + forgottenFavorites.value.orEmpty() + keepListening.value.orEmpty())
@@ -1041,6 +1141,9 @@ class HomeViewModel @Inject constructor(
         val firstLoadDone = MutableStateFlow(false)
 
         private const val SECTION_TIMEOUT_MS = 40_000L
+
+        /** How long the home waits for the accounts' likes before going by the last known ones. */
+        private const val ACCOUNT_LIKES_WAIT_MS = 15_000L
         private const val FIRST_CONTENT_WAIT_MS = 5_000L
     }
 
@@ -1074,6 +1177,7 @@ class HomeViewModel @Inject constructor(
                         (prefs[UseSpotifyHomeKey] ?: false).toString(),
                         (prefs[SpotifyHomeOnlyKey] ?: false).toString(),
                         (prefs[SpotifyAccessTokenKey] ?: "").isNotEmpty().toString(),
+                        (prefs[YandexAccessTokenKey] ?: "").isNotEmpty().toString(),
                     ).joinToString("|")
                 }
                 .distinctUntilChanged()

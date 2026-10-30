@@ -300,6 +300,27 @@ fun SettingsScreen(
                         onClick = { navController.navigate("suggest") },
                     ),
                 )
+                val concertsOn by com.metrolist.music.concerts.Concerts.enabledFlow(context).collectAsState()
+                add(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.calendar_month),
+                        title = { Text(stringResource(R.string.concerts_enable)) },
+                        description = {
+                            Text(
+                                text = stringResource(R.string.concerts_settings_desc),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        trailingContent = {
+                            com.metrolist.music.ui.theme.ThemedSwitch(
+                                checked = concertsOn == true,
+                                onCheckedChange = { com.metrolist.music.concerts.Concerts.setEnabled(context, it) },
+                            )
+                        },
+                        onClick = { navController.navigate("concerts") },
+                    ),
+                )
                 val showChangelog = com.metrolist.music.LocalChangelogState.current
                 add(
                     Material3SettingsItem(

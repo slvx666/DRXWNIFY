@@ -11,6 +11,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -82,6 +84,21 @@ fun IntegrationCard(
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     IntegrationCardItemRow(item = item)
+                    // A child setting hangs off its parent on a branch line, inside the same card.
+                    item.children.forEach { child ->
+                        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                            Box(
+                                Modifier
+                                    .padding(start = 39.dp, bottom = 20.dp)
+                                    .width(2.dp)
+                                    .fillMaxHeight()
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                            )
+                            Box(Modifier.weight(1f).padding(start = 4.dp)) {
+                                IntegrationCardItemRow(item = child)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -192,5 +209,7 @@ data class IntegrationCardItem(
     val trailingContent: (@Composable () -> Unit)? = null,
     val showBadge: Boolean = false,
     val isHighlighted: Boolean = false,
-    val onClick: (() -> Unit)? = null
+    val onClick: (() -> Unit)? = null,
+    /** Settings that belong to this one, shown under it on a branch line. */
+    val children: List<IntegrationCardItem> = emptyList(),
 )

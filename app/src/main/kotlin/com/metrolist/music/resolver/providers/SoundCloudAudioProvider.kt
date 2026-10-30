@@ -336,7 +336,141 @@ class SoundCloudAudioProvider(
         return null
     }
 
+    // ── Import ──────────────────────────────────────────────────────────────────────────────────
+
+    /** A user's playlist or album, for picking what to bring over. */
+    data class ImportSet(val title: String, val url: String, val trackCount: Int)
+
+    /** A public profile: its likes are read separately, by [importTracks] on the profile link. */
+    data class ImportProfile(
+        val name: String,
+        val url: String,
+        val avatar: String?,
+        val likes: Int,
+        val sets: List<ImportSet>,
+    )
+
+    /**
+     * One track to bring over: what the catalog is searched by, and the SoundCloud upload itself
+     * ([source], null when it can't play here: Go+ only, blocked, DRM) for when the catalog hasn't it.
+     */
+    data class ImportTrack(val artist: String?, val title: String, val durationSec: Int?, val source: ProviderMatch?)
+
+    /** The profile behind [link] (any link into it, a short on.soundcloud.com one too); null if there is none. */
+    suspend fun importProfile(link: String): ImportProfile? = withClientId { cid ->
+        val user = resolve(canonical(link).profileUrl(), cid)?.takeIf { it.optString("kind") == "user" } ?: return@withClientId null
+        val id = user.opt("id")?.toString() ?: return@withClientId null
+        // Playlists and albums come apart; likes of other people's playlists are left out.
+        val sets = listOf("playlists_without_albums", "albums").flatMap { kind ->
+            pages("https://api-v2.soundcloud.com/users/$id/$kind?limit=200", cid, MAX_SETS)
+        }.mapNotNull { p ->
+            val url = p.optString("permalink_url").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            ImportSet(p.optString("title").ifBlank { url.substringAfterLast('/') }, url, p.optInt("track_count"))
+        }.filter { it.trackCount > 0 }
+        ImportProfile(
+            name = user.optString("username"),
+            url = user.optString("permalink_url"),
+            avatar = user.optString("avatar_url").takeIf { it.isNotBlank() && it != "null" },
+            likes = user.optInt("likes_count"),
+            sets = sets,
+        )
+    }
+
+    /**
+     * The tracks behind [link]: a playlist or album, one track, or a profile — its likes then. Null
+     * when SoundCloud can't be reached or has nothing there; hidden likes give an empty list.
+     */
+    suspend fun importTracks(link: String, max: Int): List<ImportTrack>? = withClientId { cid ->
+        val url = canonical(link)
+        val likes = Regex("^https://soundcloud\\.com/[^/]+/?(likes/?)?$").matches(url)
+        val item = resolve(if (likes) url.profileUrl() else url, cid) ?: return@withClientId null
+        val tracks = when (item.optString("kind")) {
+            "user" -> pages("https://api-v2.soundcloud.com/users/${item.opt("id")}/track_likes?limit=200", cid, max)
+                .mapNotNull { it.optJSONObject("track") }
+            "playlist", "system-playlist" -> playlistTracks(item, cid)
+            "track" -> listOf(item)
+            else -> emptyList()
+        }
+        tracks.take(max).mapNotNull(::importTrackOf)
+    }
+
+    /** A playlist answers with its first tracks in full and the rest as bare ids, fetched 50 at a time. */
+    private fun playlistTracks(playlist: JSONObject, cid: String): List<JSONObject> {
+        val arr = playlist.optJSONArray("tracks") ?: return emptyList()
+        val listed = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+        val full = HashMap<String, JSONObject>()
+        listed.filter { it.has("title") }.forEach { full[it.opt("id").toString()] = it }
+        listed.map { it.opt("id").toString() }.filter { it !in full }.chunked(50).forEach { ids ->
+            val body = get("https://api-v2.soundcloud.com/tracks?ids=${ids.joinToString(",")}&client_id=$cid") ?: return@forEach
+            val found = JSONArray(body)
+            for (i in 0 until found.length()) found.optJSONObject(i)?.let { full[it.opt("id").toString()] = it }
+        }
+        return listed.mapNotNull { full[it.opt("id").toString()] }
+    }
+
+    /** Uploads are often titled "Artist - Title" under a label's or a fan's account. */
+    private fun importTrackOf(o: JSONObject): ImportTrack? {
+        val fullTitle = o.optString("title").trim().takeIf { it.isNotEmpty() } ?: return null
+        val publisher = o.optJSONObject("publisher_metadata")?.optString("artist")?.trim()?.takeIf { it.isNotEmpty() && it != "null" }
+        val uploader = o.optJSONObject("user")?.optString("username")?.trim()?.takeIf { it.isNotEmpty() }
+        val parts = fullTitle.split(TITLE_DASH, limit = 2)
+        val (artist, title) = when {
+            publisher != null && parts.size == 2 && normalizeName(parts[0]) == normalizeName(publisher) -> publisher to parts[1].trim()
+            publisher != null -> publisher to fullTitle
+            parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank() -> parts[0].trim() to parts[1].trim()
+            else -> uploader to fullTitle
+        }
+        val durationMs = o.optLong("full_duration", o.optLong("duration", 0L))
+        val source = parseTrack(o)?.takeIf { it.hasOpenTranscoding() }?.let { t ->
+            cachedTracks[t.id] = t.json
+            ProviderMatch(id, t.id, title, artist ?: t.artist, t.durationMs, 1.0, t.artwork?.replace("-large.", "-t500x500."))
+        }
+        return ImportTrack(artist, title, (durationMs / 1000).toInt().takeIf { it > 0 }, source)
+    }
+
+    private fun resolve(url: String, cid: String): JSONObject? {
+        val api = "https://api-v2.soundcloud.com/resolve".toHttpUrl().newBuilder()
+            .addQueryParameter("url", url)
+            .addQueryParameter("client_id", cid)
+            .build().toString()
+        return get(api)?.let(::JSONObject)
+    }
+
+    /** A paged list ("collection" + "next_href", which comes without the client id). */
+    private fun pages(first: String, cid: String, max: Int): List<JSONObject> {
+        val out = mutableListOf<JSONObject>()
+        var next: String? = first
+        while (next != null && out.size < max) {
+            val page = get(next.toHttpUrl().newBuilder().setQueryParameter("client_id", cid).build().toString())
+                ?.let(::JSONObject) ?: break
+            val items = page.optJSONArray("collection") ?: break
+            if (items.length() == 0) break
+            for (i in 0 until items.length()) items.optJSONObject(i)?.let(out::add)
+            next = page.optString("next_href").takeIf { it.startsWith("https://") }
+        }
+        return out
+    }
+
+    /** The plain soundcloud.com form: app share links (on.soundcloud.com/…) redirect there, m. is the same site. */
+    private fun canonical(link: String): String {
+        var url = link.trim().replace("://m.soundcloud.com", "://soundcloud.com").replace("://www.soundcloud.com", "://soundcloud.com")
+        if ("on.soundcloud.com/" in url) {
+            val request = Request.Builder().url(url).header("User-Agent", DESKTOP_UA).build()
+            url = runCatching { http.newCall(request).execute().use { it.request.url.toString() } }.getOrDefault(url)
+        }
+        return url.replace("http://", "https://").substringBefore('?').substringBefore('#').trimEnd('/')
+    }
+
+    /** soundcloud.com/<user>, whatever page of the profile the link points to. */
+    private fun String.profileUrl(): String = Regex("^(https://soundcloud\\.com/[^/]+)").find(this)?.value ?: this
+
     private companion object {
+        /** "Artist - Title" in an upload's title (hyphen or dash, with spaces around it). */
+        val TITLE_DASH = Regex("\\s+[-–—]\\s+")
+
+        /** Playlists and albums read for a profile, each kind. */
+        const val MAX_SETS = 400
+
         /** Re-uploads must be this close in length: an edit is often only a few seconds off. */
         const val REUPLOAD_DURATION_TOLERANCE_S = 3
 

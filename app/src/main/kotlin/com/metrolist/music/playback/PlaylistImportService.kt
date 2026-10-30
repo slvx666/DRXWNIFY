@@ -57,19 +57,25 @@ class PlaylistImportService : Service() {
                 return START_NOT_STICKY
             }
             job = scope.launch {
-                runCatching {
-                    PlaylistImporter.run(this@PlaylistImportService, database) { p ->
-                        val manager = getSystemService(NotificationManager::class.java)
-                        val deep = p.deep?.takeIf { !p.finished && it.second > 0 }
-                        val text = when {
-                            p.finished -> getString(R.string.import_done, p.found, p.total)
-                            deep != null -> getString(R.string.import_deep_pass, deep.first, deep.second)
-                            else -> getString(R.string.import_running, p.found, p.total)
+                // One job after another while the line has more (the importer starts the next one).
+                while (PlaylistImporter.isRunning(this@PlaylistImportService)) {
+                    val ok = runCatching {
+                        PlaylistImporter.run(this@PlaylistImportService, database) { p ->
+                            val manager = getSystemService(NotificationManager::class.java)
+                            val deep = p.deep?.takeIf { !p.finished && it.second > 0 }
+                            val text = when {
+                                p.finished -> getString(R.string.import_done, p.found, p.total)
+                                deep != null -> getString(R.string.import_deep_pass, deep.first, deep.second)
+                                else -> getString(R.string.import_running, p.found, p.total)
+                            }
+                            val queued = if (p.queued > 0) " · " + getString(R.string.import_queued, p.queued) else ""
+                            val (done, total) = deep ?: (p.done to p.total)
+                            manager.notify(NOTIFICATION_ID, notification("${p.name}: $text$queued", done, total, p.finished && p.queued == 0))
                         }
-                        val (done, total) = deep ?: (p.done to p.total)
-                        manager.notify(NOTIFICATION_ID, notification("${p.name}: $text", done, total, p.finished))
-                    }
-                }.onFailure { Timber.e(it, "PlaylistImportService: import failed") }
+                    }.onFailure { Timber.e(it, "PlaylistImportService: import failed") }.isSuccess
+                    // A failed job stays saved and goes on the next time the import screen is opened.
+                    if (!ok) break
+                }
                 ServiceCompat.stopForeground(this@PlaylistImportService, ServiceCompat.STOP_FOREGROUND_DETACH)
                 stopSelf()
             }

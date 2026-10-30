@@ -751,7 +751,7 @@ fun SpotifyLikedSongsScreen(
                             .focusRequester(focusRequester),
                     )
                 } else {
-                    Text(stringResource(R.string.spotify_liked_songs))
+                    Text(com.metrolist.music.ui.component.catalogLikedSongsTitle())
                 }
             },
             navigationIcon = {

@@ -209,6 +209,8 @@ object Fmp4AdtsTransmuxer {
 
     /** ADTS frames for a complete segment. */
     fun transmux(segment: ByteArray, config: AudioConfig): ByteArray? {
+        // An empty segment (a broken SoundCloud upload has one in the middle) is a short gap, not an error.
+        if (segment.isEmpty()) return ByteArray(0)
         val fragment = parseFragment(segment) ?: return null
         val out = ByteArray(fragment.adtsSize.toInt())
         var src = fragment.dataStart.toInt()

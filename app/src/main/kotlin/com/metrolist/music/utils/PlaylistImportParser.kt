@@ -44,7 +44,8 @@ object PlaylistImportParser {
 
     fun isPlaylistLink(url: String): Boolean =
         ("open.spotify.com/" in url && ("/playlist/" in url || "/album/" in url)) ||
-            (("youtube.com/" in url || "youtu.be/" in url) && "list=" in url)
+            (("youtube.com/" in url || "youtu.be/" in url) && "list=" in url) ||
+            "soundcloud.com/" in url
 
     /** Telegram Desktop "Export chat history" as JSON: messages with media_type = audio_file. */
     private fun parseTelegram(text: String): List<Entry>? {

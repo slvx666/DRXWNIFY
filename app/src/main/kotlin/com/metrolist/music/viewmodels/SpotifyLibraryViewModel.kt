@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -28,8 +29,8 @@ import javax.inject.Inject
 /** Backs the Spotify-style "My Library": Spotify's own order (pinned → Recents), filters and sort. */
 @HiltViewModel
 class SpotifyLibraryViewModel @Inject constructor(
-    database: MusicDatabase,
-    @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context,
+    private val database: MusicDatabase,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
 ) : ViewModel() {
     private val likedSongsTitle = context.getString(com.metrolist.music.R.string.liked)
 
@@ -91,16 +92,20 @@ class SpotifyLibraryViewModel @Inject constructor(
 
     /**
      * Without a music account the same library shows what is saved in the app itself: liked songs,
-     * saved albums and followed artists (with an account those come from the account).
+     * saved albums and followed artists (with an account those come from the account). With one, it
+     * shows what the account's catalog doesn't have (see [com.metrolist.music.catalog.CrossCatalog]):
+     * the app's liked songs when some of them are missing there, and such artists, marked so.
      */
     private val appCollection: StateFlow<List<SpotifyLibraryEntry>> =
         combine(
             Catalog.state,
             database.likedSongsCount(),
             database.albumsLiked(com.metrolist.music.constants.AlbumSortType.CREATE_DATE, true),
-            database.artistsBookmarked(com.metrolist.music.constants.ArtistSortType.CREATE_DATE, true),
-        ) { catalog, likedCount, albums, artists ->
-            if (catalog.isActive) return@combine emptyList()
+            // All followed artists, Spotify ones too (artistsBookmarked() keeps YouTube and local ones only).
+            database.artistsBookmarkedByCreateDateAsc().map { it.reversed() },
+            com.metrolist.music.catalog.CrossCatalog.missing,
+        ) { catalog, likedCount, albums, artists, missing ->
+            if (catalog.isActive) return@combine notInAccount(catalog.source, likedCount, artists, missing)
             buildList {
                 add(
                     SpotifyLibraryEntry(
@@ -140,6 +145,58 @@ class SpotifyLibraryViewModel @Inject constructor(
             }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * With an account: every like made in the app ("All liked songs", the account's own list comes
+     * from the account), saying how many of them the account doesn't have, and followed artists the
+     * account's catalog doesn't have, marked so.
+     */
+    private fun notInAccount(
+        source: com.metrolist.music.constants.MetadataSource?,
+        likedCount: Int,
+        artists: List<com.metrolist.music.db.entities.Artist>,
+        missing: Set<String>,
+    ): List<SpotifyLibraryEntry> {
+        val mark = context.getString(
+            if (source == com.metrolist.music.constants.MetadataSource.YANDEX) com.metrolist.music.R.string.not_in_yandex
+            else com.metrolist.music.R.string.not_in_spotify,
+        )
+        val missingArtists = artists.filter { a ->
+            com.metrolist.music.catalog.CrossCatalog.catalogArtistId(a.artist)?.let { "a:$it" in missing } == true
+        }
+        val missingTracks = missing.count { it.startsWith("t:") }
+        val allThere = context.getString(
+            if (source == com.metrolist.music.constants.MetadataSource.YANDEX) com.metrolist.music.R.string.all_synced_yandex
+            else com.metrolist.music.R.string.all_synced_spotify,
+        )
+        return buildList {
+            if (likedCount > 0) {
+                add(
+                    SpotifyLibraryEntry(
+                        kind = SpotifyLibraryEntry.Kind.LIKED_SONGS,
+                        id = "app_liked",
+                        uri = APP_LIKED_URI,
+                        name = context.getString(com.metrolist.music.R.string.app_liked_songs),
+                        creator = if (missingTracks > 0) "$mark: $missingTracks" else allThere,
+                        totalCount = likedCount,
+                    ),
+                )
+            }
+            missingArtists.forEach { artist ->
+                add(
+                    SpotifyLibraryEntry(
+                        kind = SpotifyLibraryEntry.Kind.ARTIST,
+                        id = artist.artist.id,
+                        uri = APP_ARTIST_URI_PREFIX + artist.artist.id,
+                        name = artist.artist.name,
+                        creator = mark,
+                        imageUrl = artist.artist.thumbnailUrl,
+                        addedAt = artist.artist.bookmarkedAt?.toString(),
+                    ),
+                )
+            }
+        }
+    }
+
     val entries: StateFlow<List<SpotifyLibraryEntry>> =
         combine(
             combine(cache, com.metrolist.music.playback.LibraryRecents.version, ::Pair),
@@ -157,15 +214,32 @@ class SpotifyLibraryViewModel @Inject constructor(
                     Filter.ARTISTS -> entry.kind == SpotifyLibraryEntry.Kind.ARTIST
                 }
             }
+            // The account's own likes say whose they are, next to the app's "All liked songs".
+            val account = c[f].orEmpty().map { e ->
+                if (e.kind == SpotifyLibraryEntry.Kind.LIKED_SONGS && e.uri != APP_LIKED_URI) e.copy(name = accountLikedTitle()) else e
+            }
             // Spotify keeps a second album id for some re-delivered releases; both can end up saved.
-            val merged = (saved + c[f].orEmpty()).distinctBy { e ->
+            val merged = (saved + account).distinctBy { e ->
                 if (e.kind == SpotifyLibraryEntry.Kind.ALBUM) "album:" + e.name.trim().lowercase() + "|" + e.creator.orEmpty().trim().lowercase() else e.kind.name + e.id
             }
             applySort(own, merged, s, reversed)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    private fun accountLikedTitle() = context.getString(com.metrolist.music.ui.component.catalogLikedSongsTitleRes())
+
     init {
         load(Filter.ALL)
+        viewModelScope.launch(Dispatchers.IO) { com.metrolist.music.catalog.CrossCatalog.fillArtistPhotos(database) }
+        // What was liked or followed in the app before goes to the account too, once per account.
+        viewModelScope.launch(Dispatchers.IO) { com.metrolist.music.catalog.CrossCatalog.syncApp(database) }
+        // A like, a follow or a saved album (here or on any other screen) shows in the list at once,
+        // not when the saved copy grows old.
+        viewModelScope.launch {
+            Catalog.libraryVersion.drop(1).collect {
+                cache.value = cache.value.filterKeys { it == _filter.value }
+                load(_filter.value, force = true)
+            }
+        }
     }
 
     /** Tapping the selected chip again clears it (back to everything), like the Spotify client. */
@@ -202,9 +276,8 @@ class SpotifyLibraryViewModel @Inject constructor(
     }
 
     fun refresh() {
+        // Reloads through the version watch in init; the list stays on screen while the new one loads.
         Catalog.invalidateCaches()
-        // The list stays on screen while the new one loads.
-        load(_filter.value, force = true)
     }
 
     private fun load(f: Filter, force: Boolean = false) {

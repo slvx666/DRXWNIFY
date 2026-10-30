@@ -5,6 +5,8 @@
 
 package com.metrolist.music.ui.screens
 
+import com.metrolist.music.ui.screens.home.starterPicksItems
+import com.metrolist.music.ui.screens.home.starterPicksNote
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -245,6 +247,12 @@ sealed class HomeSection(
 
     /** Albums of loved artists never played or dropped after a track or two. */
     data object UnheardAlbums : HomeSection("unheard_albums", 45)
+
+    /** Starter recommendations while the listener has little history of their own. */
+    data object StarterPicks : HomeSection("starter_picks", 99)
+
+    /** The concert poster, always the last block of the page. */
+    data object Concerts : HomeSection("concerts", 0)
 }
 
 @Composable
@@ -743,6 +751,11 @@ fun HomeScreen(
         }
     }
     val isSpotifyHome by viewModel.useSpotifyHome.collectAsState()
+    val starterPicks by viewModel.starterPicks.collectAsState()
+    val newcomer by viewModel.newcomer.collectAsState()
+    val sectionsLoading by viewModel.sectionsLoading.collectAsState()
+    val yandexAccountToken by com.metrolist.music.utils.rememberPreference(com.metrolist.music.constants.YandexAccessTokenKey, "")
+    val spotifyAccountToken by com.metrolist.music.utils.rememberPreference(com.metrolist.music.constants.SpotifyAccessTokenKey, "")
     val isSpotifyHomeOnly by viewModel.spotifyHomeOnly.collectAsState()
     val pinnedSpeedDialIds by viewModel.pinnedSpeedDialIds.collectAsState()
     val spotifyMapper = remember { SpotifyYouTubeMapper(database) }
@@ -759,6 +772,7 @@ fun HomeScreen(
     val accountName by viewModel.accountName.collectAsState()
     val accountImageUrl by viewModel.accountImageUrl.collectAsState()
     val innerTubeCookie by rememberPreference(InnerTubeCookieKey, "")
+    val youtubeSignedIn = innerTubeCookie.isNotEmpty()
     val (randomizeHomeOrder) = rememberPreference(RandomizeHomeOrderKey, true)
 
     val shouldShowWrappedCard by viewModel.showWrappedCard.collectAsState()
@@ -1108,8 +1122,10 @@ fun HomeScreen(
         )
     }
 
+    val concertsEnabled by com.metrolist.music.concerts.Concerts.enabledFlow(LocalContext.current).collectAsState()
     val homeSections =
         remember(
+            concertsEnabled,
             randomizeHomeOrder,
             randomSeed,
             selectedChip,
@@ -1129,7 +1145,18 @@ fun HomeScreen(
             spotifyMixes,
             spotifyHomeSections,
             friendsListening,
+            starterPicks,
+            newcomer,
+            youtubeSignedIn,
         ) {
+            // A newcomer's page is only the starter rows and what friends play (see StarterPicks).
+            if (newcomer) {
+                return@remember listOfNotNull(
+                    HomeSection.ForYou.takeIf { starterPicks != null && !forYou.isNullOrEmpty() },
+                    HomeSection.StarterPicks.takeIf { starterPicks != null },
+                    HomeSection.FriendsListening.takeIf { friendsListening.isNotEmpty() },
+                )
+            }
             val list = mutableListOf<HomeSection>()
             val chipActive = selectedChip != null
 
@@ -1166,12 +1193,15 @@ fun HomeScreen(
                 }
             }
 
-            homePage?.sections?.indices?.forEach { i ->
+            // YouTube's own feed and its moods are generic hits and charts without a YouTube sign-in:
+            // the page shows the listener's rows only (or the starter ones), never those.
+            if (youtubeSignedIn) homePage?.sections?.indices?.forEach { i ->
                 list.add(HomeSection.HomePageSection(i))
             }
 
-            if (!isSpotifyHomeOnly && explorePage?.moodAndGenres != null) list.add(HomeSection.MoodAndGenres)
+            if (youtubeSignedIn && !isSpotifyHomeOnly && explorePage?.moodAndGenres != null) list.add(HomeSection.MoodAndGenres)
 
+            val concertsOn = !chipActive && concertsEnabled == true
             own + (if (randomizeHomeOrder) {
                 list.sortedByDescending { section ->
                     val sectionRandom = Random(randomSeed + section.id.hashCode())
@@ -1232,7 +1262,7 @@ fun HomeScreen(
                         else -> defaultOrder[section] ?: 0
                     }
                 }
-            }) + bottom
+            }) + bottom + (if (concertsOn) listOf(HomeSection.Concerts) else emptyList())
         }
 
 
@@ -1302,7 +1332,7 @@ fun HomeScreen(
             ) {
                 if (linuxTheme) item(key = "linux_fetch") { com.metrolist.music.ui.theme.LinuxFetch() }
 
-                if (youtubeHome) item {
+                if (youtubeHome && !newcomer && youtubeSignedIn) item {
                     ChipsRow(
                         chips = homePage?.chips?.map { it to it.title } ?: emptyList(),
                         currentValue = selectedChip,
@@ -1312,7 +1342,7 @@ fun HomeScreen(
                     )
                 }
 
-                if (youtubeHome && isLoading && homePage?.chips.isNullOrEmpty()) {
+                if (youtubeHome && !newcomer && youtubeSignedIn && isLoading && homePage?.chips.isNullOrEmpty()) {
                     item(key = "chips_shimmer") {
                         ShimmerHost(showGradient = false) {
                             LazyRow(
@@ -1562,6 +1592,7 @@ fun HomeScreen(
                     when (section) {
                         HomeSection.ForYou -> {
                             forYou?.takeIf { it.isNotEmpty() }?.let { tracks ->
+                                if (newcomer) starterPicksNote()
                                 item(key = "for_you_title") {
                                     NavigationTitle(
                                         title = stringResource(R.string.for_you),
@@ -2638,6 +2669,46 @@ fun HomeScreen(
                             }
                         }
 
+                        HomeSection.StarterPicks -> {
+                            starterPicks?.let { picks ->
+                                starterPicksItems(
+                                    picks = picks,
+                                    horizontalItemWidth = horizontalLazyGridItemWidth,
+                                    isPlaying = isPlaying,
+                                    currentMediaId = mediaMetadata?.id,
+                                    onPlay = { queueId, tracks, index ->
+                                        playerConnection.playQueue(
+                                            SpotifyPlaylistQueue(
+                                                playlistId = queueId,
+                                                initialTracks = tracks,
+                                                startIndex = index,
+                                                mapper = spotifyMapper,
+                                            ),
+                                        )
+                                    },
+                                    onAlbum = { album -> navController.navigate("spotify_album/${album.id}") },
+                                    onAlbumPlay = { album ->
+                                        scope.launch(Dispatchers.IO) {
+                                            val tracks = com.metrolist.music.catalog.Catalog.album(album.id).getOrNull()
+                                                ?.tracks?.items?.filter { !it.isLocal && it.id.isNotEmpty() }.orEmpty()
+                                            if (tracks.isEmpty()) return@launch
+                                            withContext(Dispatchers.Main) {
+                                                playerConnection.playQueue(
+                                                    SpotifyPlaylistQueue(
+                                                        playlistId = "album_${album.id}",
+                                                        initialTracks = tracks,
+                                                        startIndex = 0,
+                                                        mapper = spotifyMapper,
+                                                    ),
+                                                )
+                                            }
+                                        }
+                                    },
+                                    onArtist = { artist -> navController.navigate("spotify_artist/${artist.id}") },
+                                )
+                            }
+                        }
+
                         HomeSection.UnheardAlbums -> {
                             homeFeed?.unheardAlbums?.takeIf { it.isNotEmpty() }?.let { albums ->
                                 item(key = "unheard_albums_title") {
@@ -2655,6 +2726,20 @@ fun HomeScreen(
                                         modifier = Modifier.animateItem(),
                                     )
                                 }
+                            }
+                        }
+
+                        HomeSection.Concerts -> {
+                            item(key = "concerts_title") {
+                                NavigationTitle(
+                                    title = stringResource(R.string.concerts_title),
+                                    label = stringResource(R.string.concerts_label),
+                                    onClick = { navController.navigate("concerts") },
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
+                            item(key = "concerts_block") {
+                                com.metrolist.music.ui.screens.ConcertsHomeBlock(navController, Modifier.animateItem())
                             }
                         }
 
@@ -3003,6 +3088,19 @@ fun HomeScreen(
                                 }
                             }
                         }
+                    }
+                }
+
+                // Never a blank page: rows still on their way, or none came and how to get some.
+                if (!isLoading && selectedChip == null && homeSections.isEmpty()) {
+                    item(key = "home_empty") {
+                        com.metrolist.music.ui.screens.home.HomeEmptyState(
+                            loading = sectionsLoading,
+                            accountConnected = yandexAccountToken.isNotEmpty() || spotifyAccountToken.isNotEmpty(),
+                            onConnectSpotify = { navController.navigate("settings/spotify/login") },
+                            onRetry = viewModel::refresh,
+                            modifier = Modifier.animateItem(),
+                        )
                     }
                 }
             }

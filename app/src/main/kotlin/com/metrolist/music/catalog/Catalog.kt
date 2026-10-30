@@ -123,7 +123,9 @@ object Catalog {
 
     /** True when the account owning [id] is signed in, i.e. writes (like, save, follow) can succeed. */
     fun canWrite(id: String?): Boolean =
-        if (isYandexId(id)) YandexMusic.isAuthenticated() else Spotify.isAuthenticated()
+        // Spotify's anonymous token (search and pages without an account) is a token too: it can't
+        // write anything, so only a connected account counts.
+        if (isYandexId(id)) YandexMusic.isAuthenticated() else _state.value.spotifyConnected && Spotify.isAuthenticated()
 
     /** Makes sure the selected source has a usable session. */
     suspend fun ensureAuthenticated(): Boolean = when (source) {
@@ -272,11 +274,14 @@ object Catalog {
 
     suspend fun saveTrack(id: String): Result<Unit> =
         (if (isYandexId(id)) YandexMusic.setTrackLiked(id, true) else Spotify.saveTrack(id))
-            .onSuccess { LikedSongsCache.markStale() }
+            .onSuccess { invalidateCaches() }
 
     suspend fun removeTrack(id: String): Result<Unit> =
         (if (isYandexId(id)) YandexMusic.setTrackLiked(id, false) else Spotify.removeTrack(id))
-            .onSuccess { LikedSongsCache.remove(id) }
+            .onSuccess {
+                LikedSongsCache.remove(id)
+                invalidateCaches()
+            }
 
     // Spotify albums are saved/checked through "Your Library" (the web player's GQL operations). The
     // public REST /me/albums endpoints reject the web-player token, which is why the old "+" always failed.
@@ -381,7 +386,13 @@ object Catalog {
     /** Spotify library pages fetched recently (e.g. warmed up during the launch intro). */
     private val spotifyLibraryPages = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, SpotifyPaging<SpotifyLibraryEntry>>>()
 
+    /** Bumped whenever the account library changes from here (a like, a follow, a saved album). */
+    private val _libraryVersion = kotlinx.coroutines.flow.MutableStateFlow(0)
+    val libraryVersion: kotlinx.coroutines.flow.StateFlow<Int> = _libraryVersion
+
     fun invalidateCaches() {
+        _libraryVersion.value++
+        AccountLikes.markStale()
         LibraryCache.markStale()
         LikedSongsCache.markStale()
         yandexLibrary.clear()
@@ -392,6 +403,11 @@ object Catalog {
         MetadataSource.SPOTIFY -> Spotify.likedSongs(limit, offset)
         MetadataSource.YANDEX -> YandexMusic.likedSongs(limit, offset)
         null -> runCatching { noAccount() }
+    }
+
+    /** Waits until the connected accounts are read at app start (before that, [source] reads as none). */
+    suspend fun awaitAccounts() {
+        stateLoaded.first { it }
     }
 
     /** One page of the library for [filter] ("Playlists" / "Albums" / "Artists" / null = all). */

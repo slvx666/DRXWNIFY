@@ -85,6 +85,23 @@ import com.metrolist.spotify.models.SpotifyLibraryEntry
 import java.net.URLEncoder
 
 private val SpotifyGreen = Color(0xFF1ED760)
+
+/**
+ * The library's highlight (selected chips and tabs, the sort mark, pins) in the colour of the
+ * account the library comes from: Yandex yellow, Spotify green; with neither (or VK only) the
+ * theme's own accent.
+ */
+private data class LibraryAccent(val color: Color, val onColor: Color)
+
+@Composable
+private fun libraryAccent(): LibraryAccent {
+    val source = com.metrolist.music.catalog.Catalog.state.collectAsState().value.source
+    return when (source) {
+        com.metrolist.music.constants.MetadataSource.YANDEX -> LibraryAccent(com.metrolist.music.ui.component.YandexMusicYellow, Color.Black)
+        com.metrolist.music.constants.MetadataSource.SPOTIFY -> LibraryAccent(SpotifyGreen, Color.Black)
+        else -> LibraryAccent(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
+    }
+}
 private const val REVIEWS_CHIP = "drxwnslvt's"
 private val LibraryGridKey = booleanPreferencesKey("spotify_library_grid")
 
@@ -100,6 +117,7 @@ fun SpotifyLibraryScreen(
     onLocalSelected: () -> Unit,
     onVkSelected: (() -> Unit)? = null,
     onReviewsSelected: (() -> Unit)? = null,
+    onConcertsSelected: (() -> Unit)? = null,
     viewModel: SpotifyLibraryViewModel = hiltViewModel(),
 ) {
     val entries by viewModel.entries.collectAsState()
@@ -190,6 +208,7 @@ fun SpotifyLibraryScreen(
                 onImportPlaylist = { navController.navigate("import_playlist") },
                 onVk = onVkSelected,
                 onReviews = onReviewsSelected,
+                onConcerts = onConcertsSelected,
             )
         }
         item(key = "sort", span = { GridItemSpan(maxLineSpan) }) {
@@ -263,6 +282,9 @@ fun LibraryChips(
     reviewsSelected: Boolean = false,
     /** Shows the "drxwnslvt's" chip (his album reviews); null for profiles he hasn't marked. */
     onReviews: (() -> Unit)? = null,
+    concertsSelected: Boolean = false,
+    /** Shows the "Афиша" chip (the concert poster); null while the poster is switched off. */
+    onConcerts: (() -> Unit)? = null,
 ) {
     val labels = listOf(
         Filter.PLAYLISTS to stringResource(R.string.filter_playlists),
@@ -270,7 +292,9 @@ fun LibraryChips(
         Filter.ARTISTS to stringResource(R.string.filter_artists),
     )
     val localLabel = stringResource(R.string.filter_local)
+    val concertsLabel = stringResource(R.string.concerts_chip)
     val state = when {
+        concertsSelected -> "concerts"
         reviewsSelected -> "reviews"
         vkSelected -> "vk"
         localSelected -> "local"
@@ -297,11 +321,14 @@ fun LibraryChips(
                 labels.first { it.first == Filter.PLAYLISTS }.let { (f, label) ->
                     Chip(label, selected = false) { onSelect(f) }
                 }
+                onConcerts?.let { Chip(concertsLabel, selected = false, onClick = it) }
                 onReviews?.let { Chip(REVIEWS_CHIP, selected = false, onClick = it) }
                 onVk?.let { Chip("VK", selected = false, onClick = it) }
             } else {
                 CloseChip(onClick = onClear)
-                if (current == "reviews") {
+                if (current == "concerts") {
+                    Chip(concertsLabel, selected = true, onClick = onClear)
+                } else if (current == "reviews") {
                     Chip(REVIEWS_CHIP, selected = true, onClick = onClear)
                 } else if (current == "vk") {
                     Chip("VK", selected = true, onClick = onClear)
@@ -341,12 +368,12 @@ fun LibraryChips(
 private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(50),
-        color = if (selected) SpotifyGreen else MaterialTheme.colorScheme.surfaceContainerHighest,
+        color = if (selected) libraryAccent().color else MaterialTheme.colorScheme.surfaceContainerHighest,
         modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onClick),
     ) {
         Text(
             text = text,
-            color = if (selected) Color.Black else MaterialTheme.colorScheme.onSurface,
+            color = if (selected) libraryAccent().onColor else MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
@@ -421,7 +448,7 @@ private fun SortRow(
                         text = {
                             Text(
                                 stringResource(res),
-                                color = if (s == sort) SpotifyGreen else MaterialTheme.colorScheme.onSurface,
+                                color = if (s == sort) libraryAccent().color else MaterialTheme.colorScheme.onSurface,
                             )
                         },
                         onClick = { onSort(s); menu = false },
@@ -489,7 +516,8 @@ private fun entrySubtitle(entry: SpotifyLibraryEntry): String {
         else -> when (entry.kind) {
         SpotifyLibraryEntry.Kind.FOLDER ->
             entry.totalCount.takeIf { it > 0 }?.let { stringResource(R.string.lib_folder_count, it) }
-        SpotifyLibraryEntry.Kind.ARTIST -> null
+        // Only set for an artist the account's catalog doesn't have ("Not on Yandex Music").
+        SpotifyLibraryEntry.Kind.ARTIST -> entry.creator
         else -> entry.creator
         }
     }
@@ -544,7 +572,7 @@ private fun PinnedSubtitle(entry: SpotifyLibraryEntry, pinnedHere: Boolean = fal
             Icon(
                 painterResource(R.drawable.ic_push_pin),
                 contentDescription = null,
-                tint = SpotifyGreen,
+                tint = libraryAccent().color,
                 modifier = Modifier.size(14.dp),
             )
             Spacer(Modifier.width(4.dp))
@@ -674,12 +702,12 @@ fun VkLibraryChips(
             val selected = value == tab
             Surface(
                 shape = RoundedCornerShape(50),
-                color = if (selected) SpotifyGreen else MaterialTheme.colorScheme.surfaceContainerHighest,
+                color = if (selected) libraryAccent().color else MaterialTheme.colorScheme.surfaceContainerHighest,
                 modifier = Modifier.clip(RoundedCornerShape(50)).clickable { onTab(value) },
             ) {
                 Text(
                     text = label,
-                    color = if (selected) Color.Black else MaterialTheme.colorScheme.onSurface,
+                    color = if (selected) libraryAccent().onColor else MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 )

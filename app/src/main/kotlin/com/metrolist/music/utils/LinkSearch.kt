@@ -27,8 +27,9 @@ import java.util.concurrent.TimeUnit
 
 /**
  * A link pasted into the search box opens what it points to instead of being searched as text:
- * Spotify (open.spotify.com, the short spotify.link), Drxwnify's own links and YouTube videos. The
- * result is shown as the one thing found, ready to play or open.
+ * Spotify (open.spotify.com, the short spotify.link), Yandex Music (music.yandex.ru), Drxwnify's own
+ * links and YouTube videos. The result is shown as the one thing found, ready to play or open; a
+ * Yandex track, album or artist as Spotify's same one when Spotify has it (its catalog is fuller).
  */
 object LinkSearch {
     private val URL = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
@@ -62,13 +63,29 @@ object LinkSearch {
         }
         // Spotify answers without an account too (its public catalog), but needs a token for it.
         Catalog.ensureSearchable(com.metrolist.music.constants.MetadataSource.SPOTIFY)
-        val id = AppLinks.reachableId(target)
+        val reachable = AppLinks.reachableId(target)
+        val id = if (Catalog.isYandexId(reachable)) spotifyPairOf(target.kind, reachable) ?: reachable else reachable
         return when (target.kind) {
             AppLinks.Kind.TRACK -> track(id)?.let { page(context.getString(R.string.songs), it.toSongItem()) }
             AppLinks.Kind.ALBUM -> Catalog.album(id).getOrNull()?.let { page(context.getString(R.string.albums), it.toAlbumItem()) }
             AppLinks.Kind.ARTIST -> Catalog.artist(id).getOrNull()?.let { page(context.getString(R.string.artists), it.toArtistItem()) }
             AppLinks.Kind.PLAYLIST -> Catalog.playlist(id).getOrNull()?.let { page(context.getString(R.string.playlists), it.toPlaylistItem()) }
         }
+    }
+
+    /** Spotify's same track, album or artist for a Yandex one; null when Spotify hasn't it (or doesn't answer). */
+    private suspend fun spotifyPairOf(kind: AppLinks.Kind, yandexId: String): String? = when (kind) {
+        AppLinks.Kind.TRACK -> Catalog.getTrack(yandexId).getOrNull()?.let { t ->
+            com.metrolist.music.catalog.CrossCatalog.trackIn(
+                com.metrolist.music.constants.MetadataSource.SPOTIFY, t.name, t.artists.map { it.name }, t.durationMs / 1000, t.album?.name,
+            )
+        }
+        AppLinks.Kind.ALBUM -> Catalog.album(yandexId).getOrNull()?.let { a ->
+            com.metrolist.music.catalog.CrossCatalog.spotifyAlbumFor(yandexId, a.name, a.artists.firstOrNull()?.name)
+        }
+        AppLinks.Kind.ARTIST -> com.metrolist.music.catalog.CrossCatalog.spotifyArtistFor(yandexId, null)
+        // A user's playlist lives in Yandex only.
+        AppLinks.Kind.PLAYLIST -> null
     }
 
     private fun page(title: String, item: YTItem) = SearchSummaryPage(summaries = listOf(SearchSummary(title = title, items = listOf(item))))
