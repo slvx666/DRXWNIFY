@@ -284,6 +284,56 @@ object AudioFallbackEngine {
             winner
         }
 
+    /** Searches every source to the end (up to 5 s for 256+ kbps): no one waits for it. */
+    private val thoroughRacer by lazy { ParallelAudioResolver(mode = { com.metrolist.music.constants.SourcePickMode.QUALITY }) }
+
+    private val betterChecked by lazy { appContext.getSharedPreferences("better_checked", Context.MODE_PRIVATE) }
+
+    /**
+     * A track that started without a search (from the cache, its file or a remembered choice) is
+     * compared with every source in the background, at most once a week: the version that plays
+     * isn't touched, but a clearly better one becomes the track's choice for the next play and
+     * download, and the player shows the green arrow (see [SourceUpgrades]). Without this, a track
+     * matched once to YouTube never learned that VK had it at 320 kbps.
+     */
+    fun checkForBetterVersion(mediaId: String, dbSong: Song?, playingKbps: Int?) {
+        if (ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.SPEED) return
+        if (!::appContext.isInitialized) return
+        scope.launch {
+            runCatching {
+                val query = queryFor(mediaId, dbSong) ?: return@launch
+                val catalogId = query.catalogId ?: return@launch
+                val now = System.currentTimeMillis()
+                if (now - betterChecked.getLong(catalogId, 0L) < BETTER_CHECK_EVERY_MS) return@launch
+                // A version the user picked by hand is their choice: nothing is offered over it.
+                if (storedCandidates(query).any { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }) return@launch
+                betterChecked.edit().putLong(catalogId, now).apply()
+                val providers = activeProviders(setOf(AudioProviderId.SOULSEEK))
+                if (providers.isEmpty()) return@launch
+                val outcome = thoroughRacer.resolve(query, providers, ResolverPreferences.order)
+                val playing = currentChoice(mediaId, dbSong)
+                val playingNow = playingKbps ?: playing?.let(::effectiveKbps) ?: return@launch
+                val best = outcome.matches.firstOrNull { it.usableFor(query, emptySet()) } ?: return@launch
+                val bestKbps = effectiveKbps(best)
+                val exact = playing == null || best.confidence >= playing.confidence - ParallelAudioResolver.AUTO_CONFIDENCE_MARGIN
+                val better = bestKbps >= playingNow + MIN_UPGRADE_KBPS && exact &&
+                    !(playing != null && best.provider == playing.provider && best.trackId == playing.trackId)
+                AudioDiagnostics.info(
+                    "better-version check ${query.label()}: playing ~$playingNow kbps (${playing?.provider ?: "?"}), " +
+                        "best found ${best.provider} ~$bestKbps kbps (${"%.2f".format(best.confidence)}) → " +
+                        (if (better) "offered, used from the next play/download" else "nothing better") +
+                        "\n  " + outcome.report.joinToString("\n  "),
+                )
+                if (!better) return@launch
+                memory.put(query.cacheKey, best)
+                remember(query, outcome.matches, best)
+                SourceUpgrades.offer(catalogId, best, bestKbps)
+            }.onFailure { AudioDiagnostics.warn("better-version check for $mediaId failed: ${AudioDiagnostics.explain(it)}") }
+        }
+    }
+
+    private const val BETTER_CHECK_EVERY_MS = 7L * 24 * 60 * 60 * 1000
+
     /** What a match really sounds like when it was measured before, else what its source usually gives. */
     private fun effectiveKbps(match: ProviderMatch): Int = knownBitrate(match.provider, match.trackId) ?: match.expectedKbps
 

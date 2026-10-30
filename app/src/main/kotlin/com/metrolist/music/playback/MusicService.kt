@@ -2783,6 +2783,12 @@ class MusicService :
                 val line = "sound for '$title' after ${"%.1f".format(java.util.Locale.US, seconds)} s ($source$length)"
                 if (seconds >= SLOW_START_S) com.metrolist.music.resolver.AudioDiagnostics.warn("slow start: $line")
                 else com.metrolist.music.resolver.AudioDiagnostics.info(line)
+                // Started without a search (cache / file / remembered choice): is there better?
+                scope.launch(Dispatchers.IO) {
+                    val kbps = runCatching { database.format(mediaId).first()?.bitrate }.getOrNull()
+                        ?.takeIf { it > 0 }?.let { (it + 500) / 1000 }
+                    AudioFallbackEngine.checkForBetterVersion(mediaId, database.getSongById(mediaId), kbps)
+                }
             }
         }
         // Listening in the background is using the app: no launch intro on the next open.
