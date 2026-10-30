@@ -170,9 +170,10 @@ class App :
             // Tracks matched once (often to YouTube before VK was linked) were never asked of the
             // other sources again: each is compared with every source once more on its next play,
             // and a better version found is kept from then on.
-            val recheck = androidx.datastore.preferences.core.booleanPreferencesKey("sourcesRecheck220")
+            val recheck = androidx.datastore.preferences.core.booleanPreferencesKey("sourcesRecheck220b")
             if (dataStore.data.first()[recheck] != true) {
                 getSharedPreferences("quality_checked", MODE_PRIVATE).edit().clear().apply()
+                getSharedPreferences("better_checked", MODE_PRIVATE).edit().clear().apply()
                 dataStore.edit { it[recheck] = true }
             }
             val migrated = androidx.datastore.preferences.core.booleanPreferencesKey("qualityModes220")
@@ -453,6 +454,7 @@ class App :
     private object CrashSafeInterceptor : Interceptor {
         override suspend fun intercept(chain: Interceptor.Chain): ImageResult =
             try {
+                if ("scdn" in chain.request.data.toString()) Timber.i("TMPIMG start %s", chain.request.data)
                 chain.proceed().also { r ->
                     if (r is ErrorResult) Timber.w(r.throwable, "TMPIMG fail %s", chain.request.data)
                     if (r is coil3.request.SuccessResult && "scdn" in chain.request.data.toString()) {

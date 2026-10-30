@@ -99,8 +99,12 @@ object AudioFallbackEngine {
         }
         scope.launch {
             // Signing in again gives a new token: the warning goes away by itself.
+            var lastToken: String? = null
             appContext.dataStore.data.collect { prefs ->
                 val token = prefs[VkAccessTokenKey].orEmpty()
+                // A new VK login: tracks matched without VK get a fresh look.
+                if (lastToken != null && token != lastToken && token.isNotEmpty()) forgetBetterChecks()
+                lastToken = token
                 com.metrolist.music.resolver.providers.VkTokenHealth.ownLoginRevoked.value =
                     token.isNotEmpty() && com.metrolist.music.resolver.providers.VkTokenHealth.isRevoked(token)
             }
@@ -322,12 +326,17 @@ object AudioFallbackEngine {
                 val catalogId = query.catalogId ?: return@launch
                 val now = System.currentTimeMillis()
                 if (now - betterChecked.getLong(catalogId, 0L) < BETTER_CHECK_EVERY_MS) return@launch
+                if (!betterCheckedThisRun.add(catalogId)) return@launch
                 // A version the user picked by hand is their choice: nothing is offered over it.
                 if (storedCandidates(query).any { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }) return@launch
-                betterChecked.edit().putLong(catalogId, now).apply()
                 val providers = activeProviders(setOf(AudioProviderId.SOULSEEK))
                 if (providers.isEmpty()) return@launch
                 val outcome = thoroughRacer.resolve(query, providers, ResolverPreferences.order)
+                // Checked for the week only when every source really answered: a check made while
+                // VK's login was dead (or the network down) found nothing and then kept the track
+                // from being looked at again for a week.
+                val answered = outcome.matches.map { it.provider }.toSet() + outcome.definitiveMisses
+                if (providers.all { it.id in answered }) betterChecked.edit().putLong(catalogId, now).apply()
                 val playing = currentChoice(mediaId, dbSong)
                 val playingNow = playingKbps ?: playing?.let(::effectiveKbps) ?: return@launch
                 val best = outcome.matches.firstOrNull { it.usableFor(query, emptySet()) } ?: return@launch
@@ -350,6 +359,18 @@ object AudioFallbackEngine {
     }
 
     private const val BETTER_CHECK_EVERY_MS = 7L * 24 * 60 * 60 * 1000
+
+    /** Once per app run at most, whatever the outcome (an unanswered check is retried on the next run). */
+    private val betterCheckedThisRun = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /** A source came (back): every track may have a better version there now. */
+    fun forgetBetterChecks() {
+        if (!::appContext.isInitialized) return
+        betterChecked.edit().clear().apply()
+        betterCheckedThisRun.clear()
+        qualityChecked.edit().clear().apply()
+        AudioDiagnostics.info("sources changed: every track is compared with all sources again on its next play")
+    }
 
     /** What a match really sounds like when it was measured before, else what its source usually gives. */
     private fun effectiveKbps(match: ProviderMatch): Int = knownBitrate(match.provider, match.trackId) ?: match.expectedKbps
