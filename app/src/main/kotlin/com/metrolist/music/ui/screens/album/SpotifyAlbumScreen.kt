@@ -35,6 +35,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import com.metrolist.music.ui.component.dragScrollPadding
+import sh.calvin.reorderable.ReorderableItem
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.animation.core.tween
@@ -105,7 +107,13 @@ fun SpotifyAlbumScreen(
     val downloadProgress = allDownloadProgress[downloadSourceId]
 
     val album by viewModel.album.collectAsState()
-    val tracks by viewModel.tracks.collectAsState()
+    val catalogTracks by viewModel.tracks.collectAsState()
+    // The album in the user's own order when tracks were dragged around (kept on this phone).
+    val orderKey = "album_${viewModel.albumId}"
+    var tracks by remember { mutableStateOf<List<com.metrolist.spotify.models.SpotifyTrack>>(emptyList()) }
+    LaunchedEffect(catalogTracks) {
+        tracks = com.metrolist.music.playback.TrackOrderStore.apply(context, orderKey, catalogTracks.distinctBy { it.id }) { it.id }
+    }
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
 
@@ -140,6 +148,26 @@ fun SpotifyAlbumScreen(
 
     val lazyListState = rememberLazyListState()
     val selection = com.metrolist.music.ui.component.rememberTrackSelection()
+    // Rows are dragged by the handle that slides in while tracks are being picked.
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    var dragged by remember { mutableStateOf(false) }
+    val reorderableState = sh.calvin.reorderable.rememberReorderableLazyListState(
+        lazyListState = lazyListState,
+        scrollThresholdPadding = selection.dragScrollPadding(LocalPlayerAwareWindowInsets.current.asPaddingValues()),
+    ) { from, to ->
+        val fromIndex = tracks.indexOfFirst { "track_${it.id}" == from.key }
+        val toIndex = tracks.indexOfFirst { "track_${it.id}" == to.key }
+        if (fromIndex >= 0 && toIndex >= 0) {
+            tracks = tracks.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+            dragged = true
+        }
+    }
+    LaunchedEffect(reorderableState.isAnyItemDragging) {
+        if (!reorderableState.isAnyItemDragging && dragged) {
+            dragged = false
+            com.metrolist.music.playback.TrackOrderStore.save(context, orderKey, tracks.map { it.id })
+        }
+    }
 
     /** Downloads [toDownload] (the whole album, or the tracks ticked in the selection). */
     fun downloadTracks(toDownload: List<com.metrolist.spotify.models.SpotifyTrack>) {
@@ -406,8 +434,9 @@ fun SpotifyAlbumScreen(
 
             itemsIndexed(
                 items = tracks,
-                key = { index, track -> "track_${track.id}_$index" },
+                key = { _, track -> "track_${track.id}" },
             ) { index, track ->
+              ReorderableItem(reorderableState, key = "track_${track.id}") {
                 val thumbnailUrl = SpotifyMapper.getTrackThumbnail(track)
 
                 val isActive = currentSpotifyId != null && currentSpotifyId == track.id
@@ -435,14 +464,21 @@ fun SpotifyAlbumScreen(
                     },
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Play counts make room for the ticks while tracks are being picked.
                             track.playCount?.takeIf { it > 0 }?.let { plays ->
-                                Text(
-                                    text = com.metrolist.music.playback.SpotifyPlays.format(plays),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    modifier = Modifier.padding(end = 6.dp),
-                                )
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = !selection.active,
+                                    enter = androidx.compose.animation.fadeIn(tween(200)) + androidx.compose.animation.expandHorizontally(tween(240)),
+                                    exit = androidx.compose.animation.fadeOut(tween(150)) + androidx.compose.animation.shrinkHorizontally(tween(220)),
+                                ) {
+                                    Text(
+                                        text = com.metrolist.music.playback.SpotifyPlays.format(plays),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                    )
+                                }
                             }
                             // The slot of the downloaded-mark is always reserved, so the counts line up either way.
                             Box(modifier = Modifier.width(20.dp), contentAlignment = Alignment.CenterEnd) {
@@ -454,13 +490,23 @@ fun SpotifyAlbumScreen(
                         }
                     },
                     thumbnailContent = {
-                        ItemThumbnail(
-                            thumbnailUrl = thumbnailUrl,
-                            isActive = isActive,
-                            isPlaying = isPlaying,
-                            shape = RoundedCornerShape(ThumbnailCornerRadius).tui(),
-                            modifier = Modifier.size(ListThumbnailSize),
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            com.metrolist.music.ui.component.SelectionDragHandle(
+                                visible = selection.active,
+                                handleModifier = Modifier.draggableHandle(
+                                    onDragStarted = {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    },
+                                ),
+                            )
+                            ItemThumbnail(
+                                thumbnailUrl = thumbnailUrl,
+                                isActive = isActive,
+                                isPlaying = isPlaying,
+                                shape = RoundedCornerShape(ThumbnailCornerRadius).tui(),
+                                modifier = Modifier.size(ListThumbnailSize),
+                            )
+                        }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -504,6 +550,7 @@ fun SpotifyAlbumScreen(
                         )
                         .animateItem(),
                 )
+              }
             }
             item(key = "selection_space") { com.metrolist.music.ui.component.TrackSelectionSpacer(selection) }
         }

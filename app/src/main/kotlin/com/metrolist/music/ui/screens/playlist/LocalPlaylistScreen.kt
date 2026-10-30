@@ -160,6 +160,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sh.calvin.reorderable.ReorderableItem
+import com.metrolist.music.ui.component.dragScrollPadding
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.time.LocalDateTime
 
@@ -446,7 +447,7 @@ fun LocalPlaylistScreen(
     val reorderableState =
         rememberReorderableLazyListState(
             lazyListState = lazyListState,
-            scrollThresholdPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
+            scrollThresholdPadding = selectionBar.dragScrollPadding(LocalPlayerAwareWindowInsets.current.asPaddingValues()),
         ) { from, to ->
             if (to.index >= headerItems && from.index >= headerItems) {
                 val currentDragInfo = dragInfo
@@ -741,7 +742,15 @@ fun LocalPlaylistScreen(
 
                     if (locked || inSelectMode || !swipeRemoveEnabled) {
                         Box(modifier = Modifier.animateItem()) {
-                            content()
+                            // While picking tracks a handle slides in on the left: rows are dragged
+                            // by it (custom order only, the other sorts are computed).
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                com.metrolist.music.ui.component.SelectionDragHandle(
+                                    visible = inSelectMode && editable && !isSearching && sortType == PlaylistSongSortType.CUSTOM,
+                                    handleModifier = Modifier.padding(start = 12.dp).draggableHandle(),
+                                )
+                                Box(Modifier.weight(1f)) { content() }
+                            }
                         }
                     } else {
                         SwipeToDismissBox(

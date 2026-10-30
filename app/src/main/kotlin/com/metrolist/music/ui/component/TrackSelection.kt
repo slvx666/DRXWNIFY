@@ -265,3 +265,34 @@ private fun androidx.compose.foundation.layout.RowScope.SelectionAction(icon: In
         }
     }
 }
+
+/**
+ * The scroll-threshold padding for dragging rows of a list that has the selection bar: the bar
+ * floats over the bottom of the list, so a row dragged under it scrolls the list on (as in AIMP)
+ * instead of stopping at the bar's edge.
+ */
+@Composable
+fun TrackSelection.dragScrollPadding(base: androidx.compose.foundation.layout.PaddingValues): androidx.compose.foundation.layout.PaddingValues {
+    val bar = with(androidx.compose.ui.platform.LocalDensity.current) { (if (active) barHeightPx else 0).toDp() }
+    return androidx.compose.foundation.layout.PaddingValues(
+        top = base.calculateTopPadding(),
+        bottom = base.calculateBottomPadding() + bar,
+    )
+}
+
+/** The drag handle at the start of a row, sliding in while tracks are being picked. */
+@Composable
+fun SelectionDragHandle(visible: Boolean, handleModifier: Modifier) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(200)) + androidx.compose.animation.expandHorizontally(tween(240)),
+        exit = fadeOut(tween(150)) + androidx.compose.animation.shrinkHorizontally(tween(220)),
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.drag_handle),
+            contentDescription = stringResource(R.string.drag_to_reorder),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = handleModifier.padding(end = 10.dp).size(24.dp),
+        )
+    }
+}

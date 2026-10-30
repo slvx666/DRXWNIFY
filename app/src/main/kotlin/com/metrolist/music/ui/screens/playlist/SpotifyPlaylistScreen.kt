@@ -116,6 +116,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import sh.calvin.reorderable.ReorderableItem
+import com.metrolist.music.ui.component.dragScrollPadding
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 import com.metrolist.music.models.toMediaMetadata
@@ -265,7 +266,7 @@ fun SpotifyPlaylistScreen(
     var dragInfo by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val reorderableState = rememberReorderableLazyListState(
         lazyListState = lazyListState,
-        scrollThresholdPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
+        scrollThresholdPadding = selection.dragScrollPadding(LocalPlayerAwareWindowInsets.current.asPaddingValues()),
     ) { from, to ->
         if (to.index >= headerItems && from.index >= headerItems) {
             val currentDragInfo = dragInfo

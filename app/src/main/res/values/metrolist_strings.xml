@@ -1990,4 +1990,5 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="cancel_download">Cancel download</string>
     <string name="about_qr_title">Install on another phone</string>
     <string name="about_qr_hint">Point the camera at the code: the latest APK starts downloading. The site below has the release notes and older builds.</string>
+    <string name="drag_to_reorder">Drag to reorder</string>
 </resources>
