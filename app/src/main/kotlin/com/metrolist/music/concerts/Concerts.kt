@@ -89,6 +89,8 @@ object Concerts {
         val loading: Boolean = false,
         val updatedAt: Long = 0L,
         val error: Boolean = false,
+        /** Per source: how many gigs it gave last time, or null when it failed. */
+        val sources: Map<String, Int?> = emptyMap(),
     )
 
     private const val PREFS = "concerts"
@@ -142,14 +144,14 @@ object Concerts {
                 return@withLock
             }
             _state.value = _state.value.copy(loading = true, error = false)
-            val merged = fetchAll()
+            val (merged, bySource) = fetchAll()
             if (merged == null) {
-                _state.value = _state.value.copy(loading = false, error = _state.value.concerts.isEmpty())
+                _state.value = _state.value.copy(loading = false, error = _state.value.concerts.isEmpty(), sources = bySource)
                 return@withLock
             }
             val now = System.currentTimeMillis()
             runCatching { cache.writeText(encode(merged, now)) }
-            _state.value = State(concerts = merged.upcoming(), loading = false, updatedAt = now)
+            _state.value = State(concerts = merged.upcoming(), loading = false, updatedAt = now, sources = bySource)
         }
     }
 
@@ -164,13 +166,29 @@ object Concerts {
         return filter { it.start >= from }.sortedBy { it.start }
     }
 
-    private suspend fun fetchAll(): List<Concert>? = coroutineScope {
-        val a = async { runCatching { Concertinfo.fetch(::get) }.onFailure { Timber.w(it, "Concerts: concertinfo failed") }.getOrNull() }
-        val b = async { runCatching { Kovelt.fetch(::get) }.onFailure { Timber.w(it, "Concerts: kovelt failed") }.getOrNull() }
-        val ra = a.await()
-        val rb = b.await()
-        if (ra == null && rb == null) return@coroutineScope null
-        merge(ra.orEmpty() + rb.orEmpty())
+    /**
+     * Every source at once. Concertinfo first in the merge (genres and prices are most reliable
+     * there), then Ковельт (the underground, "free"), then the Telegram posters (what the others
+     * miss: small venues' own announcements).
+     */
+    private suspend fun fetchAll(): Pair<List<Concert>?, Map<String, Int?>> = coroutineScope {
+        val sources = listOf<Pair<String, ((String) -> String) -> List<Concert>>>(
+            "Concertinfo" to Concertinfo::fetch,
+            "Ковельт" to Kovelt::fetch,
+            "Telegram" to TelegramPosters::fetch,
+        )
+        val results = sources.map { (name, fetch) ->
+            name to async {
+                val started = System.currentTimeMillis()
+                runCatching { fetch(::get) }
+                    .onSuccess { Timber.i("Concerts: %s gave %d gigs in %d ms", name, it.size, System.currentTimeMillis() - started) }
+                    .onFailure { Timber.w("Concerts: %s failed: %s", name, com.metrolist.music.resolver.AudioDiagnostics.explain(it)) }
+                    .getOrNull()
+            }
+        }.map { (name, job) -> name to job.await() }
+        val bySource = results.associate { (name, list) -> name to list?.size }
+        if (results.all { it.second == null }) return@coroutineScope null to bySource
+        merge(results.flatMap { it.second.orEmpty() }) to bySource
     }
 
     private fun get(url: String): String =

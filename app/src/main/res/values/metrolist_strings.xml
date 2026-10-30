@@ -1991,4 +1991,16 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="about_qr_title">Install on another phone</string>
     <string name="about_qr_hint">Point the camera at the code: the latest APK starts downloading. The site below has the release notes and older builds.</string>
     <string name="drag_to_reorder">Drag to reorder</string>
+    <string name="concerts_off">The poster is off: no home block, no alerts.</string>
+    <string name="concerts_turn_on">Turn the poster on</string>
+    <string name="concerts_filters">Filters</string>
+    <string name="concerts_filters_n">Filters · %d</string>
+    <string name="concerts_loading">Gathering the poster from every source…</string>
+    <string name="concerts_reset_filters">Reset filters</string>
+    <string name="concerts_source_no_answer">no answer</string>
+    <string name="concerts_sources_now">Sources: %s. Tickets and details are on their pages.</string>
+    <string name="concerts_price">Price</string>
+    <string name="concerts_where">Where</string>
+    <string name="concerts_genres">Genres</string>
+    <string name="concerts_venues">Venues</string>
 </resources>

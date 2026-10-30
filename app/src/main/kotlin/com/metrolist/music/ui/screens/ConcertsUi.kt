@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -397,10 +398,13 @@ fun ConcertsScreen(navController: NavController) {
 }
 
 /**
- * Everything of the poster — switch, period, calendar, filters, alerts and the list — so the full
- * screen and the Library section are the same thing. [header] sits on top (the Library's chips).
+ * Everything of the poster, so the full screen and the Library section are the same thing. On top
+ * only what is used every time: the period and quick filters for what this poster is about (free,
+ * up to 500 ₽, metal, rock, punk, hardcore). The rest — search, prices, regions, every genre,
+ * venues, the home picks, alerts and the switch — is behind "Filters". [header] sits on top (the
+ * Library's chips).
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ConcertsContent(
     navController: NavController,
@@ -409,221 +413,333 @@ fun ConcertsContent(
     underTopBar: Boolean = false,
 ) {
     val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val state by Concerts.state.collectAsState()
     val enabled by Concerts.enabledFlow(context).collectAsState()
-    val rules by ConcertAlerts.rulesFlow(context).collectAsState()
     var filter by remember { mutableStateOf(ConcertFilter()) }
     var month by remember { mutableStateOf(YearMonth.now(Concert.ZONE)) }
     var showCalendar by rememberSaveable { mutableStateOf(false) }
-    var searching by rememberSaveable { mutableStateOf(false) }
+    var showFilters by rememberSaveable { mutableStateOf(false) }
     var detail by remember { mutableStateOf<Concert?>(null) }
     LaunchedEffect(enabled) { if (enabled == true) Concerts.refresh(context) }
     detail?.let { ConcertDetailSheet(it, navController) { detail = null } }
 
     val all = state.concerts
-    val genres = remember(all) { Concerts.genresOf(all) }
-    val venues = remember(all) { Concerts.venuesOf(all).take(16) }
     val shown = remember(all, filter) { filter.apply(all) }
     val byDay = remember(shown) { shown.groupBy { it.date }.toSortedMap() }
     val bottom = LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateBottomPadding() + 24.dp
     val top = if (underTopBar) 0.dp else LocalPlayerAwareWindowInsets.current.asPaddingValues().calculateTopPadding()
 
-    LazyColumn(
-        contentPadding = PaddingValues(top = top, bottom = bottom),
+    if (showFilters) {
+        ConcertFiltersSheet(
+            all = all,
+            filter = filter,
+            enabled = enabled == true,
+            onFilter = { filter = it },
+            onDismiss = { showFilters = false },
+        )
+    }
+
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = state.loading && all.isNotEmpty(),
+        onRefresh = { scope.launch { Concerts.refresh(context, force = true) } },
         modifier = modifier.fillMaxSize(),
     ) {
-        if (header != null) item(key = "header") { header() }
-        item(key = "switch") {
-            Row(
-                Modifier.fillMaxWidth().clickable { Concerts.setEnabled(context, enabled != true) }.padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.concerts_enable), style = MaterialTheme.typography.titleMedium)
-                    Text(stringResource(R.string.concerts_enable_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                ThemedSwitch(checked = enabled == true, onCheckedChange = { Concerts.setEnabled(context, it) })
-            }
-        }
-        if (enabled != true) return@LazyColumn
-
-        item(key = "period") {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(ConcertPeriod.Today, ConcertPeriod.Tomorrow, ConcertPeriod.Week, ConcertPeriod.Month, ConcertPeriod.All).forEach { p ->
-                    FilterChip(selected = filter.period == p, onClick = { filter = filter.copy(period = p) }, label = { Text(periodLabel(p)) })
-                }
-                (filter.period as? ConcertPeriod.Day)?.let { d ->
-                    FilterChip(selected = true, onClick = { showCalendar = true }, label = { Text(periodLabel(d)) })
-                }
-                FilterChip(
-                    selected = showCalendar,
-                    onClick = { showCalendar = !showCalendar },
-                    label = { Text(stringResource(R.string.concerts_calendar)) },
-                    leadingIcon = { Icon(painterResource(R.drawable.calendar_month), null, Modifier.size(18.dp)) },
-                )
-                FilterChip(
-                    selected = searching || filter.query.isNotEmpty(),
-                    onClick = { searching = !searching; if (!searching) filter = filter.copy(query = "") },
-                    label = { Text(stringResource(R.string.concerts_search)) },
-                    leadingIcon = { Icon(painterResource(R.drawable.search), null, Modifier.size(18.dp)) },
-                )
-            }
-        }
-        if (searching) item(key = "search") {
-            androidx.compose.material3.OutlinedTextField(
-                value = filter.query,
-                onValueChange = { filter = filter.copy(query = it) },
-                singleLine = true,
-                placeholder = { Text(stringResource(R.string.concerts_search_hint)) },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-        }
-        if (showCalendar) item(key = "calendar") {
-            MonthCalendar(
-                month = month,
-                days = remember(all) { all.groupingBy { it.date }.eachCount() },
-                selected = (filter.period as? ConcertPeriod.Day)?.date,
-                onMonth = { month = it },
-                onPick = { filter = filter.copy(period = ConcertPeriod.Day(it)) },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-        }
-        item(key = "price") {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = filter.freeOnly,
-                    onClick = { filter = filter.copy(freeOnly = !filter.freeOnly, maxPrice = null) },
-                    label = { Text(stringResource(R.string.concerts_free)) },
-                )
-                listOf(300, 500, 1000, 2000).forEach { cap ->
-                    FilterChip(
-                        selected = filter.maxPrice == cap,
-                        onClick = { filter = filter.copy(maxPrice = if (filter.maxPrice == cap) null else cap, freeOnly = false) },
-                        label = { Text("до $cap ₽") },
-                    )
-                }
-                listOf(Genres.REGION_SPB, Genres.REGION_OBLAST).forEach { r ->
-                    FilterChip(
-                        selected = r in filter.regions,
-                        onClick = { filter = filter.copy(regions = if (r in filter.regions) filter.regions - r else filter.regions + r) },
-                        label = { Text(r) },
-                    )
-                }
-            }
-        }
-        if (genres.isNotEmpty()) item(key = "genres") {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                genres.forEach { g ->
-                    FilterChip(
-                        selected = g in filter.genres,
-                        onClick = { filter = filter.copy(genres = if (g in filter.genres) filter.genres - g else filter.genres + g) },
-                        label = { Text(g) },
-                    )
-                }
-            }
-        }
-        if (venues.isNotEmpty()) item(key = "venues") {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                venues.forEach { v ->
-                    FilterChip(
-                        selected = v in filter.venues,
-                        onClick = { filter = filter.copy(venues = if (v in filter.venues) filter.venues - v else filter.venues + v) },
-                        label = { Text(v) },
-                    )
-                }
-            }
-        }
-
-        item(key = "actions") {
-            val rule = ConcertRule(maxPrice = filter.maxPrice, freeOnly = filter.freeOnly, genres = filter.genres, venues = filter.venues)
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = {
-                            if (rules.orEmpty().none { it.copy(id = "", enabled = true) == rule.copy(id = "") }) {
-                                ConcertAlerts.saveRules(context, rules.orEmpty() + rule)
-                            }
-                            Toast.makeText(context, R.string.concerts_alert_added, Toast.LENGTH_SHORT).show()
-                        },
-                        enabled = rule.hasCriteria,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(painterResource(R.drawable.notification), null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.concerts_alert_short), maxLines = 1)
+        LazyColumn(
+            contentPadding = PaddingValues(top = top, bottom = bottom),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            if (header != null) item(key = "header") { header() }
+            if (enabled != true) {
+                item(key = "off") {
+                    Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(stringResource(R.string.concerts_off), style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { Concerts.setEnabled(context, true) }) { Text(stringResource(R.string.concerts_turn_on)) }
                     }
-                    OutlinedButton(
-                        onClick = {
-                            Concerts.setTaste(
-                                context,
-                                Concerts.Taste(
-                                    filter.genres.ifEmpty { Genres.DEFAULT_TASTE },
-                                    if (filter.freeOnly) 0 else filter.maxPrice ?: 500,
-                                ),
-                            )
-                            Toast.makeText(context, R.string.concerts_taste_saved, Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.weight(1f),
-                    ) { Text(stringResource(R.string.concerts_taste_save), maxLines = 1) }
                 }
-                if (!rule.hasCriteria) {
-                    Text(
-                        stringResource(R.string.concerts_alert_hint), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp),
+                return@LazyColumn
+            }
+
+            item(key = "period") {
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(ConcertPeriod.Today, ConcertPeriod.Tomorrow, ConcertPeriod.Week, ConcertPeriod.Month, ConcertPeriod.All).forEach { p ->
+                        FilterChip(selected = filter.period == p, onClick = { filter = filter.copy(period = p) }, label = { Text(periodLabel(p)) })
+                    }
+                    FilterChip(
+                        selected = showCalendar || filter.period is ConcertPeriod.Day,
+                        onClick = { showCalendar = !showCalendar },
+                        label = { Text((filter.period as? ConcertPeriod.Day)?.let { periodLabel(it) } ?: stringResource(R.string.concerts_calendar)) },
+                        leadingIcon = { Icon(painterResource(R.drawable.calendar_month), null, Modifier.size(18.dp)) },
                     )
                 }
             }
-        }
-        val ruleList = rules.orEmpty()
-        if (ruleList.isNotEmpty()) {
-            item(key = "alert_title") {
-                Text(stringResource(R.string.concerts_alerts), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp))
+            if (showCalendar) item(key = "calendar") {
+                MonthCalendar(
+                    month = month,
+                    days = remember(all) { all.groupingBy { it.date }.eachCount() },
+                    selected = (filter.period as? ConcertPeriod.Day)?.date,
+                    onMonth = { month = it },
+                    onPick = { filter = filter.copy(period = ConcertPeriod.Day(it)); showCalendar = false },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
             }
-            items(ruleList, key = { "rule_" + it.id }) { r ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(ruleText(r), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                    ThemedSwitch(checked = r.enabled, onCheckedChange = { on -> ConcertAlerts.saveRules(context, ruleList.map { if (it.id == r.id) it.copy(enabled = on) else it }) })
-                    TextButton(onClick = { ConcertAlerts.saveRules(context, ruleList.filter { it.id != r.id }) }) { Text("✕") }
+            item(key = "quick") {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val extra = filter.extraCount()
+                    FilledTonalButton(
+                        onClick = { showFilters = true },
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier.height(32.dp),
+                    ) {
+                        Icon(painterResource(R.drawable.tune), null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (extra > 0) stringResource(R.string.concerts_filters_n, extra) else stringResource(R.string.concerts_filters), maxLines = 1)
+                    }
+                    FilterChip(
+                        selected = filter.freeOnly,
+                        onClick = { filter = filter.copy(freeOnly = !filter.freeOnly, maxPrice = null) },
+                        label = { Text(stringResource(R.string.concerts_free)) },
+                    )
+                    FilterChip(
+                        selected = filter.maxPrice == 500,
+                        onClick = { filter = filter.copy(maxPrice = if (filter.maxPrice == 500) null else 500, freeOnly = false) },
+                        label = { Text("до 500 ₽") },
+                    )
+                    QUICK_GENRES.forEach { g ->
+                        FilterChip(
+                            selected = g in filter.genres,
+                            onClick = { filter = filter.copy(genres = if (g in filter.genres) filter.genres - g else filter.genres + g) },
+                            label = { Text(g) },
+                        )
+                    }
                 }
             }
-            item(key = "alert_note") {
-                Text(
-                    stringResource(R.string.concerts_alert_note), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp),
+            if (filter.query.isNotBlank()) item(key = "query") {
+                AssistChip(
+                    onClick = { filter = filter.copy(query = "") },
+                    label = { Text("«${filter.query}»  ✕") },
+                    modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
-        }
 
-        item(key = "count") {
-            Text(
-                stringResource(R.string.concerts_found, shown.size),
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 16.dp, top = 12.dp),
-            )
-        }
-        if (shown.isEmpty()) {
-            item(key = "empty") {
-                if (state.loading) Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                else Text(
-                    stringResource(if (state.error) R.string.concerts_error else R.string.concerts_empty),
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp),
+            item(key = "count") {
+                Text(
+                    stringResource(R.string.concerts_found, shown.size),
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp),
                 )
             }
-        }
-        byDay.forEach { (day, list) ->
-            item(key = "day_$day") {
-                Text(dayTitle(day), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp))
+            if (shown.isEmpty()) {
+                item(key = "empty") {
+                    if (state.loading) {
+                        Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(8.dp))
+                            Text(stringResource(R.string.concerts_loading), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                            Text(
+                                stringResource(if (state.error) R.string.concerts_error else R.string.concerts_empty),
+                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (!state.error && filter != ConcertFilter(period = filter.period)) {
+                                TextButton(onClick = { filter = ConcertFilter(period = filter.period) }) { Text(stringResource(R.string.concerts_reset_filters)) }
+                            }
+                        }
+                    }
+                }
             }
-            items(list, key = { it.id }) { c -> ConcertRow(c) { detail = c } }
-        }
-        if (state.updatedAt > 0) item(key = "source") {
-            Text(
-                stringResource(R.string.concerts_sources), style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp),
-            )
+            byDay.forEach { (day, list) ->
+                stickyHeader(key = "day_$day") {
+                    Row(
+                        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(dayTitle(day), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Text(list.size.toString(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                items(list, key = { it.id }) { c -> ConcertRow(c) { detail = c } }
+            }
+            if (state.sources.isNotEmpty()) item(key = "source") {
+                val noAnswer = stringResource(R.string.concerts_source_no_answer)
+                val text = state.sources.entries.joinToString(" · ") { (name, n) -> if (n == null) "$name — $noAnswer" else "$name $n" }
+                Text(
+                    stringResource(R.string.concerts_sources_now, text), style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp),
+                )
+            }
         }
     }
+}
+
+/** The chips always on screen for this poster's own scene; the rest are in the filter sheet. */
+private val QUICK_GENRES = listOf("Метал", "Рок", "Панк", "Хардкор")
+
+/** Filters set in the sheet that the quick row doesn't show (the count on the button). */
+private fun ConcertFilter.extraCount(): Int =
+    (if (maxPrice != null && maxPrice != 500) 1 else 0) +
+        genres.count { it !in QUICK_GENRES } + venues.size + regions.size + (if (query.isNotBlank()) 1 else 0)
+
+/** Search, every price/region/genre/venue, the home picks, alerts and the switch. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun ConcertFiltersSheet(
+    all: List<Concert>,
+    filter: ConcertFilter,
+    enabled: Boolean,
+    onFilter: (ConcertFilter) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val rules by ConcertAlerts.rulesFlow(context).collectAsState()
+    val genres = remember(all) { Concerts.genresOf(all) }
+    val venues = remember(all) { Concerts.venuesOf(all).take(30) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp)) {
+            item {
+                androidx.compose.material3.OutlinedTextField(
+                    value = filter.query,
+                    onValueChange = { onFilter(filter.copy(query = it)) },
+                    singleLine = true,
+                    leadingIcon = { Icon(painterResource(R.drawable.search), null) },
+                    placeholder = { Text(stringResource(R.string.concerts_search_hint)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item { SheetTitle(R.string.concerts_price) }
+            item {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = filter.freeOnly, onClick = { onFilter(filter.copy(freeOnly = !filter.freeOnly, maxPrice = null)) }, label = { Text(stringResource(R.string.concerts_free)) })
+                    listOf(300, 500, 1000, 2000).forEach { cap ->
+                        FilterChip(
+                            selected = filter.maxPrice == cap,
+                            onClick = { onFilter(filter.copy(maxPrice = if (filter.maxPrice == cap) null else cap, freeOnly = false)) },
+                            label = { Text("до $cap ₽") },
+                        )
+                    }
+                }
+            }
+            item { SheetTitle(R.string.concerts_where) }
+            item {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(Genres.REGION_SPB, Genres.REGION_OBLAST).forEach { r ->
+                        FilterChip(
+                            selected = r in filter.regions,
+                            onClick = { onFilter(filter.copy(regions = if (r in filter.regions) filter.regions - r else filter.regions + r)) },
+                            label = { Text(r) },
+                        )
+                    }
+                }
+            }
+            if (genres.isNotEmpty()) {
+                item { SheetTitle(R.string.concerts_genres) }
+                item {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        genres.forEach { g ->
+                            FilterChip(
+                                selected = g in filter.genres,
+                                onClick = { onFilter(filter.copy(genres = if (g in filter.genres) filter.genres - g else filter.genres + g)) },
+                                label = { Text(g) },
+                            )
+                        }
+                    }
+                }
+            }
+            if (venues.isNotEmpty()) {
+                item { SheetTitle(R.string.concerts_venues) }
+                item {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        venues.forEach { v ->
+                            FilterChip(
+                                selected = v in filter.venues,
+                                onClick = { onFilter(filter.copy(venues = if (v in filter.venues) filter.venues - v else filter.venues + v)) },
+                                label = { Text(v, maxLines = 1) },
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                val rule = ConcertRule(maxPrice = filter.maxPrice, freeOnly = filter.freeOnly, genres = filter.genres, venues = filter.venues)
+                Column(Modifier.padding(top = 16.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                if (rules.orEmpty().none { it.copy(id = "", enabled = true) == rule.copy(id = "") }) {
+                                    ConcertAlerts.saveRules(context, rules.orEmpty() + rule)
+                                }
+                                Toast.makeText(context, R.string.concerts_alert_added, Toast.LENGTH_SHORT).show()
+                            },
+                            enabled = rule.hasCriteria,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(painterResource(R.drawable.notification), null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(R.string.concerts_alert_short), maxLines = 1)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                Concerts.setTaste(
+                                    context,
+                                    Concerts.Taste(filter.genres.ifEmpty { Genres.DEFAULT_TASTE }, if (filter.freeOnly) 0 else filter.maxPrice ?: 500),
+                                )
+                                Toast.makeText(context, R.string.concerts_taste_saved, Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) { Text(stringResource(R.string.concerts_taste_save), maxLines = 1) }
+                    }
+                    if (!rule.hasCriteria) {
+                        Text(
+                            stringResource(R.string.concerts_alert_hint), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    TextButton(onClick = { onFilter(ConcertFilter(period = filter.period)) }) { Text(stringResource(R.string.concerts_reset_filters)) }
+                }
+            }
+            val ruleList = rules.orEmpty()
+            if (ruleList.isNotEmpty()) {
+                item { SheetTitle(R.string.concerts_alerts) }
+                items(ruleList, key = { "rule_" + it.id }) { r ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(ruleText(r), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        ThemedSwitch(checked = r.enabled, onCheckedChange = { on -> ConcertAlerts.saveRules(context, ruleList.map { if (it.id == r.id) it.copy(enabled = on) else it }) })
+                        TextButton(onClick = { ConcertAlerts.saveRules(context, ruleList.filter { it.id != r.id }) }) { Text("✕") }
+                    }
+                }
+                item {
+                    Text(stringResource(R.string.concerts_alert_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 16.dp).clickable { Concerts.setEnabled(context, !enabled) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.concerts_enable), style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.concerts_enable_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    ThemedSwitch(checked = enabled, onCheckedChange = { Concerts.setEnabled(context, it) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SheetTitle(text: Int) {
+    Text(
+        stringResource(text), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
+    )
 }
 
 @Composable
@@ -634,24 +750,48 @@ private fun ruleText(r: ConcertRule): String = buildList {
     if (r.venues.isNotEmpty()) add(r.venues.joinToString(", "))
 }.joinToString(" · ")
 
+/** One gig: genre colour on the left edge, time and venue under the name, the price as a pill (free in green). */
 @Composable
 private fun ConcertRow(c: Concert, onClick: () -> Unit) {
     val accent = genreColor(c.genres.firstOrNull().orEmpty())
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 6.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .clickable(onClick = onClick)
+            .padding(end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Brush.linearGradient(listOf(accent.copy(alpha = 0.55f), accent.copy(alpha = 0.12f))))) {
-            if (c.imageUrl != null) AsyncImage(model = c.imageUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        Box(Modifier.width(4.dp).height(72.dp).background(accent.copy(alpha = 0.8f)))
+        Box(Modifier.padding(vertical = 8.dp).size(56.dp).clip(RoundedCornerShape(10.dp)).background(Brush.linearGradient(listOf(accent.copy(alpha = 0.55f), accent.copy(alpha = 0.12f))))) {
+            if (c.imageUrl != null) {
+                AsyncImage(model = c.imageUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else {
+                Text(timeOf(c), modifier = Modifier.align(Alignment.Center), fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+            }
         }
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
             Text(c.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text("${timeOf(c)} · ${c.venue}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val tags = c.families.ifEmpty { c.genres.toSet() }
             if (tags.isNotEmpty()) Text(tags.take(3).joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        priceOf(c)?.let { Text(it, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium) }
+        priceOf(c)?.let { p ->
+            val free = c.isFree
+            Text(
+                p,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (free) Color(0xFF0E3B17) else MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (free) Color(0xFF7BD88F) else MaterialTheme.colorScheme.secondaryContainer)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+        }
     }
 }
 

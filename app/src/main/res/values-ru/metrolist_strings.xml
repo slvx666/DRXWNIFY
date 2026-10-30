@@ -1934,4 +1934,16 @@
     <string name="about_qr_title">Установить на другой телефон</string>
     <string name="about_qr_hint">Наведи камеру на код — сразу начнётся скачивание последнего APK. На сайте ниже — история версий и прошлые сборки.</string>
     <string name="drag_to_reorder">Перетащи, чтобы поменять порядок</string>
+    <string name="concerts_off">Афиша выключена — ни блока на главной, ни уведомлений.</string>
+    <string name="concerts_turn_on">Включить афишу</string>
+    <string name="concerts_filters">Фильтры</string>
+    <string name="concerts_filters_n">Фильтры · %d</string>
+    <string name="concerts_loading">Собираю афишу из всех источников…</string>
+    <string name="concerts_reset_filters">Сбросить фильтры</string>
+    <string name="concerts_source_no_answer">нет ответа</string>
+    <string name="concerts_sources_now">Источники: %s. Билеты и подробности — на их страницах.</string>
+    <string name="concerts_price">Цена</string>
+    <string name="concerts_where">Где</string>
+    <string name="concerts_genres">Жанры</string>
+    <string name="concerts_venues">Площадки</string>
 </resources>
