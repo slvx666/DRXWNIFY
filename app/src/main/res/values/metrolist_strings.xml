@@ -1908,12 +1908,8 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="developer_reply_your_message">Your message</string>
     <string name="developer_reply_ok">Got it</string>
     <string name="changelog_2_1_4">### New\n+ Themes (beta): Gruvbox, Linux, Sakura, Synthwave and Catppuccin\n+ Pick the app icon\n+ "Appears on" on artist pages — albums they are featured on\n+ The developer can answer a suggestion\n### Fixed\n• A downloaded track wasn\'t marked downloaded in the player and was shared as a link\n• Stutter when opening search\n• Yandex sign-in when a phone number has several accounts\n### Also\n• Closed beta testing of the PC version has begun</string>
-    <string name="changelog_2_1_5">### New
-+ Spotify play counts next to every track in an album and in the full-screen player (under the quality line)
-+ Full release date on album and single pages
-### Fixed
-• The same album twice in the library (Spotify sometimes has two ids for one release)
-• Old albums that Spotify re-delivered showed up in New releases</string>
+    <string name="changelog_2_2_0">### New\n+ \"Sound quality and speed\": one clear setting instead of two — Auto (default), Speed, Quality\n+ Auto: a track starts at once while a better version is searched in the background — the next tracks and downloads use the best\n+ A green ↑ arrow at the bitrate when a better version turns up (pick it in Track version)\n+ Drag tracks while selecting: a handle on the left, the album order is kept\n+ Cancel a download in the full-screen player\n+ VK sign-in with the new not-a-robot check\n+ A QR code to download the app in About\n+ Concerts: new Telegram sources, a new screen with quick filters\n+ A detailed log: the reason of every error, network and VPN at the top\n### Fixed\n• \"No downloaded tracks among the selected\" while they were downloaded\n• The album like needed several taps\n• The Delete button of the selection bar fell apart\n• Artists in the library stayed empty with no loading sign\n• Low bitrate now means 119 kbps and below\n• The Linux theme icon</string>
+    <string name="changelog_2_1_5">### New\n+ Spotify play counts next to every track in an album and in the full-screen player (under the quality line)\n+ Full release date on album and single pages\n### Fixed\n• The same album twice in the library (Spotify sometimes has two ids for one release)\n• Old albums that Spotify re-delivered showed up in New releases</string>
     <!-- Concert poster -->
     <string name="concerts_title">Concerts</string>
     <string name="concerts_label">Metal, rock and underground in Saint Petersburg</string>
