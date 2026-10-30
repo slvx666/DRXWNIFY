@@ -14,7 +14,7 @@ const RELAYS = [
 ];
 const KIND_APP_DATA = 30078;
 const WINDOW_SEC = 10 * 60;
-const RELAY_TIMEOUT_MS = 4000;
+const RELAY_TIMEOUT_MS = 6000;
 const CACHE_SEC = 60;
 
 /** Авторы событий «что играет» на одном relay; при ошибке или таймауте — то, что успели получить. */
