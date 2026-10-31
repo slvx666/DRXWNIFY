@@ -79,6 +79,7 @@ class VkAudioProvider(
     private fun searchFlooded() {
         searchBackoffMs = if (searchBackoffMs == 0L) FLOOD_PAUSE_FIRST_MS else (searchBackoffMs * 2).coerceAtMost(FLOOD_PAUSE_MAX_MS)
         searchPausedUntil = System.currentTimeMillis() + searchBackoffMs
+        com.metrolist.music.resolver.SourceTrouble.vkSearchPausedUntil = searchPausedUntil
         com.metrolist.music.resolver.AudioDiagnostics.warn("VK search paused for ${searchBackoffMs / 60_000} min after flood control")
     }
 

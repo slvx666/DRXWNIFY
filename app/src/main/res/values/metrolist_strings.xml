@@ -1282,6 +1282,10 @@
     <string name="download_issue_no_answer">sources didn’t answer — try again</string>
     <string name="download_issue_download_failed">download failed</string>
     <string name="download_issue_save_failed">couldn’t save the file</string>
+    <string name="download_issue_youtube_refused">YouTube turns this network away (VPN?) — change the VPN server or turn it off, then try again</string>
+    <string name="download_issue_vk_paused">VK paused search for a while (too many requests) — try again in an hour</string>
+    <string name="download_issues_why">Why %1$d didn’t download</string>
+    <string name="download_issues_title">Not downloaded</string>
     <string name="download_issues_hint">For tracks that weren’t found, connect VK or turn on more sources in Settings → Integrations → Music sources, then tap “Download the rest”.</string>
     <string name="about_source_code">Source code</string>
     <string name="about_license">Licensed under GPL-3.0</string>

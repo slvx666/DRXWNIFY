@@ -9,11 +9,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -126,4 +130,75 @@ fun BatchDownloadProgress(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/** What the user is told about why a track didn't download — plain words, what to do about it. */
+@Composable
+fun downloadIssueText(reason: com.metrolist.music.playback.DownloadIssues.Reason): String = stringResource(
+    when (reason) {
+        com.metrolist.music.playback.DownloadIssues.Reason.NOT_FOUND -> R.string.download_issue_not_found
+        com.metrolist.music.playback.DownloadIssues.Reason.SOURCES_DID_NOT_ANSWER -> R.string.download_issue_no_answer
+        com.metrolist.music.playback.DownloadIssues.Reason.DOWNLOAD_FAILED -> R.string.download_issue_download_failed
+        com.metrolist.music.playback.DownloadIssues.Reason.SAVE_FAILED -> R.string.download_issue_save_failed
+        com.metrolist.music.playback.DownloadIssues.Reason.YOUTUBE_REFUSED -> R.string.download_issue_youtube_refused
+        com.metrolist.music.playback.DownloadIssues.Reason.VK_PAUSED -> R.string.download_issue_vk_paused
+    },
+)
+
+/**
+ * "Why N didn't download" under a list's download status once a batch has finished: opens the
+ * tracks that aren't in the folder with the reason next to each (YouTube refusing the VPN, VK's
+ * pause, not found anywhere…), so a short count is not a mystery.
+ */
+@Composable
+fun DownloadIssuesLink(tracks: List<SpotifyTrack>, modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.metrolist.music.playback.DownloadIssues.ensureLoaded(context)
+        }
+    }
+    val issues by com.metrolist.music.playback.DownloadIssues.issues.collectAsState()
+    val downloadedIds = rememberDownloadedIds(tracks)
+    val failed = remember(tracks, issues, downloadedIds) {
+        tracks.filter { it.id !in downloadedIds && it.id in issues }.distinctBy { it.id }
+    }
+    if (failed.isEmpty()) return
+    var open by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.material3.TextButton(onClick = { open = true }, modifier = modifier) {
+        Text(stringResource(R.string.download_issues_why, failed.size))
+    }
+    if (!open) return
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { open = false },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { open = false }) { Text(stringResource(android.R.string.ok)) }
+        },
+        title = { Text(stringResource(R.string.download_issues_title) + " · " + failed.size) },
+        text = {
+            androidx.compose.foundation.lazy.LazyColumn {
+                items(failed.size) { i ->
+                    val track = failed[i]
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(track.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(track.artists.joinToString { it.name }, style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = issues[track.id]?.let { downloadIssueText(it) }.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        },
+    )
 }

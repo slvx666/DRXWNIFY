@@ -979,10 +979,14 @@
     <string name="download_filter_all">Все</string>
     <string name="download_filter_downloaded">Скачанные</string>
     <string name="download_filter_not_downloaded">Не скачанные</string>
-    <string name="download_issue_not_found">не найден в источниках</string>
+    <string name="download_issue_not_found">нет ни в одном из включённых источников</string>
     <string name="download_issue_no_answer">источники не ответили — попробуй ещё раз</string>
-    <string name="download_issue_download_failed">ошибка загрузки</string>
+    <string name="download_issue_download_failed">скачивание сорвалось — нажми «Докачать» ещё раз</string>
     <string name="download_issue_save_failed">не удалось сохранить файл</string>
+    <string name="download_issue_youtube_refused">YouTube не пускает через эту сеть (VPN?) — смени сервер VPN или выключи его и попробуй снова</string>
+    <string name="download_issue_vk_paused">VK на время закрыл поиск (слишком много запросов) — попробуй через час</string>
+    <string name="download_issues_why">Почему не скачались: %1$d</string>
+    <string name="download_issues_title">Не скачались</string>
     <string name="download_issues_hint">Для ненайденных треков подключи VK или включи больше источников в Настройки → Интеграции → Источники музыки, затем нажми «Докачать».</string>
     <string name="sort_by_original">Исходный порядок</string>
     <string name="sort_by_duration">Длительность</string>

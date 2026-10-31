@@ -28,6 +28,29 @@ object DownloadIssues {
 
         /** Downloaded, but writing the file into the folder failed. */
         SAVE_FAILED,
+
+        /** YouTube turned this network away (bot check / "try again later"), usually the VPN's address. */
+        YOUTUBE_REFUSED,
+
+        /** VK paused search after too many requests, so it wasn't asked. */
+        VK_PAUSED,
+    }
+
+    /**
+     * [reason] made specific when a source-wide trouble explains it: a "download error" while
+     * YouTube refused this network, or "not found" while VK wasn't searching, is said as that.
+     */
+    fun explain(reason: Reason): Reason {
+        val trouble = com.metrolist.music.resolver.SourceTrouble
+        return when (reason) {
+            Reason.DOWNLOAD_FAILED, Reason.SOURCES_DID_NOT_ANSWER -> when {
+                trouble.youtubeRefusedRecently() -> Reason.YOUTUBE_REFUSED
+                trouble.vkPaused() -> Reason.VK_PAUSED
+                else -> reason
+            }
+            Reason.NOT_FOUND -> if (trouble.vkPaused()) Reason.VK_PAUSED else reason
+            else -> reason
+        }
     }
 
     private const val PREFS = "download_issues"
@@ -54,6 +77,7 @@ object DownloadIssues {
     fun set(context: Context, trackId: String, reason: Reason) {
         if (trackId.isBlank()) return
         ensureLoaded(context)
+        val reason = explain(reason)
         if (_issues.value[trackId] == reason) return
         _issues.value = _issues.value + (trackId to reason)
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

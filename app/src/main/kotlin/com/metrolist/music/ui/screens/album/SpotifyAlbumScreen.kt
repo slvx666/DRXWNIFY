@@ -376,6 +376,7 @@ fun SpotifyAlbumScreen(
                             downloaded = downloadedCount,
                             total = tracks.size,
                         )
+                        if (downloadProgress == null) com.metrolist.music.ui.component.DownloadIssuesLink(tracks)
                     }
                 }
             }

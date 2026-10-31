@@ -586,6 +586,7 @@ constructor(
                 text.contains("Sign in to confirm", true) || text.contains("LOGIN_REQUIRED", true) ||
                 text.contains("Повторите попытку позже", true) || text.contains("try again later", true)
             ) {
+                com.metrolist.music.resolver.SourceTrouble.youtubeRefused()
                 return true
             }
             e = e.cause

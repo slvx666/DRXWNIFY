@@ -138,6 +138,19 @@ fun SpotifyPlaylistScreen(
 
     val playlist by viewModel.playlist.collectAsState()
     val tracks by viewModel.tracks.collectAsState()
+    // Downloaded state per track: the track's own download, or the one under its matched YouTube id.
+    // The playlist rows used to show none, so nobody could see which tracks were already on the phone.
+    val downloads by downloadUtil.visibleDownloads.collectAsState()
+    val spotifyToYt by androidx.compose.runtime.produceState<Map<String, String>>(initialValue = emptyMap(), tracks, downloads.size) {
+        value = if (tracks.isEmpty()) {
+            emptyMap()
+        } else {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                tracks.chunked(400).flatMap { chunk -> database.getSpotifyMatchesBySpotifyIds(chunk.map { it.id }) }
+                    .associate { it.spotifyId to it.youtubeId }
+            }
+        }
+    }
     val isLoading by viewModel.isLoading.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val error by viewModel.error.collectAsState()
@@ -418,6 +431,7 @@ fun SpotifyPlaylistScreen(
                             downloaded = downloadedCount,
                             total = tracks.size,
                         )
+                        if (playlistDownloadProgress == null) com.metrolist.music.ui.component.DownloadIssuesLink(tracks)
                     }
                 }
             }
@@ -590,6 +604,10 @@ fun SpotifyPlaylistScreen(
                                         )
                                     }
                                 } else {
+                                    val trackDownloadState = com.metrolist.music.ui.component.bestDownloadState(
+                                        downloads[com.metrolist.music.resolver.FallbackIds.of(track.id)],
+                                        spotifyToYt[track.id]?.let { downloads[it] },
+                                    )
                                     track.playCount?.takeIf { it > 0 }?.let { plays ->
                                         Text(
                                             text = com.metrolist.music.playback.SpotifyPlays.format(plays),
@@ -599,6 +617,7 @@ fun SpotifyPlaylistScreen(
                                             modifier = Modifier.padding(end = 6.dp),
                                         )
                                     }
+                                    com.metrolist.music.ui.component.Icon.Download(trackDownloadState)
                                     com.metrolist.music.ui.component.TrackSelectionCheck(selection.active, selection.isSelected(track.id)) {
                                         selection.toggle(track.id)
                                     }

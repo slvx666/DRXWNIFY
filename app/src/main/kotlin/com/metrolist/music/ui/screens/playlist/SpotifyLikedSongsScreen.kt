@@ -421,6 +421,7 @@ fun SpotifyLikedSongsScreen(
                                 downloaded = downloadedCount,
                                 total = tracks.size,
                             )
+                            if (downloadProgress == null) com.metrolist.music.ui.component.DownloadIssuesLink(tracks)
                         }
                         if (downloadedCount < tracks.size) {
                             Spacer(modifier = Modifier.height(6.dp))
@@ -614,13 +615,7 @@ fun SpotifyLikedSongsScreen(
                 )
                 // Why it isn't downloaded yet, when a download of this list tried and failed.
                 val issueText = if (track.id !in downloadedIds) {
-                    when (downloadIssues[track.id]) {
-                        com.metrolist.music.playback.DownloadIssues.Reason.NOT_FOUND -> stringResource(R.string.download_issue_not_found)
-                        com.metrolist.music.playback.DownloadIssues.Reason.SOURCES_DID_NOT_ANSWER -> stringResource(R.string.download_issue_no_answer)
-                        com.metrolist.music.playback.DownloadIssues.Reason.DOWNLOAD_FAILED -> stringResource(R.string.download_issue_download_failed)
-                        com.metrolist.music.playback.DownloadIssues.Reason.SAVE_FAILED -> stringResource(R.string.download_issue_save_failed)
-                        null -> null
-                    }
+                    downloadIssues[track.id]?.let { com.metrolist.music.ui.component.downloadIssueText(it) }
                 } else {
                     null
                 }
