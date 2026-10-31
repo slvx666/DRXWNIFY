@@ -199,7 +199,7 @@ constructor(
                     bestChecked[mediaId] = now
                     val dbSongForBest = runBlocking(Dispatchers.IO) { database.getSongById(mediaId) }
                     runCatching {
-                        runBlocking(Dispatchers.IO) { withTimeout(30_000L) { AudioFallbackEngine.bestForDownload(mediaId, dbSongForBest) } }
+                        runBlocking(Dispatchers.IO) { withTimeout(60_000L) { AudioFallbackEngine.bestForDownload(mediaId, dbSongForBest) } }
                     }.getOrDefault(false)
                 }
                 if (switched) {
@@ -626,7 +626,7 @@ constructor(
         val now = System.currentTimeMillis()
         if (now - (bestChecked[mediaId] ?: 0L) > BEST_CHECK_GAP_MS) {
             bestChecked[mediaId] = now
-            runCatching { runBlocking(Dispatchers.IO) { withTimeout(30_000L) { AudioFallbackEngine.bestForDownload(mediaId, dbSong) } } }
+            runCatching { runBlocking(Dispatchers.IO) { withTimeout(60_000L) { AudioFallbackEngine.bestForDownload(mediaId, dbSong) } } }
         }
         repeat(5) {
             val plan = runCatching {

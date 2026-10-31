@@ -409,10 +409,14 @@ object AudioFallbackEngine {
         val top = usable.maxOfOrNull { it.confidence } ?: return@withContext false
         // The exact versions get their real bitrate read (the start of the audio) before one is chosen.
         val exact = usable.filter { it.confidence >= top - ParallelAudioResolver.AUTO_CONFIDENCE_MARGIN }.take(6)
-        exact.forEach { m ->
-            if (knownBitrate(m.provider, m.trackId) == null) runCatching { measureVersion(mediaId, dbSong, m) }
+        // Side by side: one after another, six versions took longer than the download waits, and the
+        // download went ahead with the old 128 kbps choice.
+        kotlinx.coroutines.coroutineScope {
+            (exact + listOfNotNull(current)).distinctBy { it.provider to it.trackId }
+                .filter { knownBitrate(it.provider, it.trackId) == null }
+                .map { m -> async { runCatching { measureVersion(mediaId, dbSong, m) } } }
+                .awaitAll()
         }
-        current?.let { c -> if (knownBitrate(c.provider, c.trackId) == null) runCatching { measureVersion(mediaId, dbSong, c) } }
         val best = exact.maxWithOrNull(compareBy<ProviderMatch> { effectiveKbps(it) }.thenBy { -ResolverPreferences.order.indexOf(it.provider) })
             ?: return@withContext false
         if (current != null && best.provider == current.provider && best.trackId == current.trackId) return@withContext false
