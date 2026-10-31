@@ -392,13 +392,29 @@ object AudioFallbackEngine {
         val query = queryFor(mediaId, dbSong) ?: return@withContext false
         if (storedCandidates(query).any { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }) return@withContext false
         val current = currentChoice(mediaId, dbSong)
+        // Only a MEASURED 256+ counts as good enough: VK's "320" is what VK usually gives, and its
+        // files turned out anywhere from 128 to 320 kbps.
         if (current != null && current.confidence >= ParallelAudioResolver.STRONG_MATCH &&
-            effectiveKbps(current) >= ParallelAudioResolver.QUALITY_TARGET_KBPS
+            (knownBitrate(current.provider, current.trackId) ?: 0) >= ParallelAudioResolver.QUALITY_TARGET_KBPS
         ) return@withContext false
         val providers = activeProviders(setOf(AudioProviderId.SOULSEEK))
         if (providers.isEmpty()) return@withContext false
         val outcome = thoroughRacer.resolve(query, providers, ResolverPreferences.order)
-        val best = outcome.matches.firstOrNull { it.usableFor(query, emptySet()) } ?: return@withContext false
+        // VK's other uploads of the same track too: they differ in bitrate (128 to 320 kbps).
+        val vkUploads = (provider(AudioProviderId.VK) as? com.metrolist.music.resolver.providers.VkAudioProvider)
+            ?.takeIf { it.isReady() }
+            ?.let { vk -> runCatching { vk.uploads(query, 5) }.getOrDefault(emptyList()) }
+            .orEmpty()
+        val usable = (outcome.matches + vkUploads).distinctBy { it.provider to it.trackId }.filter { it.usableFor(query, emptySet()) }
+        val top = usable.maxOfOrNull { it.confidence } ?: return@withContext false
+        // The exact versions get their real bitrate read (the start of the audio) before one is chosen.
+        val exact = usable.filter { it.confidence >= top - ParallelAudioResolver.AUTO_CONFIDENCE_MARGIN }.take(6)
+        exact.forEach { m ->
+            if (knownBitrate(m.provider, m.trackId) == null) runCatching { measureVersion(mediaId, dbSong, m) }
+        }
+        current?.let { c -> if (knownBitrate(c.provider, c.trackId) == null) runCatching { measureVersion(mediaId, dbSong, c) } }
+        val best = exact.maxWithOrNull(compareBy<ProviderMatch> { effectiveKbps(it) }.thenBy { -ResolverPreferences.order.indexOf(it.provider) })
+            ?: return@withContext false
         if (current != null && best.provider == current.provider && best.trackId == current.trackId) return@withContext false
         val better = current == null ||
             (current.confidence < ParallelAudioResolver.STRONG_MATCH && best.confidence >= ParallelAudioResolver.STRONG_MATCH) ||

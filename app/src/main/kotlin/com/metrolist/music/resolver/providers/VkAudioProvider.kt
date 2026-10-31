@@ -226,11 +226,17 @@ class VkAudioProvider(
         return if (requireUrl) raw.filter { it.url != null } else raw
     }
 
-    override suspend fun search(query: AudioQuery): ProviderMatch? {
-        if (!isReady()) return null
+    override suspend fun search(query: AudioQuery): ProviderMatch? = uploads(query, 1).firstOrNull()
+
+    /**
+     * The uploads of the track VK has, best match first (up to [limit]). A track is uploaded many
+     * times at different bitrates; a download measures them and keeps the best-sounding one.
+     */
+    suspend fun uploads(query: AudioQuery, limit: Int = 5): List<ProviderMatch> {
+        if (!isReady()) return emptyList()
         checkSearchPause()
         val text = ProviderGate.searchText(query)
-        if (text.isBlank()) return null
+        if (text.isBlank()) return emptyList()
         // Errors (bad token, API refused) propagate so the audio search log shows the real reason.
         // VK leaves URLs out of search results for most accounts; stream() fetches them via audio.getById.
         var items = fetch(text, 30, requireUrl = false)
@@ -259,23 +265,25 @@ class VkAudioProvider(
                 }
             }
         }
-        if (ranked.isEmpty()) return null
-        val chosen = ranked.firstOrNull { c ->
-            !com.metrolist.music.playback.datasource.CdnHosts.likelyDown(
+        if (ranked.isEmpty()) return emptyList()
+        val reachableFirst = ranked.sortedBy { c ->
+            com.metrolist.music.playback.datasource.CdnHosts.likelyDown(
                 com.metrolist.music.playback.datasource.CdnHosts.hostOf(items.first { it.fullId == c.id }.url),
             )
-        } ?: ranked.firstOrNull() ?: return null
-        val audio = items.first { it.fullId == chosen.id }
-        audio.url?.let { recentUrls[audio.fullId] = it to System.currentTimeMillis() }
-        return ProviderMatch(
-            provider = id,
-            trackId = audio.fullId,
-            title = audio.title,
-            artist = audio.artist,
-            durationMs = audio.durationSec * 1000L,
-            confidence = chosen.score,
-            thumbnailUrl = audio.thumb,
-        )
+        }
+        return reachableFirst.take(limit).map { chosen ->
+            val audio = items.first { it.fullId == chosen.id }
+            audio.url?.let { recentUrls[audio.fullId] = it to System.currentTimeMillis() }
+            ProviderMatch(
+                provider = id,
+                trackId = audio.fullId,
+                title = audio.title,
+                artist = audio.artist,
+                durationMs = audio.durationSec * 1000L,
+                confidence = chosen.score,
+                thumbnailUrl = audio.thumb,
+            )
+        }
     }
 
     // ── Albums & playlists ───────────────────────────────────────────────────────────────────────
