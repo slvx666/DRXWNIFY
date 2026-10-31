@@ -259,7 +259,11 @@ class VkAudioProvider(
         // A band that changed its name: its older records are uploaded under the old one, and the
         // new name finds only re-uploads of whole albums ("Electric Callboy – Cstrp" vs "Eskimo Callboy").
         if (ranked.isEmpty()) {
-            for (alias in ProviderGate.artistVariants(query.primaryArtist)) {
+            // Then the other credited artists: a collective's track listed under one member is
+            // uploaded under the collective ("NEEDLEGUTS, …, NECROSOCIETY – Maniac" is
+            // "NECROSOCIETY – Maniac" on VK, and the first name found nothing anywhere).
+            val others = query.artists.drop(1).filter { it.isNotBlank() }.take(MAX_OTHER_ARTISTS)
+            for (alias in ProviderGate.artistVariants(query.primaryArtist) + others) {
                 val again = fetch(ProviderGate.searchText(query.copy(artists = listOf(alias))), 30, requireUrl = false)
                 ranked = rank(again)
                 if (ranked.isNotEmpty()) {
@@ -711,6 +715,9 @@ class VkAudioProvider(
 
         private const val URL_TTL_MS = 60 * 60 * 1000L
         private const val SEARCH_PAGE = 200
+
+        /** Other credited artists searched under when the first one found nothing. */
+        private const val MAX_OTHER_ARTISTS = 3
         private val ARTIST_SEPARATORS = Regex(""",|&| feat\.? | ft\.? | x """, RegexOption.IGNORE_CASE)
         private const val PLAYLIST_PAGE = 100
         private const val MAX_PLAYLISTS = 1000
