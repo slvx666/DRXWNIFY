@@ -632,6 +632,9 @@ class HomeViewModel @Inject constructor(
     private suspend fun loadForYou(hideExplicit: Boolean) {
         // A newcomer's squares are the starter ones (set by loadStarterPicks), not these.
         if (newcomer.value) return
+        // The squares from last time show at once: building new ones can take longer than the
+        // section's time limit (Spotify's mixes, a slow network), and the grid then stayed missing.
+        if (forYou.value == null) savedForYou()?.let { forYou.value = it }
         // Right after launch the account often isn't signed in yet (the network or VPN still coming
         // up): the build came back empty and the squares stayed missing until a pull to refresh.
         // A few more tries, a little apart, while the old squares (if any) stay on screen.
@@ -642,8 +645,20 @@ class HomeViewModel @Inject constructor(
             built = com.metrolist.music.playback.ForYouRecommender.build(database, hideExplicit)
         }
         if (built.isNotEmpty() || forYou.value == null) forYou.value = built.ifEmpty { null }
+        if (built.isNotEmpty()) saveForYou(built)
         preparedRadio = null
         prepareRadio()
+    }
+
+    private val forYouFile get() = java.io.File(context.filesDir, "for_you_last.json")
+    private val forYouJson = Json { ignoreUnknownKeys = true }
+
+    private fun savedForYou(): List<SpotifyTrack>? = runCatching {
+        forYouJson.decodeFromString<List<SpotifyTrack>>(forYouFile.readText())
+    }.getOrNull()?.takeIf { it.isNotEmpty() }
+
+    private fun saveForYou(list: List<SpotifyTrack>) {
+        runCatching { forYouFile.writeText(forYouJson.encodeToString(list)) }
     }
 
     private suspend fun <T> section(name: String, fallback: T, block: suspend () -> T): T =
@@ -697,7 +712,9 @@ class HomeViewModel @Inject constructor(
         // Every row loads side by side and shows as soon as it is ready: one after another, a slow or
         // blocked source (YouTube without a VPN) kept the whole page on placeholders for minutes.
         val jobs = mutableListOf<kotlinx.coroutines.Job>()
-        val forYouJob = launch { section("forYou", Unit) { withTimeoutOrNull(SECTION_TIMEOUT_MS) { loadForYou(hideExplicit) } } }
+        // No time limit: the saved squares stand in meanwhile (see loadForYou), and a build that took
+        // over the limit used to be thrown away, leaving no grid at all.
+        val forYouJob = launch { section("forYou", Unit) { loadForYou(hideExplicit) } }
         jobs += forYouJob
         // After "For you": the starter squares stand in for it only when the app has none of its own.
         jobs += launch {
