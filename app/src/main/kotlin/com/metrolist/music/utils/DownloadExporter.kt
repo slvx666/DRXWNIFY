@@ -408,6 +408,8 @@ class DownloadExporter @Inject constructor(
      */
     class CacheGoneException(songId: String) : Exception("No downloaded bytes left for $songId")
 
+    private val AUDIO_EXTENSIONS = setOf("mp3", "m4a", "aac", "flac", "ogg", "opus", "webm")
+
     /** Thrown (as a [Result.failure]) when a track was already exported; not an error. */
     class AlreadyExportedException(songId: String) : Exception("Already exported: $songId")
 
@@ -833,6 +835,7 @@ class DownloadExporter @Inject constructor(
                 parentDocId = findOrCreateChildDir(resolver, treeUri, parentDocId, segment)
             }
             val parentDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocId)
+            replaceSameTrackSaf(resolver, treeUri, parentDocId, fileName)
             val uniqueName = uniqueSafName(resolver, treeUri, parentDocId, fileName)
             val docUri = DocumentsContract.createDocument(resolver, parentDocUri, outMime, uniqueName)
                 ?: error("SAF createDocument returned null for $uniqueName")
@@ -852,6 +855,7 @@ class DownloadExporter @Inject constructor(
         }
         val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val relativePath = (listOf("Music", "Drxwnify") + relativeSegments).joinToString("/") + "/"
+        replaceSameTrackMediaStore(resolver, collection, relativePath, fileName)
         val uniqueName = uniqueMediaStoreName(resolver, collection, relativePath, fileName)
         val pending = ContentValues().apply {
             put(MediaStore.Audio.Media.DISPLAY_NAME, uniqueName)
@@ -907,6 +911,48 @@ class DownloadExporter @Inject constructor(
             resolver, parentDocUri, DocumentsContract.Document.MIME_TYPE_DIR, name,
         ) ?: error("Could not create folder $name")
         return DocumentsContract.getDocumentId(newDir)
+    }
+
+    /**
+     * The same track written again (a better version, or the same track under its other id) replaces
+     * the file that is there: "Artist - Title.mp3" and its ".m4a" are one track, and every new copy
+     * used to be added as "Artist - Title (2).mp3" next to the old one.
+     */
+    private fun sameTrackFile(existing: String, desired: String): Boolean {
+        fun base(n: String) = n.substringBeforeLast('.', n)
+        fun ext(n: String) = n.substringAfterLast('.', "").lowercase()
+        return base(existing).equals(base(desired), ignoreCase = true) && ext(existing) in AUDIO_EXTENSIONS
+    }
+
+    private fun replaceSameTrackSaf(resolver: android.content.ContentResolver, treeUri: Uri, parentDocId: String, desired: String) {
+        runCatching {
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
+            val old = mutableListOf<String>()
+            resolver.query(
+                childrenUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null, null, null,
+            )?.use { c ->
+                while (c.moveToNext()) if (sameTrackFile(c.getString(1), desired)) old += c.getString(0)
+            }
+            old.forEach { DocumentsContract.deleteDocument(resolver, DocumentsContract.buildDocumentUriUsingTree(treeUri, it)) }
+        }.onFailure { Timber.w(it, "DownloadExporter: could not replace the old copy of %s", desired) }
+    }
+
+    private fun replaceSameTrackMediaStore(resolver: android.content.ContentResolver, collection: Uri, relativePath: String, desired: String) {
+        runCatching {
+            val old = mutableListOf<Long>()
+            resolver.query(
+                collection,
+                arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DISPLAY_NAME),
+                "${MediaStore.Audio.Media.RELATIVE_PATH}=?",
+                arrayOf(relativePath),
+                null,
+            )?.use { c ->
+                while (c.moveToNext()) if (sameTrackFile(c.getString(1), desired)) old += c.getLong(0)
+            }
+            old.forEach { resolver.delete(android.content.ContentUris.withAppendedId(collection, it), null, null) }
+        }.onFailure { Timber.w(it, "DownloadExporter: could not replace the old copy of %s", desired) }
     }
 
     /** Adds a " (2)", " (3)"… suffix to [desired] if a file with that name already exists in the SAF folder. */

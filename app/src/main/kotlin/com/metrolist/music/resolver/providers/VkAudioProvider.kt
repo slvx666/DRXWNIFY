@@ -558,7 +558,7 @@ class VkAudioProvider(
      * The upload's real average bitrate, kbps, from its size — nothing of the audio is downloaded:
      * an MP3 address is asked only for its length; VK's HLS is a list of encrypted pieces, each
      * asked only for its length, summed and set against the pieces' durations (less the MPEG-TS
-     * packaging, ~4 %). Null when VK doesn't state the sizes. A guess from the start of a stream
+     * packaging, ~8 %: 336 by size against 322 measured in the file). Null when VK doesn't state the sizes. A guess from the start of a stream
      * said 255 kbps for uploads whose files turned out 128.
      */
     suspend fun exactKbps(match: ProviderMatch): Int? = runCatching {
@@ -721,7 +721,7 @@ class VkAudioProvider(
         private const val TOO_MANY_REQUESTS = 6
 
         /** Share of an audio MPEG-TS stream that is the audio itself (the rest is packet headers). */
-        private const val TS_PAYLOAD_SHARE = 0.96
+        private const val TS_PAYLOAD_SHARE = 0.92
 
         /** "User authorization failed": the token was revoked (password changed, sessions ended). */
         private const val AUTH_FAILED = 5
