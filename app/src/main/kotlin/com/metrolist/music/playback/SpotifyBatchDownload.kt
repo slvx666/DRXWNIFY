@@ -259,7 +259,7 @@ object SpotifyBatchDownload {
             }
 
             if (isCancelled()) {
-                removeAll(context, enqueuedIds)
+                removeAll(context, enqueuedIds, downloads.value)
                 return null
             }
 
@@ -270,7 +270,7 @@ object SpotifyBatchDownload {
                 var ticks = 0
                 while (ticks++ < MAX_MONITOR_TICKS) {
                     if (isCancelled()) {
-                        removeAll(context, enqueuedIds)
+                        removeAll(context, enqueuedIds, downloads.value)
                         return false
                     }
                     val counts = countStates(enqueuedIds, downloads.value, enqueuedAt)
@@ -439,8 +439,14 @@ object SpotifyBatchDownload {
     }
 
     /** Removes every download this batch queued (used when the user cancels). */
-    private fun removeAll(context: Context, ids: Set<String>) {
+    /**
+     * Cancelling stops what is still on its way; what already reached the folder stays. Removing a
+     * finished download deletes its file, so "Cancel" at 116 of 226 used to leave 33.
+     */
+    private fun removeAll(context: Context, ids: Set<String>, map: Map<String, Download>) {
+        val exported = DownloadExportState.exported.value
         for (id in ids) {
+            if (id in exported || map[id]?.state == Download.STATE_COMPLETED) continue
             runCatching {
                 DownloadService.sendRemoveDownload(context, ExoDownloadService::class.java, id, false)
             }

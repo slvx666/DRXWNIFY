@@ -5,6 +5,9 @@
 
 package com.metrolist.music.ui.screens.playlist
 
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import com.metrolist.music.ui.component.coverSource
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -138,6 +141,7 @@ fun SpotifyPlaylistScreen(
 
     val playlist by viewModel.playlist.collectAsState()
     val tracks by viewModel.tracks.collectAsState()
+    val likedTracks by com.metrolist.music.playback.SpotifyLikeCache.liked.collectAsState()
     // Downloaded state per track: the track's own download, or the one under its matched YouTube id.
     // The playlist rows used to show none, so nobody could see which tracks were already on the phone.
     val downloads by downloadUtil.visibleDownloads.collectAsState()
@@ -343,6 +347,11 @@ fun SpotifyPlaylistScreen(
                         ?.firstOrNull { (it.width ?: 0) >= 300 }?.url
                         ?: playlist?.images?.firstOrNull()?.url
                     if (coverUrl != null) {
+                        // As on an album: tap opens it full screen (zoomable), long press saves it.
+                        val coverViewer = com.metrolist.music.ui.component.rememberCoverViewerState()
+                        val coverName = playlist?.name.orEmpty()
+                        val largestUrl = playlist?.images?.maxByOrNull { it.width ?: 0 }?.url ?: coverUrl
+                        coverViewer.Content()
                         coil3.compose.AsyncImage(
                             model = coverUrl,
                             contentDescription = playlist?.name,
@@ -350,7 +359,14 @@ fun SpotifyPlaylistScreen(
                             modifier = Modifier
                                 .align(Alignment.CenterHorizontally)
                                 .size(240.dp)
-                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(com.metrolist.music.constants.ThumbnailCornerRadius)),
+                                .coverSource(coverViewer)
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(com.metrolist.music.constants.ThumbnailCornerRadius))
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onTap = { coverViewer.open(largestUrl, coverName) },
+                                        onLongPress = { coverViewer.showActions(largestUrl, coverName) },
+                                    )
+                                },
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                     }
@@ -574,6 +590,9 @@ fun SpotifyPlaylistScreen(
                     }
 
                     val isActive = currentSpotifyId != null && currentSpotifyId == track.id
+                    // A heart before the artist for liked tracks, as on an album.
+                    val trackLiked = likedTracks.contains(track.id) ||
+                        com.metrolist.music.playback.rememberCatalogTrackLiked(database, track.id, spotifyToYt[track.id])
                     val content: @Composable () -> Unit = {
                         ListItem(
                             title = track.name,
@@ -582,6 +601,16 @@ fun SpotifyPlaylistScreen(
                                 makeTimeString((track.durationMs).toLong()),
                             ),
                             isActive = isActive,
+                            badges = {
+                                if (trackLiked) {
+                                    Icon(
+                                        painterResource(R.drawable.favorite),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp).padding(end = 2.dp),
+                                    )
+                                }
+                            },
                             thumbnailContent = {
                                 ItemThumbnail(
                                     thumbnailUrl = thumbnailUrl,
