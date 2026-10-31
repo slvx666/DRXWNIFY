@@ -346,11 +346,23 @@ object AudioFallbackEngine {
                 if (providers.all { it.id in answered }) betterChecked.edit().putLong(catalogId, now).apply()
                 val playing = currentChoice(mediaId, dbSong)
                 val playingNow = playingKbps ?: playing?.let(::effectiveKbps) ?: return@launch skip("the playing version's bitrate is unknown")
-                val best = outcome.matches.firstOrNull { it.usableFor(query, emptySet()) } ?: return@launch
+                // Measured, not guessed: VK's "320" offered as better turned out 159, the same as what played.
+                val usable = outcome.matches.filter { it.usableFor(query, emptySet()) }
+                val top = usable.maxOfOrNull { it.confidence } ?: return@launch
+                val exactOnes = usable.filter { it.confidence >= top - ParallelAudioResolver.AUTO_CONFIDENCE_MARGIN }.take(4)
+                kotlinx.coroutines.coroutineScope {
+                    (exactOnes + listOfNotNull(playing)).distinctBy { it.provider to it.trackId }
+                        .filter { knownBitrate(it.provider, it.trackId) == null }
+                        .map { m -> async { runCatching { measureVersion(mediaId, dbSong, m) } } }
+                        .awaitAll()
+                }
+                val measuredBest = exactOnes.filter { knownBitrate(it.provider, it.trackId) != null }
+                    .maxByOrNull { effectiveKbps(it) }
+                val best = measuredBest ?: usable.first()
                 val bestKbps = effectiveKbps(best)
                 val sameUpload = playing != null && best.provider == playing.provider && best.trackId == playing.trackId
                 val exact = playing == null || best.confidence >= playing.confidence - ParallelAudioResolver.AUTO_CONFIDENCE_MARGIN
-                val betterSound = bestKbps >= playingNow + MIN_UPGRADE_KBPS && exact && !sameUpload
+                val betterSound = measuredBest != null && bestKbps >= playingNow + MIN_UPGRADE_KBPS && exact && !sameUpload
                 // The exact track found where only a doubtful one was (a 71 % Soulseek file for
                 // a renamed band): the right recording wins whatever the bitrate, in every mode —
                 // another version is worse than a lower bitrate.
@@ -367,15 +379,16 @@ object AudioFallbackEngine {
                         } +
                         "\n  " + outcome.report.joinToString("\n  "),
                 )
+                val keep = (outcome.matches + listOfNotNull(playing)).distinctBy { it.provider to it.trackId }
                 if (moreExact) {
                     memory.put(query.cacheKey, best)
-                    remember(query, outcome.matches, best)
+                    remember(query, keep, best)
                     return@launch
                 }
                 if (!betterSound) return@launch
                 if (!speed) {
                     memory.put(query.cacheKey, best)
-                    remember(query, outcome.matches, best)
+                    remember(query, keep, best)
                 }
                 SourceUpgrades.offer(catalogId, best, bestKbps)
             }.onFailure { AudioDiagnostics.warn("better-version check for $mediaId failed: ${AudioDiagnostics.explain(it)}") }
