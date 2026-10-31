@@ -66,6 +66,9 @@ object AudioFallbackEngine {
     /** A later-found version is only "better" with at least this many more kbps. */
     private const val MIN_UPGRADE_KBPS = 16
 
+    /** Other credited artists a track found nowhere is searched under. */
+    private const val MAX_OTHER_ARTISTS = 2
+
     private const val UNANSWERED_TTL_MS = 30L * 60 * 1000
 
     /** After a network change, so a VPN coming up has settled before YouTube is asked. */
@@ -280,7 +283,21 @@ object AudioFallbackEngine {
             // Racing it for each track (a queue resolves many at once) flooded the network with
             // searches, each answered by hundreds of peers.
             val (lastResort, regular) = active.partition { it.id == AudioProviderId.SOULSEEK }
-            val regularOutcome = racer.resolve(query, regular, ResolverPreferences.order)
+            var regularOutcome = racer.resolve(query, regular, ResolverPreferences.order)
+            // Found nowhere under the first artist: once more under each of the next credited ones.
+            // A collective's track listed under one member is uploaded under the collective
+            // ("NEEDLEGUTS, Hxlx, NECROSOCIETY – Maniac" is "NECROSOCIETY – MANIAC W/ …"). Only for
+            // tracks nobody had — doing it in every source for every track flooded VK in a big batch.
+            if (regularOutcome.winner == null && regular.isNotEmpty()) {
+                for (other in query.artists.drop(1).filter { it.isNotBlank() }.take(MAX_OTHER_ARTISTS)) {
+                    val again = racer.resolve(query.copy(artists = listOf(other) + (query.artists - other)), regular, ResolverPreferences.order)
+                    if (again.winner != null) {
+                        AudioDiagnostics.info("found under another credited artist: '$other' for ${query.label()}")
+                        regularOutcome = again
+                        break
+                    }
+                }
+            }
             val outcome = regularOutcome
                 .takeIf { it.winner != null || lastResort.isEmpty() }
                 ?: racer.resolve(query, lastResort, ResolverPreferences.order)

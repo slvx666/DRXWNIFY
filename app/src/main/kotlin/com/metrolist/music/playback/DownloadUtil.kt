@@ -579,8 +579,12 @@ constructor(
             // taken for a dead video, it erased the track's YouTube match, and an album downloaded
             // from VK in its stead then showed only 1 of 10 tracks as downloaded.
             val text = e.message.orEmpty()
+            // So is "This content isn't available, try again later": YouTube's answer to too many
+            // requests in a row (a 264-track playlist), not a dead video — such tracks were set
+            // aside for good and the batch ended with dozens of errors.
             if (text.contains("не бот", true) || text.contains("not a bot", true) ||
-                text.contains("Sign in to confirm", true) || text.contains("LOGIN_REQUIRED", true)
+                text.contains("Sign in to confirm", true) || text.contains("LOGIN_REQUIRED", true) ||
+                text.contains("Повторите попытку позже", true) || text.contains("try again later", true)
             ) {
                 return true
             }

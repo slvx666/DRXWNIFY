@@ -471,6 +471,7 @@
     <string name="spotify_download_progress">Preparing %1$d / %2$d…</string>
     <string name="spotify_download_done">Queued %1$d, skipped %2$d</string>
     <string name="spotify_dl_searching">Searching %1$d / %2$d…</string>
+    <string name="spotify_dl_in_folder">in folder: %1$d</string>
     <string name="spotify_dl_downloading">Downloading… %1$d of %2$d in the folder</string>
     <string name="spotify_dl_formatting">Formatting…</string>
     <string name="spotify_dl_finished">Downloaded %1$d · skipped %2$d · failed %3$d</string>

@@ -95,7 +95,8 @@ fun BatchDownloadProgress(
 
         val stage = when (progress.phase) {
             SpotifyBatchDownload.Phase.SEARCHING ->
-                stringResource(R.string.spotify_dl_searching, progress.current, progress.total)
+                stringResource(R.string.spotify_dl_searching, progress.searched, progress.total) + "   " +
+                    stringResource(R.string.spotify_dl_in_folder, progress.current)
             SpotifyBatchDownload.Phase.DOWNLOADING ->
                 stringResource(R.string.spotify_dl_downloading, progress.current, progress.total)
             SpotifyBatchDownload.Phase.FORMATTING ->

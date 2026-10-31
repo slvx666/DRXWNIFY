@@ -807,6 +807,7 @@
     <string name="spotify_download_progress">Подготовка %1$d / %2$d…</string>
     <string name="spotify_download_done">В очередь: %1$d, пропущено: %2$d</string>
     <string name="spotify_dl_searching">Поиск %1$d / %2$d…</string>
+    <string name="spotify_dl_in_folder">в папке: %1$d</string>
     <string name="spotify_dl_downloading">Скачивание… в папке %1$d из %2$d</string>
     <string name="spotify_dl_formatting">Форматирование…</string>
     <string name="spotify_dl_finished">Скачано: %1$d · пропущено: %2$d · ошибок: %3$d</string>

@@ -64,6 +64,8 @@ object SpotifyBatchDownload {
         val failed: Int,
         /** Of [current], how many were already downloaded before this run started. */
         val alreadyDownloaded: Int = 0,
+        /** While searching: how many tracks have been looked up so far (of [total]). */
+        val searched: Int = 0,
     ) {
         val fraction: Float get() = if (total <= 0) 0f else (current.toFloat() / total).coerceIn(0f, 1f)
     }
@@ -154,9 +156,12 @@ object SpotifyBatchDownload {
             publish(
                 Progress(
                     sourceId, label, Phase.SEARCHING,
-                    // While searching the bar moves with every track looked up.
-                    current = already + resolved.get(), total = total, skipped = skipped.get(), failed = 0,
-                    alreadyDownloaded = already,
+                    // The files in the folder, as in every other phase; the search count is said
+                    // apart. The bar used to count searched tracks, so "233 of 264" while searching
+                    // became "152 of 264" once downloading began, as if 80 files had vanished.
+                    current = already + countStates(enqueuedIds, downloads.value, enqueuedAt).completed,
+                    total = total, skipped = skipped.get(), failed = 0,
+                    alreadyDownloaded = already, searched = already + resolved.get(),
                 ),
             )
         publishSearching()
