@@ -714,6 +714,15 @@ object AudioFallbackEngine {
                 ).getOrNull()?.format?.bitrate
             }?.also { rememberBitrate(match.provider, match.trackId, it) }?.div(1000)
         }
+        // VK: the exact average from the upload's size (asked of the server, nothing downloaded).
+        if (match.provider == AudioProviderId.VK) {
+            val vk = providers[match.provider] as? com.metrolist.music.resolver.providers.VkAudioProvider
+            kotlinx.coroutines.withTimeoutOrNull(VERSION_MEASURE_TIMEOUT_MS) { vk?.exactKbps(match) }?.let { kbps ->
+                rememberBitrate(match.provider, match.trackId, kbps * 1000)
+                AudioDiagnostics.info("VK ${match.trackId}: $kbps kbps by its size")
+                return@withContext kbps
+            }
+        }
         val query = queryFor(mediaId, dbSong) ?: return@withContext null
         val provider = providers[match.provider] ?: return@withContext null
         kotlinx.coroutines.withTimeoutOrNull(VERSION_MEASURE_TIMEOUT_MS) {

@@ -12,8 +12,11 @@ import com.metrolist.music.resolver.AudioStream
 import com.metrolist.music.resolver.ProviderMatch
 import com.metrolist.music.playback.datasource.CdnHosts
 import com.metrolist.music.playback.datasource.HlsConcatDataSource
+import com.metrolist.music.playback.datasource.HlsPlaylist
 import com.metrolist.spotify.SpotifyMapper
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
@@ -551,6 +554,45 @@ class VkAudioProvider(
 
     private val recentUrls = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
 
+    /**
+     * The upload's real average bitrate, kbps, from its size — nothing of the audio is downloaded:
+     * an MP3 address is asked only for its length; VK's HLS is a list of encrypted pieces, each
+     * asked only for its length, summed and set against the pieces' durations (less the MPEG-TS
+     * packaging, ~4 %). Null when VK doesn't state the sizes. A guess from the start of a stream
+     * said 255 kbps for uploads whose files turned out 128.
+     */
+    suspend fun exactKbps(match: ProviderMatch): Int? = runCatching {
+        val url = recentUrls[match.trackId]?.takeIf { System.currentTimeMillis() - it.second < URL_TTL_MS }?.first
+            ?: throttled {
+                call("audio.getById", mapOf("audios" to match.trackId), quickHttp)
+                    ?.optJSONArray("response")?.optJSONObject(0)?.let(::parse)?.url
+            }?.also { recentUrls[match.trackId] = it to System.currentTimeMillis() }
+            ?: return null
+        fun lengthOf(u: String): Long? = quickHttp.newCall(
+            Request.Builder().url(u).head().header("User-Agent", CLIENT_USER_AGENT).build(),
+        ).execute().use { r -> if (r.isSuccessful) r.header("Content-Length")?.toLongOrNull()?.takeIf { it > 0 } else null }
+        if (!url.contains(".m3u8")) {
+            val seconds = (match.durationMs ?: return null) / 1000.0
+            val length = runInterruptible(Dispatchers.IO) { lengthOf(url) } ?: return null
+            return (length * 8 / seconds / 1000).toInt()
+        }
+        val text = runInterruptible(Dispatchers.IO) {
+            quickHttp.newCall(Request.Builder().url(url).header("User-Agent", CLIENT_USER_AGENT).build()).execute()
+                .use { r -> if (r.isSuccessful) r.body?.string() else null }
+        } ?: return null
+        val playlist = HlsPlaylist.parse(url, text, allowAes128 = true) ?: return null
+        val seconds = playlist.durations.sum().takeIf { it > 0 } ?: return null
+        if (playlist.segments.isEmpty()) return null
+        val sizes = kotlinx.coroutines.coroutineScope {
+            playlist.segments.chunked((playlist.segments.size + 5) / 6).map { part ->
+                async(Dispatchers.IO) { part.map { u -> runCatching { lengthOf(u) }.getOrNull() } }
+            }.awaitAll().flatten()
+        }
+        if (sizes.any { it == null }) return null
+        val total = sizes.sumOf { it!! }
+        (total * 8 * TS_PAYLOAD_SHARE / seconds / 1000).toInt()
+    }.onFailure { Timber.tag("AudioRace").d("vk size ✘ %s: %s", match.trackId, it.message) }.getOrNull()
+
     override suspend fun stream(query: AudioQuery, match: ProviderMatch): AudioStream? {
         if (!allowTrack(match.trackId)) {
             Timber.tag("AudioRace").i("vk: the shared account's tracks for today are used up")
@@ -677,6 +719,9 @@ class VkAudioProvider(
         private const val MAX_MY_TRACKS = 5000
         private const val MIN_CALL_SPACING_MS = 350L
         private const val TOO_MANY_REQUESTS = 6
+
+        /** Share of an audio MPEG-TS stream that is the audio itself (the rest is packet headers). */
+        private const val TS_PAYLOAD_SHARE = 0.96
 
         /** "User authorization failed": the token was revoked (password changed, sessions ended). */
         private const val AUTH_FAILED = 5

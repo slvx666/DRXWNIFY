@@ -4220,6 +4220,15 @@ class MusicService :
             ) {
                 return true
             }
+            // YouTube's "sign in to confirm you're not a bot" refuses this network, not the video:
+            // taken for a dead video, it erased the track's YouTube match, and an album downloaded
+            // from VK in its stead then showed only 1 of 10 tracks as downloaded.
+            val text = e.message.orEmpty()
+            if (text.contains("не бот", true) || text.contains("not a bot", true) ||
+                text.contains("Sign in to confirm", true) || text.contains("LOGIN_REQUIRED", true)
+            ) {
+                return true
+            }
             e = e.cause
         }
         return false

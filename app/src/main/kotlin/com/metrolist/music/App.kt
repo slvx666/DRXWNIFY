@@ -170,6 +170,14 @@ class App :
             // Tracks matched once (often to YouTube before VK was linked) were never asked of the
             // other sources again: each is compared with every source once more on its next play,
             // and a better version found is kept from then on.
+            // Bitrates guessed from the start of VK streams were often wrong (255 for 128 kbps files):
+            // forgotten once, so versions get measured by their real size.
+            val bitratesReset = androidx.datastore.preferences.core.booleanPreferencesKey("bitratesBySize220")
+            if (dataStore.data.first()[bitratesReset] != true) {
+                getSharedPreferences("version_bitrates", MODE_PRIVATE).edit().clear().apply()
+                getSharedPreferences("better_checked", MODE_PRIVATE).edit().clear().apply()
+                dataStore.edit { it[bitratesReset] = true }
+            }
             val recheck = androidx.datastore.preferences.core.booleanPreferencesKey("sourcesRecheck220c")
             if (dataStore.data.first()[recheck] != true) {
                 getSharedPreferences("quality_checked", MODE_PRIVATE).edit().clear().apply()
@@ -206,8 +214,12 @@ class App :
             runCatching { com.metrolist.music.resolver.VkMusic.loadSavedTracks(this@App) }
         }
         com.metrolist.music.resolver.AudioFallbackEngine.onYouTubeVideoUnplayable = { videoId ->
-            applicationScope.launch(Dispatchers.IO) {
-                com.metrolist.music.playback.SpotifyYouTubeMapper.forgetYouTubeVideo(database, videoId)
+            // A downloaded track keeps its link to the catalog whatever YouTube says: its file is
+            // stored under this id, and without the link the album no longer saw it as downloaded.
+            if (videoId !in com.metrolist.music.utils.DownloadExportState.exported.value) {
+                applicationScope.launch(Dispatchers.IO) {
+                    com.metrolist.music.playback.SpotifyYouTubeMapper.forgetYouTubeVideo(database, videoId)
+                }
             }
         }
         // Metadata/library catalog: Spotify and/or Yandex Music, per the connected accounts.
