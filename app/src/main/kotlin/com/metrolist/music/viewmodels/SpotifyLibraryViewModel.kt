@@ -169,7 +169,9 @@ class SpotifyLibraryViewModel @Inject constructor(
             else com.metrolist.music.R.string.all_synced_spotify,
         )
         return buildList {
-            if (likedCount > 0) {
+            // Not with a Spotify account: its own "Liked Songs" already is that list, and a second
+            // one beside it only confused (asked for on 2026-11-01).
+            if (likedCount > 0 && source != com.metrolist.music.constants.MetadataSource.SPOTIFY) {
                 add(
                     SpotifyLibraryEntry(
                         kind = SpotifyLibraryEntry.Kind.LIKED_SONGS,
