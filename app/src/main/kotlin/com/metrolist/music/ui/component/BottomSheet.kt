@@ -113,7 +113,10 @@ fun BottomSheet(
                 clip = true
             }
     ) {
-        if (!state.isCollapsed && !state.isDismissed) {
+        // Only while the sheet is opened (or being opened): when the screen changes, the collapsed
+        // mini player slides to its new height for most of a second — it isn't "collapsed" then, and
+        // this handler took the system back swipe ("back did nothing for a second after opening").
+        if (state.isOpenedByUser && !state.isDismissed) {
             BackHandler(onBack = state::collapseSoft)
         }
 
@@ -155,7 +158,12 @@ class BottomSheetState(
     private val animatable: Animatable<Dp, AnimationVector1D>,
     private val onAnchorChanged: (Int) -> Unit,
     val collapsedBound: Dp,
+    private val anchor: () -> Int = { collapsedAnchor },
 ) : DraggableState by draggableState {
+    /** Expanded, or on its way there, as opposed to settling at its collapsed or dismissed height. */
+    val isOpenedByUser: Boolean
+        get() = anchor() == expandedAnchor || (value > collapsedBound + 1.dp && anchor() != collapsedAnchor && anchor() != dismissedAnchor)
+
     val dismissedBound: Dp
         get() = animatable.lowerBound!!
 
@@ -356,7 +364,8 @@ fun rememberBottomSheetState(
             onAnchorChanged = { previousAnchor = it },
             coroutineScope = coroutineScope,
             animatable = animatable,
-            collapsedBound = collapsedBound
+            collapsedBound = collapsedBound,
+            anchor = { previousAnchor },
         )
     }
 }
