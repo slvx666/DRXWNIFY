@@ -768,6 +768,11 @@ constructor(
             // The parts already downloaded may belong to another upload of the track (a longer one
             // chosen earlier): resumed with the new, shorter one, the old length made it "end early".
             runCatching { downloadCache.removeResource(mediaId) }
+            // So is the player's copy: a VK track played while streaming is kept with the length
+            // the player was told (a hair longer than the real file), and the download read through
+            // that copy into the real, shorter file — vianova – "Marimba" broke off at 9540 KB on
+            // every "download again".
+            runCatching { playerCache.removeResource(mediaId) }
             AudioDiagnostics.warn("download: $mediaId ended before its expected length — parts cleared, it starts over from the source")
             return
         }
