@@ -82,6 +82,9 @@ constructor(
     private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.HIGH)
     private val songUrlCache = HashMap<String, Pair<String, Long>>()
 
+    /** Tracks whose copy from the player's cache broke off: downloaded from the source instead. */
+    private val cacheCopyFailed = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     /** When each track was last checked for its best version before downloading. */
     private val bestChecked = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val BEST_CHECK_GAP_MS = 30L * 60 * 1000
@@ -207,8 +210,9 @@ constructor(
                     return@Factory resolveFallbackDownload(dataSpec, mediaId)
                 }
                 // Only a whole cached track goes without an address: a warmed-up start alone failed
-                // the download where the cached part ended.
-                if (playerCache.holdsWhole(mediaId)) return@Factory dataSpec
+                // the download where the cached part ended. Not after a copy from the cache broke off
+                // at its end (a length noted wrong when it played): then from the source itself.
+                if (mediaId !in cacheCopyFailed && playerCache.holdsWhole(mediaId)) return@Factory dataSpec
                 songUrlCache[mediaId]?.takeIf { it.second > System.currentTimeMillis() }?.let {
                     return@Factory dataSpec.withUri(it.first.toUri())
                 }
@@ -747,6 +751,21 @@ constructor(
      */
     private fun forgetFailedSource(mediaId: String, error: Exception?) {
         songUrlCache.remove(mediaId)
+        // "Read past the end": the copy of the player's cache had a wrong length (Aurora broke off at
+        // 7828 KB — the whole track — every time). Next time it is fetched from the source; the
+        // upload itself is fine and stays.
+        if (generateSequence<Throwable>(error) { it.cause }.any {
+                (it as? androidx.media3.datasource.DataSourceException)?.reason ==
+                    androidx.media3.common.PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE
+            }
+        ) {
+            cacheCopyFailed += mediaId
+            // The parts already downloaded may belong to another upload of the track (a longer one
+            // chosen earlier): resumed with the new, shorter one, the old length made it "end early".
+            runCatching { downloadCache.removeResource(mediaId) }
+            AudioDiagnostics.warn("download: $mediaId ended before its expected length — parts cleared, it starts over from the source")
+            return
+        }
         var e: Throwable? = error
         var gone = false
         while (e != null) {
