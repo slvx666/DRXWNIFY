@@ -440,8 +440,10 @@ fun SpotifyAlbumScreen(
                 val thumbnailUrl = SpotifyMapper.getTrackThumbnail(track)
 
                 val isActive = currentSpotifyId != null && currentSpotifyId == track.id
-                val trackDownloadState = (downloads[com.metrolist.music.resolver.FallbackIds.of(track.id)]
-                    ?: spotifyToYt[track.id]?.let { downloads[it] })?.state
+                val trackDownloadState = com.metrolist.music.ui.component.bestDownloadState(
+                    downloads[com.metrolist.music.resolver.FallbackIds.of(track.id)],
+                    spotifyToYt[track.id]?.let { downloads[it] },
+                )
                 val trackLiked = likedTracks.contains(track.id) ||
                     com.metrolist.music.playback.rememberCatalogTrackLiked(database, track.id, spotifyToYt[track.id])
                 ListItem(

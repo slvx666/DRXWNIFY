@@ -608,8 +608,10 @@ fun SpotifyLikedSongsScreen(
                 val originalIndex = if (isSearching || downloadFilter != 0) sortedTracks.indexOf(track).coerceAtLeast(0) else index
 
                 val isActive = currentSpotifyId != null && currentSpotifyId == track.id
-                val trackDownloadState = (downloads[com.metrolist.music.resolver.FallbackIds.of(track.id)]
-                    ?: spotifyToYt[track.id]?.let { downloads[it] })?.state
+                val trackDownloadState = com.metrolist.music.ui.component.bestDownloadState(
+                    downloads[com.metrolist.music.resolver.FallbackIds.of(track.id)],
+                    spotifyToYt[track.id]?.let { downloads[it] },
+                )
                 // Why it isn't downloaded yet, when a download of this list tried and failed.
                 val issueText = if (track.id !in downloadedIds) {
                     when (downloadIssues[track.id]) {

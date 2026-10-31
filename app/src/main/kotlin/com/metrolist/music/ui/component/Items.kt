@@ -1825,3 +1825,21 @@ object Icon {
         )
     }
 }
+
+/**
+ * A catalog track can be downloaded under two ids (its "mfb:" id and its YouTube video id). The
+ * row shows the better of the two: a failed first try under one id used to hide the finished
+ * download under the other ("10 of 10 downloaded" with no mark on Aurora).
+ */
+fun bestDownloadState(
+    a: androidx.media3.exoplayer.offline.Download?,
+    b: androidx.media3.exoplayer.offline.Download?,
+): Int? {
+    val states = listOfNotNull(a?.state, b?.state)
+    val order = listOf(
+        androidx.media3.exoplayer.offline.Download.STATE_COMPLETED,
+        androidx.media3.exoplayer.offline.Download.STATE_DOWNLOADING,
+        androidx.media3.exoplayer.offline.Download.STATE_QUEUED,
+    )
+    return order.firstOrNull { it in states } ?: states.firstOrNull()
+}
