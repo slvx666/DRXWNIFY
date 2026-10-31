@@ -605,6 +605,22 @@ object AudioFallbackEngine {
      * version dialog asked YouTube separately and often got no formats back, so a version heard
      * from start to end still said "? kbps".
      */
+    /**
+     * The real average bitrate of a finished download (its file's size over its length), kept for
+     * the version it came from: a guess from the start of a VK stream said 255 kbps for files that
+     * turned out 128, and the arrow and the next download's choice trusted the guess.
+     */
+    fun rememberDownloadedBitrate(mediaId: String, dbSong: Song?, bitrateBps: Int) {
+        if (bitrateBps <= 0 || !::appContext.isInitialized) return
+        val choice = runCatching { currentChoice(mediaId, dbSong) }.getOrNull() ?: return
+        val before = knownBitrate(choice.provider, choice.trackId)
+        rememberBitrate(choice.provider, choice.trackId, bitrateBps)
+        AudioDiagnostics.info(
+            "file: ${choice.provider} ${choice.trackId} measured ${bitrateBps / 1000} kbps from the downloaded file" +
+                (before?.let { " (it was guessed at $it)" } ?: ""),
+        )
+    }
+
     fun rememberBitrate(provider: AudioProviderId, trackId: String, bitrateBps: Int) {
         if (bitrateBps <= 0 || trackId.isBlank() || !::appContext.isInitialized) return
         runCatching { bitratePrefs.edit().putInt("${provider.name}:$trackId", bitrateBps / 1000).apply() }

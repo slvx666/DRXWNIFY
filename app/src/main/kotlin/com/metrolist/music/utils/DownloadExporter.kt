@@ -173,7 +173,10 @@ class DownloadExporter @Inject constructor(
             try {
                 val playlistFolder = folderHint(songId)
                 runCatching { exportInternal(songId, playlistFolder) }
-                    .onSuccess { uri -> markExported(songId, uri) }
+                    .onSuccess { uri ->
+                        markExported(songId, uri)
+                        recordRealBitrate(songId, uri)
+                    }
                     .onFailure {
                         if (it is CacheGoneException) {
                             // Nothing to retry: off the pending list, quietly (the file, if any, stays).
@@ -355,6 +358,17 @@ class DownloadExporter @Inject constructor(
             ?.substringAfter(HINT_SEPARATOR)
             ?.takeIf { it.isNotBlank() }
             ?.let { runCatching { it.toUri() }.getOrNull() }
+
+    /** The file's size over the track's length: what the download really is (see AudioFallbackEngine). */
+    private fun recordRealBitrate(songId: String, uri: Uri) {
+        runCatching {
+            val song = database.getSongByIdBlocking(songId) ?: return
+            val seconds = song.song.duration.takeIf { it > 0 } ?: return
+            val size = context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: return
+            if (size <= 0) return
+            com.metrolist.music.resolver.AudioFallbackEngine.rememberDownloadedBitrate(songId, song, (size * 8 / seconds).toInt())
+        }
+    }
 
     private suspend fun markExported(songId: String, uri: android.net.Uri? = null) {
         context.dataStore.edit { prefs ->
