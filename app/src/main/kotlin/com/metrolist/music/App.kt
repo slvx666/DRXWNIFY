@@ -207,6 +207,17 @@ class App :
                     flags.edit().putBoolean("assumed_bitrates_cleared", true).apply()
                 }
             }
+            // Measurements thrown off by stray "frames" in tags ("444 kbps · MP3 · 8 kHz"): forgotten
+            // once, read again from the audio.
+            if (!flags.getBoolean("stray_frames_cleared", false)) {
+                runCatching {
+                    database.openHelper.writableDatabase.execSQL(
+                        "DELETE FROM format WHERE itag = -1 AND (sampleRate < 16000 OR (mimeType = 'audio/mpeg' AND bitrate > 330000))",
+                    )
+                    getSharedPreferences("version_bitrates", MODE_PRIVATE).edit().clear().apply()
+                    flags.edit().putBoolean("stray_frames_cleared", true).apply()
+                }
+            }
         }
         com.metrolist.music.resolver.AudioFallbackEngine.init(this, database)
         com.metrolist.music.utils.CoverFix.init(database)

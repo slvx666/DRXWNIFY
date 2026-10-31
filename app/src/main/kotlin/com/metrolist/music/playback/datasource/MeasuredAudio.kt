@@ -49,7 +49,7 @@ object MeasuredAudio {
         var frames = 0L
         var bytes = 0L
         var seconds = 0.0
-        var sampleRate: Int? = null
+        val secondsByRate = HashMap<Int, Double>()
         while (i + 7 < data.size) {
             val b0 = data[i].toInt() and 0xFF
             val b1 = data[i + 1].toInt() and 0xFF
@@ -58,7 +58,9 @@ object MeasuredAudio {
                 continue
             }
             val frame = if ((b1 and 0x06) == 0) adtsFrame(data, i) else mpegFrame(data, i)
-            if (frame == null) {
+            // Only a frame the next one follows on from counts: a stray 0xFFEx in a tag, a cover
+            // picture or a segment's ID3 stamp read as "frames" gave a SoundCloud MP3 "444 kbps · 8 kHz".
+            if (frame == null || !followedOn(data, i, frame.first)) {
                 i++
                 continue
             }
@@ -66,11 +68,25 @@ object MeasuredAudio {
             frames++
             bytes += length
             seconds += samples.toDouble() / rate
-            sampleRate = rate
+            secondsByRate.merge(rate, samples.toDouble() / rate, Double::plus)
             i += length
         }
         if (frames < 10 || seconds <= 0.0) return null
-        return Measured(bitrate = (bytes * 8 / seconds).toInt(), sampleRate = sampleRate)
+        return Measured(bitrate = (bytes * 8 / seconds).toInt(), sampleRate = secondsByRate.maxByOrNull { it.value }?.key)
+    }
+
+    /**
+     * Whether the frame of [length] at [i] is followed by a frame of the same kind (same version,
+     * layer and sample rate), or by the end of the data.
+     */
+    private fun followedOn(data: ByteArray, i: Int, length: Int): Boolean {
+        val next = i + length
+        if (next + 4 > data.size) return true
+        if (!isSync(data, next)) return false
+        val sameKind = (data[i + 1].toInt() and 0x1E) == (data[next + 1].toInt() and 0x1E)
+        val adts = (data[i + 1].toInt() and 0x06) == 0
+        val rateMask = if (adts) 0x3C else 0x0C
+        return sameKind && (data[i + 2].toInt() and rateMask) == (data[next + 2].toInt() and rateMask)
     }
 
     /** An MP3 stream every frame of which has the same bitrate, sample rate and channel mode. */
