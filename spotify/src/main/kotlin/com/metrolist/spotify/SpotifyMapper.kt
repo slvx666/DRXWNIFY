@@ -333,8 +333,18 @@ object SpotifyMapper {
         ARTIST_SPLIT_REGEX.split(spotifyArtists)
             .map { cachedNormalize(it) }
             .filter { it.isNotEmpty() }
-            .flatMap { listOf(it) + normalizedAliases[it].orEmpty() }
+            .flatMap { listOf(it) + normalizedAliases[it].orEmpty() + listOfNotNull(latinPartOf(it)) }
             .distinct()
+
+    /**
+     * The Latin part of a name written in two scripts ("vile卑劣" → "vile"), which is how most
+     * uploads credit such an artist; null for a name in one script or a too short Latin part.
+     */
+    private fun latinPartOf(name: String): String? {
+        val latin = name.filter { it.code < 0x250 }.trim()
+        val other = name.any { it.isLetter() && it.code >= 0x250 }
+        return latin.takeIf { other && it.count(Char::isLetter) >= 3 && it != name }
+    }
 
     /** The other names [artist] is known under (a band's old name), as written; empty for most. */
     fun artistAliases(artist: String): List<String> {

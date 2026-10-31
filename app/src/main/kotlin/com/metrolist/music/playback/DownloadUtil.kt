@@ -82,6 +82,10 @@ constructor(
     private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.HIGH)
     private val songUrlCache = HashMap<String, Pair<String, Long>>()
 
+    /** When each track was last checked for its best version before downloading. */
+    private val bestChecked = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val BEST_CHECK_GAP_MS = 30L * 60 * 1000
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Raw Media3 download states: "completed" here only means the bytes are in the cache. */
@@ -187,6 +191,21 @@ constructor(
             // stream through the audio fallback engine and record FormatEntity/SongEntity rows so the
             // exporter can transcode it to MP3 afterwards. Ordinary YouTube downloads are untouched.
             if (FallbackIds.isFallbackId(mediaId)) {
+                // The best exact version first (VK 320 over the YouTube match playback picked); what
+                // the player has cached is copied only when it still is that version.
+                // Once per download (this is asked again for every part of the file).
+                val now = System.currentTimeMillis()
+                val switched = (now - (bestChecked[mediaId] ?: 0L) > BEST_CHECK_GAP_MS) && run {
+                    bestChecked[mediaId] = now
+                    val dbSongForBest = runBlocking(Dispatchers.IO) { database.getSongById(mediaId) }
+                    runCatching {
+                        runBlocking(Dispatchers.IO) { withTimeout(30_000L) { AudioFallbackEngine.bestForDownload(mediaId, dbSongForBest) } }
+                    }.getOrDefault(false)
+                }
+                if (switched) {
+                    songUrlCache.remove(mediaId)
+                    return@Factory resolveFallbackDownload(dataSpec, mediaId)
+                }
                 // Only a whole cached track goes without an address: a warmed-up start alone failed
                 // the download where the cached part ended.
                 if (playerCache.holdsWhole(mediaId)) return@Factory dataSpec

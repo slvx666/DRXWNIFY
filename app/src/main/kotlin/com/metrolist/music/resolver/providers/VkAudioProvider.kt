@@ -250,7 +250,7 @@ class VkAudioProvider(
         // A band that changed its name: its older records are uploaded under the old one, and the
         // new name finds only re-uploads of whole albums ("Electric Callboy – Cstrp" vs "Eskimo Callboy").
         if (ranked.isEmpty()) {
-            for (alias in SpotifyMapper.artistAliases(query.primaryArtist)) {
+            for (alias in ProviderGate.artistVariants(query.primaryArtist)) {
                 val again = fetch(ProviderGate.searchText(query.copy(artists = listOf(alias))), 30, requireUrl = false)
                 ranked = rank(again)
                 if (ranked.isNotEmpty()) {

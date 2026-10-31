@@ -89,9 +89,23 @@ internal object ProviderGate {
         return result
     }
 
-    /** "Artist Title" search text, the form every provider's search ranks best. */
+    /**
+     * "Artist Title" search text, the form every provider's search ranks best. A title cut short with
+     * an ellipsis ("ThisIsKillingMe...") is searched without it: the dots made VK find nothing.
+     */
     fun searchText(query: AudioQuery): String =
-        listOf(query.primaryArtist, SpotifyMapper.spotifyTitleCore(query.title))
+        listOf(query.primaryArtist, SpotifyMapper.spotifyTitleCore(query.title).trimEnd('.', '…', ' '))
             .filter { it.isNotBlank() }
             .joinToString(" ")
+
+    /**
+     * Other names to search the artist under when the first search found nothing: a band's old name,
+     * and the Latin part of a name written in two scripts ("Vile卑劣" → "Vile": VK answered
+     * "Vile卑劣 4645" with unrelated uploads).
+     */
+    fun artistVariants(artist: String): List<String> {
+        val latin = artist.filter { it.code < 0x250 }.replace(Regex("""\s+"""), " ").trim()
+        val mixed = latin.isNotEmpty() && latin.length >= 2 && latin != artist.trim() && latin.any { it.isLetter() }
+        return (SpotifyMapper.artistAliases(artist) + listOfNotNull(latin.takeIf { mixed })).distinct()
+    }
 }

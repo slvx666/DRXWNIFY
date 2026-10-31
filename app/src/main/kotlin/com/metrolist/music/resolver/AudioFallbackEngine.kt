@@ -382,6 +382,39 @@ object AudioFallbackEngine {
         }
     }
 
+    /**
+     * Before a download: when the version remembered for [mediaId] isn't already a 256+ kbps exact
+     * match, every source is asked once and the best exact version becomes the choice (in every
+     * mode — a download isn't in a hurry). A version picked by hand stays.
+     */
+    /** @return true when the choice changed (what is cached of the old one must not be copied). */
+    suspend fun bestForDownload(mediaId: String, dbSong: Song?): Boolean = withContext(Dispatchers.IO) {
+        val query = queryFor(mediaId, dbSong) ?: return@withContext false
+        if (storedCandidates(query).any { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }) return@withContext false
+        val current = currentChoice(mediaId, dbSong)
+        if (current != null && current.confidence >= ParallelAudioResolver.STRONG_MATCH &&
+            effectiveKbps(current) >= ParallelAudioResolver.QUALITY_TARGET_KBPS
+        ) return@withContext false
+        val providers = activeProviders(setOf(AudioProviderId.SOULSEEK))
+        if (providers.isEmpty()) return@withContext false
+        val outcome = thoroughRacer.resolve(query, providers, ResolverPreferences.order)
+        val best = outcome.matches.firstOrNull { it.usableFor(query, emptySet()) } ?: return@withContext false
+        if (current != null && best.provider == current.provider && best.trackId == current.trackId) return@withContext false
+        val better = current == null ||
+            (current.confidence < ParallelAudioResolver.STRONG_MATCH && best.confidence >= ParallelAudioResolver.STRONG_MATCH) ||
+            (effectiveKbps(best) >= effectiveKbps(current) + MIN_UPGRADE_KBPS &&
+                best.confidence >= current.confidence - ParallelAudioResolver.AUTO_CONFIDENCE_MARGIN)
+        if (!better) return@withContext false
+        memory.put(query.cacheKey, best)
+        remember(query, outcome.matches, best)
+        query.catalogId?.let(SourceUpgrades::clear)
+        AudioDiagnostics.info(
+            "download ${query.label()}: ${best.provider} ~${effectiveKbps(best)} kbps (${"%.2f".format(best.confidence)}) " +
+                "instead of ${current?.provider ?: "nothing"} ~${current?.let(::effectiveKbps) ?: 0} kbps",
+        )
+        true
+    }
+
     private const val BETTER_CHECK_EVERY_MS = 7L * 24 * 60 * 60 * 1000
 
     /** Once per app run at most, whatever the outcome (an unanswered check is retried on the next run). */
