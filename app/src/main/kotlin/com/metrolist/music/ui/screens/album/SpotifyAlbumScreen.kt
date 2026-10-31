@@ -377,6 +377,7 @@ fun SpotifyAlbumScreen(
                             total = tracks.size,
                         )
                         if (downloadProgress == null) com.metrolist.music.ui.component.DownloadIssuesLink(tracks)
+                        com.metrolist.music.ui.component.ResumeUnfinishedBatch(tracks, downloadProgress != null, downloads, spotifyToYt) { downloadTracks(tracks) }
                     }
                 }
             }

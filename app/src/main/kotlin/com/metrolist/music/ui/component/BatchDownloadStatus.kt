@@ -202,3 +202,37 @@ fun DownloadIssuesLink(tracks: List<SpotifyTrack>, modifier: Modifier = Modifier
         },
     )
 }
+
+/**
+ * Picks a list's download back up after the app was restarted. The downloads themselves carry on
+ * (the system keeps their queue), but the batch that followed them lived in memory: the list's
+ * button then showed no progress while its tracks kept downloading "by themselves". Once per
+ * opening of the list, when some of its tracks are still queued, the batch is started again —
+ * what is in the folder is skipped, the rest is followed (and searched again where needed).
+ */
+@Composable
+fun ResumeUnfinishedBatch(
+    tracks: List<SpotifyTrack>,
+    running: Boolean,
+    downloads: Map<String, androidx.media3.exoplayer.offline.Download>,
+    spotifyToYt: Map<String, String>,
+    start: () -> Unit,
+) {
+    var resumed by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    if (resumed || running || tracks.isEmpty()) return
+    val unfinished = tracks.any { track ->
+        listOfNotNull(
+            downloads[com.metrolist.music.resolver.FallbackIds.of(track.id)],
+            spotifyToYt[track.id]?.let { downloads[it] },
+        ).any {
+            it.state == androidx.media3.exoplayer.offline.Download.STATE_QUEUED ||
+                it.state == androidx.media3.exoplayer.offline.Download.STATE_DOWNLOADING ||
+                it.state == androidx.media3.exoplayer.offline.Download.STATE_RESTARTING
+        }
+    }
+    if (!unfinished) return
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        resumed = true
+        start()
+    }
+}

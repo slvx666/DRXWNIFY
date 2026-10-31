@@ -57,6 +57,13 @@ constructor(
     private val _isLoading = MutableStateFlow(true)
     val isLoading = _isLoading.asStateFlow()
 
+    /**
+     * Every page of the playlist is in. The first page shows at once and the rest follow: a
+     * download started before that took only the first 100 tracks ("94 of 100" of a 226-track list).
+     */
+    private val _allLoaded = MutableStateFlow(false)
+    val allLoaded = _allLoaded.asStateFlow()
+
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing = _isRefreshing.asStateFlow()
 
@@ -91,6 +98,7 @@ constructor(
 
     private suspend fun loadPlaylistInternal() {
         _error.value = null
+        _allLoaded.value = false
 
         Catalog.playlist(playlistId).onSuccess { pl ->
             _playlist.value = pl
@@ -104,12 +112,15 @@ constructor(
                 .filter { it.track != null && !it.isLocal }
 
             // Emit first page immediately so the UI shows content fast
-            _playlistItems.value = firstItems
-            _tracks.value = firstItems.mapNotNull { it.track }
+            _playlistItems.value = withLocalOrder(firstItems)
+            _tracks.value = _playlistItems.value.mapNotNull { it.track }
             _isLoading.value = false
 
             val remaining = paging.total - paging.items.size
-            if (remaining <= 0) return@onSuccess
+            if (remaining <= 0) {
+                _allLoaded.value = true
+                return@onSuccess
+            }
 
             // Fetch remaining pages in parallel batches, emitting progressively
             val allItems = firstItems.toMutableList()
@@ -133,11 +144,12 @@ constructor(
                     }
                 }
 
-                _playlistItems.value = allItems.toList()
-                _tracks.value = allItems.mapNotNull { it.track }
+                _playlistItems.value = withLocalOrder(allItems.toList())
+                _tracks.value = _playlistItems.value.mapNotNull { it.track }
 
                 if (failed) break
             }
+            _allLoaded.value = true
         }.onFailure { e ->
             _error.value = e.message ?: "Failed to load playlist tracks"
             _isLoading.value = false
@@ -239,9 +251,28 @@ constructor(
      * Moves a track from [fromIndex] to [toIndex] with optimistic local update.
      * On failure the full playlist is re-fetched from Spotify.
      */
+    /** Key of this playlist's order kept on the phone (see [withLocalOrder]). */
+    private val orderKey get() = "playlist_$playlistId"
+
+    /**
+     * Someone else's playlist can't be reordered on the service, so the user's own order of it is
+     * kept on this phone instead, as for albums.
+     */
+    private fun withLocalOrder(items: List<SpotifyPlaylistTrack>): List<SpotifyPlaylistTrack> =
+        if (isEditable) items
+        else com.metrolist.music.playback.TrackOrderStore.apply(context, orderKey, items) { it.track?.id.orEmpty() }
+
     fun moveTrack(fromIndex: Int, toIndex: Int) {
         if (fromIndex == toIndex) return
-        if (rejectReadOnly()) return
+        if (!isEditable) {
+            val items = _playlistItems.value.toMutableList()
+            if (fromIndex !in items.indices || toIndex !in items.indices) return
+            items.add(toIndex, items.removeAt(fromIndex))
+            _playlistItems.value = items
+            _tracks.value = items.mapNotNull { it.track }
+            com.metrolist.music.playback.TrackOrderStore.save(context, orderKey, items.mapNotNull { it.track?.id })
+            return
+        }
         val currentItems = _playlistItems.value.toMutableList()
         val currentTracks = _tracks.value.toMutableList()
         if (fromIndex !in currentItems.indices || toIndex !in currentItems.indices) return

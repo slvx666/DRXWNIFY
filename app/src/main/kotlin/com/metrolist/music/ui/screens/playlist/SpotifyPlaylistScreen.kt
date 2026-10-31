@@ -137,6 +137,7 @@ fun SpotifyPlaylistScreen(
     val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
     val playerConnection = LocalPlayerConnection.current ?: return
     val database = LocalDatabase.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val menuState = LocalMenuState.current
 
     val playlist by viewModel.playlist.collectAsState()
@@ -156,6 +157,7 @@ fun SpotifyPlaylistScreen(
         }
     }
     val isLoading by viewModel.isLoading.collectAsState()
+    val allLoaded by viewModel.allLoaded.collectAsState()
     val isRefreshing by viewModel.isRefreshing.collectAsState()
     val error by viewModel.error.collectAsState()
     val mutationError by viewModel.mutationError.collectAsState()
@@ -229,7 +231,7 @@ fun SpotifyPlaylistScreen(
             )
         }
     }
-    val startPlaylistDownload: () -> Unit = { downloadTracks(tracks) }
+    val startPlaylistDownload: () -> Unit = { if (allLoaded) downloadTracks(tracks) }
     val swipeRemoveEnabled by rememberPreference(SwipeToRemoveSongKey, defaultValue = false)
 
     LaunchedEffect(mutationError) {
@@ -433,7 +435,7 @@ fun SpotifyPlaylistScreen(
                                 ) {
                                     androidx.compose.material3.OutlinedButton(
                                         onClick = { startPlaylistDownload() },
-                                        enabled = downloadedCount < tracks.size,
+                                        enabled = allLoaded && downloadedCount < tracks.size,
                                     ) {
                                         Icon(painterResource(R.drawable.download), null, Modifier.size(20.dp))
                                         Spacer(modifier = Modifier.size(8.dp))
@@ -441,6 +443,14 @@ fun SpotifyPlaylistScreen(
                                     }
                                 }
                             }
+                            // A link to the playlist, beside the download button (it used to sit in the top bar).
+                            com.metrolist.music.ui.component.ShareLinkButton(
+                                com.metrolist.music.utils.AppLinks.Kind.PLAYLIST,
+                                playlist?.id?.takeIf { it.isNotBlank() && it != com.metrolist.yandex.YandexIds.LIKED_SONGS_ID },
+                                playlist?.name,
+                                playlist?.owner?.displayName,
+                                icon = R.drawable.share_link,
+                            )
                         }
                         com.metrolist.music.ui.component.BatchDownloadProgress(
                             progress = playlistDownloadProgress,
@@ -448,6 +458,7 @@ fun SpotifyPlaylistScreen(
                             total = tracks.size,
                         )
                         if (playlistDownloadProgress == null) com.metrolist.music.ui.component.DownloadIssuesLink(tracks)
+                        if (allLoaded) com.metrolist.music.ui.component.ResumeUnfinishedBatch(tracks, playlistDownloadProgress != null, downloads, spotifyToYt) { startPlaylistDownload() }
                     }
                 }
             }
@@ -540,7 +551,10 @@ fun SpotifyPlaylistScreen(
             }
 
             val displayItems = if (isSearching) filteredItems else mutableItems.toList()
-            val reorderEnabled = sortType == SpotifySortType.ORIGINAL && !sortDescending && !locked && !isSearching
+            // Tracks can be dragged in the playlist's own order: with the lock open, or while picking
+            // tracks (as on an album).
+            val orderable = sortType == SpotifySortType.ORIGINAL && !sortDescending && !isSearching
+            val reorderEnabled = orderable && (!locked || selection.active)
             itemsIndexed(
                 items = displayItems,
                 key = { index, item -> item.uid ?: "item_${item.track?.id}_$index" },
@@ -612,16 +626,27 @@ fun SpotifyPlaylistScreen(
                                 }
                             },
                             thumbnailContent = {
-                                ItemThumbnail(
-                                    thumbnailUrl = thumbnailUrl,
-                                    isActive = isActive,
-                                    isPlaying = isPlaying,
-                                    shape = RoundedCornerShape(ThumbnailCornerRadius),
-                                    modifier = Modifier.size(ListThumbnailSize),
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // While tracks are being picked, a handle to drag them, as on an album.
+                                    com.metrolist.music.ui.component.SelectionDragHandle(
+                                        visible = selection.active && orderable,
+                                        handleModifier = Modifier.draggableHandle(
+                                            onDragStarted = {
+                                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                            },
+                                        ),
+                                    )
+                                    ItemThumbnail(
+                                        thumbnailUrl = thumbnailUrl,
+                                        isActive = isActive,
+                                        isPlaying = isPlaying,
+                                        shape = RoundedCornerShape(ThumbnailCornerRadius),
+                                        modifier = Modifier.size(ListThumbnailSize),
+                                    )
+                                }
                             },
                             trailingContent = {
-                                if (reorderEnabled) {
+                                if (reorderEnabled && !selection.active) {
                                     com.metrolist.music.ui.component.IconButton(
                                         onClick = { },
                                         onLongClick = { },
@@ -637,18 +662,29 @@ fun SpotifyPlaylistScreen(
                                         downloads[com.metrolist.music.resolver.FallbackIds.of(track.id)],
                                         spotifyToYt[track.id]?.let { downloads[it] },
                                     )
-                                    track.playCount?.takeIf { it > 0 }?.let { plays ->
-                                        Text(
-                                            text = com.metrolist.music.playback.SpotifyPlays.format(plays),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            modifier = Modifier.padding(end = 6.dp),
-                                        )
-                                    }
-                                    com.metrolist.music.ui.component.Icon.Download(trackDownloadState)
-                                    com.metrolist.music.ui.component.TrackSelectionCheck(selection.active, selection.isSelected(track.id)) {
-                                        selection.toggle(track.id)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // Play counts make room for the ticks while tracks are being picked.
+                                        track.playCount?.takeIf { it > 0 }?.let { plays ->
+                                            androidx.compose.animation.AnimatedVisibility(
+                                                visible = !selection.active,
+                                                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)) +
+                                                    androidx.compose.animation.expandHorizontally(androidx.compose.animation.core.tween(240)),
+                                                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)) +
+                                                    androidx.compose.animation.shrinkHorizontally(androidx.compose.animation.core.tween(220)),
+                                            ) {
+                                                Text(
+                                                    text = com.metrolist.music.playback.SpotifyPlays.format(plays),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    modifier = Modifier.padding(end = 6.dp),
+                                                )
+                                            }
+                                        }
+                                        com.metrolist.music.ui.component.Icon.Download(trackDownloadState)
+                                        com.metrolist.music.ui.component.TrackSelectionCheck(selection.active, selection.isSelected(track.id)) {
+                                            selection.toggle(track.id)
+                                        }
                                     }
                                 }
                             },
@@ -775,12 +811,6 @@ fun SpotifyPlaylistScreen(
                     com.metrolist.music.ui.component.TrackSelectionActions(selection, tracks.map { it.id })
                 }
                 if (!isSearching && !selection.active) {
-                    com.metrolist.music.ui.component.ShareLinkButton(
-                        com.metrolist.music.utils.AppLinks.Kind.PLAYLIST,
-                        playlist?.id?.takeIf { it.isNotBlank() && it != com.metrolist.yandex.YandexIds.LIKED_SONGS_ID },
-                        playlist?.name,
-                        playlist?.owner?.displayName,
-                    )
                     IconButton(
                         onClick = { isSearching = true },
                         onLongClick = {},
@@ -816,23 +846,6 @@ fun SpotifyPlaylistScreen(
                                 onClick = {
                                     showOverflowMenu = false
                                     showRenameDialog = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.action_download)) },
-                                leadingIcon = {
-                                    Icon(
-                                        painterResource(R.drawable.download),
-                                        contentDescription = null,
-                                    )
-                                },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    if (playlistDownloadProgress != null) {
-                                        SpotifyBatchDownload.cancel(playlistDownloadSourceId)
-                                    } else {
-                                        startPlaylistDownload()
-                                    }
                                 },
                             )
                         }

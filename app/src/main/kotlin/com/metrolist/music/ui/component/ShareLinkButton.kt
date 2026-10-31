@@ -16,7 +16,7 @@ import com.metrolist.music.utils.AppLinks
 
 /** Shares a Drxwnify link to an album, playlist or artist (see [AppLinks]). */
 @Composable
-fun ShareLinkButton(kind: AppLinks.Kind, id: String?, title: String?, by: String?) {
+fun ShareLinkButton(kind: AppLinks.Kind, id: String?, title: String?, by: String?, icon: Int = R.drawable.share) {
     if (id.isNullOrBlank()) return
     val context = LocalContext.current
     androidx.compose.material3.IconButton(
@@ -27,6 +27,6 @@ fun ShareLinkButton(kind: AppLinks.Kind, id: String?, title: String?, by: String
             context.startActivity(Intent.createChooser(send, null))
         },
     ) {
-        Icon(painterResource(R.drawable.share), contentDescription = stringResource(R.string.share))
+        Icon(painterResource(icon), contentDescription = stringResource(R.string.share))
     }
 }
