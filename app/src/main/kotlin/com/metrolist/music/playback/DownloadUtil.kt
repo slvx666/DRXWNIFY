@@ -758,9 +758,12 @@ constructor(
             }
             e = e.cause
         }
-        if (!gone || !com.metrolist.music.resolver.FallbackIds.isFallbackId(mediaId)) return
+        if (!com.metrolist.music.resolver.FallbackIds.isFallbackId(mediaId)) return
+        // An upload that broke off mid-download for any reason but the network (Agnosia stopped at
+        // 7828 KB every time) is set aside for a while, so the next try takes another upload.
+        if (!gone && isNetworkFailure(error)) return
         scope.launch(Dispatchers.IO) {
-            AudioFallbackEngine.forgetChoice(mediaId, database.getSongByIdBlocking(mediaId))
+            AudioFallbackEngine.uploadFailed(mediaId, database.getSongByIdBlocking(mediaId))
         }
     }
 

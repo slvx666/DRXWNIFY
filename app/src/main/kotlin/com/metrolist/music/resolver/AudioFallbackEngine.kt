@@ -210,7 +210,21 @@ object AudioFallbackEngine {
     private fun AudioQuery.label() = "'${artists.joinToString(", ")} – $title'"
 
     private fun ProviderMatch.usableFor(query: AudioQuery, exclude: Set<AudioProviderId>) =
-        provider !in exclude && trackId !in query.excludedTrackIds && ResolverPreferences.isEnabled(provider)
+        provider !in exclude && trackId !in query.excludedTrackIds && ResolverPreferences.isEnabled(provider) &&
+            failedUploads.get(trackId)?.let { System.currentTimeMillis() - it > FAILED_UPLOAD_MS } != false
+
+    /** Uploads that broke off during a download, and when: set aside for [FAILED_UPLOAD_MS]. */
+    private val failedUploads = LruCache<String, Long>(256)
+    private const val FAILED_UPLOAD_MS = 60L * 60 * 1000
+
+    /** The download of [mediaId] broke off: its upload is set aside, and the next try chooses again. */
+    fun uploadFailed(mediaId: String, dbSong: Song?) {
+        val choice = currentChoice(mediaId, dbSong) ?: return
+        if (choice.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE) return
+        failedUploads.put(choice.trackId, System.currentTimeMillis())
+        AudioDiagnostics.warn("download: ${choice.provider} upload ${choice.trackId} broke off — set aside for an hour, another one will be tried")
+        forgetChoice(mediaId, dbSong)
+    }
 
     // ── Resolution ───────────────────────────────────────────────────────────────────────────────
 

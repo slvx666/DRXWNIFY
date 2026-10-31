@@ -124,7 +124,10 @@ object AudioDiagnostics {
     fun explain(error: Throwable): String {
         val chain = generateSequence(error) { it.cause }.take(4).toList()
         val text = chain.joinToString(" ← ") { e ->
-            e.javaClass.simpleName + (e.message?.takeIf { it.isNotBlank() }?.let { ": " + it.take(180) } ?: "")
+            e.javaClass.simpleName + (e.message?.takeIf { it.isNotBlank() }?.let { ": " + it.take(180) } ?: "") +
+                // Media3's own codes say what broke when the message is empty.
+                ((e as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.let { " (HTTP ${it.responseCode})" }
+                    ?: (e as? androidx.media3.datasource.DataSourceException)?.let { " (code ${it.reason})" } ?: "")
         }
         val meaning = chain.firstNotNullOfOrNull { e ->
             when (e) {
