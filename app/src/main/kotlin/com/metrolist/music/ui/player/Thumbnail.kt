@@ -46,6 +46,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -286,14 +289,36 @@ fun Thumbnail(
     val currentItem by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemIndex } }
     val itemScrollOffset by remember { derivedStateOf { thumbnailLazyGridState.firstVisibleItemScrollOffset } }
 
-    // Handle swipe to change song
-    LaunchedEffect(itemScrollOffset) {
-        if (!thumbnailLazyGridState.isScrollInProgress || !swipeThumbnail || itemScrollOffset != 0 || currentMediaIndex < 0) return@LaunchedEffect
-
-        if (currentItem > currentMediaIndex && canSkipNext) {
-            playerConnection.player.seekToNext()
-        } else if (currentItem < currentMediaIndex && canSkipPrevious) {
-            playerConnection.player.seekToPreviousMediaItem()
+    // Handle swipe to change song. Decided when a swipe of the user's has come to rest, by the cover
+    // that ended up in the middle. It used to be decided on the frame the offset hit 0 while the
+    // scroll still counted as running: when the snap settled a frame later the next cover showed
+    // but the track (and its title) stayed the old one.
+    val latestIndex by rememberUpdatedState(currentMediaIndex)
+    val latestCanNext by rememberUpdatedState(canSkipNext)
+    val latestCanPrevious by rememberUpdatedState(canSkipPrevious)
+    LaunchedEffect(thumbnailLazyGridState, swipeThumbnail) {
+        if (!swipeThumbnail) return@LaunchedEffect
+        var swiped = false
+        launch {
+            thumbnailLazyGridState.interactionSource.interactions.collect { interaction ->
+                if (interaction is androidx.compose.foundation.interaction.DragInteraction.Start) swiped = true
+            }
+        }
+        snapshotFlow { thumbnailLazyGridState.isScrollInProgress }.collect { scrolling ->
+            if (scrolling || !swiped) return@collect
+            swiped = false
+            val layout = thumbnailLazyGridState.layoutInfo
+            val itemSize = layout.visibleItemsInfo.firstOrNull()?.size?.width ?: return@collect
+            val settled = thumbnailLazyGridState.firstVisibleItemIndex +
+                if (thumbnailLazyGridState.firstVisibleItemScrollOffset > itemSize / 2) 1 else 0
+            val current = latestIndex
+            if (current < 0) return@collect
+            when {
+                settled > current && latestCanNext -> playerConnection.player.seekToNext()
+                settled < current && latestCanPrevious -> playerConnection.player.seekToPreviousMediaItem()
+                // Let go between two covers: back to the one that plays.
+                settled != current -> thumbnailLazyGridState.animateScrollToItem(current)
+            }
         }
     }
 

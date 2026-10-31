@@ -34,6 +34,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 
 /**
  * Process-wide entry point of the audio fallback system.
@@ -63,7 +64,7 @@ object AudioFallbackEngine {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** A later-found version is only "better" with at least this many more kbps. */
-    private const val MIN_UPGRADE_KBPS = 32
+    private const val MIN_UPGRADE_KBPS = 16
 
     private const val UNANSWERED_TTL_MS = 30L * 60 * 1000
 
@@ -568,6 +569,17 @@ object AudioFallbackEngine {
      */
     suspend fun versionCandidates(mediaId: String, dbSong: Song?): List<VersionCandidate> = withContext(Dispatchers.IO) {
         val query = queryFor(mediaId, dbSong) ?: return@withContext emptyList()
+        // Opened again a moment later: the same list at once instead of asking every source anew.
+        versionLists.get(query.cacheKey)?.takeIf { System.currentTimeMillis() - it.first < VERSION_LIST_TTL_MS }?.let { (_, list) ->
+            return@withContext list.map { c -> c.copy(bitrateKbps = c.bitrateKbps ?: knownBitrate(c.match.provider, c.match.trackId)) }
+        }
+        // What plays now has its bitrate in the format the player read ("?" was shown next to
+        // "playing now" while the player said 128 kbps).
+        val playingChoice = currentChoice(mediaId, dbSong)
+        val playingKbps = runCatching { database.format(mediaId).first()?.bitrate }.getOrNull()
+            ?.takeIf { it > 0 }?.let { (it + 500) / 1000 }
+        fun kbpsOf(m: ProviderMatch): Int? = knownBitrate(m.provider, m.trackId)
+            ?: playingKbps?.takeIf { playingChoice != null && m.provider == playingChoice.provider && m.trackId == playingChoice.trackId }
         val found = kotlinx.coroutines.coroutineScope {
             val youtube = async { runCatching { youtubeVersions(query) }.getOrDefault(emptyList()) }
             val others = activeProviders()
@@ -590,13 +602,19 @@ object AudioFallbackEngine {
         val known = (listOfNotNull(currentChoice(mediaId, dbSong)) + storedCandidates(query))
             .filter { k -> found.none { it.match.provider == k.provider && it.match.trackId == k.trackId } }
             .distinctBy { it.provider to it.trackId }
-            .map { VersionCandidate(it.copy(confidence = it.confidence.coerceAtMost(1.0)), knownBitrate(it.provider, it.trackId)) }
-        (found + known).sortedWith(
+            .map { VersionCandidate(it.copy(confidence = it.confidence.coerceAtMost(1.0)), kbpsOf(it)) }
+        val list = (found.map { c -> c.copy(bitrateKbps = c.bitrateKbps ?: kbpsOf(c.match)) } + known).sortedWith(
             // Matches within 5% of each other count as equally close; the better sound wins there.
             compareByDescending<VersionCandidate> { (it.match.confidence.coerceAtMost(1.0) * 20).toInt() }
                 .thenByDescending { it.bitrateKbps ?: it.match.expectedKbps },
         )
+        if (list.isNotEmpty()) versionLists.put(query.cacheKey, System.currentTimeMillis() to list)
+        list
     }
+
+    /** The version lists shown lately, so reopening the dialog doesn't search every source again. */
+    private val versionLists = LruCache<String, Pair<Long, List<VersionCandidate>>>(64)
+    private const val VERSION_LIST_TTL_MS = 10L * 60 * 1000
 
     /**
      * The real bitrate of one version, kbps: what its service states, else measured from the start of

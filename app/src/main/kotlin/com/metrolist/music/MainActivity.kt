@@ -372,6 +372,14 @@ class MainActivity : ComponentActivity() {
         safeUnbindService("onDestroy()")
     }
 
+    // TEMP debug: where a back press goes while a screen opens.
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.keyCode == android.view.KeyEvent.KEYCODE_BACK) {
+            android.util.Log.i("DrxwBack", "key ${if (event.action == 0) "down" else "up"} → dispatcher has enabled callbacks: ${onBackPressedDispatcher.hasEnabledCallbacks()}")
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (::navController.isInitialized) {
@@ -1441,6 +1449,7 @@ class MainActivity : ComponentActivity() {
                                 DisposableEffect(navController) {
                                     val opening = object : androidx.activity.OnBackPressedCallback(false) {
                                         override fun handleOnBackPressed() {
+                                            android.util.Log.i("DrxwBack", "opening-callback: back → pop ${navController.currentBackStackEntry?.destination?.route}")
                                             isEnabled = false
                                             if (navController.previousBackStackEntry != null) navController.popBackStack()
                                         }
@@ -1456,6 +1465,7 @@ class MainActivity : ComponentActivity() {
                                         opening.remove()
                                         onBackPressedDispatcher.addCallback(opening)
                                         opening.isEnabled = true
+                                        android.util.Log.i("DrxwBack", "destination ${entry.destination.route} state ${entry.lifecycle.currentState}: callback on")
                                         entry.lifecycle.addObserver(object : androidx.lifecycle.LifecycleEventObserver {
                                             override fun onStateChanged(source: androidx.lifecycle.LifecycleOwner, event: androidx.lifecycle.Lifecycle.Event) {
                                                 if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME || event == androidx.lifecycle.Lifecycle.Event.ON_DESTROY) {

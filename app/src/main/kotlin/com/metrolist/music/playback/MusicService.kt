@@ -2797,6 +2797,9 @@ class MusicService :
                 }
             }
         }
+        // Ready to play (also a resumed track, which has no "sound for" line): a missing format record
+        // is filled in from the audio itself.
+        if (playbackState == Player.STATE_READY) player.currentMediaItem?.mediaId?.let { fillMissingFormat(it, player.duration) }
         // Listening in the background is using the app: no launch intro on the next open.
         if (player.playWhenReady) com.metrolist.music.ui.component.AppIntroState.markActive(this)
         // Force Repeat All if the player ignored it and ended playback
@@ -5896,6 +5899,47 @@ class MusicService :
         if (ms < 0L || ms == C.TIME_UNSET) "?" else "%d:%02d".format(java.util.Locale.US, ms / 60_000, ms / 1000 % 60)
 
     /** Where the current audio of [mediaId] comes from, for the journal. Cheap: no lookups. */
+    /**
+     * A track that started from the player cache, its download or its file has no format record
+     * when it was never streamed by this install (or the record went): the player's quality line
+     * then showed only the source. The container is read from the audio's first bytes and the
+     * bitrate worked out from its size and length, and saved — the line shows them from then on.
+     */
+    private fun fillMissingFormat(mediaId: String, durationMs: Long) {
+        if (durationMs <= 0L || durationMs == C.TIME_UNSET) return
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                if (database.format(mediaId).first() != null) return@launch
+                fun fromCache(cache: androidx.media3.datasource.cache.Cache, key: String): Pair<String?, Long>? {
+                    val first = cache.getCachedSpans(key).firstOrNull { it.position == 0L && it.isCached }?.file ?: return null
+                    val length = androidx.media3.datasource.cache.ContentMetadata.getContentLength(cache.getContentMetadata(key))
+                    return com.metrolist.music.utils.AudioSniff.mimeOf(first) to length
+                }
+                val found = fromCache(downloadCache, mediaId)
+                    ?: fromCache(playerCache, mediaId)
+                    ?: exportedFiles[mediaId]?.toUri()?.let { uri ->
+                        val length = contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
+                        val head = ByteArray(12)
+                        val read = contentResolver.openInputStream(uri)?.use { it.read(head) } ?: 0
+                        com.metrolist.music.utils.AudioSniff.mimeOf(head, read) to length
+                    }
+                    ?: return@launch
+                val (mime, length) = found
+                if (mime == null || length <= 0L) return@launch
+                val bitrate = (length * 8_000L / durationMs).toInt()
+                database.query {
+                    upsert(
+                        FormatEntity(
+                            id = mediaId, itag = -1, mimeType = mime, codecs = "", bitrate = bitrate, sampleRate = null,
+                            contentLength = length, loudnessDb = null, perceptualLoudnessDb = null, playbackUrl = null,
+                        ),
+                    )
+                }
+                AudioDiagnostics.info("format of $mediaId read from its audio: $mime, ~${bitrate / 1000} kbps")
+            }
+        }
+    }
+
     private fun audioOrigin(mediaId: String): String {
         fallbackServing[mediaId]?.let { return it.provider.name }
         if (mediaId in cutShortBypass) return "network"

@@ -203,7 +203,7 @@ fun PlayerQualityLine(mediaId: String?, color: androidx.compose.ui.graphics.Colo
 }
 
 /** How much better a version must sound to earn the arrow (the same as the engine's upgrade line). */
-private const val MIN_BETTER_KBPS = 32
+private const val MIN_BETTER_KBPS = 16
 
 /** The small green "a better version exists" arrow, bobbing gently. Not a button. */
 @Composable
