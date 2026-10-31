@@ -272,7 +272,15 @@ class VkAudioProvider(
                 }
             }
         }
-        if (ranked.isEmpty()) return emptyList()
+        if (ranked.isEmpty()) {
+            // What VK did answer, so a "no match" can be told apart from "VK doesn't have it".
+            val wantedS = query.durationMs / 1000
+            val seen = items.take(3).joinToString("; ") { "${it.artist} – ${it.title} ${it.durationSec}s" }
+            com.metrolist.music.resolver.AudioDiagnostics.info(
+                "VK: nothing fits '$text' (${wantedS}s); first answers: ${seen.ifEmpty { "none" }}",
+            )
+            return emptyList()
+        }
         val reachableFirst = ranked.sortedBy { c ->
             com.metrolist.music.playback.datasource.CdnHosts.likelyDown(
                 com.metrolist.music.playback.datasource.CdnHosts.hostOf(items.first { it.fullId == c.id }.url),

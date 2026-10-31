@@ -21,6 +21,12 @@ object SpotifyMapper {
         "[(\\[][^)\\]]*(?:\\b(?:feat|ft|featuring|with)\\b|\\bw/)[^)\\]]*[)\\]]",
         RegexOption.IGNORE_CASE,
     )
+    /**
+     * Credits written after the title without brackets: "MANIAC W/ HXLX X NEEDLEGUTS" (VK),
+     * "Song feat. Someone". They made a five-name upload of "Maniac" fail the title check. A bare
+     * "with" is left alone ("Dance With Me").
+     */
+    private val TRAILING_CREDIT_PATTERN = Regex("\\s+(?:w/|feat\\.|ft\\.|featuring\\s).*$", RegexOption.IGNORE_CASE)
     private val BRACKET_PATTERN = Regex("\\[.*?]")
     private val REMASTER_PATTERN = Regex("\\(.*?remaster.*?\\)", RegexOption.IGNORE_CASE)
     private val REMIX_PATTERN = Regex("\\(.*?remix.*?\\)", RegexOption.IGNORE_CASE)
@@ -614,6 +620,7 @@ object SpotifyMapper {
     private fun normalizeTitle(title: String): String {
         var s = title.lowercase()
             .replace(CREDIT_PATTERN, "")
+            .replace(TRAILING_CREDIT_PATTERN, "")
             .replace(BRACKET_PATTERN, "")
             .replace(REMASTER_PATTERN, "")
             .replace(REMIX_PATTERN, "")
