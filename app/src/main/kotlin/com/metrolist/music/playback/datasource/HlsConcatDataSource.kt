@@ -153,7 +153,17 @@ class HlsConcatDataSource(
     private fun openWhole(dataSpec: DataSpec, playlistUrl: String): Long {
         val bytes = wholeCache.get(playlistUrl) ?: run {
             val started = System.currentTimeMillis()
-            assembleWhole(playlistUrl).also {
+            val assembled = try {
+                assembleWhole(playlistUrl)
+            } catch (e: OutOfMemoryError) {
+                // Several long tracks at once: the kept tracks are let go and this one fails as a
+                // download error (retried later) instead of taking the whole app down.
+                wholeCache.evictAll()
+                streamedCache.evictAll()
+                com.metrolist.music.resolver.AudioDiagnostics.warn("hls whole: out of memory (${playlistUrl.toHttpUrlOrNull()?.encodedPath})")
+                throw DataSourceException(e, PlaybackException.ERROR_CODE_IO_UNSPECIFIED)
+            }
+            assembled.also {
                 wholeCache.put(playlistUrl, it)
                 com.metrolist.music.resolver.AudioDiagnostics.info(
                     "hls whole: ${it.size / 1024} KB in ${System.currentTimeMillis() - started} ms (${playlistUrl.toHttpUrlOrNull()?.encodedPath})",
@@ -336,24 +346,41 @@ class HlsConcatDataSource(
             throw t as? DataSourceException
                 ?: DataSourceException(t, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
         }
-        val joined = java.io.ByteArrayOutputStream(parts.sumOf { it?.size ?: 0 }).apply {
-            parts.forEach { part -> part?.let(::write) }
-        }.toByteArray()
+        val encryptedSize = parts.sumOf { it?.size ?: 0 }
         // MPEG-TS starts with the 0x47 sync byte; hand the player the audio inside it, not the wrapper.
-        val audio = if (joined.isNotEmpty() && joined[0] == 0x47.toByte()) {
-            TsAudioDemuxer.extract(joined)
-                ?: throw DataSourceException(PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED)
+        // Each segment is demuxed on its own (every HLS segment carries its own tables): demuxing the
+        // joined file held the track in memory four times over, and a long VK track downloaded next
+        // to two others ran the app out of memory (crash on "download album").
+        val isTs = parts.firstOrNull()?.firstOrNull() == 0x47.toByte()
+        val pieces = if (isTs) parts.map { it?.let(TsAudioDemuxer::extract) } else parts.toList()
+        val usable = if (isTs && pieces.any { it == null }) {
+            // A segment without its own tables: the old way, the whole file at once.
+            val joined = join(parts.toList())
+            listOf(
+                TsAudioDemuxer.extract(joined)
+                    ?: throw DataSourceException(PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED),
+            )
         } else {
-            joined
+            pieces
         }
+        java.util.Arrays.fill(parts, null)
+        val audio = join(usable)
         // The real bitrate, from the audio itself (VK doesn't say it).
         MeasuredAudio.analyze(audio)?.let { MeasuredAudio.record(playlistUrl, it) }
         timber.log.Timber.tag("DrxwHls").i(
             "whole: %d segments (%d encrypted), %d bytes joined → %d bytes audio, starts %02x %02x",
-            playlist.segments.size, playlist.keys.count { it != null }, joined.size, audio.size,
+            playlist.segments.size, playlist.keys.count { it != null }, encryptedSize, audio.size,
             audio.getOrNull(0) ?: 0, audio.getOrNull(1) ?: 0,
         )
         return audio
+    }
+
+    /** [parts] copied into one array of exactly their total size (no growing buffer, no second copy). */
+    private fun join(parts: List<ByteArray?>): ByteArray {
+        val out = ByteArray(parts.sumOf { it?.size ?: 0 })
+        var at = 0
+        parts.forEach { part -> part?.let { System.arraycopy(it, 0, out, at, it.size); at += it.size } }
+        return out
     }
 
     /** HLS default IV: the segment's media sequence number as a 128-bit big-endian integer. */
