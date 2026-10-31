@@ -622,6 +622,12 @@ constructor(
         badTracks: MutableSet<String>,
     ): DataSpec? {
         val query = AudioFallbackEngine.queryFor(mediaId, dbSong)
+        // Also when YouTube refused and another source stands in: the best-sounding exact version.
+        val now = System.currentTimeMillis()
+        if (now - (bestChecked[mediaId] ?: 0L) > BEST_CHECK_GAP_MS) {
+            bestChecked[mediaId] = now
+            runCatching { runBlocking(Dispatchers.IO) { withTimeout(30_000L) { AudioFallbackEngine.bestForDownload(mediaId, dbSong) } } }
+        }
         repeat(5) {
             val plan = runCatching {
                 runBlocking(Dispatchers.IO) {
