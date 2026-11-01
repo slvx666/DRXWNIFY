@@ -465,6 +465,19 @@ fun LocalPlaylistScreen(
     LaunchedEffect(reorderableState.isAnyItemDragging) {
         if (!reorderableState.isAnyItemDragging) {
             dragInfo?.let { (from, to) ->
+                if (sortType != PlaylistSongSortType.CUSTOM || sortDescending) {
+                    // Dragged in a sorted view (by artist, or the own order reversed): the order on
+                    // screen becomes the playlist's own order, and the list switches to it. Before,
+                    // tracks could only be dragged in the own order, so the handles never showed.
+                    val shown = mutableSongs.map { it.map }
+                    database.transaction {
+                        shown.forEachIndexed { position, map -> update(map.copy(position = position)) }
+                    }
+                    onSortTypeChange(PlaylistSongSortType.CUSTOM)
+                    onSortDescendingChange(false)
+                    dragInfo = null
+                    return@let
+                }
                 database.transaction {
                     move(viewModel.playlistId, from, to)
                 }
@@ -746,7 +759,7 @@ fun LocalPlaylistScreen(
                             // by it (custom order only, the other sorts are computed).
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 com.metrolist.music.ui.component.SelectionDragHandle(
-                                    visible = inSelectMode && editable && !isSearching && sortType == PlaylistSongSortType.CUSTOM,
+                                    visible = inSelectMode && editable && !isSearching,
                                     handleModifier = Modifier.padding(start = 12.dp).draggableHandle(),
                                 )
                                 Box(Modifier.weight(1f)) { content() }
