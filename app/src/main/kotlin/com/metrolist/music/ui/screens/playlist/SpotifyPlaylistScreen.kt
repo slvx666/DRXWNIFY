@@ -301,7 +301,9 @@ fun SpotifyPlaylistScreen(
     LaunchedEffect(reorderableState.isAnyItemDragging) {
         if (!reorderableState.isAnyItemDragging) {
             dragInfo?.let { (from, to) ->
-                viewModel.moveTrack(from, to)
+                // Positions on screen; the playlist itself runs the other way when shown reversed.
+                val last = mutableItems.size - 1
+                if (sortDescending) viewModel.moveTrack(last - from, last - to) else viewModel.moveTrack(from, to)
                 dragInfo = null
             }
         }
@@ -553,7 +555,8 @@ fun SpotifyPlaylistScreen(
             val displayItems = if (isSearching) filteredItems else mutableItems.toList()
             // Tracks can be dragged in the playlist's own order: with the lock open, or while picking
             // tracks (as on an album).
-            val orderable = sortType == SpotifySortType.ORIGINAL && !sortDescending && !isSearching
+            // Either way round: the list opens newest first ("original order", reversed).
+            val orderable = sortType == SpotifySortType.ORIGINAL && !isSearching
             val reorderEnabled = orderable && (!locked || selection.active)
             itemsIndexed(
                 items = displayItems,
