@@ -14,17 +14,28 @@ import androidx.compose.ui.res.stringResource
 import com.metrolist.music.R
 import com.metrolist.music.utils.AppLinks
 
-/** Shares a Drxwnify link to an album, playlist or artist (see [AppLinks]). */
+/**
+ * Shares an album, playlist or artist: as its Drxwnify link (see [AppLinks]), to a chat, or as the
+ * downloaded files when [files] finds some.
+ */
 @Composable
-fun ShareLinkButton(kind: AppLinks.Kind, id: String?, title: String?, by: String?, icon: Int = R.drawable.share) {
+fun ShareLinkButton(
+    kind: AppLinks.Kind,
+    id: String?,
+    title: String?,
+    by: String?,
+    icon: Int = R.drawable.share,
+    files: (suspend () -> List<String>)? = null,
+) {
     if (id.isNullOrBlank()) return
-    val context = LocalContext.current
     androidx.compose.material3.IconButton(
         onClick = {
-            val send = Intent(Intent.ACTION_SEND)
-                .setType("text/plain")
-                .putExtra(Intent.EXTRA_TEXT, AppLinks.shareText(kind, id, title, by))
-            context.startActivity(Intent.createChooser(send, null))
+            ShareSheet.open(
+                title = listOfNotNull(by?.takeIf { it.isNotBlank() }, title).joinToString(" — "),
+                music = listOf(com.metrolist.music.friends.ChatMusic(kind, id, title.orEmpty(), by.orEmpty())),
+                linkText = AppLinks.shareText(kind, id, title, by),
+                files = files,
+            )
         },
     ) {
         Icon(painterResource(icon), contentDescription = stringResource(R.string.share))

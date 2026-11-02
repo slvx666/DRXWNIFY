@@ -35,6 +35,8 @@ import com.metrolist.music.BuildConfig
 import com.metrolist.music.utils.ReleaseInfo
 import com.metrolist.music.utils.Updater
 
+private val inlineMarkRegex = Regex("""\*\*|__""")
+
 private val markdownLinkRegex = Regex("(@[a-zA-Z0-9_-]+)|(https?://[\\w-]+(\\.[\\w-]+)+[\\w.,@?^=%&:/~+#-]*[\\w@?^=%&/~+#-])")
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -220,6 +222,13 @@ fun MigrationNoticeSheet(onOpenBackup: () -> Unit, onDismiss: () -> Unit) {
 
 /** Release notes bundled with the app, newest first. */
 private fun localReleases(context: android.content.Context): List<ReleaseInfo> = listOf(
+    ReleaseInfo(
+        tagName = "2.2.1",
+        versionName = "2.2.1",
+        description = context.getString(com.metrolist.music.R.string.changelog_2_2_1),
+        releaseDate = "2026-11-02",
+        assets = emptyList(),
+    ),
     ReleaseInfo(
         tagName = "2.2.0",
         versionName = "2.2.0",
@@ -439,9 +448,34 @@ fun MarkdownText(text: String) {
                 }
 
                 val annotatedString = buildAnnotatedString {
+                    // **bold** and __underlined__ (they can wrap each other): the marks themselves aren't shown.
+                    var bold = false
+                    var underline = false
+                    fun appendStyled(piece: String) {
+                        if (piece.isEmpty()) return
+                        if (!bold && !underline) {
+                            append(piece)
+                            return
+                        }
+                        withStyle(
+                            SpanStyle(
+                                fontWeight = if (bold) FontWeight.Bold else null,
+                                textDecoration = if (underline) TextDecoration.Underline else null,
+                            ),
+                        ) { append(piece) }
+                    }
+                    fun appendMarked(piece: String) {
+                        var at = 0
+                        inlineMarkRegex.findAll(piece).forEach { mark ->
+                            appendStyled(piece.substring(at, mark.range.first))
+                            if (mark.value == "**") bold = !bold else underline = !underline
+                            at = mark.range.last + 1
+                        }
+                        appendStyled(piece.substring(at))
+                    }
                     var lastIndex = 0
                     markdownLinkRegex.findAll(contentText).forEach { result ->
-                        append(contentText.substring(lastIndex, result.range.first))
+                        appendMarked(contentText.substring(lastIndex, result.range.first))
                         
                         val match = result.value
                         val link = if (match.startsWith("@")) "https://github.com/${match.substring(1)}" else match
@@ -457,7 +491,7 @@ fun MarkdownText(text: String) {
                         pop()
                         lastIndex = result.range.last + 1
                     }
-                    append(contentText.substring(lastIndex))
+                    appendMarked(contentText.substring(lastIndex))
                 }
 
                 Column(modifier = Modifier.fillMaxWidth()) {

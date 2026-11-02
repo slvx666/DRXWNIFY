@@ -35,8 +35,8 @@ android {
         applicationId = applicationIdOverride ?: "com.drxwnify.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 51
-        versionName = "2.2.0"
+        versionCode = 52
+        versionName = "2.2.1"
         resValue("string", "app_name", appNameOverride ?: "Drxwnify")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -279,6 +279,7 @@ dependencies {
 
     implementation(libs.coil)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.coil.gif)
 
     implementation(libs.ucrop)
 

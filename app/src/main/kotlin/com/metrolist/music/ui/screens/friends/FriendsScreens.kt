@@ -966,6 +966,11 @@ fun FriendScreen(navController: NavController, pubkey: String) {
             title = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = navController::navigateUp) { Icon(painterResource(R.drawable.arrow_back), null) } },
             actions = {
+                if (com.metrolist.music.friends.ChatHub.canWrite(pubkey) && FriendsHub.profile.collectAsState().value?.pubkey != pubkey) {
+                    IconButton(onClick = { navController.navigate("chat/$pubkey") }) {
+                        Icon(painterResource(R.drawable.chat_bubble), stringResource(R.string.chat_write))
+                    }
+                }
                 if (friend != null) IconButton(onClick = { confirmRemove = true }) { Icon(painterResource(R.drawable.delete), stringResource(R.string.friends_remove)) }
             },
         )
@@ -1255,6 +1260,14 @@ fun FriendsPrivacyItems(modifier: Modifier = Modifier) {
         }
         SwitchRow(stringResource(R.string.friends_privacy_discoverable), stringResource(R.string.friends_privacy_discoverable_desc), privacy.discoverable) {
             FriendsHub.setPrivacy(privacy.copy(discoverable = it))
+        }
+        SwitchRow(stringResource(R.string.chat_privacy_read), stringResource(R.string.chat_privacy_read_desc), privacy.readReceipts) {
+            FriendsHub.setPrivacy(privacy.copy(readReceipts = it))
+        }
+        var notify by remember { mutableStateOf(com.metrolist.music.friends.ChatHub.notificationsOn) }
+        SwitchRow(stringResource(R.string.chat_notify), stringResource(R.string.chat_notify_desc), notify) {
+            notify = it
+            com.metrolist.music.friends.ChatHub.notificationsOn = it
         }
         Text(
             stringResource(R.string.friends_privacy_explain),

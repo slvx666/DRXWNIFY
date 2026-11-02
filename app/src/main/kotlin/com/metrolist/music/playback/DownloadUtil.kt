@@ -29,6 +29,7 @@ import com.metrolist.music.di.DownloadCache
 import com.metrolist.music.di.PlayerCache
 import com.metrolist.music.playback.datasource.HlsConcatDataSource
 import com.metrolist.music.resolver.AudioDiagnostics
+import kotlinx.coroutines.flow.first
 import com.metrolist.music.resolver.AudioFallbackEngine
 import com.metrolist.music.resolver.AudioProviderId
 import com.metrolist.music.resolver.FallbackIds
@@ -218,6 +219,11 @@ constructor(
                 }
                 return@Factory resolveFallbackDownload(dataSpec, mediaId)
             }
+
+            // A catalog track matched on YouTube with a better-sounding version elsewhere (VK 320 for
+            // YouTube's ~130): that version is downloaded, under the same id, so the player plays it
+            // from the download from then on.
+            betterThanYouTube(dataSpec, mediaId)?.let { return@Factory it }
 
             if (playerCache.isCached(mediaId, dataSpec.position, length)) {
                 return@Factory dataSpec
@@ -599,6 +605,28 @@ constructor(
      * (metadata known), fetch it from another upload or another enabled audio provider.
      * Returns null when not possible.
      */
+    /**
+     * For a YouTube id behind a catalog track: the best exact version is looked for (once in a
+     * while, as for other sources); when it is on another source, its stream serves this download.
+     * Null: YouTube's own is the best (or nothing better answered) — the usual YouTube download.
+     */
+    private fun betterThanYouTube(dataSpec: DataSpec, mediaId: String): DataSpec? {
+        val dbSong = database.getSongByIdBlocking(mediaId)
+        val query = AudioFallbackEngine.queryFor(mediaId, dbSong) ?: return null
+        if (query.catalogId == null) return null
+        val now = System.currentTimeMillis()
+        if (now - (bestChecked[mediaId] ?: 0L) > BEST_CHECK_GAP_MS) {
+            bestChecked[mediaId] = now
+            runCatching { runBlocking(Dispatchers.IO) { withTimeout(60_000L) { AudioFallbackEngine.bestForDownload(mediaId, dbSong) } } }
+        }
+        val choice = runCatching { AudioFallbackEngine.currentChoice(mediaId, dbSong) }.getOrNull() ?: return null
+        if (choice.provider == AudioProviderId.YOUTUBE) return null
+        AudioDiagnostics.info("download $mediaId: ${choice.provider} instead of its YouTube upload")
+        // Never mix the other source's bytes with YouTube's cached ones of the same id.
+        runCatching { playerCache.removeResource(mediaId) }
+        return downloadViaEngine(dataSpec, mediaId, dbSong, mutableSetOf(AudioProviderId.YOUTUBE), mutableSetOf())
+    }
+
     private fun rescueYouTubeDownload(dataSpec: DataSpec, mediaId: String, youtubeError: Throwable?): DataSpec? {
         val dbSong = database.getSongByIdBlocking(mediaId)
         val query = AudioFallbackEngine.queryFor(mediaId, dbSong)

@@ -247,6 +247,7 @@ class App :
         }
         com.metrolist.music.friends.FriendLikesSync.init(this, database)
         com.metrolist.music.friends.FriendsHub.init(this, database)
+        com.metrolist.music.friends.ChatHub.init(this)
         com.metrolist.music.catalog.Catalog.init(dataStore, applicationScope, getString(R.string.liked_songs))
         com.metrolist.music.catalog.CrossCatalog.init(this, applicationScope)
         com.metrolist.music.catalog.AccountLikes.init(this)
@@ -448,6 +449,8 @@ class App :
             .apply {
                 components {
                     add(CrashSafeInterceptor)
+                    // Animated stickers (WebP/GIF) in chats: Android 9+ decodes them itself.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) add(coil3.gif.AnimatedImageDecoder.Factory()) else add(coil3.gif.GifDecoder.Factory())
                     // Spotify pictures by an address that answers without a VPN (see SpotifyImageCdn),
                     // and a stalled download gives up instead of keeping a placeholder for good.
                     add(

@@ -1,0 +1,120 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "3b67ba3fb9621ca517879140d975c181",
+    "entities": [
+      {
+        "tableName": "message",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`owner` TEXT NOT NULL, `peer` TEXT NOT NULL, `id` TEXT NOT NULL, `mine` INTEGER NOT NULL, `ts` INTEGER NOT NULL, `text` TEXT NOT NULL, `music` TEXT, `replyTo` TEXT, `state` INTEGER NOT NULL, `read` INTEGER NOT NULL, `edited` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, `event` TEXT, `eventId` TEXT, PRIMARY KEY(`owner`, `peer`, `id`))",
+        "fields": [
+          {
+            "fieldPath": "owner",
+            "columnName": "owner",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "peer",
+            "columnName": "peer",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mine",
+            "columnName": "mine",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ts",
+            "columnName": "ts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "music",
+            "columnName": "music",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "replyTo",
+            "columnName": "replyTo",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "read",
+            "columnName": "read",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "edited",
+            "columnName": "edited",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "event",
+            "columnName": "event",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "eventId",
+            "columnName": "eventId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "owner",
+            "peer",
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_message_owner_peer_ts",
+            "unique": false,
+            "columnNames": [
+              "owner",
+              "peer",
+              "ts"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_message_owner_peer_ts` ON `${TABLE_NAME}` (`owner`, `peer`, `ts`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '3b67ba3fb9621ca517879140d975c181')"
+    ]
+  }
+}

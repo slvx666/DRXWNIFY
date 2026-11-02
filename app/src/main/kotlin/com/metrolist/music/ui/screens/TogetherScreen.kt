@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.togetherWith
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -51,20 +52,66 @@ fun TogetherScreen(
     var tab by rememberSaveable { mutableIntStateOf(initialTab) }
     val invite by FriendsHub.invite.collectAsState()
     val requests by FriendsHub.requests.collectAsState()
+    val unread by androidx.compose.runtime.remember { com.metrolist.music.friends.ChatHub.unreadTotal() }.collectAsState(0)
     LaunchedEffect(invite) { if (invite != null) tab = TAB_FRIENDS }
+    // Something to forward (a share button's "To chats"): only the chats, a tap on one sends it there.
+    val forwarding by com.metrolist.music.friends.ChatHub.forward.collectAsState()
+    LaunchedEffect(forwarding) { if (forwarding != null) tab = TAB_CHATS }
+    fun cancelForward() {
+        com.metrolist.music.friends.ChatHub.cancelForward()
+        if (showBack) navController.navigateUp()
+    }
+    androidx.activity.compose.BackHandler(enabled = forwarding != null) { cancelForward() }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         TopAppBar(
-            title = { Text(stringResource(R.string.together)) },
+            title = {
+                androidx.compose.animation.AnimatedContent(forwarding != null, label = "title") { f ->
+                    Text(stringResource(if (f) R.string.chat_forward_title else R.string.together))
+                }
+            },
             navigationIcon = {
-                if (showBack) {
+                if (forwarding != null) {
+                    androidx.compose.material3.IconButton(onClick = ::cancelForward) {
+                        Icon(painterResource(R.drawable.close), contentDescription = null)
+                    }
+                } else if (showBack) {
                     IconButton(onClick = navController::navigateUp, onLongClick = navController::backToMain) {
                         Icon(painterResource(R.drawable.arrow_back), contentDescription = null)
                     }
                 }
             },
         )
-        PrimaryTabRow(selectedTabIndex = tab) {
+        // Shown left to right: Chats, Friends, Listen together (the constants keep their old values).
+        val order = listOf(TAB_CHATS, TAB_FRIENDS, TAB_LISTEN)
+        // The tabs lie side by side in a pager: the neighbours stay built, so going to one is only a
+        // slide (building Friends while it slid in made it stutter). They are built a moment after
+        // the screen itself, to keep its own opening (and coming back from a chat) light.
+        val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = order.indexOf(tab).coerceAtLeast(0)) { order.size }
+        var neighbours by androidx.compose.runtime.remember { mutableIntStateOf(0) }
+        LaunchedEffect(Unit) {
+            kotlinx.coroutines.delay(600)
+            neighbours = 1
+        }
+        // A tab picked (tapped, an invite, a forward): the pager goes there; a swipe: the tab follows.
+        LaunchedEffect(tab) {
+            val page = order.indexOf(tab).coerceAtLeast(0)
+            if (pager.currentPage != page) {
+                pager.animateScrollToPage(page, animationSpec = androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            }
+        }
+        LaunchedEffect(pager.settledPage) { tab = order[pager.settledPage] }
+        androidx.compose.animation.AnimatedVisibility(forwarding == null) {
+        PrimaryTabRow(selectedTabIndex = pager.targetPage) {
+            Tab(
+                selected = tab == TAB_CHATS,
+                onClick = { tab = TAB_CHATS },
+                text = {
+                    BadgedBox(badge = { if (unread > 0) Badge { Text(unread.toString()) } }) {
+                        Text(stringResource(R.string.chats_title))
+                    }
+                },
+            )
             Tab(
                 selected = tab == TAB_FRIENDS,
                 onClick = { tab = TAB_FRIENDS },
@@ -80,10 +127,21 @@ fun TogetherScreen(
                 text = { Text(stringResource(R.string.listen_together)) },
             )
         }
-        Box(Modifier.weight(1f)) {
-            when (tab) {
-                TAB_LISTEN -> ListenTogetherScreen(navController, embedded = true)
-                else -> FriendsContent(navController, topPadding = 12.dp)
+        }
+        androidx.compose.foundation.pager.HorizontalPager(
+            state = pager,
+            beyondViewportPageCount = neighbours,
+            // Forwarding shows only the chats.
+            userScrollEnabled = forwarding == null,
+            key = { order[it] },
+            modifier = Modifier.weight(1f),
+        ) { page ->
+            Box(Modifier.fillMaxSize()) {
+                when (order[page]) {
+                    TAB_LISTEN -> ListenTogetherScreen(navController, embedded = true)
+                    TAB_CHATS -> com.metrolist.music.ui.screens.friends.ChatsContent(navController)
+                    else -> FriendsContent(navController, topPadding = 12.dp)
+                }
             }
         }
     }
@@ -91,3 +149,4 @@ fun TogetherScreen(
 
 const val TAB_FRIENDS = 0
 const val TAB_LISTEN = 1
+const val TAB_CHATS = 2

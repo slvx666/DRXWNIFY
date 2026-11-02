@@ -51,6 +51,8 @@ object FriendsHub {
         val discoverable: Boolean = false,
         /** Friends may follow this playback live ("listen together"). */
         val listenAlong: Boolean = true,
+        /** Chats: friends see "read" ticks and "typing…" from this profile. */
+        val readReceipts: Boolean = true,
     )
 
     /** [avatar]: a small JPEG as base64, sent inside the profile event (there is no server for files). */
@@ -461,7 +463,7 @@ object FriendsHub {
             // Give the relays a moment to connect after start.
             delay(10_000L)
             if (_profile.value?.pubkey != me.pubkey || _friends.value.none { it.pubkey == DEVELOPER_PUBKEY }) return@launch
-            publishTo(DEVELOPER_PUBKEY, F_HELLO, JSONObject().put("name", _profile.value?.name.orEmpty()).toString())
+            publishTo(DEVELOPER_PUBKEY, F_HELLO, helloContent(_profile.value?.name.orEmpty()))
             publishLibrary(onlyFor = DEVELOPER_PUBKEY)
             p.edit().putString("devHelloFor", me.pubkey).apply()
         }
@@ -570,7 +572,7 @@ object FriendsHub {
         _requests.value = _requests.value.filterNot { it.pubkey == pubkey }
         saveFriends()
         scope.launch {
-            publishTo(pubkey, F_HELLO, JSONObject().put("name", me.name).toString())
+            publishTo(pubkey, F_HELLO, helloContent(me.name))
             publishLibrary(onlyFor = pubkey)
             prefs?.getString("portraitPacked", null)?.let { packed ->
                 if (_privacy.value.stats != Audience.NOBODY) publishField(F_PORTRAIT, packed, _privacy.value.stats, pubkey)
@@ -578,6 +580,7 @@ object FriendsHub {
             lastNow?.let { publishNow(it) }
             restartLive()
         }
+        ChatHub.friendsChanged()
     }
 
     fun removeFriend(pubkey: String) {
@@ -589,6 +592,7 @@ object FriendsHub {
             (DATA_FIELDS + F_HELLO).forEach { publishTo(pubkey, it, "") }
             restartLive()
         }
+        ChatHub.friendsChanged()
     }
 
     fun dismissRequest(pubkey: String) {
@@ -762,6 +766,19 @@ object FriendsHub {
 
     // ── Publishing ───────────────────────────────────────────────────────────────────────────────
 
+    /** "I added you" with this profile's name; "chat" tells the friend this version has chats. */
+    private fun helloContent(name: String) = JSONObject().put("name", name).put("chat", ChatHub.PROTOCOL).toString()
+
+    /** The hello sent again to a friend who already has this profile (so they learn it now has chats). */
+    internal fun sayHelloAgain(pubkey: String) {
+        val me = _profile.value ?: return
+        if (_friends.value.none { it.pubkey == pubkey }) return
+        publishTo(pubkey, F_HELLO, helloContent(me.name))
+    }
+
+    /** The "d" tag of a hello sent to [to]. */
+    internal fun helloTag(to: String) = "$D_PREFIX$F_HELLO:$to"
+
     private fun publishTo(friend: String, field: String, content: String) {
         val sk = secretKey ?: return
         val encrypted = if (content.isEmpty()) "" else Nostr.encrypt(sk, friend, content)
@@ -822,6 +839,8 @@ object FriendsHub {
     /** From the player: what plays now changed (track, play/pause, seek). Debounced. */
     fun playerChanged(player: Player, database: MusicDatabase) {
         if (secretKey == null) return
+        // Chats stay connected while music plays (messages arrive at once).
+        ChatHub.hold("playing", player.isPlaying)
         val item = player.currentMediaItem ?: return
         val meta = item.metadata
         val mediaId = item.mediaId
@@ -969,7 +988,7 @@ object FriendsHub {
         return SharedLikes(liked.size, null, liked.take(MAX_LIKES).map { refOf(db, it, 0) })
     }
 
-    private fun refOfCatalog(track: com.metrolist.spotify.models.SpotifyTrack): TrackRef {
+    internal fun refOfCatalog(track: com.metrolist.spotify.models.SpotifyTrack): TrackRef {
         // A medium cover (~300 px): enough for a list, and far shorter to send than the largest one.
         val cover = track.album?.images?.let { images ->
             images.filter { (it.width ?: 0) in 200..400 }.minByOrNull { it.width ?: 0 }?.url
@@ -1080,7 +1099,7 @@ object FriendsHub {
 
     // ── JSON ─────────────────────────────────────────────────────────────────────────────────────
 
-    private fun refToJson(r: TrackRef) = JSONObject().apply {
+    internal fun refToJson(r: TrackRef) = JSONObject().apply {
         put("t", r.title)
         put("a", r.artist)
         r.catalogId?.let { put("c", it) }
@@ -1090,7 +1109,7 @@ object FriendsHub {
         if (r.at > 0) put("at", r.at)
     }
 
-    private fun refFromJson(o: JSONObject) = TrackRef(
+    internal fun refFromJson(o: JSONObject) = TrackRef(
         title = o.optString("t"),
         artist = o.optString("a"),
         catalogId = o.optString("c").takeIf { it.isNotBlank() },
@@ -1136,11 +1155,11 @@ object FriendsHub {
 
     private fun privacyToJson(p: Privacy) = JSONObject()
         .put("now", p.nowPlaying.name).put("history", p.history.name).put("playlists", p.playlists.name)
-        .put("stats", p.stats.name).put("discoverable", p.discoverable).put("along", p.listenAlong)
+        .put("stats", p.stats.name).put("discoverable", p.discoverable).put("along", p.listenAlong).put("read", p.readReceipts)
 
     private fun privacyFromJson(o: JSONObject): Privacy {
         fun aud(key: String) = runCatching { Audience.valueOf(o.getString(key)) }.getOrDefault(Audience.FRIENDS)
-        return Privacy(aud("now"), aud("history"), aud("playlists"), aud("stats"), o.optBoolean("discoverable", false), o.optBoolean("along", true))
+        return Privacy(aud("now"), aud("history"), aud("playlists"), aud("stats"), o.optBoolean("discoverable", false), o.optBoolean("along", true), o.optBoolean("read", true))
     }
 
     private const val NOW_DEBOUNCE_MS = 1_500L

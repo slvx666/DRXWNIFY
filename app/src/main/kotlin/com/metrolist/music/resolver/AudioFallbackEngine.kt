@@ -436,6 +436,18 @@ object AudioFallbackEngine {
         val query = queryFor(mediaId, dbSong) ?: return@withContext false
         if (storedCandidates(query).any { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }) return@withContext false
         val current = currentChoice(mediaId, dbSong)
+        // A better version already found while it played (the green arrow): that one, without asking again.
+        val known = query.catalogId?.let { cid -> SourceUpgrades.available.value[cid]?.let { cid to it } }
+        known?.let { (cid, up) ->
+            val same = current != null && up.match.provider == current.provider && up.match.trackId == current.trackId
+            if (!same) {
+                memory.put(query.cacheKey, up.match)
+                remember(query, listOfNotNull(up.match, current), up.match)
+                SourceUpgrades.clear(cid)
+                AudioDiagnostics.info("download ${query.label()}: the better version found before, ${up.match.provider} ~${up.kbps} kbps")
+                return@withContext true
+            }
+        }
         // Only a MEASURED 256+ counts as good enough: VK's "320" is what VK usually gives, and its
         // files turned out anywhere from 128 to 320 kbps.
         if (current != null && current.confidence >= ParallelAudioResolver.STRONG_MATCH &&

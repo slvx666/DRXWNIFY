@@ -310,6 +310,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        com.metrolist.music.friends.ChatHub.appVisible(true)
         // Request notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -346,6 +347,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        com.metrolist.music.friends.ChatHub.appVisible(false)
         // Do NOT unbind the service, dispose playerConnection or detach Listen Together here.
         // Detaching Listen Together on every onStop broke rooms for good: onStart doesn't rebind
         // (the service is still bound), so the manager never got the player back. Leaving the app
@@ -889,6 +891,22 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // A chat's sticker panel takes the bottom: the collapsed mini player slides down out of sight.
+                val stickerOpen by com.metrolist.music.friends.ChatHub.stickerPanelOpen.collectAsState()
+                val musicOpen by com.metrolist.music.friends.ChatHub.musicPanelOpen.collectAsState()
+                val stickerPanelOpen = stickerOpen || musicOpen
+                val miniPlayerHide by animateDpAsState(
+                    targetValue = if (stickerPanelOpen && playerBottomSheetState.isCollapsed) 200.dp else 0.dp,
+                    animationSpec = androidx.compose.animation.core.tween(260),
+                    label = "miniPlayerHide",
+                )
+
+                // "To chats" from the player's share: the player steps down so "Forward to…" is seen.
+                val forwarding by com.metrolist.music.friends.ChatHub.forward.collectAsState()
+                LaunchedEffect(forwarding) {
+                    if (forwarding != null && playerBottomSheetState.isExpanded) playerBottomSheetState.collapseSoft()
+                }
+
                 DisposableEffect(playerConnection, playerBottomSheetState) {
                     val player = playerConnection?.player ?: return@DisposableEffect onDispose { }
                     val listener =
@@ -1198,15 +1216,19 @@ class MainActivity : ComponentActivity() {
                                                     )
                                                     .graphicsLayer {
                                                         alpha = (1f - playerBottomSheetState.progress * 4f).coerceIn(0f, 1f)
+                                                        // Goes down with the mini player (a chat's sticker panel).
+                                                        translationY = miniPlayerHide.toPx()
                                                     }.background(baseBg),
                                         )
                                     }
 
-                                    BottomSheetPlayer(
-                                        state = playerBottomSheetState,
-                                        navController = navController,
-                                        pureBlack = pureBlack,
-                                    )
+                                    Box(Modifier.fillMaxSize().graphicsLayer { translationY = miniPlayerHide.toPx() }) {
+                                        BottomSheetPlayer(
+                                            state = playerBottomSheetState,
+                                            navController = navController,
+                                            pureBlack = pureBlack,
+                                        )
+                                    }
 
                                     AppNavigationBar(
                                         navigationItems = navigationItems,
@@ -1261,11 +1283,13 @@ class MainActivity : ComponentActivity() {
                                 }
                             } else {
                                 if (currentRoute != "wrapped") {
-                                    BottomSheetPlayer(
-                                        state = playerBottomSheetState,
-                                        navController = navController,
-                                        pureBlack = pureBlack,
-                                    )
+                                    Box(Modifier.fillMaxSize().graphicsLayer { translationY = miniPlayerHide.toPx() }) {
+                                        BottomSheetPlayer(
+                                            state = playerBottomSheetState,
+                                            navController = navController,
+                                            pureBlack = pureBlack,
+                                        )
+                                    }
                                 }
 
                                 Box(
@@ -1432,6 +1456,8 @@ class MainActivity : ComponentActivity() {
                                         snackbarHostState = snackbarHostState,
                                     )
                                 }
+                                // Share buttons: as a file, as a link, or to a chat.
+                                com.metrolist.music.ui.component.ShareSheetHost(navController)
                                 // "Back" while a screen is still opening was lost: settings takes over half
                                 // a second to build, and a back in that time reached the navigation's own
                                 // handler mid-transition, which drops it. A callback is put on top right

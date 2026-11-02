@@ -69,6 +69,8 @@ fun DownloadOrShare(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     downloading: Boolean = false,
+    /** The album or playlist itself: its send button then also offers its link and the chats. */
+    card: com.metrolist.music.friends.ChatMusic? = null,
     downloadButton: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -77,6 +79,15 @@ fun DownloadOrShare(
     var confirmIds by remember { mutableStateOf<List<String>?>(null) }
 
     fun share() {
+        if (card != null) {
+            ShareSheet.open(
+                title = card.label(),
+                music = listOf(card),
+                linkText = com.metrolist.music.utils.AppLinks.shareText(card.kind, card.id, card.title, card.by),
+                files = downloadedIds,
+            )
+            return
+        }
         val appContext = context.applicationContext
         scope.launch {
             val ids = downloadedIds()

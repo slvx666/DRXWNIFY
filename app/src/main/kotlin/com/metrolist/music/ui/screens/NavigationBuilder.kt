@@ -331,6 +331,15 @@ fun NavGraphBuilder.navigationBuilder(
     composable("drxw_reviews") {
         com.metrolist.music.ui.screens.reviews.ReviewsScreen(navController)
     }
+    composable("chats") {
+        TogetherScreen(navController, showBack = true, initialTab = TAB_CHATS)
+    }
+    composable(
+        "chat/{pubkey}",
+        arguments = listOf(androidx.navigation.navArgument("pubkey") { type = androidx.navigation.NavType.StringType }),
+    ) { entry ->
+        com.metrolist.music.ui.screens.friends.ChatScreen(navController, entry.arguments?.getString("pubkey").orEmpty())
+    }
     composable("friends/privacy") {
         com.metrolist.music.ui.screens.friends.FriendsPrivacyScreen(navController)
     }

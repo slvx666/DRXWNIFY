@@ -318,6 +318,12 @@ fun SpotifyAlbumScreen(
                                 total = tracks.size,
                                 downloadedIds = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
                                 onDownloadRest = startAlbumDownload,
+                                card = album?.let { a ->
+                                    com.metrolist.music.friends.ChatMusic(
+                                        com.metrolist.music.utils.AppLinks.Kind.ALBUM, a.id, a.name, a.artists.joinToString { it.name },
+                                        a.images.firstOrNull()?.url, count = a.totalTracks,
+                                    )
+                                },
                             ) { OutlinedButton(
                                 onClick = startAlbumDownload,
                                 shape = com.metrolist.music.ui.theme.tuiButtonShape(),
@@ -590,6 +596,7 @@ fun SpotifyAlbumScreen(
                         album?.id,
                         album?.name,
                         album?.artists?.joinToString { it.name },
+                        files = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
                     )
                 }
             },

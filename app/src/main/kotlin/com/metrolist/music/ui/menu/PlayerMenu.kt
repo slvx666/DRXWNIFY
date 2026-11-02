@@ -893,25 +893,11 @@ fun PlayerMenu(
                                 },
                                 onClick = {
                                     onDismiss()
-                                    if (effectiveDownloadState == Download.STATE_COMPLETED) {
-                                        // A downloaded track is shared as the file itself.
-                                        val appContext = context.applicationContext
-                                        coroutineScope.launch {
-                                            com.metrolist.music.utils.shareDownloadedFile(
-                                                appContext,
-                                                downloadUtil.downloadExporter,
-                                                effectiveDownloadId,
-                                            )
-                                        }
-                                    } else {
-                                        val link = shareLinkOf(mediaMetadata, spotifyTrack?.id ?: recoveredSpotifyTrack?.id)
-                                        val intent = android.content.Intent().apply {
-                                            action = android.content.Intent.ACTION_SEND
-                                            type = "text/plain"
-                                            putExtra(android.content.Intent.EXTRA_TEXT, link)
-                                        }
-                                        context.startActivity(android.content.Intent.createChooser(intent, null))
-                                    }
+                                    com.metrolist.music.ui.component.ShareSheet.openTrack(
+                                        mediaMetadata,
+                                        spotifyTrack?.id ?: recoveredSpotifyTrack?.id,
+                                        effectiveDownloadId.takeIf { effectiveDownloadState == Download.STATE_COMPLETED },
+                                    )
                                 },
                             )
                         )

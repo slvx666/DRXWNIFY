@@ -109,6 +109,7 @@ fun AppUpdateDialog(available: AppUpdater.State.Available, onDismiss: () -> Unit
                         notes.lines().joinToString("\n") { line ->
                             // The notes are Markdown: headings shown as plain lines.
                             line.trim().removePrefix("###").removePrefix("##").removePrefix("#").trim()
+                                .replace("**", "").replace("__", "")
                         },
                         style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                     )

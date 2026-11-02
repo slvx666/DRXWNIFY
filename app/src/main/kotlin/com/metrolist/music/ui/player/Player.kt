@@ -1215,29 +1215,9 @@ fun BottomSheetPlayer(
                                         // A downloaded track shares as the file itself (that is what
                                         // the button is for once it is on the phone); everything else
                                         // shares a link to it.
-                                        if (download?.state == Download.STATE_COMPLETED) {
-                                            // The download may sit under the track's other id (see getDownload).
-                                            val songId = download?.request?.id ?: mediaMetadata.id
-                                            val appContext = context.applicationContext
-                                            scope.launch {
-                                                com.metrolist.music.utils.shareDownloadedFile(
-                                                    appContext,
-                                                    downloadUtil.downloadExporter,
-                                                    songId,
-                                                )
-                                            }
-                                        } else {
-                                            val intent =
-                                                Intent().apply {
-                                                    action = Intent.ACTION_SEND
-                                                    type = "text/plain"
-                                                    putExtra(
-                                                        Intent.EXTRA_TEXT,
-                                                        com.metrolist.music.ui.menu.shareLinkOf(mediaMetadata, null),
-                                                    )
-                                                }
-                                            context.startActivity(Intent.createChooser(intent, null))
-                                        }
+                                        // The download may sit under the track's other id (see getDownload).
+                                        val songId = (download?.request?.id ?: mediaMetadata.id).takeIf { download?.state == Download.STATE_COMPLETED }
+                                        com.metrolist.music.ui.component.ShareSheet.openTrack(mediaMetadata, null, songId)
                                     },
                                     shape = shareShape,
                                     colors =
@@ -1430,28 +1410,8 @@ fun BottomSheetPlayer(
                                         .clip(RoundedCornerShape(24.dp).tui())
                                         .background(sideButtonContainerColor)
                                         .clickable {
-                                            if (download?.state == Download.STATE_COMPLETED) {
-                                                val songId = download?.request?.id ?: mediaMetadata.id
-                                                val appContext = context.applicationContext
-                                                scope.launch {
-                                                    com.metrolist.music.utils.shareDownloadedFile(
-                                                        appContext,
-                                                        downloadUtil.downloadExporter,
-                                                        songId,
-                                                    )
-                                                }
-                                                return@clickable
-                                            }
-                                            val intent =
-                                                Intent().apply {
-                                                    action = Intent.ACTION_SEND
-                                                    type = "text/plain"
-                                                    putExtra(
-                                                        Intent.EXTRA_TEXT,
-                                                        com.metrolist.music.ui.menu.shareLinkOf(mediaMetadata, null),
-                                                    )
-                                                }
-                                            context.startActivity(Intent.createChooser(intent, null))
+                                            val songId = (download?.request?.id ?: mediaMetadata.id).takeIf { download?.state == Download.STATE_COMPLETED }
+                                            com.metrolist.music.ui.component.ShareSheet.openTrack(mediaMetadata, null, songId)
                                         },
                             ) {
                                 Icon(

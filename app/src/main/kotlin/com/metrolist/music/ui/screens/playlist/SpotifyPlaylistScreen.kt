@@ -434,6 +434,12 @@ fun SpotifyPlaylistScreen(
                                     total = tracks.size,
                                     downloadedIds = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
                                     onDownloadRest = { startPlaylistDownload() },
+                                    card = playlist?.takeIf { it.id.isNotBlank() && it.id != com.metrolist.yandex.YandexIds.LIKED_SONGS_ID }?.let { p ->
+                                        com.metrolist.music.friends.ChatMusic(
+                                            com.metrolist.music.utils.AppLinks.Kind.PLAYLIST, p.id, p.name, p.owner?.displayName.orEmpty(),
+                                            p.images.firstOrNull()?.url, count = p.tracks?.total ?: 0,
+                                        )
+                                    },
                                 ) {
                                     androidx.compose.material3.OutlinedButton(
                                         onClick = { startPlaylistDownload() },
@@ -452,6 +458,7 @@ fun SpotifyPlaylistScreen(
                                 playlist?.name,
                                 playlist?.owner?.displayName,
                                 icon = R.drawable.share_link,
+                                files = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
                             )
                         }
                         com.metrolist.music.ui.component.BatchDownloadProgress(
