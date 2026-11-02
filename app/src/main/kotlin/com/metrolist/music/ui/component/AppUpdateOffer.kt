@@ -50,10 +50,15 @@ fun AppUpdateOffer() {
         if (offered == null && AppUpdater.shouldOffer(context, available.version)) offered = available
     }
     // Back from the system screen that allows installing: the update carries on by itself.
+    // Back in the app after a while: a release may have come out meanwhile.
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) AppUpdater.resumeAfterPermission(context)
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                AppUpdater.resumeAfterPermission(context)
+                scope.launch { AppUpdater.checkIfStale() }
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }

@@ -14,6 +14,9 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.layout
+import kotlin.math.roundToInt
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -234,12 +237,18 @@ internal fun MusicPickerPanel(visible: Boolean, onDismiss: () -> Unit, onSend: (
                 PickerCache.refresh()
                 moveTo(halfPx)
             } else if (mounted) {
-                moveTo(0f) { mounted = false }
+                // It stays built (not drawn) while the chat is open: built again on every opening,
+                // its first frames took 30-45 ms.
+                moveTo(0f)
             }
         }
-        // The keyboard rising or going: the sheet keeps its place relative to the space left.
+        // The keyboard rising or going: the sheet keeps its place relative to the space left. While
+        // it is still rising it heads for the new place: opened with the chat's keyboard up, it
+        // used to aim at the half of the space over the keyboard and stay that small after it went.
         LaunchedEffect(halfPx, fullPx) {
-            if (visible && motion?.isActive != true && sheet > 0f) sheet = if (expanded) fullPx else halfPx
+            if (!visible || !mounted) return@LaunchedEffect
+            val target = if (expanded) fullPx else halfPx
+            if (motion?.isActive == true) moveTo(target) else sheet = target
         }
         androidx.activity.compose.BackHandler(enabled = visible) { onDismiss() }
         if (!mounted) return@BoxWithConstraints
@@ -299,12 +308,15 @@ internal fun MusicPickerPanel(visible: Boolean, onDismiss: () -> Unit, onSend: (
             }
         }
 
-        // The shade over the chat: darker as the sheet rises; a tap on it closes.
-        val shade = if (halfPx > 0f) (sheet / halfPx).coerceIn(0f, 1f) * 0.4f else 0f
+        // The shade over the chat: darker as the sheet rises; a tap on it closes. The sheet's height
+        // is read only while drawing and placing, so its motion composes nothing.
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = shade))
+                .drawBehind {
+                    val shade = if (halfPx > 0f) (sheet / halfPx).coerceIn(0f, 1f) * 0.4f else 0f
+                    if (shade > 0f) drawRect(Color.Black.copy(alpha = shade))
+                }
                 .then(
                     if (visible) {
                         Modifier.pointerInput(Unit) { detectTapGestures { onDismiss() } }
@@ -324,11 +336,19 @@ internal fun MusicPickerPanel(visible: Boolean, onDismiss: () -> Unit, onSend: (
             motion?.cancel()
             sheet = (sheet - d).coerceIn(0f, fullPx)
         }
+        // Closed, it keeps its last height (its lists stay built) but isn't placed: not drawn, not touched.
+        val lastPx = remember { FloatArray(1) }
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(with(density) { (sheet + bottomPx).toDp() })
+                .layout { measurable, constraints ->
+                    val open = sheet > 0f
+                    if (open) lastPx[0] = sheet
+                    val h = ((if (open) sheet else lastPx[0]) + bottomPx).roundToInt().coerceIn(0, constraints.maxHeight)
+                    val placeable = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                    layout(placeable.width, h) { if (open) placeable.place(0, 0) }
+                }
                 .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerLow)
                 // Taps inside never reach the shade.
@@ -375,10 +395,13 @@ internal fun MusicPickerPanel(visible: Boolean, onDismiss: () -> Unit, onSend: (
                     }
                 }
             }
-            // The other tabs are built once the panel is up, not in its first frames.
+            // The other tabs are built once the panel is up, not in its first frames, and one at a
+            // time: both in one frame took 40+ ms.
             var beyond by remember { mutableIntStateOf(0) }
             LaunchedEffect(Unit) {
                 kotlinx.coroutines.delay(400)
+                beyond = 1
+                kotlinx.coroutines.delay(250)
                 beyond = 2
             }
             androidx.compose.foundation.pager.HorizontalPager(

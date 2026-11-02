@@ -141,7 +141,8 @@ import com.metrolist.music.friends.ChatReaction
 import com.metrolist.music.friends.ChatReactions
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -389,11 +390,11 @@ private sealed interface Line {
     /** [m] the newest of [batch] (tracks sent together, oldest first; else just [m]). */
     data class Msg(val m: ChatMessage, val batch: List<ChatMessage>, val firstOfGroup: Boolean) : Line {
         // The oldest stays the key while the rest of a batch comes in.
-        override val key get() = "m_" + batch.first().id
+        override val key = "m_" + batch.first().id
     }
 
     data class Day(val day: LocalDate) : Line {
-        override val key get() = "d_$day"
+        override val key = "d_$day"
     }
 }
 
@@ -433,13 +434,20 @@ fun ChatScreen(navController: NavController, peer: String) {
     var replyFocus by remember { mutableIntStateOf(0) }
     var menuFor by remember { mutableStateOf<MenuTarget?>(null) }
     BackHandler(enabled = menuFor != null) { menuFor = null }
+    // The bubble stops being followed once its menu is gone.
+    DisposableEffect(menuFor) {
+        val open = menuFor
+        onDispose { open?.bubble?.tracking = false }
+    }
+    // The top of the messages (under the bar): the menu stays below it.
+    var listTopPx by remember { mutableIntStateOf(0) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val view = LocalView.current
 
     // Built off the main thread (cards are parsed on the way); the first frame from the last look.
-    val lines by produceState(remember(peer) { buildLines(cached.orEmpty()) }, messages) {
-        value = withContext(Dispatchers.Default) { buildLines(messages) }
+    val lines by produceState(remember(peer) { linesFor(peer, cached.orEmpty()) }, messages) {
+        value = withContext(Dispatchers.Default) { linesFor(peer, messages) }
     }
     // A new message at the bottom: the list shows it in the same frame it comes in (asked during
     // composition, so it never first lands off screen and then jumps).
@@ -570,7 +578,7 @@ fun ChatScreen(navController: NavController, peer: String) {
                 Text(note, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
         }
-        Box(Modifier.weight(1f)) {
+        Box(Modifier.weight(1f).onGloballyPositioned { listTopPx = it.positionInRoot().y.roundToInt() }) {
             if (loaded != null && messages.isEmpty()) {
                 EmptyNote(stringResource(R.string.chat_say_hi), Modifier.align(Alignment.Center))
             }
@@ -665,6 +673,7 @@ fun ChatScreen(navController: NavController, peer: String) {
         val density = LocalDensity.current
         MessageMenu(
             target = menuTarget,
+            topPx = listTopPx,
             // Clear of the mini player (it stays drawn over the chat).
             bottomPx = LocalPlayerAwareWindowInsets.current.getBottom(density) +
                 if (hasPlayer) with(density) { (com.metrolist.music.constants.MiniPlayerBottomSpacing + 8.dp).roundToPx() } else 0,
@@ -724,6 +733,16 @@ fun ChatScreen(navController: NavController, peer: String) {
 
 /** Gap between tracks sent together, at most (they go one after another, a few ms apart). */
 private const val BATCH_GAP_MS = 3_000L
+
+/**
+ * A chat's lines, kept from the last look: opening a chat again finds them ready instead of
+ * building them on the main thread (each card's JSON parsed again) in its first frame.
+ */
+private val linesCache = java.util.concurrent.ConcurrentHashMap<String, Pair<List<ChatMessage>, List<Line>>>()
+
+private fun linesFor(peer: String, messages: List<ChatMessage>): List<Line> =
+    linesCache[peer]?.takeIf { it.first === messages }?.second
+        ?: buildLines(messages).also { linesCache[peer] = messages to it }
 
 /** The conversation's lines, newest first: messages (tracks sent together as one) and day chips. */
 private fun buildLines(messages: List<ChatMessage>): List<Line> {
@@ -813,15 +832,18 @@ private fun MessageItem(
     val selectLabel = stringResource(R.string.chat_select)
     val (edgePx, replyPx) = rememberReplyPx()
     val swipe = remember { SwipeReply() }
-    // Where the bubble is, read when the menu opens (no work while scrolling).
-    var bubble by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    // Where the bubble is, followed only while its menu is open (no work while scrolling).
+    val bubble = remember { BubbleBounds() }
 
     // My own new message rises into place from the field, as in Telegram.
+    // Only that one gets an animation: every message having its own made opening a chat heavier.
     val appear = remember(first.id) {
-        Animatable(if (m.mine && m.state == ChatMessage.STATE_SENDING && System.currentTimeMillis() - m.ts < 1_500) 1f else 0f)
+        if (m.mine && m.state == ChatMessage.STATE_SENDING && System.currentTimeMillis() - m.ts < 1_500) Animatable(1f) else null
     }
-    LaunchedEffect(first.id) {
-        if (appear.value > 0f) appear.animateTo(0f, tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+    if (appear != null) {
+        LaunchedEffect(first.id) {
+            appear.animateTo(0f, tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        }
     }
 
     val bubbleColor = if (m.mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
@@ -832,13 +854,18 @@ private fun MessageItem(
         bottomStart = 18.dp,
         bottomEnd = 18.dp,
     )
-    val highlight by androidx.compose.animation.animateColorAsState(
-        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent,
-        label = "selected",
-    )
+    // Animated only while picking messages (no animation per message otherwise).
+    val highlight = if (selecting) {
+        androidx.compose.animation.animateColorAsState(
+            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent,
+            label = "selected",
+        ).value
+    } else {
+        Color.Transparent
+    }
     fun openMenu() {
         // Where the bubble is when the menu shows (the keyboard may still have to go down first).
-        onMenu { bubble?.takeIf { it.isAttached }?.boundsInRoot()?.let { MenuTarget(m, batch, it, m.mine) } }
+        onMenu { bubble.start()?.let { MenuTarget(m, batch, bubble, m.mine) } }
     }
     // A double tap anywhere on the message's line puts the quick reaction (or takes it back).
     val canReact = !selecting && !first.deleted && !(first.mine && first.state == ChatMessage.STATE_SENDING && first.event == null)
@@ -852,8 +879,8 @@ private fun MessageItem(
     Box(
         modifier
             .fillMaxWidth()
-            .graphicsLayer { translationY = appear.value * 48.dp.toPx() }
-            .background(highlight)
+            .then(if (appear != null) Modifier.graphicsLayer { translationY = appear.value * 48.dp.toPx() } else Modifier)
+            .then(if (selecting) Modifier.background(highlight) else Modifier)
             .swipeToReply(
                 state = swipe,
                 enabled = !selecting,
@@ -888,7 +915,7 @@ private fun MessageItem(
         ) {
             val clickable = Modifier.combinedClickable(onClick = onTap, onDoubleClick = quick, onLongClick = onHold)
             val footer: @Composable () -> Unit = { TimeAndTicks(shown, textColor, m.edited) }
-            val place = Modifier.onGloballyPositioned { bubble = it }
+            val place = Modifier.onGloballyPositioned(bubble::place)
             if (stickersOnly != null) {
                 Column(horizontalAlignment = if (m.mine) Alignment.End else Alignment.Start, modifier = place.then(clickable)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1379,154 +1406,180 @@ private fun Composer(
         onSent()
     }
 
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-        Column {
-            // Each strip keeps what it showed while it slides away (else it would go blank first and
-            // look like it vanished at once).
-            // Forwarding: what goes with the next send.
-            val fwd = forward?.takeIf { editing == null }
-            val fwdShown = lastNonNull(fwd)
-            AnimatedVisibility(fwd != null, enter = stripEnter, exit = stripExit) {
-                if (fwdShown != null) {
-                    Strip(
-                        icon = R.drawable.share,
-                        title = stringResource(R.string.chat_forwarding),
-                        text = fwdShown.joinToString(", ") { it.music?.label() ?: Stickers.plain(it.text).trim() },
-                        onClose = ChatHub::cancelForward,
+    // Codes that start like what is typed before the cursor: a tap puts the sticker in its place.
+    val beforeCursor = field.text.substring(0, field.selection.min.coerceIn(0, field.text.length))
+    val suggestions = remember(beforeCursor) { Stickers.suggest(beforeCursor).takeIf { it.isNotEmpty() } }
+    val suggestionsShown = lastNonNull(suggestions).orEmpty()
+    Box {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+            Column {
+                // Each strip keeps what it showed while it slides away (else it would go blank first and
+                // look like it vanished at once).
+                // Forwarding: what goes with the next send.
+                val fwd = forward?.takeIf { editing == null }
+                val fwdShown = lastNonNull(fwd)
+                AnimatedVisibility(fwd != null, enter = stripEnter, exit = stripExit) {
+                    if (fwdShown != null) {
+                        Strip(
+                            icon = R.drawable.share,
+                            title = stringResource(R.string.chat_forwarding),
+                            text = fwdShown.joinToString(", ") { it.music?.label() ?: Stickers.plain(it.text).trim() },
+                            onClose = ChatHub::cancelForward,
+                        )
+                    }
+                }
+                // Replying to / editing (one turning into the other crossfades in place).
+                val target = (editing ?: replyTo)?.let { t ->
+                    StripText(
+                        icon = if (editing != null) R.drawable.edit else R.drawable.chat_reply,
+                        title = if (editing != null) stringResource(R.string.chat_editing) else if (t.mine) stringResource(R.string.chat_you) else peerName,
+                        text = ChatHub.preview(context, t),
+                        editing = editing != null,
                     )
                 }
-            }
-            // Replying to / editing (one turning into the other crossfades in place).
-            val target = (editing ?: replyTo)?.let { t ->
-                StripText(
-                    icon = if (editing != null) R.drawable.edit else R.drawable.chat_reply,
-                    title = if (editing != null) stringResource(R.string.chat_editing) else if (t.mine) stringResource(R.string.chat_you) else peerName,
-                    text = ChatHub.preview(context, t),
-                    editing = editing != null,
-                )
-            }
-            val targetShown = lastNonNull(target)
-            AnimatedVisibility(target != null, enter = stripEnter, exit = stripExit) {
-                if (targetShown != null) {
+                val targetShown = lastNonNull(target)
+                AnimatedVisibility(target != null, enter = stripEnter, exit = stripExit) {
+                    if (targetShown != null) {
+                        androidx.compose.animation.AnimatedContent(
+                            targetShown,
+                            transitionSpec = { fadeIn(tween(CHAT_MOTION_MS)) togetherWith fadeOut(tween(CHAT_MOTION_MS)) },
+                            contentKey = { it.icon to it.text },
+                            label = "strip",
+                        ) { s ->
+                            Strip(
+                                icon = s.icon,
+                                title = s.title,
+                                text = s.text,
+                                onClose = { if (s.editing) field = TextFieldValue(); onCancel() },
+                            )
+                        }
+                    }
+                }
+                Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
+                    val stickersShown = panel && !toKeyboard
+                    IconButton(onClick = { if (stickersShown) showKeyboard() else showPanel() }) {
+                        androidx.compose.animation.Crossfade(stickersShown, label = "stickerIcon") { shown ->
+                            Icon(painterResource(if (shown) R.drawable.chat_keyboard else R.drawable.chat_mood), stringResource(R.string.chat_stickers))
+                        }
+                    }
+                    val codeColor = MaterialTheme.colorScheme.primary
+                    val showCodes = remember(codeColor) { StickerCodes(codeColor) }
+                    TextField(
+                        value = field,
+                        onValueChange = {
+                            field = keepStickersWhole(field, it)
+                            if (it.text.isNotBlank() && editing == null) ChatHub.typingNow(peer)
+                        },
+                        visualTransformation = showCodes,
+                        // The keyboard is brought by the focus handler above, at the app's own pace.
+                        keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+                        placeholder = { Text(stringResource(R.string.chat_message_hint)) },
+                        maxLines = 6,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(focus)
+                            // A tap on the field while the panel is open: the keyboard comes up over it.
+                            .onFocusChanged {
+                                val gained = it.isFocused && !focused
+                                focused = it.isFocused
+                                if (gained) {
+                                    // A tap on the field while the panel is open: the keyboard comes up over it.
+                                    if (panel) toKeyboard = true
+                                    ImeMotion.show(view) { keyboard?.show() }
+                                }
+                            },
+                    )
+                    val canSend = field.text.isNotBlank() || (forward != null && editing == null)
                     androidx.compose.animation.AnimatedContent(
-                        targetShown,
-                        transitionSpec = { fadeIn(tween(CHAT_MOTION_MS)) togetherWith fadeOut(tween(CHAT_MOTION_MS)) },
-                        contentKey = { it.icon to it.text },
-                        label = "strip",
-                    ) { s ->
-                        Strip(
-                            icon = s.icon,
-                            title = s.title,
-                            text = s.text,
-                            onClose = { if (s.editing) field = TextFieldValue(); onCancel() },
+                        canSend || editing != null,
+                        transitionSpec = { (scaleIn() + fadeIn()) togetherWith (scaleOut() + fadeOut()) },
+                        label = "action",
+                    ) { showSend ->
+                        if (showSend) {
+                            IconButton(onClick = ::send, enabled = canSend) {
+                                Icon(painterResource(R.drawable.chat_send), stringResource(R.string.chat_send), tint = MaterialTheme.colorScheme.primary)
+                            }
+                        } else {
+                            // Nothing typed: the music panel (recent, library, search).
+                            // The keyboard slides away and the panel takes the screen's lower part.
+                            IconButton(onClick = {
+                                if (imePx > navPx) {
+                                    ImeMotion.hide(view, onDone = { focusManager.clearFocus() }) { keyboard?.hide() }
+                                } else {
+                                    focusManager.clearFocus()
+                                }
+                                onOpenMusic()
+                            }) {
+                                Icon(painterResource(R.drawable.music_note), stringResource(R.string.chat_send_music), tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+                // The keyboard's space: the sticker panel, the keyboard over it, or the mini player's room.
+                Box(Modifier.fillMaxWidth().height(with(density) { bottomPx.toDp() })) {
+                    if (panel || panelSpace.value > 0f) {
+                        StickerPanel(
+                            // Only the system's navigation bar is under it now, not the mini player.
+                            bottomPadding = with(density) { navPx.toDp() },
+                            modifier = Modifier.fillMaxSize(),
+                            onPreview = onPreview,
+                            onPick = { s ->
+                                if (field.text.isBlank() && editing == null && forward == null) {
+                                    ChatHub.send(peer, Stickers.token(s), replyTo = replyTo?.id)
+                                    onCancel()
+                                    onSent()
+                                } else {
+                                    insertSticker(s)
+                                }
+                            },
                         )
                     }
                 }
             }
-            // Codes that start like what is typed before the cursor: a tap puts the sticker in its place.
-            val beforeCursor = field.text.substring(0, field.selection.min.coerceIn(0, field.text.length))
-            val suggestions = remember(beforeCursor) { Stickers.suggest(beforeCursor).takeIf { it.isNotEmpty() } }
-            val suggestionsShown = lastNonNull(suggestions).orEmpty()
-            AnimatedVisibility(suggestions != null, enter = stripEnter, exit = stripExit) {
-                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(suggestionsShown, key = { it.first.id }) { (s, typed) ->
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { insertSticker(s, typed) }
-                                .padding(4.dp),
-                        ) {
-                            AsyncImage(model = s.uri, contentDescription = s.code, modifier = Modifier.size(40.dp))
-                            Text(s.code, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        }
+        // The suggestions float over the chat just above the field, as in Telegram: nothing moves
+        // under them, and only they are drawn again while they come and go (pushing the whole chat
+        // up and down redrew the screen each frame).
+        Box(
+            Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints.copy(minHeight = 0))
+                    layout(placeable.width, 0) { placeable.place(0, -placeable.height) }
+                },
+        ) {
+            AnimatedVisibility(
+                suggestions != null,
+                enter = fadeIn(tween(140)) + androidx.compose.animation.scaleIn(tween(CHAT_MOTION_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing), initialScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
+                exit = fadeOut(tween(140)) + androidx.compose.animation.scaleOut(tween(160), targetScale = 0.94f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shadowElevation = 4.dp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                ) {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(suggestionsShown, key = { it.first.id }) { (s, typed) ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { insertSticker(s, typed) }
+                                    .padding(4.dp),
+                            ) {
+                                AsyncImage(model = s.uri, contentDescription = s.code, modifier = Modifier.size(40.dp))
+                                Text(s.code, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            }
                         }
                     }
-                }
-            }
-            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
-                val stickersShown = panel && !toKeyboard
-                IconButton(onClick = { if (stickersShown) showKeyboard() else showPanel() }) {
-                    androidx.compose.animation.Crossfade(stickersShown, label = "stickerIcon") { shown ->
-                        Icon(painterResource(if (shown) R.drawable.chat_keyboard else R.drawable.chat_mood), stringResource(R.string.chat_stickers))
-                    }
-                }
-                val codeColor = MaterialTheme.colorScheme.primary
-                val showCodes = remember(codeColor) { StickerCodes(codeColor) }
-                TextField(
-                    value = field,
-                    onValueChange = {
-                        field = keepStickersWhole(field, it)
-                        if (it.text.isNotBlank() && editing == null) ChatHub.typingNow(peer)
-                    },
-                    visualTransformation = showCodes,
-                    // The keyboard is brought by the focus handler above, at the app's own pace.
-                    keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
-                    placeholder = { Text(stringResource(R.string.chat_message_hint)) },
-                    maxLines = 6,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusRequester(focus)
-                        // A tap on the field while the panel is open: the keyboard comes up over it.
-                        .onFocusChanged {
-                            val gained = it.isFocused && !focused
-                            focused = it.isFocused
-                            if (gained) {
-                                // A tap on the field while the panel is open: the keyboard comes up over it.
-                                if (panel) toKeyboard = true
-                                ImeMotion.show(view) { keyboard?.show() }
-                            }
-                        },
-                )
-                val canSend = field.text.isNotBlank() || (forward != null && editing == null)
-                androidx.compose.animation.AnimatedContent(
-                    canSend || editing != null,
-                    transitionSpec = { (scaleIn() + fadeIn()) togetherWith (scaleOut() + fadeOut()) },
-                    label = "action",
-                ) { showSend ->
-                    if (showSend) {
-                        IconButton(onClick = ::send, enabled = canSend) {
-                            Icon(painterResource(R.drawable.chat_send), stringResource(R.string.chat_send), tint = MaterialTheme.colorScheme.primary)
-                        }
-                    } else {
-                        // Nothing typed: the music panel (recent, library, search).
-                        // The keyboard slides away and the panel takes the screen's lower part.
-                        IconButton(onClick = {
-                            if (imePx > navPx) {
-                                ImeMotion.hide(view, onDone = { focusManager.clearFocus() }) { keyboard?.hide() }
-                            } else {
-                                focusManager.clearFocus()
-                            }
-                            onOpenMusic()
-                        }) {
-                            Icon(painterResource(R.drawable.music_note), stringResource(R.string.chat_send_music), tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-            }
-            // The keyboard's space: the sticker panel, the keyboard over it, or the mini player's room.
-            Box(Modifier.fillMaxWidth().height(with(density) { bottomPx.toDp() })) {
-                if (panel || panelSpace.value > 0f) {
-                    StickerPanel(
-                        // Only the system's navigation bar is under it now, not the mini player.
-                        bottomPadding = with(density) { navPx.toDp() },
-                        modifier = Modifier.fillMaxSize(),
-                        onPreview = onPreview,
-                        onPick = { s ->
-                            if (field.text.isBlank() && editing == null && forward == null) {
-                                ChatHub.send(peer, Stickers.token(s), replyTo = replyTo?.id)
-                                onCancel()
-                                onSent()
-                            } else {
-                                insertSticker(s)
-                            }
-                        },
-                    )
                 }
             }
         }

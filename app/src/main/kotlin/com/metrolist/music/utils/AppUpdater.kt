@@ -65,8 +65,24 @@ object AppUpdater {
 
     val currentVersion: String get() = BuildConfig.VERSION_NAME
 
+    /** When [check] last ran, for [checkIfStale]. */
+    @Volatile
+    private var lastCheckAt = 0L
+
+    /**
+     * Checks again when the last answer is older than [RECHECK_MS]. A music app's process lives for
+     * days, so the one check at launch missed releases published while it was running.
+     */
+    suspend fun checkIfStale() {
+        // 0: the launch check (delayed, to keep the start light) hasn't run yet.
+        if (lastCheckAt == 0L || System.currentTimeMillis() - lastCheckAt < RECHECK_MS) return
+        if (_state.value is State.Available) return
+        check()
+    }
+
     suspend fun check() {
         if (_state.value is State.Checking || _state.value is State.Downloading) return
+        lastCheckAt = System.currentTimeMillis()
         _state.value = State.Checking
         _state.value = withContext(Dispatchers.IO) {
             runCatching {
@@ -231,6 +247,7 @@ object AppUpdater {
     }
 
     private const val SNOOZE_MS = 12 * 60 * 60_000L
+    private const val RECHECK_MS = 30 * 60_000L
     private const val MAX_NOTES = 1_500
 
     fun openReleases(context: Context) {

@@ -139,18 +139,30 @@ private object AvatarCache {
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
         }.getOrNull()?.also { cache.put(avatar.hashCode(), it) }
     }
+
+    /** The developer's own picture (bundled), decoded once per run rather than on every screen built. */
+    @Volatile
+    var developer: androidx.compose.ui.graphics.ImageBitmap? = null
+
+    fun decodeDeveloper(resources: android.content.res.Resources) = developer ?: runCatching {
+        BitmapFactory.decodeResource(resources, R.drawable.developer_avatar)?.asImageBitmap()
+    }.getOrNull()?.also { developer = it }
 }
 
 @Composable
 fun FriendAvatar(pubkey: String, name: String, avatar: String?, size: Dp, modifier: Modifier = Modifier) {
     val shape = CircleShape
     if (FriendsHub.isDeveloper(pubkey) && avatar == null) {
-        Image(
-            painterResource(R.drawable.developer_avatar),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = modifier.size(size).clip(shape),
-        )
+        val resources = LocalContext.current.resources
+        val developer by androidx.compose.runtime.produceState(AvatarCache.developer) {
+            if (value == null) value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { AvatarCache.decodeDeveloper(resources) }
+        }
+        val decoded = developer
+        if (decoded != null) {
+            Image(decoded, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier.size(size).clip(shape))
+        } else {
+            Box(modifier.size(size).clip(shape).background(MaterialTheme.colorScheme.surfaceVariant))
+        }
         return
     }
     // Decoded off the main thread and kept: decoding every avatar while the tab opened made it stutter.

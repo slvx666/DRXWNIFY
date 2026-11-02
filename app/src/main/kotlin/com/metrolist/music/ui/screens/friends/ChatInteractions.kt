@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
@@ -280,24 +281,50 @@ internal fun ReactionChips(
 
 // ── The menu a tap on a message opens ────────────────────────────────────────────────────────────
 
-/** A message the menu is open for: where its bubble is on screen (root px), and on which side. */
+/**
+ * Where a bubble is on screen (root px). Kept current only while its menu is open, so scrolling
+ * does no work for it; while open the menu follows the bubble (the keyboard going down, a new
+ * message pushing the list up) instead of staying where the bubble was at the tap.
+ */
+internal class BubbleBounds {
+    private var coords: androidx.compose.ui.layout.LayoutCoordinates? = null
+    var tracking = false
+    val rect = mutableStateOf<Rect?>(null)
+
+    fun place(c: androidx.compose.ui.layout.LayoutCoordinates) {
+        coords = c
+        if (tracking) rect.value = c.boundsInRoot()
+    }
+
+    /** Starts following; null when the bubble isn't on screen. */
+    fun start(): Rect? {
+        tracking = true
+        coords?.takeIf { it.isAttached }?.let { rect.value = it.boundsInRoot() }
+        return rect.value
+    }
+}
+
+/** A message the menu is open for: its bubble, and on which side. */
 internal data class MenuTarget(
     val message: ChatMessage,
     val batch: List<ChatMessage>,
-    val bounds: Rect,
+    val bubble: BubbleBounds,
     val mine: Boolean,
-)
+) {
+    val bounds: Rect get() = bubble.rect.value ?: Rect.Zero
+}
 
 internal data class MenuAction(val label: String, val icon: Int, val danger: Boolean = false, val run: () -> Unit)
 
 /**
  * Over the dimmed chat: the seven reactions used most above the message (with a button that opens
  * them all) and its actions under it, as in Telegram. Placed by the bubble, moved in when it would
- * leave the screen.
+ * leave the chat's area (below [topPx], above [bottomPx] from the bottom; root px).
  */
 @Composable
 internal fun MessageMenu(
     target: MenuTarget?,
+    topPx: Int,
     bottomPx: Int,
     actions: List<MenuAction>,
     myKeys: List<String>,
@@ -331,7 +358,6 @@ internal fun MessageMenu(
         val density = LocalDensity.current
         val margin = with(density) { 12.dp.roundToPx() }
         val gap = with(density) { 8.dp.roundToPx() }
-        val bubble = t.bounds.translate(-origin.x, -origin.y)
         Layout(
             modifier = Modifier.fillMaxSize(),
             content = {
@@ -353,15 +379,21 @@ internal fun MessageMenu(
             val menu = measurables[1].measure(loose)
             val h = constraints.maxHeight - bottomPx
             val w = constraints.maxWidth
+            // Read here, so the menu moves with the bubble without composing again. Of a long
+            // bubble only the part in the chat's area counts.
+            val whole = t.bounds.translate(-origin.x, -origin.y)
+            val areaTop = (topPx - origin.y).coerceIn(0f, h.toFloat())
+            val bubble = Rect(whole.left, whole.top.coerceIn(areaTop, h.toFloat()), whole.right, whole.bottom.coerceIn(areaTop, h.toFloat()))
+            val minY = areaTop.roundToInt() + margin
             fun xFor(width: Int) = (if (t.mine) bubble.right.roundToInt() - width else bubble.left.roundToInt()).coerceIn(margin, (w - margin - width).coerceAtLeast(margin))
             var barY = bubble.top.roundToInt() - gap - bar.height
             var menuY = bubble.bottom.roundToInt() + gap
-            val fits = barY >= margin && menuY + menu.height <= h - margin
+            val fits = barY >= minY && menuY + menu.height <= h - margin
             if (!fits) {
                 // Not both around it: the two together, as close to the message as the screen allows.
                 val total = bar.height + (if (menu.height > 0) gap + menu.height else 0)
-                val want = if (barY < margin) bubble.bottom.roundToInt() + gap else bubble.top.roundToInt() - gap - total
-                barY = want.coerceIn(margin, (h - margin - total).coerceAtLeast(margin))
+                val want = if (barY < minY) bubble.bottom.roundToInt() + gap else bubble.top.roundToInt() - gap - total
+                barY = want.coerceIn(minY, (h - margin - total).coerceAtLeast(minY))
                 menuY = barY + bar.height + gap
             }
             layout(w, constraints.maxHeight) {
