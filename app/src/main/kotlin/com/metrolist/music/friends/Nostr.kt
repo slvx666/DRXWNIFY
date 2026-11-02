@@ -122,8 +122,25 @@ internal object Nostr {
 
     private val random = SecureRandom()
 
+    /**
+     * The secret shared with a key, as last worked out: the curve math behind it is slow (BigInteger),
+     * and a chat asks for the same one with every message, reaction and "read".
+     */
+    private val secrets = object : LinkedHashMap<String, Pair<ByteArray, ByteArray>>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<ByteArray, ByteArray>>?) = size > 64
+    }
+
+    private fun secretWith(privateKey: ByteArray, pubkey: String): ByteArray {
+        synchronized(secrets) {
+            secrets[pubkey]?.let { (sk, secret) -> if (sk.contentEquals(privateKey)) return secret }
+        }
+        val secret = Secp256k1.sharedSecret(privateKey, pubkey.hexToBytes())
+        synchronized(secrets) { secrets[pubkey] = privateKey.copyOf() to secret }
+        return secret
+    }
+
     fun encrypt(privateKey: ByteArray, toPubkey: String, plain: String): String {
-        val key = Secp256k1.sharedSecret(privateKey, toPubkey.hexToBytes())
+        val key = secretWith(privateKey, toPubkey)
         val iv = ByteArray(16).also(random::nextBytes)
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv))
@@ -134,7 +151,7 @@ internal object Nostr {
 
     fun decrypt(privateKey: ByteArray, fromPubkey: String, payload: String): String? = runCatching {
         val (data, ivPart) = payload.split("?iv=", limit = 2).let { it[0] to it[1] }
-        val key = Secp256k1.sharedSecret(privateKey, fromPubkey.hexToBytes())
+        val key = secretWith(privateKey, fromPubkey)
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(
             Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"),

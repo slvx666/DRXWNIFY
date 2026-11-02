@@ -30,6 +30,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -53,10 +55,21 @@ import java.util.UUID
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 object ChatHub {
-    /** Sent in the hello: this version has chats (a higher number = a newer chat format). */
-    const val PROTOCOL = 1
+    /**
+     * Sent in the hello and in every payload: this version has chats (a higher number = a newer chat
+     * format). 2: reactions.
+     */
+    const val PROTOCOL = 2
+
+    /** The first protocol with reactions. */
+    const val PROTOCOL_REACTIONS = 2
 
     private const val TYPE = "drxw-chat"
+    /**
+     * Reactions travel as direct messages of their own type: a 2.2.1 app drops any type it doesn't
+     * know without a trace (a new "k" under [TYPE] would show there as an "unknown message").
+     */
+    private const val TYPE_REACT = "drxw-react"
     private const val KIND_DM = 4
     private const val KIND_DELETE = 5
     /** Ephemeral (20000–29999): relays pass it on and keep nothing. */
@@ -79,7 +92,11 @@ object ChatHub {
 
     // ── Peers: did they add me, and does their app have chats ────────────────────────────────────
 
-    data class PeerStatus(val addedMe: Boolean, val hasChat: Boolean)
+    /** [protocol] 0 = no chats in their app; [version] their app's version, when it says. */
+    data class PeerStatus(val addedMe: Boolean, val protocol: Int, val version: String? = null) {
+        val hasChat: Boolean get() = protocol > 0
+        val hasReactions: Boolean get() = protocol >= PROTOCOL_REACTIONS
+    }
 
     private val _peers = MutableStateFlow<Map<String, PeerStatus>>(emptyMap())
     /** What is known about friends (from their hello to this profile); missing = not looked up yet. */
@@ -98,6 +115,7 @@ object ChatHub {
         prefs = app.getSharedPreferences("chat", Context.MODE_PRIVATE)
         database = ChatDatabase.open(app)
         Stickers.init(app)
+        ChatReactions.init(app)
         _peers.value = loadPeers()
         previewList
         scheduleCheck(app)
@@ -119,8 +137,14 @@ object ChatHub {
 
     private val lastMessages = java.util.concurrent.ConcurrentHashMap<String, List<ChatMessage>>()
 
-    /** A chat's messages as last seen, to draw at once when it is opened again. */
-    fun cachedMessages(peer: String): List<ChatMessage> = lastMessages[peer].orEmpty()
+    /** A chat's messages as last seen, to draw at once when it is opened again; null before the first look. */
+    fun cachedMessages(peer: String): List<ChatMessage>? = lastMessages[peer]
+
+    /** A chat's reactions: message id → everyone's reactions to it. */
+    fun reactions(peer: String): Flow<Map<String, List<ChatReaction>>> =
+        FriendsHub.profile.flatMapLatest { p -> p?.let { dao?.reactions(it.pubkey, peer) } ?: emptyFlow() }
+            .map { list -> list.groupBy { it.msgId } }
+            .flowOn(Dispatchers.Default)
 
     fun messages(peer: String): Flow<List<ChatMessage>> =
         FriendsHub.profile.flatMapLatest { p -> p?.let { dao?.messages(it.pubkey, peer) } ?: emptyFlow() }
@@ -244,7 +268,17 @@ object ChatHub {
             Log.i(LOG_TAG, "can't decrypt ${event.id.take(8)} from ${author.take(8)}")
             return
         }
-        val o = runCatching { JSONObject(plain) }.getOrNull()?.takeIf { it.optString("t") == TYPE } ?: return
+        val o = runCatching { JSONObject(plain) }.getOrNull() ?: return
+        val type = o.optString("t")
+        if (type != TYPE && type != TYPE_REACT) return
+        notePeerProtocol(author, o.optInt("v"))
+        if (type == TYPE_REACT) {
+            scope.launch {
+                runCatching { applyReaction(me, author, event, o) }.onFailure { Log.w(LOG_TAG, "react apply failed", it) }
+                advanceCursor(event.createdAt)
+            }
+            return
+        }
         if (event.kind == KIND_TYPING) {
             if (o.optString("k") == K_TYPING) {
                 _typing.value = _typing.value + (author to SystemClock.elapsedRealtime() + TYPING_SHOWN_MS)
@@ -288,6 +322,7 @@ object ChatHub {
             }
             K_DEL -> {
                 val old = dao.get(me, author, id)
+                dao.dropReactions(me, author, id)
                 when {
                     old == null -> dao.insert(ChatMessage(me, author, id, mine = false, ts = ts, text = "", deleted = true))
                     !old.mine -> {
@@ -297,8 +332,13 @@ object ChatHub {
                 }
             }
             K_READ -> dao.markMineRead(me, author, o.optLong("upTo"))
-            // A newer app's message: shown as such rather than dropped silently.
+            // A newer app's message: shown as such rather than dropped silently — unless it has no
+            // text to show (a newer app's own bookkeeping), which is left out.
             else -> {
+                if (o.optString("text").isBlank()) {
+                    Log.i(LOG_TAG, "skipped unknown k=${o.optString("k").take(12)} from ${author.take(8)}")
+                    return
+                }
                 val message = ChatMessage(
                     owner = me, peer = author, id = id, mine = false, ts = ts,
                     text = o.optString("text").ifBlank { appContext?.getString(R.string.chat_unknown_message).orEmpty() },
@@ -379,18 +419,25 @@ object ChatHub {
         val id = UUID.randomUUID().toString()
         // Strictly later than the previous one, so cards sent together keep their order.
         val ts = maxOf(System.currentTimeMillis(), lastSentTs + 1).also { lastSentTs = it }
-        val content = payload(K_MSG, id).put("ts", ts).put("text", Stickers.clean(body.take(MAX_TEXT)))
-        card?.let { content.put("m", it.toJson()) }
-        replyTo?.let { content.put("re", it) }
-        val event = sign(peer, KIND_DM, content) ?: return
-        val message = ChatMessage(
+        // On screen first (the encryption takes a moment on a slow phone), then signed and sent.
+        val draft = ChatMessage(
             owner = me, peer = peer, id = id, mine = true, ts = ts,
-            text = content.getString("text"), music = card?.toJson()?.toString(), replyTo = replyTo,
+            text = Stickers.clean(body.take(MAX_TEXT)), music = card?.toJson()?.toString(), replyTo = replyTo,
             state = ChatMessage.STATE_SENDING, read = false,
-            event = event.toJson().toString(), eventId = event.id,
         )
-        dao?.insert(message)
+        dao?.insert(draft)
+        val event = signMessage(draft) ?: return
+        val message = draft.copy(event = event.toJson().toString(), eventId = event.id)
+        dao?.update(message)
         deliver(message, event.toJson())
+    }
+
+    /** The signed event of one of my messages, as it goes out. */
+    private fun signMessage(m: ChatMessage): NostrEvent? {
+        val content = payload(K_MSG, m.id).put("ts", m.ts).put("text", m.text)
+        ChatMusic.fromJson(m.music)?.let { content.put("m", it.toJson()) }
+        m.replyTo?.let { content.put("re", it) }
+        return sign(m.peer, KIND_DM, content)
     }
 
     // ── Forwarding (from a share button elsewhere in the app) ────────────────────────────────────
@@ -446,10 +493,13 @@ object ChatHub {
         }
     }
 
-    /** "Retry" on a message that didn't go: the same event again. */
+    /** "Retry" on a message that didn't go: the same event again (signed now if it never was). */
     fun retry(message: ChatMessage) {
-        val event = message.event?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
         scope.launch {
+            val stored = message.event?.let { runCatching { JSONObject(it) }.getOrNull() }
+            val event = stored ?: signMessage(message)?.also { e ->
+                dao?.update(message.copy(event = e.toJson().toString(), eventId = e.id))
+            }?.toJson() ?: return@launch
             dao?.setState(message.owner, message.peer, message.id, ChatMessage.STATE_SENDING)
             deliver(message, event)
         }
@@ -460,6 +510,16 @@ object ChatHub {
         dao?.outbox(me)?.forEach { m ->
             m.event?.let { runCatching { JSONObject(it) }.getOrNull() }?.let { deliver(m, it) }
         }
+        dao?.reactionOutbox(me)?.forEach { r ->
+            val event = r.event?.let { runCatching { JSONObject(it) }.getOrNull() }
+            when {
+                event != null -> deliverReaction(r, event)
+                // Put, but the app went before it was sent.
+                r.state == ChatMessage.STATE_SENDING && !reactionJobs.containsKey(r.peer + ":" + r.msgId) -> sendReaction(r)
+            }
+        }
+        // Mine that never got signed (the app went in between): signed and sent now.
+        dao?.unsigned(me, System.currentTimeMillis() - 60_000)?.forEach(::retry)
     }
 
     fun edit(message: ChatMessage, newText: String) {
@@ -476,6 +536,7 @@ object ChatHub {
     fun delete(message: ChatMessage, forBoth: Boolean) {
         scope.launch {
             dao?.update(message.copy(text = "", music = null, deleted = true, event = null))
+            dao?.dropReactions(message.owner, message.peer, message.id)
             if (!forBoth || !message.mine) return@launch
             sign(message.peer, KIND_DM, payload(K_DEL, message.id).put("ts", System.currentTimeMillis()))?.let { RelayPool.publish(it) }
             val sk = FriendsHub.secretKeyOrNull() ?: return@launch
@@ -483,6 +544,97 @@ object ChatHub {
                 RelayPool.publish(Nostr.sign(sk, KIND_DELETE, listOf(listOf("e", eventId)), ""))
             }
         }
+    }
+
+    // ── Reactions ────────────────────────────────────────────────────────────────────────────────
+
+    /** The set waiting to go per message: quick taps send one event (the newest) after a pause. */
+    private val reactionJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+
+    /**
+     * Puts [key] on [message] or takes it off (see [ChatReactions.toggle]). Shown at once; the whole
+     * set goes to the friend a moment later, so quick taps send one event.
+     */
+    fun react(message: ChatMessage, key: String) {
+        val me = me() ?: return
+        if (message.deleted) return
+        scope.launch {
+            val dao = dao ?: return@launch
+            val old = dao.reaction(me, message.peer, message.id, me)
+            val keys = ChatReactions.toggle(old?.keyList.orEmpty(), key)
+            if (key in keys) ChatReactions.used(key)
+            val ts = maxOf(System.currentTimeMillis(), (old?.ts ?: 0L) + 1)
+            dao.putReaction(ChatReaction(me, message.peer, message.id, me, keys.joinToString("\n"), ts, ChatMessage.STATE_SENDING))
+            val jobKey = message.peer + ":" + message.id
+            reactionJobs.remove(jobKey)?.cancel()
+            reactionJobs[jobKey] = scope.launch {
+                delay(REACT_DEBOUNCE_MS)
+                reactionJobs.remove(jobKey)
+                dao.reaction(me, message.peer, message.id, me)?.let { sendReaction(it) }
+            }
+        }
+    }
+
+    /** Signs my current set on a message and sends it. */
+    private suspend fun sendReaction(current: ChatReaction) {
+        val content = JSONObject().put("t", TYPE_REACT).put("v", PROTOCOL).put("id", current.msgId)
+            .put("ts", current.ts).put("r", JSONArray(current.keyList))
+        val event = sign(current.peer, KIND_DM, content) ?: return
+        val stored = current.copy(event = event.toJson().toString())
+        dao?.putReaction(stored)
+        Log.i(LOG_TAG, "react send msg=${current.msgId.take(8)} n=${current.keyList.size} ev=${event.id.take(8)}")
+        deliverReaction(stored, event.toJson())
+    }
+
+    /** Sends a reaction's event; it counts as sent at the first relay that takes it. */
+    private fun deliverReaction(r: ChatReaction, event: JSONObject) {
+        val accepted = java.util.concurrent.atomic.AtomicBoolean(false)
+        RelayPool.listen(event.optString("id")) { relay, ok, reason ->
+            Log.i(LOG_TAG, "react ack ${relay.removePrefix("wss://").take(24)} ${if (ok) "ok" else "refused:" + reason.take(40)}")
+            if (ok && accepted.compareAndSet(false, true)) {
+                scope.launch { dao?.setReactionState(r.owner, r.peer, r.msgId, r.ts, ChatMessage.STATE_SENT) }
+            }
+        }
+        RelayPool.publishRaw(event)
+        scope.launch {
+            delay(SEND_TIMEOUT_MS)
+            if (!accepted.get()) dao?.setReactionState(r.owner, r.peer, r.msgId, r.ts, ChatMessage.STATE_FAILED)
+        }
+    }
+
+    /** "Retry" on my reactions to a message that didn't go. */
+    fun retryReaction(r: ChatReaction) {
+        val event = r.event?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
+        scope.launch {
+            dao?.setReactionState(r.owner, r.peer, r.msgId, r.ts, ChatMessage.STATE_SENDING)
+            deliverReaction(r, event)
+        }
+    }
+
+    /** A friend's reactions to a message: their whole set now, kept if it is newer than what is there. */
+    private suspend fun applyReaction(me: String, author: String, event: NostrEvent, o: JSONObject) {
+        val dao = dao ?: return
+        val id = o.optString("id").takeIf { it.isNotBlank() && it.length <= 64 } ?: return
+        val ts = o.optLong("ts").takeIf { it > 0 }?.coerceAtMost(event.createdAt * 1000 + 60_000) ?: (event.createdAt * 1000)
+        val list = o.optJSONArray("r") ?: run {
+            Log.i(LOG_TAG, "react recv msg=${id.take(8)} invalid:no list")
+            return
+        }
+        val keys = (0 until list.length()).map { list.optString(it) }
+            .filter(ChatReactions::isWellFormed).distinct().take(ChatReactions.MAX)
+        if (dao.get(me, author, id)?.deleted == true) {
+            Log.i(LOG_TAG, "react recv msg=${id.take(8)} tombstoned")
+            return
+        }
+        val old = dao.reaction(me, author, id, author)
+        // The newer word wins; the same moment twice: the event id decides, the same on every phone.
+        if (old != null && (old.ts > ts || old.ts == ts && (old.event ?: "") >= event.id)) {
+            Log.i(LOG_TAG, "react recv msg=${id.take(8)} stale")
+            return
+        }
+        // Their row keeps the deciding event id in [ChatReaction.event] (it is never sent from here).
+        dao.putReaction(ChatReaction(me, author, id, author, keys.joinToString("\n"), ts, ChatMessage.STATE_RECEIVED, event.id))
+        Log.i(LOG_TAG, "react recv msg=${id.take(8)} applied n=${keys.size}")
     }
 
     // ── Reading, typing ──────────────────────────────────────────────────────────────────────────
@@ -551,9 +703,34 @@ object ChatHub {
         val o = JSONObject(prefs?.getString("peers_${me()}", "{}") ?: "{}")
         o.keys().asSequence().associateWith { k ->
             val v = o.getJSONObject(k)
-            PeerStatus(v.optBoolean("a"), v.optBoolean("c"))
+            // "c" (has chats, yes/no) from before the protocol number was kept.
+            val protocol = if (v.has("p")) v.optInt("p") else if (v.optBoolean("c")) 1 else 0
+            PeerStatus(v.optBoolean("a"), protocol, v.optString("ver").takeIf { it.isNotBlank() })
         }
     }.getOrDefault(emptyMap())
+
+    private fun savePeers(me: String, peers: Map<String, PeerStatus>) {
+        val out = JSONObject()
+        peers.forEach { (k, v) ->
+            val o = JSONObject().put("a", v.addedMe).put("c", v.hasChat).put("p", v.protocol)
+            v.version?.let { o.put("ver", it) }
+            out.put(k, o)
+        }
+        prefs?.edit()?.putString("peers_$me", out.toString())?.apply()
+    }
+
+    /** Anything a friend sends tells which chat format their app speaks: never less than known. */
+    private fun notePeerProtocol(peer: String, protocol: Int) {
+        val me = me() ?: return
+        val known = _peers.value[peer]
+        if (protocol <= 0 || (known != null && known.protocol >= protocol)) return
+        val updated = _peers.value + (peer to (known ?: PeerStatus(addedMe = true, protocol = 0)).copy(protocol = protocol))
+        _peers.value = updated
+        savePeers(me, updated)
+    }
+
+    /** A version as a friend's app tells it: short and plain, or nothing. */
+    private fun cleanVersion(raw: String?): String? = raw?.trim()?.takeIf { VERSION_RE.matches(it) }
 
     /**
      * Reads each friend's hello to this profile: there, it means they added me; with "chat", their
@@ -579,20 +756,23 @@ object ChatHub {
         val found = newest.mapValues { (author, e) ->
             val plain = e.content.takeIf { it.isNotEmpty() }?.let { Nostr.decrypt(sk, author, it) }
             val json = plain?.let { runCatching { JSONObject(it) }.getOrNull() }
-            PeerStatus(addedMe = plain != null, hasChat = (json?.optInt("chat") ?: 0) > 0)
+            val known = _peers.value[author]
+            // An old hello doesn't lower what their messages already showed.
+            val protocol = maxOf(json?.optInt("chat") ?: 0, known?.protocol ?: 0)
+            PeerStatus(addedMe = plain != null, protocol = protocol, version = cleanVersion(json?.optString("ver")) ?: known?.version)
         }
         // Only what was heard replaces what was known (a relay that didn't answer forgets nothing).
         val merged = _peers.value + found
         _peers.value = merged
-        val out = JSONObject()
-        merged.forEach { (k, v) -> out.put(k, JSONObject().put("a", v.addedMe).put("c", v.hasChat)) }
-        prefs?.edit()?.putString("peers_$me", out.toString())?.apply()
-        // My hello again (now with "chat"), once per friend who has me.
-        val told = prefs?.getStringSet("told_$me", emptySet()).orEmpty()
+        savePeers(me, merged)
+        // My hello again once per version of the app, to every friend who has me: they learn what
+        // this one can do (reactions) and which version it is.
+        val toldKey = "told_${me}_${com.metrolist.music.BuildConfig.VERSION_NAME}"
+        val told = prefs?.getStringSet(toldKey, emptySet()).orEmpty()
         val toTell = found.filter { it.value.addedMe && it.key !in told }.keys
         if (toTell.isNotEmpty()) {
             toTell.forEach(FriendsHub::sayHelloAgain)
-            prefs?.edit()?.putStringSet("told_$me", told + toTell)?.apply()
+            prefs?.edit()?.putStringSet(toldKey, told + toTell)?.apply()
         }
     }
 
@@ -707,6 +887,8 @@ object ChatHub {
     }
 
     private const val MAX_TEXT = 4_000
+    private const val REACT_DEBOUNCE_MS = 1_200L
+    private val VERSION_RE = Regex("^[0-9A-Za-z.+-]{1,16}$")
     private const val RELEASE_MS = 3 * 60_000L
     private const val FIRST_LOOK_S = 30L * 24 * 3600
     private const val OVERLAP_S = 10 * 60L

@@ -486,6 +486,10 @@ fun NavGraphBuilder.navigationBuilder(
         PrivacySettings(navController)
     }
 
+    composable("settings/messages") {
+        com.metrolist.music.ui.screens.settings.MessagesSettings(navController)
+    }
+
     composable("settings/backup_restore") {
         BackupAndRestore(navController)
     }

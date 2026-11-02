@@ -202,6 +202,7 @@ private fun NameLine(
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
         Text(name, style = style, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         if (FriendsHub.isDeveloper(pubkey) || verified) DeveloperBadge()
+        AppVersion(pubkey, Modifier.padding(start = 6.dp))
     }
 }
 

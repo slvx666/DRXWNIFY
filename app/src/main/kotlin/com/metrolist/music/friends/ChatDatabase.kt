@@ -6,6 +6,7 @@
 package com.metrolist.music.friends
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Embedded
@@ -62,6 +63,35 @@ data class ChatMessage(
     }
 }
 
+/**
+ * One person's reactions to one message: the whole set they have now (up to [ChatReactions.MAX] keys,
+ * oldest first), as their newest word on it says. An empty set stays as a row, so an older word
+ * arriving late can't bring a removed reaction back. Kept apart from [ChatMessage]: a reaction may
+ * come before its message, and a row in "message" would make that message be ignored when it comes.
+ */
+@Entity(
+    tableName = "reaction",
+    primaryKeys = ["owner", "peer", "msgId", "reactor"],
+    indices = [Index("owner", "peer")],
+)
+data class ChatReaction(
+    val owner: String,
+    val peer: String,
+    val msgId: String,
+    /** Who reacted: this profile ([owner]) or the friend ([peer]). */
+    val reactor: String,
+    /** The reaction keys ([ChatReactions]), one per line, oldest first. */
+    val keys: String,
+    /** The reactor's clock when they set it (ms): only a newer word replaces this one. */
+    val ts: Long,
+    /** Mine: [ChatMessage.STATE_SENDING], _SENT or _FAILED; theirs: _RECEIVED. */
+    val state: Int = ChatMessage.STATE_RECEIVED,
+    /** Mine while it's being sent: the signed event, so a retry sends the very same one. */
+    val event: String? = null,
+) {
+    val keyList: List<String> get() = keys.split('\n').filter { it.isNotEmpty() }
+}
+
 data class ChatPreview(
     @Embedded val last: ChatMessage,
     val unread: Int,
@@ -97,6 +127,10 @@ interface ChatDao {
     @Query("SELECT * FROM message WHERE owner = :owner AND mine = 1 AND event IS NOT NULL AND state != 1")
     suspend fun outbox(owner: String): List<ChatMessage>
 
+    /** Mine shown but never signed (the app went between the two), older than [before]. */
+    @Query("SELECT * FROM message WHERE owner = :owner AND mine = 1 AND event IS NULL AND state = 0 AND deleted = 0 AND ts < :before")
+    suspend fun unsigned(owner: String, before: Long): List<ChatMessage>
+
     /** -1 when it was already there. */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(message: ChatMessage): Long
@@ -118,10 +152,47 @@ interface ChatDao {
 
     @Query("DELETE FROM message WHERE owner = :owner AND peer = :peer")
     suspend fun clear(owner: String, peer: String)
+
+    // ── Reactions ──
+
+    /** A chat's reactions, on messages still there (a deleted message's go with it). */
+    @Query(
+        """
+        SELECT r.* FROM reaction r
+        WHERE r.owner = :owner AND r.peer = :peer AND r.keys != ''
+          AND NOT EXISTS (SELECT 1 FROM message m WHERE m.owner = r.owner AND m.peer = r.peer AND m.id = r.msgId AND m.deleted = 1)
+        """,
+    )
+    fun reactions(owner: String, peer: String): Flow<List<ChatReaction>>
+
+    @Query("SELECT * FROM reaction WHERE owner = :owner AND peer = :peer AND msgId = :msgId AND reactor = :reactor")
+    suspend fun reaction(owner: String, peer: String, msgId: String, reactor: String): ChatReaction?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putReaction(reaction: ChatReaction)
+
+    @Query("UPDATE reaction SET state = :state, event = CASE WHEN :state = 1 THEN NULL ELSE event END WHERE owner = :owner AND peer = :peer AND msgId = :msgId AND reactor = :owner AND ts = :ts")
+    suspend fun setReactionState(owner: String, peer: String, msgId: String, ts: Long, state: Int)
+
+    /** My reactions not sent yet: signed and waiting, or put but never signed. */
+    @Query("SELECT * FROM reaction WHERE owner = :owner AND reactor = :owner AND state IN (0, 2)")
+    suspend fun reactionOutbox(owner: String): List<ChatReaction>
+
+    @Query("DELETE FROM reaction WHERE owner = :owner AND peer = :peer AND msgId = :msgId")
+    suspend fun dropReactions(owner: String, peer: String, msgId: String)
+
+    @Query("DELETE FROM reaction WHERE owner = :owner AND peer = :peer")
+    suspend fun clearReactions(owner: String, peer: String)
 }
 
 /** Chats live in their own file, apart from the music library's database and its migrations. */
-@Database(entities = [ChatMessage::class], version = 1, exportSchema = true)
+@Database(
+    entities = [ChatMessage::class, ChatReaction::class],
+    version = 2,
+    exportSchema = true,
+    // 2: reactions (a new table; messages untouched).
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
+)
 abstract class ChatDatabase : RoomDatabase() {
     abstract val dao: ChatDao
 

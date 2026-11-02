@@ -137,6 +137,15 @@ import com.metrolist.music.friends.ChatHub
 import com.metrolist.music.friends.ChatMessage
 import com.metrolist.music.friends.ChatMusic
 import com.metrolist.music.friends.ChatPreview
+import com.metrolist.music.friends.ChatReaction
+import com.metrolist.music.friends.ChatReactions
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import kotlin.math.roundToInt
 import com.metrolist.music.friends.FriendPlayback
 import com.metrolist.music.friends.FriendsHub
 import com.metrolist.music.friends.Stickers
@@ -145,6 +154,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -392,12 +402,15 @@ private sealed interface Line {
 fun ChatScreen(navController: NavController, peer: String) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // Drawn at once from the last look, while the database answers.
-    val messages by remember(peer) { ChatHub.messages(peer) }.collectAsState(ChatHub.cachedMessages(peer))
+    // Drawn at once from the last look, while the database answers; null until it first has.
+    val cached = remember(peer) { ChatHub.cachedMessages(peer) }
+    val loaded by remember(peer) { ChatHub.messages(peer) }.collectAsState(initial = cached)
+    val messages = loaded.orEmpty()
+    val reactions by remember(peer) { ChatHub.reactions(peer) }.collectAsState(initial = emptyMap())
+    val me = FriendsHub.profile.collectAsState().value?.pubkey
     val name = peerName(peer)
     val data by FriendsHub.data.collectAsState()
     val peers by ChatHub.peers.collectAsState()
-    val typing = peer in typingNow()
     val listState = rememberLazyListState()
     val playerConnection = LocalPlayerConnection.current
     val hasPlayer = (playerConnection?.mediaMetadata ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsState().value != null
@@ -408,37 +421,35 @@ fun ChatScreen(navController: NavController, peer: String) {
     }
     LiveWhileShown()
     // Sent from here: the list goes to the newest message even if it was scrolled up.
-    var jumpToNewest by remember { mutableStateOf(false) }
-    // New messages read while the conversation is open; at the bottom, the list stays there.
+    val jumpToNewest = remember { BooleanArray(1) }
+    // New messages read while the conversation is open.
     LaunchedEffect(messages.firstOrNull()?.id) {
         if (messages.any { !it.mine && !it.read }) ChatHub.markRead(peer)
-        if (jumpToNewest || listState.firstVisibleItemIndex <= 1) listState.scrollToItem(0)
-        jumpToNewest = false
     }
 
     var replyTo by remember { mutableStateOf<ChatMessage?>(null) }
     var editing by remember { mutableStateOf<ChatMessage?>(null) }
+    // Bumped by a swipe or "Reply": the field takes the focus and the keyboard comes up.
+    var replyFocus by remember { mutableIntStateOf(0) }
+    var menuFor by remember { mutableStateOf<MenuTarget?>(null) }
+    BackHandler(enabled = menuFor != null) { menuFor = null }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val view = LocalView.current
 
-    val lines = remember(messages) {
-        val out = mutableListOf<Line>()
-        val lone = messages.map { isLoneTrack(it) }
-        var i = 0
-        while (i < messages.size) {
-            val m = messages[i]
-            // Tracks sent together (picked at once in the music panel) make one bubble, as in Telegram.
-            var j = i + 1
-            if (lone[i]) {
-                while (j < messages.size && lone[j] && messages[j].mine == m.mine && messages[j - 1].ts - messages[j].ts <= BATCH_GAP_MS) j++
-            }
-            val batch = messages.subList(i, j).reversed()
-            val oldest = batch.first()
-            val older = messages.getOrNull(j)
-            val firstOfGroup = older == null || older.mine != oldest.mine || oldest.ts - older.ts > 5 * 60_000 || dateOf(older.ts) != dateOf(oldest.ts)
-            out += Line.Msg(m, batch, firstOfGroup)
-            if (older == null || dateOf(older.ts) != dateOf(oldest.ts)) out += Line.Day(dateOf(oldest.ts))
-            i = j
-        }
-        out
+    // Built off the main thread (cards are parsed on the way); the first frame from the last look.
+    val lines by produceState(remember(peer) { buildLines(cached.orEmpty()) }, messages) {
+        value = withContext(Dispatchers.Default) { buildLines(messages) }
+    }
+    // A new message at the bottom: the list shows it in the same frame it comes in (asked during
+    // composition, so it never first lands off screen and then jumps).
+    val newestKey = lines.firstOrNull()?.key
+    val seenNewest = remember(peer) { arrayOfNulls<String>(1) }
+    if (newestKey != seenNewest[0]) {
+        val firstLook = seenNewest[0] == null
+        seenNewest[0] = newestKey
+        if (!firstLook && (jumpToNewest[0] || listState.firstVisibleItemIndex <= 1)) listState.requestScrollToItem(0)
+        jumpToNewest[0] = false
     }
 
     // Picked messages (a long press → "Select", then taps): forwarded, copied or deleted together.
@@ -519,7 +530,12 @@ fun ChatScreen(navController: NavController, peer: String) {
                 ) {
                     PeerAvatar(peer, name, 40.dp)
                     Column(Modifier.padding(start = 12.dp)) {
-                        Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            AppVersion(peer, Modifier.padding(start = 6.dp))
+                        }
+                        // Read here, so its once-a-second tick redraws only this line.
+                        val typing = peer in typingNow()
                         val now = data[peer]?.now
                         val status = when {
                             typing -> stringResource(R.string.chat_typing)
@@ -555,7 +571,7 @@ fun ChatScreen(navController: NavController, peer: String) {
             }
         }
         Box(Modifier.weight(1f)) {
-            if (messages.isEmpty()) {
+            if (loaded != null && messages.isEmpty()) {
                 EmptyNote(stringResource(R.string.chat_say_hi), Modifier.align(Alignment.Center))
             }
             LazyColumn(
@@ -572,14 +588,41 @@ fun ChatScreen(navController: NavController, peer: String) {
                             batch = line.batch,
                             firstOfGroup = line.firstOfGroup,
                             reply = line.batch.first().replyTo?.let(byId::get),
+                            reactions = reactions[line.batch.first().id],
+                            me = me,
                             peerName = name,
                             navController = navController,
                             selecting = selecting,
                             selected = line.batch.all { it.id in selected },
                             onSelect = { toggle(line.batch) },
-                            onForward = { forward(line.batch) },
-                            onReply = { replyTo = it; editing = null },
-                            onEdit = { editing = it; replyTo = null },
+                            onReply = { replyTo = it; editing = null; replyFocus++ },
+                            onMenu = { target ->
+                                // The menu needs the screen: the keyboard goes down first, and the
+                                // menu comes by the message where it ends up.
+                                val ime = androidx.core.view.WindowInsetsCompat.Type.ime()
+                                fun imeUp() = androidx.core.view.ViewCompat.getRootWindowInsets(view)?.isVisible(ime) == true
+                                if (imeUp()) {
+                                    keyboardController?.hide()
+                                    focusManager.clearFocus()
+                                    scope.launch {
+                                        // Until the keyboard has gone and the message stopped moving
+                                        // with it (the inset says "hidden" as soon as it starts going).
+                                        var last: androidx.compose.ui.geometry.Rect? = null
+                                        withTimeoutOrNull(900) {
+                                            while (true) {
+                                                delay(32)
+                                                val now = target()?.bounds
+                                                if (!imeUp() && now != null && now == last) break
+                                                last = now
+                                            }
+                                        }
+                                        menuFor = target()
+                                    }
+                                } else {
+                                    focusManager.clearFocus()
+                                    menuFor = target()
+                                }
+                            },
                             onQuoteClick = { id ->
                                 val index = lines.indexOfFirst { it is Line.Msg && it.batch.any { b -> b.id == id } }
                                 if (index >= 0) scope.launch { listState.animateScrollToItem(index) }
@@ -596,7 +639,8 @@ fun ChatScreen(navController: NavController, peer: String) {
             replyTo = replyTo,
             editing = editing,
             onCancel = { replyTo = null; editing = null },
-            onSent = { jumpToNewest = true },
+            onSent = { jumpToNewest[0] = true },
+            replyFocus = replyFocus,
             hasPlayer = hasPlayer,
             onPreview = { s ->
                 preview = s
@@ -613,8 +657,32 @@ fun ChatScreen(navController: NavController, peer: String) {
                 ChatHub.sendAll(peer, "", picked, replyTo?.id)
                 replyTo = null
                 editing = null
-                jumpToNewest = true
+                jumpToNewest[0] = true
             },
+        )
+        val menuTarget = menuFor
+        val menuStatus = peers[peer]
+        val density = LocalDensity.current
+        MessageMenu(
+            target = menuTarget,
+            // Clear of the mini player (it stays drawn over the chat).
+            bottomPx = LocalPlayerAwareWindowInsets.current.getBottom(density) +
+                if (hasPlayer) with(density) { (com.metrolist.music.constants.MiniPlayerBottomSpacing + 8.dp).roundToPx() } else 0,
+            actions = menuActions(
+                menuTarget,
+                onReply = { replyTo = it; editing = null; replyFocus++ },
+                onForward = ::forward,
+                onSelect = ::toggle,
+                onEdit = { editing = it; replyTo = null },
+                close = { menuFor = null },
+            ),
+            myKeys = menuTarget?.let { t -> reactions[t.batch.first().id]?.firstOrNull { it.reactor == me }?.keyList }.orEmpty(),
+            oldAppNote = if (menuStatus != null && menuStatus.hasChat && !menuStatus.hasReactions) stringResource(R.string.chat_reactions_old_app, name) else null,
+            onReact = { key ->
+                menuTarget?.let { ChatHub.react(it.batch.first(), key) }
+                menuFor = null
+            },
+            onDismiss = { menuFor = null },
         )
         // The shade only fades (with the blur under it); the sticker itself grows in.
         androidx.compose.animation.AnimatedVisibility(
@@ -657,6 +725,29 @@ fun ChatScreen(navController: NavController, peer: String) {
 /** Gap between tracks sent together, at most (they go one after another, a few ms apart). */
 private const val BATCH_GAP_MS = 3_000L
 
+/** The conversation's lines, newest first: messages (tracks sent together as one) and day chips. */
+private fun buildLines(messages: List<ChatMessage>): List<Line> {
+    val out = mutableListOf<Line>()
+    val lone = messages.map { isLoneTrack(it) }
+    var i = 0
+    while (i < messages.size) {
+        val m = messages[i]
+        // Tracks sent together (picked at once in the music panel) make one bubble, as in Telegram.
+        var j = i + 1
+        if (lone[i]) {
+            while (j < messages.size && lone[j] && messages[j].mine == m.mine && messages[j - 1].ts - messages[j].ts <= BATCH_GAP_MS) j++
+        }
+        val batch = messages.subList(i, j).reversed()
+        val oldest = batch.first()
+        val older = messages.getOrNull(j)
+        val firstOfGroup = older == null || older.mine != oldest.mine || oldest.ts - older.ts > 5 * 60_000 || dateOf(older.ts) != dateOf(oldest.ts)
+        out += Line.Msg(m, batch, firstOfGroup)
+        if (older == null || dateOf(older.ts) != dateOf(oldest.ts)) out += Line.Day(dateOf(oldest.ts))
+        i = j
+    }
+    return out
+}
+
 /** A track card alone (no text, not a reply): such ones sent together share a bubble. */
 private fun isLoneTrack(m: ChatMessage): Boolean =
     m.text.isBlank() && m.replyTo == null && ChatMusic.fromJson(m.music)?.kind == AppLinks.Kind.TRACK
@@ -692,19 +783,18 @@ private fun MessageItem(
     batch: List<ChatMessage>,
     firstOfGroup: Boolean,
     reply: ChatMessage?,
+    reactions: List<ChatReaction>?,
+    me: String?,
     peerName: String,
     navController: NavController,
     selecting: Boolean,
     selected: Boolean,
     onSelect: () -> Unit,
-    onForward: () -> Unit,
     onReply: (ChatMessage) -> Unit,
-    onEdit: (ChatMessage) -> Unit,
+    onMenu: (() -> MenuTarget?) -> Unit,
     onQuoteClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    var menu by remember { mutableStateOf(false) }
     val first = batch.first()
     val music = remember(m.music) { ChatMusic.fromJson(m.music) }
     val tracks = remember(batch) { if (batch.size > 1) batch.mapNotNull { ChatMusic.fromJson(it.music) } else emptyList() }
@@ -716,7 +806,23 @@ private fun MessageItem(
             ?: batch.firstOrNull { !it.read }
             ?: batch.last()
     }
-    val failed = batch.filter { it.mine && it.state == ChatMessage.STATE_FAILED }
+    val haptic = LocalHapticFeedback.current
+    val launch = rememberLauncher()
+    val replyLabel = stringResource(R.string.chat_reply)
+    val quickLabel = stringResource(R.string.chat_quick_reaction)
+    val selectLabel = stringResource(R.string.chat_select)
+    val (edgePx, replyPx) = rememberReplyPx()
+    val swipe = remember { SwipeReply() }
+    // Where the bubble is, read when the menu opens (no work while scrolling).
+    var bubble by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+
+    // My own new message rises into place from the field, as in Telegram.
+    val appear = remember(first.id) {
+        Animatable(if (m.mine && m.state == ChatMessage.STATE_SENDING && System.currentTimeMillis() - m.ts < 1_500) 1f else 0f)
+    }
+    LaunchedEffect(first.id) {
+        if (appear.value > 0f) appear.animateTo(0f, tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+    }
 
     val bubbleColor = if (m.mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
     val textColor = if (m.mine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
@@ -730,29 +836,61 @@ private fun MessageItem(
         if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent,
         label = "selected",
     )
-    // In picking, every tap picks; otherwise a tap on a failed one opens its menu.
-    val onTap: () -> Unit = { if (selecting) onSelect() else if (failed.isNotEmpty()) menu = true }
-    val onHold: () -> Unit = { if (selecting) onSelect() else menu = true }
+    fun openMenu() {
+        // Where the bubble is when the menu shows (the keyboard may still have to go down first).
+        onMenu { bubble?.takeIf { it.isAttached }?.boundsInRoot()?.let { MenuTarget(m, batch, it, m.mine) } }
+    }
+    // A double tap anywhere on the message's line puts the quick reaction (or takes it back).
+    val canReact = !selecting && !first.deleted && !(first.mine && first.state == ChatMessage.STATE_SENDING && first.event == null)
+    val quick: (() -> Unit)? = if (canReact) ({
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        ChatHub.react(first, ChatReactions.quick.value)
+    }) else null
+    val onTap: () -> Unit = { if (selecting) onSelect() else openMenu() }
+    val onHold: () -> Unit = { if (selecting) onSelect() else openMenu() }
     val pick: (() -> Unit)? = if (selecting) onSelect else null
     Box(
         modifier
             .fillMaxWidth()
+            .graphicsLayer { translationY = appear.value * 48.dp.toPx() }
             .background(highlight)
+            .swipeToReply(
+                state = swipe,
+                enabled = !selecting,
+                edgePx = edgePx,
+                replyPx = replyPx,
+                onCross = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) },
+                onReply = { onReply(first) },
+                launch = launch,
+            )
             // Beside the bubble: a tap opens the message's menu (a pick while picking), a hold picks it.
             .combinedClickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null,
-                onClick = { if (selecting) onSelect() else menu = true },
+                onClick = onTap,
+                onDoubleClick = quick,
                 onLongClick = onSelect,
             )
+            .semantics {
+                customActions = listOfNotNull(
+                    androidx.compose.ui.semantics.CustomAccessibilityAction(replyLabel) { onReply(first); true },
+                    quick?.let { q -> androidx.compose.ui.semantics.CustomAccessibilityAction(quickLabel) { q(); true } },
+                    androidx.compose.ui.semantics.CustomAccessibilityAction(selectLabel) { onSelect(); true },
+                )
+            }
             .padding(top = if (firstOfGroup) 6.dp else 2.dp, bottom = 1.dp),
         contentAlignment = if (m.mine) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
-        Box {
-            val clickable = Modifier.combinedClickable(onClick = onTap, onLongClick = onHold)
+        ReplyArrow(swipe, replyPx, Modifier.align(Alignment.CenterEnd))
+        Column(
+            horizontalAlignment = if (m.mine) Alignment.End else Alignment.Start,
+            modifier = Modifier.offset { androidx.compose.ui.unit.IntOffset(swipe.offset.roundToInt(), 0) },
+        ) {
+            val clickable = Modifier.combinedClickable(onClick = onTap, onDoubleClick = quick, onLongClick = onHold)
             val footer: @Composable () -> Unit = { TimeAndTicks(shown, textColor, m.edited) }
+            val place = Modifier.onGloballyPositioned { bubble = it }
             if (stickersOnly != null) {
-                Column(horizontalAlignment = if (m.mine) Alignment.End else Alignment.Start, modifier = clickable) {
+                Column(horizontalAlignment = if (m.mine) Alignment.End else Alignment.Start, modifier = place.then(clickable)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         stickersOnly.forEach { part ->
                             if (stickersOnly.size == 1) BigSticker(part.sticker, 150.dp, 200.dp) else BigSticker(part.sticker, 110.dp, 120.dp)
@@ -772,7 +910,7 @@ private fun MessageItem(
                 }
             } else {
                 Column(
-                    Modifier
+                    place
                         .widthIn(max = 300.dp)
                         .clip(shape)
                         .background(bubbleColor)
@@ -803,62 +941,57 @@ private fun MessageItem(
                     }
                 }
             }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                if (failed.isNotEmpty()) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.chat_retry)) },
-                        leadingIcon = { Icon(painterResource(R.drawable.refresh), null) },
-                        onClick = { menu = false; failed.forEach(ChatHub::retry) },
-                    )
-                }
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.chat_reply)) },
-                    leadingIcon = { Icon(painterResource(R.drawable.chat_reply), null) },
-                    onClick = { menu = false; onReply(first) },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.chat_forwarding)) },
-                    leadingIcon = { Icon(painterResource(R.drawable.share), null) },
-                    onClick = { menu = false; onForward() },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.chat_select)) },
-                    leadingIcon = { Icon(painterResource(R.drawable.check), null) },
-                    onClick = { menu = false; onSelect() },
-                )
-                val copyText = batch.mapNotNull { copyTextOf(it).ifEmpty { null } }.joinToString("\n")
-                if (copyText.isNotEmpty()) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.chat_copy)) },
-                        leadingIcon = { Icon(painterResource(R.drawable.content_copy), null) },
-                        onClick = {
-                            menu = false
-                            context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("message", copyText))
-                            Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
-                        },
-                    )
-                }
-                if (batch.size == 1 && m.mine && m.text.isNotBlank() && m.state != ChatMessage.STATE_FAILED) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.chat_edit)) },
-                        leadingIcon = { Icon(painterResource(R.drawable.edit), null) },
-                        onClick = { menu = false; onEdit(m) },
-                    )
-                }
-                if (m.mine) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.chat_delete_both)) },
-                        leadingIcon = { Icon(painterResource(R.drawable.delete), null) },
-                        onClick = { menu = false; batch.forEach { ChatHub.delete(it, forBoth = true) } },
-                    )
-                }
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.chat_delete_me)) },
-                    leadingIcon = { Icon(painterResource(R.drawable.delete), null) },
-                    onClick = { menu = false; batch.forEach { ChatHub.delete(it, forBoth = false) } },
-                )
-            }
+            ReactionChips(
+                reactions = reactions,
+                me = me,
+                mine = m.mine,
+                onToggle = { key -> if (canReact) ChatHub.react(first, key) },
+            )
         }
+    }
+}
+
+/** What the menu of [t] offers: retry, reply, forward, select, copy, edit, delete. */
+@Composable
+private fun menuActions(
+    t: MenuTarget?,
+    onReply: (ChatMessage) -> Unit,
+    onForward: (List<ChatMessage>) -> Unit,
+    onSelect: (List<ChatMessage>) -> Unit,
+    onEdit: (ChatMessage) -> Unit,
+    close: () -> Unit,
+): List<MenuAction> {
+    val context = LocalContext.current
+    val retry = stringResource(R.string.chat_retry)
+    val reply = stringResource(R.string.chat_reply)
+    val forward = stringResource(R.string.chat_forwarding)
+    val select = stringResource(R.string.chat_select)
+    val copy = stringResource(R.string.chat_copy)
+    val edit = stringResource(R.string.chat_edit)
+    val deleteBoth = stringResource(R.string.chat_delete_both)
+    val deleteMe = stringResource(R.string.chat_delete_me)
+    if (t == null) return emptyList()
+    val m = t.message
+    val batch = t.batch
+    val failed = batch.filter { it.mine && it.state == ChatMessage.STATE_FAILED }
+    val copyText = batch.mapNotNull { copyTextOf(it).ifEmpty { null } }.joinToString("\n")
+    return buildList {
+        if (failed.isNotEmpty()) add(MenuAction(retry, R.drawable.refresh) { close(); failed.forEach(ChatHub::retry) })
+        add(MenuAction(reply, R.drawable.chat_reply) { close(); onReply(batch.first()) })
+        add(MenuAction(forward, R.drawable.share) { close(); onForward(batch) })
+        add(MenuAction(select, R.drawable.check) { close(); onSelect(batch) })
+        if (copyText.isNotEmpty()) {
+            add(MenuAction(copy, R.drawable.content_copy) {
+                close()
+                context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("message", copyText))
+                Toast.makeText(context, R.string.copied, Toast.LENGTH_SHORT).show()
+            })
+        }
+        if (batch.size == 1 && m.mine && m.text.isNotBlank() && m.state != ChatMessage.STATE_FAILED) {
+            add(MenuAction(edit, R.drawable.edit) { close(); onEdit(m) })
+        }
+        if (m.mine) add(MenuAction(deleteBoth, R.drawable.delete, danger = true) { close(); batch.forEach { ChatHub.delete(it, forBoth = true) } })
+        add(MenuAction(deleteMe, R.drawable.delete, danger = true) { close(); batch.forEach { ChatHub.delete(it, forBoth = false) } })
     }
 }
 
@@ -1125,6 +1258,7 @@ private fun Composer(
     editing: ChatMessage?,
     onCancel: () -> Unit,
     onSent: () -> Unit,
+    replyFocus: Int,
     hasPlayer: Boolean,
     onPreview: (Stickers.Sticker?) -> Unit,
     onOpenMusic: () -> Unit,
@@ -1200,7 +1334,21 @@ private fun Composer(
         }
     }
 
-    LaunchedEffect(editing?.id) { editing?.let { field = TextFieldValue(it.text, TextRange(it.text.length)) } }
+    // Editing puts the text in the field; leaving it for a reply (a swipe) takes that text away again,
+    // so it never goes out as a new message.
+    val wasEditing = remember { BooleanArray(1) }
+    LaunchedEffect(editing?.id) {
+        val e = editing
+        if (e != null) {
+            field = TextFieldValue(e.text, TextRange(e.text.length))
+            wasEditing[0] = true
+        } else if (wasEditing[0]) {
+            wasEditing[0] = false
+            field = TextFieldValue()
+        }
+    }
+    // A reply was started (swipe, menu): the keyboard comes up for it.
+    LaunchedEffect(replyFocus) { if (replyFocus > 0) showKeyboard() }
 
     /** The sticker at the cursor, in place of the [replace] characters before it (its typed code). */
     fun insertSticker(s: Stickers.Sticker, replace: Int = 0) {
@@ -1233,36 +1381,55 @@ private fun Composer(
 
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Column {
+            // Each strip keeps what it showed while it slides away (else it would go blank first and
+            // look like it vanished at once).
             // Forwarding: what goes with the next send.
-            val fwd = forward
-            AnimatedVisibility(fwd != null && editing == null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                if (fwd != null) {
+            val fwd = forward?.takeIf { editing == null }
+            val fwdShown = lastNonNull(fwd)
+            AnimatedVisibility(fwd != null, enter = stripEnter, exit = stripExit) {
+                if (fwdShown != null) {
                     Strip(
                         icon = R.drawable.share,
                         title = stringResource(R.string.chat_forwarding),
-                        text = fwd.joinToString(", ") { it.music?.label() ?: Stickers.plain(it.text).trim() },
+                        text = fwdShown.joinToString(", ") { it.music?.label() ?: Stickers.plain(it.text).trim() },
                         onClose = ChatHub::cancelForward,
                     )
                 }
             }
-            // Replying to / editing.
-            val target = editing ?: replyTo
-            AnimatedVisibility(target != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                if (target != null) {
-                    Strip(
-                        icon = if (editing != null) R.drawable.edit else R.drawable.chat_reply,
-                        title = if (editing != null) stringResource(R.string.chat_editing) else if (target.mine) stringResource(R.string.chat_you) else peerName,
-                        text = ChatHub.preview(context, target),
-                        onClose = { if (editing != null) field = TextFieldValue(); onCancel() },
-                    )
+            // Replying to / editing (one turning into the other crossfades in place).
+            val target = (editing ?: replyTo)?.let { t ->
+                StripText(
+                    icon = if (editing != null) R.drawable.edit else R.drawable.chat_reply,
+                    title = if (editing != null) stringResource(R.string.chat_editing) else if (t.mine) stringResource(R.string.chat_you) else peerName,
+                    text = ChatHub.preview(context, t),
+                    editing = editing != null,
+                )
+            }
+            val targetShown = lastNonNull(target)
+            AnimatedVisibility(target != null, enter = stripEnter, exit = stripExit) {
+                if (targetShown != null) {
+                    androidx.compose.animation.AnimatedContent(
+                        targetShown,
+                        transitionSpec = { fadeIn(tween(CHAT_MOTION_MS)) togetherWith fadeOut(tween(CHAT_MOTION_MS)) },
+                        contentKey = { it.icon to it.text },
+                        label = "strip",
+                    ) { s ->
+                        Strip(
+                            icon = s.icon,
+                            title = s.title,
+                            text = s.text,
+                            onClose = { if (s.editing) field = TextFieldValue(); onCancel() },
+                        )
+                    }
                 }
             }
             // Codes that start like what is typed before the cursor: a tap puts the sticker in its place.
             val beforeCursor = field.text.substring(0, field.selection.min.coerceIn(0, field.text.length))
-            val suggestions = remember(beforeCursor) { Stickers.suggest(beforeCursor) }
-            AnimatedVisibility(suggestions.isNotEmpty(), enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            val suggestions = remember(beforeCursor) { Stickers.suggest(beforeCursor).takeIf { it.isNotEmpty() } }
+            val suggestionsShown = lastNonNull(suggestions).orEmpty()
+            AnimatedVisibility(suggestions != null, enter = stripEnter, exit = stripExit) {
                 LazyRow(contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(suggestions, key = { it.first.id }) { (s, typed) ->
+                    items(suggestionsShown, key = { it.first.id }) { (s, typed) ->
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
@@ -1452,6 +1619,13 @@ private class StickerCodes(private val color: Color) : VisualTransformation {
         return TransformedText(shown, mapping)
     }
 }
+
+private data class StripText(val icon: Int, val title: String, val text: String, val editing: Boolean)
+
+private val stripEnter = expandVertically(tween(CHAT_MOTION_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing), expandFrom = Alignment.Bottom) +
+    fadeIn(tween(CHAT_MOTION_MS))
+private val stripExit = shrinkVertically(tween(CHAT_MOTION_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing), shrinkTowards = Alignment.Bottom) +
+    fadeOut(tween(CHAT_MOTION_MS - 60))
 
 /** A line above the field: forwarding, replying to, editing — with a cross to drop it. */
 @Composable

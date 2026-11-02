@@ -208,8 +208,13 @@ object FriendsHub {
     private val _reviewsAccess = MutableStateFlow(false)
     val reviewsAccess: StateFlow<Boolean> = _reviewsAccess
 
+    /**
+     * The mark is kept as the key it was given to, not as a yes/no: a settings backup restored on
+     * another phone (or another profile on this one) carries the file along, and must not carry the mark.
+     */
     private fun refreshAccess() {
-        _reviewsAccess.value = _profile.value?.isDeveloper == true || prefs?.getBoolean("iAmVerified", false) == true
+        val me = _profile.value
+        _reviewsAccess.value = me?.isDeveloper == true || (me != null && prefs?.getString("verifiedFor", null) == me.pubkey)
     }
 
     @Volatile
@@ -370,7 +375,16 @@ object FriendsHub {
             .put("kinds", JSONArray().put(Nostr.KIND_APP_DATA))
             .put("authors", JSONArray().put(DEVELOPER_PUBKEY))
             .put("#d", JSONArray().put("$D_PREFIX$F_VERIFIED:${me.pubkey}"))
-        val id = RelayPool.subscribe(listOf(filter), ::onEvent)
+        // No mark on three relays that answered in full: there is none (any more), the reviews close.
+        var found = false
+        var ends = 0
+        val id = RelayPool.subscribe(listOf(filter), {
+            val enough = synchronized(this) { ends++; ends == 3 }
+            if (enough && !found && _profile.value?.pubkey == me.pubkey) {
+                prefs?.edit()?.remove("verifiedFor")?.apply()
+                refreshAccess()
+            }
+        }) { event -> found = true; onEvent(event) }
         scope.launch {
             delay(25_000L)
             RelayPool.close(id)
@@ -526,7 +540,7 @@ object FriendsHub {
     private fun saveKey(sk: ByteArray, name: String) {
         val pub = Secp256k1.publicKey(sk).toHex()
         // Another profile: its mark has to be looked up again.
-        if (pub != _profile.value?.pubkey) prefs?.edit()?.remove("iAmVerified")?.apply()
+        if (pub != _profile.value?.pubkey) prefs?.edit()?.remove("verifiedFor")?.remove("iAmVerified")?.apply()
         secretKey = sk
         prefs?.edit()?.putString("sk", sk.toHex())?.putString("name", name)?.apply()
         _profile.value = Profile(pub, name, prefs?.getString("avatar", null))
@@ -747,7 +761,9 @@ object FriendsHub {
                 val on = event.content.isNotEmpty() &&
                     Nostr.decrypt(sk, DEVELOPER_PUBKEY, event.content)
                         ?.let { runCatching { JSONObject(it).optInt("v") == 1 }.getOrDefault(false) } == true
-                prefs?.edit()?.putBoolean("iAmVerified", on)?.apply()
+                val edit = prefs?.edit()?.remove("iAmVerified")
+                if (on) edit?.putString("verifiedFor", me) else edit?.remove("verifiedFor")
+                edit?.apply()
                 refreshAccess()
             }
             // The developer's own marks, read back on another phone with his key.
@@ -767,7 +783,8 @@ object FriendsHub {
     // ── Publishing ───────────────────────────────────────────────────────────────────────────────
 
     /** "I added you" with this profile's name; "chat" tells the friend this version has chats. */
-    private fun helloContent(name: String) = JSONObject().put("name", name).put("chat", ChatHub.PROTOCOL).toString()
+    private fun helloContent(name: String) = JSONObject().put("name", name).put("chat", ChatHub.PROTOCOL)
+        .put("ver", com.metrolist.music.BuildConfig.VERSION_NAME.substringBefore('-').take(16)).toString()
 
     /** The hello sent again to a friend who already has this profile (so they learn it now has chats). */
     internal fun sayHelloAgain(pubkey: String) {
