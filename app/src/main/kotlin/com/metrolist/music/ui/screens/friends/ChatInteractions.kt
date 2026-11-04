@@ -109,6 +109,19 @@ internal fun <T : Any> lastNonNull(value: T?): T? {
 /** One duration for what slides in and out above the field and around messages. */
 internal const val CHAT_MOTION_MS = 200
 
+/** How long a tap on a message waits for a second one (the system's 300 ms felt slow). */
+private const val CHAT_DOUBLE_TAP_MS = 175L
+
+@Composable
+internal fun rememberChatViewConfiguration(): androidx.compose.ui.platform.ViewConfiguration {
+    val base = androidx.compose.ui.platform.LocalViewConfiguration.current
+    return remember(base) {
+        object : androidx.compose.ui.platform.ViewConfiguration by base {
+            override val doubleTapTimeoutMillis: Long get() = CHAT_DOUBLE_TAP_MS
+        }
+    }
+}
+
 // ── Swipe to reply ───────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -337,11 +350,14 @@ internal fun MessageMenu(
     val shownActions = lastNonNull(actions.takeIf { target != null })
     // Keyed on what is shown, not on the target: closing (the target gone first) used to fold the
     // full set back into the seven and the actions for the length of the fade.
-    var expanded by remember(shown?.message?.id) { mutableStateOf(false) }
+    // Each opening is its own (a new target even for the same message): opening the same message
+    // again used to show the full set it was closed with.
+    val opening = shown?.let { System.identityHashCode(it) }
+    var expanded by remember(opening) { mutableStateOf(false) }
     // The seven are read once per opening, so they never move under the finger.
-    val top = remember(shown?.message?.id) { ChatReactions.top() }
+    val top = remember(opening) { ChatReactions.top() }
     // Where the seven stood (x, y, right edge): the full set grows out of that spot.
-    val anchor = remember(shown?.message?.id) { IntArray(3) }
+    val anchor = remember(opening) { IntArray(3) }
     var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
 
     AnimatedVisibility(visible = target != null, enter = fadeIn(tween(CHAT_MOTION_MS)), exit = fadeOut(tween(160))) {

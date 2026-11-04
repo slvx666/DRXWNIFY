@@ -581,6 +581,9 @@ fun ChatScreen(navController: NavController, peer: String) {
             if (loaded != null && messages.isEmpty()) {
                 EmptyNote(stringResource(R.string.chat_say_hi), Modifier.align(Alignment.Center))
             }
+            // A tap on a message waits less than the system's 0.3 s for a second one (a double tap
+            // is the quick reaction), so the menu comes sooner.
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalViewConfiguration provides rememberChatViewConfiguration()) {
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
@@ -618,6 +621,7 @@ fun ChatScreen(navController: NavController, peer: String) {
                         )
                     }
                 }
+            }
             }
         }
         Composer(
