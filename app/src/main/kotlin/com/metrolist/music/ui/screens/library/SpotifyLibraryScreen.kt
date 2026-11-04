@@ -154,7 +154,8 @@ fun SpotifyLibraryScreen(
             }
         }
         val order = pins.withIndex().associate { (i, key) -> key to i }
-        found.sortedBy { order[pinKey(it)] ?: Int.MAX_VALUE }
+        // "Liked songs" (every heart) holds the first place for everyone, before one's own pins.
+        found.sortedBy { if (it.uri == SpotifyLibraryViewModel.APP_LIKED_URI) -1 else order[pinKey(it)] ?: Int.MAX_VALUE }
     }
     val context = androidx.compose.ui.platform.LocalContext.current
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -511,7 +512,8 @@ private fun entrySubtitle(entry: SpotifyLibraryEntry): String {
     }
     val creator = when {
         // Own playlist: its size says more than an owner name it does not have.
-        entry.uri.startsWith(SpotifyLibraryViewModel.LOCAL_PLAYLIST_URI_PREFIX) ->
+        entry.uri.startsWith(SpotifyLibraryViewModel.LOCAL_PLAYLIST_URI_PREFIX) ||
+            entry.uri == SpotifyLibraryViewModel.APP_LIKED_URI ->
             pluralStringResource(R.plurals.n_song, entry.totalCount, entry.totalCount)
         else -> when (entry.kind) {
         SpotifyLibraryEntry.Kind.FOLDER ->

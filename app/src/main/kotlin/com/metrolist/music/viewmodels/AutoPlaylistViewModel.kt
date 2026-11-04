@@ -89,6 +89,17 @@ constructor(
             }
             .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Lazily, emptyList())
 
+    /**
+     * Of the liked songs, those kept in the app alone (a YouTube, VK… track the account's catalog
+     * has no match for): marked "Not on Spotify / Yandex Music" too, as the account can't hold them.
+     */
+    val localOnlyIds =
+        likedSongs.map { songs ->
+            if (playlist != "liked" || songs.isNullOrEmpty()) emptySet()
+            else com.metrolist.music.playback.LikeTarget.localOnlyAmong(database, songs.map { it.id })
+        }.flowOn(Dispatchers.IO)
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Lazily, emptySet())
+
     fun syncLikedSongs() {
         viewModelScope.launch(Dispatchers.IO) {
             syncUtils.syncLikedSongs()

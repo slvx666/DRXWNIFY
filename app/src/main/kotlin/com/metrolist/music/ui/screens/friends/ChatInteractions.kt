@@ -15,6 +15,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -251,7 +252,6 @@ internal fun ReactionChips(
                 val isMine = key in mineKeys
                 val count = (if (isMine) 1 else 0) + (if (key in theirKeys) 1 else 0)
                 val failed = isMine && myRow?.state == ChatMessage.STATE_FAILED
-                val pending = isMine && myRow?.state == ChatMessage.STATE_SENDING
                 val label = ChatReactions.of(key)?.let { (it as? ChatReactions.Reaction.Emoji)?.emoji ?: (it as? ChatReactions.Reaction.Sticker)?.sticker?.code }.orEmpty()
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -263,7 +263,8 @@ internal fun ReactionChips(
                         )
                         .clickable { if (failed && myRow != null) ChatHub.retryReaction(myRow) else onToggle(key) }
                         .semantics { contentDescription = label + if (count > 1) " ×2" else "" }
-                        .graphicsLayer { alpha = if (pending) 0.6f else 1f }
+                        // On its way it looks the same as sent (faded, it looked covered by a film);
+                        // only one that didn't go shows, with its "!".
                         .padding(horizontal = 7.dp, vertical = 3.dp),
                 ) {
                     ReactionGlyph(key, 18.dp)
@@ -334,9 +335,13 @@ internal fun MessageMenu(
 ) {
     val shown = lastNonNull(target)
     val shownActions = lastNonNull(actions.takeIf { target != null })
-    var expanded by remember(target?.message?.id) { mutableStateOf(false) }
+    // Keyed on what is shown, not on the target: closing (the target gone first) used to fold the
+    // full set back into the seven and the actions for the length of the fade.
+    var expanded by remember(shown?.message?.id) { mutableStateOf(false) }
     // The seven are read once per opening, so they never move under the finger.
-    val top = remember(target?.message?.id) { ChatReactions.top() }
+    val top = remember(shown?.message?.id) { ChatReactions.top() }
+    // Where the seven stood (x, y, right edge): the full set grows out of that spot.
+    val anchor = remember(shown?.message?.id) { IntArray(3) }
     var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
 
     AnimatedVisibility(visible = target != null, enter = fadeIn(tween(CHAT_MOTION_MS)), exit = fadeOut(tween(160))) {
@@ -351,7 +356,7 @@ internal fun MessageMenu(
     val transformOrigin = TransformOrigin(if (t.mine) 1f else 0f, 0.5f)
     AnimatedVisibility(
         visible = target != null,
-        enter = fadeIn(tween(160)) + scaleIn(tween(CHAT_MOTION_MS, easing = FastOutSlowInEasing), initialScale = 0.88f, transformOrigin = transformOrigin),
+        enter = fadeIn(tween(220)) + scaleIn(tween(280, easing = FastOutSlowInEasing), initialScale = 0.85f, transformOrigin = transformOrigin),
         exit = fadeOut(tween(140)) + scaleOut(tween(160), targetScale = 0.92f, transformOrigin = transformOrigin),
         modifier = Modifier.fillMaxSize().onGloballyPositioned { origin = it.positionInRoot() },
     ) {
@@ -361,16 +366,27 @@ internal fun MessageMenu(
         Layout(
             modifier = Modifier.fillMaxSize(),
             content = {
-                // 0: the reactions (or all of them), 1: the actions.
-                Box {
-                    if (expanded) {
+                // 0: the reactions (or all of them, grown out of the seven), 1: the actions.
+                androidx.compose.animation.AnimatedContent(
+                    targetState = expanded,
+                    transitionSpec = {
+                        (fadeIn(tween(200, delayMillis = 60)) togetherWith fadeOut(tween(120))) using
+                            androidx.compose.animation.SizeTransform(clip = true) { _, _ -> tween(280, easing = FastOutSlowInEasing) }
+                    },
+                    contentAlignment = if (t.mine) Alignment.TopEnd else Alignment.TopStart,
+                    modifier = Modifier.clip(RoundedCornerShape(22.dp)),
+                    label = "reactions",
+                ) { all ->
+                    if (all) {
                         ReactionPicker(myKeys = myKeys, onPick = onReact)
                     } else {
                         ReactionBar(top = top, myKeys = myKeys, note = oldAppNote, onReact = onReact, onExpand = { expanded = true })
                     }
                 }
                 Box {
-                    if (!expanded) shownActions?.let { MenuActions(it) }
+                    AnimatedVisibility(!expanded, enter = fadeIn(tween(160)), exit = fadeOut(tween(120))) {
+                        shownActions?.let { MenuActions(it) }
+                    }
                 }
             },
         ) { measurables, constraints ->
@@ -396,8 +412,21 @@ internal fun MessageMenu(
                 barY = want.coerceIn(minY, (h - margin - total).coerceAtLeast(minY))
                 menuY = barY + bar.height + gap
             }
+            if (!expanded) {
+                anchor[0] = xFor(bar.width)
+                anchor[1] = barY
+                anchor[2] = anchor[0] + bar.width
+            }
+            // The full set grows from where the seven were (down, and to the left for one's own),
+            // moved up only as far as it must to stay on screen.
+            val barX = if (expanded) {
+                (if (t.mine) anchor[2] - bar.width else anchor[0]).coerceIn(margin, (w - margin - bar.width).coerceAtLeast(margin))
+            } else {
+                xFor(bar.width)
+            }
+            if (expanded) barY = anchor[1].coerceIn(minY, (h - margin - bar.height).coerceAtLeast(minY))
             layout(w, constraints.maxHeight) {
-                bar.place(xFor(bar.width), barY)
+                bar.place(barX, barY)
                 menu.place(xFor(menu.width), menuY)
             }
         }

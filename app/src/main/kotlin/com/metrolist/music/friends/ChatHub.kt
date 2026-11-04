@@ -119,6 +119,9 @@ object ChatHub {
         _peers.value = loadPeers()
         previewList
         scheduleCheck(app)
+        // A relay reachable again (network back, a relay up): what didn't go goes now, as in Telegram.
+        RelayPool.watchNetwork(app)
+        RelayPool.onOpen = ::retrySoon
         if (me() != null) scope.launch {
             delay(12_000L)
             refreshPeers()
@@ -478,8 +481,12 @@ object ChatHub {
             prefs?.edit()?.putInt("keyboard", value)?.apply()
         }
 
+    /** Messages on their way (one delivery at a time: a second one replaced the first's answers). */
+    private val delivering = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     /** Sends the stored event (again) and marks the message sent at the first relay that took it. */
     private fun deliver(message: ChatMessage, event: JSONObject) {
+        if (!delivering.add(message.id)) return
         val accepted = java.util.concurrent.atomic.AtomicBoolean(false)
         RelayPool.listen(event.optString("id")) { _, ok, _ ->
             if (ok && accepted.compareAndSet(false, true)) {
@@ -490,6 +497,7 @@ object ChatHub {
         scope.launch {
             delay(SEND_TIMEOUT_MS)
             if (!accepted.get()) dao?.setState(message.owner, message.peer, message.id, ChatMessage.STATE_FAILED)
+            delivering.remove(message.id)
         }
     }
 
@@ -502,6 +510,17 @@ object ChatHub {
             }?.toJson() ?: return@launch
             dao?.setState(message.owner, message.peer, message.id, ChatMessage.STATE_SENDING)
             deliver(message, event)
+        }
+    }
+
+    private var retryJob: Job? = null
+
+    /** [retryOutbox] shortly, once for a burst of relays opening together. */
+    private fun retrySoon() {
+        if (me() == null || retryJob?.isActive == true) return
+        retryJob = scope.launch {
+            delay(1_500)
+            retryOutbox()
         }
     }
 

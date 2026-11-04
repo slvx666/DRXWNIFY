@@ -37,6 +37,13 @@ internal object RelayPool {
         "wss://relay.primal.net",
         "wss://nostr.mom",
         "wss://relay.snort.social",
+        // Not behind Cloudflare: where it is cut (Russia), damus and primal don't answer and nos.lol
+        // and nostr.mom are one server; these keep messages going. damus also wants a login to read
+        // direct messages now.
+        "wss://offchain.pub",
+        "wss://nostr.oxtr.dev",
+        "wss://nostr-pub.wellorder.net",
+        "wss://nostr.einundzwanzig.space",
     )
 
     private const val IDLE_CLOSE_MS = 90_000L
@@ -130,6 +137,30 @@ internal object RelayPool {
     /** Relays whose socket is open right now. */
     fun openCount(): Int = relays.values.count { it.open }
 
+    /** Called when a relay's socket opens (messages that didn't go can try again then). */
+    @Volatile
+    var onOpen: (() -> Unit)? = null
+
+    /**
+     * The network coming back reconnects at once: after a few failures the wait had grown to
+     * minutes, and messages stayed unsent long after the phone was online again.
+     */
+    fun watchNetwork(context: android.content.Context) {
+        val cm = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        runCatching {
+            cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) = reconnectNow()
+            })
+        }
+    }
+
+    private fun reconnectNow() {
+        relays.values.forEach { relay ->
+            relay.failures = 0
+            if (relay.socket == null && (subscriptions.isNotEmpty() || relay.pending.isNotEmpty())) connect(relay)
+        }
+    }
+
     /**
      * Runs [filters] on every relay; [onEvent] gets each valid event once. [onEose] is called each
      * time a relay has sent everything it had stored ("end of stored events"). Returns the id to close.
@@ -198,6 +229,7 @@ internal object RelayPool {
                     subscriptions.forEach { (id, sub) -> if (id !in reqIds) relay.out.trySend(reqMessage(id, sub.filters)) }
                     queued.forEach { relay.out.trySend(it) }
                     ensureWriter(relay)
+                    onOpen?.let { runCatching { it() } }
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {

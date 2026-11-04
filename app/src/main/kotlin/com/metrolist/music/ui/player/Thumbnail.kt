@@ -273,6 +273,14 @@ fun Thumbnail(
     
     val mediaItems = mediaItemsData.items
     val currentMediaIndex = mediaItemsData.currentIndex
+    val thumbnailKeys = remember(mediaItems) {
+        val seen = HashMap<String, Int>()
+        mediaItems.map { item ->
+            val id = item.mediaId.ifEmpty { "unknown_${item.hashCode()}" }
+            val n = seen.merge(id, 1, Int::plus)!!
+            if (n == 1) id else "$id#$n"
+        }
+    }
 
     // Snap behavior - created once per grid state
     val thumbnailSnapLayoutInfoProvider = remember(thumbnailLazyGridState) {
@@ -440,11 +448,12 @@ fun Thumbnail(
                         }
                     ) {
                         items(
-                            items = mediaItems,
-                            key = { item -> 
-                                item.mediaId.ifEmpty { "unknown_${item.hashCode()}" }
-                            }
-                        ) { item ->
+                            count = mediaItems.size,
+                            // The same track can be next to itself in the queue (added twice,
+                            // repeat): a repeated id gets a suffix, as two equal keys crash the grid.
+                            key = { i -> thumbnailKeys[i] }
+                        ) { i ->
+                            val item = mediaItems[i]
                             ThumbnailItem(
                                 item = item,
                                 dimensions = dimensions,

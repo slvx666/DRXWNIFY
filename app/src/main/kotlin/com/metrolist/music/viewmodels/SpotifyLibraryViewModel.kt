@@ -32,7 +32,7 @@ class SpotifyLibraryViewModel @Inject constructor(
     private val database: MusicDatabase,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: android.content.Context,
 ) : ViewModel() {
-    private val likedSongsTitle = context.getString(com.metrolist.music.R.string.liked)
+    private val likedSongsTitle = context.getString(com.metrolist.music.R.string.liked_songs)
 
     enum class Filter(val gql: String?) { ALL(null), PLAYLISTS("Playlists"), ALBUMS("Albums"), ARTISTS("Artists") }
     /** Spotify's four orders; each can be flipped ([reversed]). */
@@ -163,23 +163,18 @@ class SpotifyLibraryViewModel @Inject constructor(
         val missingArtists = artists.filter { a ->
             com.metrolist.music.catalog.CrossCatalog.catalogArtistId(a.artist)?.let { "a:$it" in missing } == true
         }
-        val missingTracks = missing.count { it.startsWith("t:") }
-        val allThere = context.getString(
-            if (source == com.metrolist.music.constants.MetadataSource.YANDEX) com.metrolist.music.R.string.all_synced_yandex
-            else com.metrolist.music.R.string.all_synced_spotify,
-        )
         return buildList {
-            // Not with a Spotify account: its own "Liked Songs" already is that list, and a second
-            // one beside it only confused (asked for on 2026-11-01).
-            if (likedCount > 0 && source != com.metrolist.music.constants.MetadataSource.SPOTIFY) {
+            // Every heart, on the account or not: with Spotify the only liked list, with Yandex Music
+            // beside the account's own (asked for on 2026-11-04).
+            if (likedCount > 0) {
                 add(
                     SpotifyLibraryEntry(
                         kind = SpotifyLibraryEntry.Kind.LIKED_SONGS,
                         id = "app_liked",
                         uri = APP_LIKED_URI,
-                        name = context.getString(com.metrolist.music.R.string.app_liked_songs),
-                        creator = if (missingTracks > 0) "$mark: $missingTracks" else allThere,
+                        name = context.getString(com.metrolist.music.R.string.liked_songs),
                         totalCount = likedCount,
+                        pinned = true,
                     ),
                 )
             }
@@ -216,10 +211,11 @@ class SpotifyLibraryViewModel @Inject constructor(
                     Filter.ARTISTS -> entry.kind == SpotifyLibraryEntry.Kind.ARTIST
                 }
             }
-            // The account's own "Liked songs" is left out: the app's "All liked songs" holds them
-            // (and the likes made in the app), so a second list of the same tracks only confused.
+            // Spotify's own "Liked songs" is left out: the app's "All liked songs" holds them (and
+            // the likes made in the app). Yandex Music's stays: what is on the account, beside all.
+            val yandex = Catalog.state.value.source == com.metrolist.music.constants.MetadataSource.YANDEX
             val account = c[f].orEmpty().filterNot { e ->
-                e.kind == SpotifyLibraryEntry.Kind.LIKED_SONGS && e.uri != APP_LIKED_URI
+                !yandex && e.kind == SpotifyLibraryEntry.Kind.LIKED_SONGS && e.uri != APP_LIKED_URI
             }
             // Spotify keeps a second album id for some re-delivered releases; both can end up saved.
             val merged = (saved + account).distinctBy { e ->

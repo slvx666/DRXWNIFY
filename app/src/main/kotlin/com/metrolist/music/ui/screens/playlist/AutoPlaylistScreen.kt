@@ -145,6 +145,7 @@ fun AutoPlaylistScreen(
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     // With an account linked, a liked track its catalog doesn't have says so (see CrossCatalog).
     val missingInAccount by com.metrolist.music.catalog.CrossCatalog.missing.collectAsState()
+    val localOnly by viewModel.localOnlyIds.collectAsState()
     val catalogSource = com.metrolist.music.catalog.Catalog.state.collectAsState().value.source
     val notInAccountMark = when (catalogSource) {
         com.metrolist.music.constants.MetadataSource.YANDEX -> stringResource(R.string.not_in_yandex)
@@ -153,8 +154,8 @@ fun AutoPlaylistScreen(
     }
     val playlist =
         when (viewModel.playlist) {
-            // With an account linked the library calls it "All liked songs" (the account has its own list).
-            "liked" -> stringResource(if (catalogSource != null) R.string.app_liked_songs else R.string.liked)
+            // Every heart in the app, named as in the library.
+            "liked" -> stringResource(R.string.liked_songs)
             "local_liked" -> stringResource(R.string.local_liked)
             "uploaded" -> stringResource(R.string.uploaded_playlist)
             else -> stringResource(R.string.offline)
@@ -581,7 +582,7 @@ fun AutoPlaylistScreen(
 
                         SongListItem(
                             song = song,
-                            subtitleOverride = notInAccountMark?.takeIf { "s:${song.id}" in missingInAccount }
+                            subtitleOverride = notInAccountMark?.takeIf { "s:${song.id}" in missingInAccount || song.id in localOnly }
                                 ?.let { "$it • ${song.artists.joinToString { a -> a.name }}" },
                             isActive = song.song.id == mediaMetadata?.id,
                             isPlaying = isPlaying,

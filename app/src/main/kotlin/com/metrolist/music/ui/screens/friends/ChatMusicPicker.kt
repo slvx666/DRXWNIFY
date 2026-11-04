@@ -14,6 +14,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.layout.layout
 import kotlin.math.roundToInt
@@ -372,7 +373,8 @@ internal fun MusicPickerPanel(visible: Boolean, onDismiss: () -> Unit, onSend: (
                             .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
                     )
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 20.dp, end = 12.dp, bottom = 4.dp)) {
+                // As tall as the "Send" button from the start: it coming in used to push all below down.
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 20.dp, end = 12.dp, bottom = 4.dp).heightIn(min = 48.dp)) {
                     Text(stringResource(R.string.chat_music_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
                     AnimatedVisibility(selected.isNotEmpty(), enter = scaleIn() + fadeIn(), exit = scaleOut() + fadeOut()) {
                         Button(onClick = { onSend(selected.toList()) }) {

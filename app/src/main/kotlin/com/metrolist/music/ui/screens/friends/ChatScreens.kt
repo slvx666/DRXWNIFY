@@ -155,7 +155,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -605,31 +604,11 @@ fun ChatScreen(navController: NavController, peer: String) {
                             onSelect = { toggle(line.batch) },
                             onReply = { replyTo = it; editing = null; replyFocus++ },
                             onMenu = { target ->
-                                // The menu needs the screen: the keyboard goes down first, and the
-                                // menu comes by the message where it ends up.
-                                val ime = androidx.core.view.WindowInsetsCompat.Type.ime()
-                                fun imeUp() = androidx.core.view.ViewCompat.getRootWindowInsets(view)?.isVisible(ime) == true
-                                if (imeUp()) {
-                                    keyboardController?.hide()
-                                    focusManager.clearFocus()
-                                    scope.launch {
-                                        // Until the keyboard has gone and the message stopped moving
-                                        // with it (the inset says "hidden" as soon as it starts going).
-                                        var last: androidx.compose.ui.geometry.Rect? = null
-                                        withTimeoutOrNull(900) {
-                                            while (true) {
-                                                delay(32)
-                                                val now = target()?.bounds
-                                                if (!imeUp() && now != null && now == last) break
-                                                last = now
-                                            }
-                                        }
-                                        menuFor = target()
-                                    }
-                                } else {
-                                    focusManager.clearFocus()
-                                    menuFor = target()
-                                }
+                                // At once, as in Telegram: the keyboard goes down meanwhile and the
+                                // menu follows the message to where it ends up.
+                                keyboardController?.hide()
+                                focusManager.clearFocus()
+                                menuFor = target()
                             },
                             onQuoteClick = { id ->
                                 val index = lines.indexOfFirst { it is Line.Msg && it.batch.any { b -> b.id == id } }
@@ -863,16 +842,15 @@ private fun MessageItem(
     } else {
         Color.Transparent
     }
-    fun openMenu() {
-        // Where the bubble is when the menu shows (the keyboard may still have to go down first).
-        onMenu { bubble.start()?.let { MenuTarget(m, batch, bubble, m.mine) } }
-    }
     // A double tap anywhere on the message's line puts the quick reaction (or takes it back).
     val canReact = !selecting && !first.deleted && !(first.mine && first.state == ChatMessage.STATE_SENDING && first.event == null)
     val quick: (() -> Unit)? = if (canReact) ({
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         ChatHub.react(first, ChatReactions.quick.value)
     }) else null
+    fun openMenu() {
+        onMenu { bubble.start()?.let { MenuTarget(m, batch, bubble, m.mine) } }
+    }
     val onTap: () -> Unit = { if (selecting) onSelect() else openMenu() }
     val onHold: () -> Unit = { if (selecting) onSelect() else openMenu() }
     val pick: (() -> Unit)? = if (selecting) onSelect else null
@@ -913,6 +891,7 @@ private fun MessageItem(
             horizontalAlignment = if (m.mine) Alignment.End else Alignment.Start,
             modifier = Modifier.offset { androidx.compose.ui.unit.IntOffset(swipe.offset.roundToInt(), 0) },
         ) {
+            // A tap waits the double-tap time (0.3 s, as in Telegram) to tell it from a double tap.
             val clickable = Modifier.combinedClickable(onClick = onTap, onDoubleClick = quick, onLongClick = onHold)
             val footer: @Composable () -> Unit = { TimeAndTicks(shown, textColor, m.edited) }
             val place = Modifier.onGloballyPositioned(bubble::place)
