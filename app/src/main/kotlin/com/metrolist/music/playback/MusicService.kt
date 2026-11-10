@@ -2642,6 +2642,12 @@ class MusicService :
         mediaItem: MediaItem?,
         reason: Int,
     ) {
+        // A blocked track is never played: on to the next playable one (back, when "previous" led here).
+        if (mediaItem != null && BlockedTracks.isBlocked(mediaItem.mediaId)) {
+            val backwards = reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK &&
+                previousMediaItemIndex != C.INDEX_UNSET && player.currentMediaItemIndex < previousMediaItemIndex
+            skipBlocked(backwards, announce = reason != Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+        }
         startTiming = mediaItem?.let { it.mediaId to android.os.SystemClock.elapsedRealtime() }
         // A new play, also of the same track again (repeat one).
         listenMediaId = null
@@ -2733,6 +2739,60 @@ class MusicService :
         }
     }
 
+    /**
+     * Moves off a blocked current track (posted, not from inside the listener): to the next track
+     * that isn't blocked in play order, or the previous one when [backwards]. With none left the
+     * player pauses. [announce]: the person chose the track (a tap, a skip), so a toast says why.
+     */
+    private fun skipBlocked(backwards: Boolean, announce: Boolean) {
+        scope.launch {
+            val current = player.currentMediaItem ?: return@launch
+            if (!BlockedTracks.isBlocked(current.mediaId)) return@launch
+            if (announce) Toast.makeText(this@MusicService, R.string.track_blocked_skipped, Toast.LENGTH_SHORT).show()
+            // Back first when "previous" led here (then forward); otherwise forward only.
+            val directions = if (backwards) listOf(true, false) else listOf(false)
+            repeat(BLOCKED_LOAD_ATTEMPTS) {
+                for (back in directions) {
+                    val target = playableFrom(player.currentMediaItemIndex, back)
+                    if (target != C.INDEX_UNSET) {
+                        player.seekTo(target, 0)
+                        return@launch
+                    }
+                }
+                // Everything queued ahead is blocked: the queue's next page may have something.
+                if (!currentQueue.hasNextPage()) return@repeat
+                val before = player.mediaItemCount
+                loadMoreJob?.join()
+                loadMoreOfQueue(resumeWhenLoaded = false)
+                loadMoreJob?.join()
+                if (player.mediaItemCount == before) return@repeat
+            }
+            if (player.currentMediaItem?.mediaId != current.mediaId) return@launch
+            // Nothing playable: stop here rather than play it.
+            player.pause()
+        }
+    }
+
+    /** The first track from [from] on (not counting it) that isn't blocked, in play order; INDEX_UNSET if none. */
+    private fun playableFrom(from: Int, back: Boolean): Int {
+        val timeline = player.currentTimeline
+        if (timeline.isEmpty || from == C.INDEX_UNSET) return C.INDEX_UNSET
+        val shuffle = player.shuffleModeEnabled
+        var index = from
+        repeat(timeline.windowCount) {
+            index = if (back) {
+                timeline.getPreviousWindowIndex(index, Player.REPEAT_MODE_OFF, shuffle)
+            } else {
+                timeline.getNextWindowIndex(index, Player.REPEAT_MODE_OFF, shuffle)
+            }
+            if (index == C.INDEX_UNSET) return C.INDEX_UNSET
+            if (!BlockedTracks.isBlocked(player.getMediaItemAt(index).mediaId)) return index
+        }
+        return C.INDEX_UNSET
+    }
+
+    private val BLOCKED_LOAD_ATTEMPTS = 3
+
     private var loadMoreJob: Job? = null
 
     /**
@@ -2752,6 +2812,7 @@ class MusicService :
                         .nextPage()
                         .filterExplicit(dataStore.get(HideExplicitKey, false))
                         .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
+                        .filterNot { BlockedTracks.isBlocked(it.mediaId) }
                 }
             if (currentQueue !== queue || mediaItems.isEmpty()) return@launch
             if (player.playbackState == STATE_IDLE && !resumeWhenLoaded) return@launch

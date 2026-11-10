@@ -618,7 +618,7 @@ fun SpotifyPlaylistScreen(
                     val trackLiked = likedTracks.contains(track.id) ||
                         com.metrolist.music.playback.rememberCatalogTrackLiked(database, track.id, spotifyToYt[track.id])
                     val content: @Composable () -> Unit = {
-                        ListItem(
+                        com.metrolist.music.ui.component.BlockedAware(track.id) { ListItem(
                             title = track.name,
                             subtitle = joinByBullet(
                                 track.artists.joinToString { it.name },
@@ -735,7 +735,7 @@ fun SpotifyPlaylistScreen(
                                         }
                                     },
                                 ),
-                        )
+                        ) }
                     }
 
                     if (locked || !swipeRemoveEnabled) {
@@ -868,11 +868,8 @@ fun SpotifyPlaylistScreen(
             selection = selection,
             onDownload = { keys -> downloadTracks(tracks.filter { it.id in keys }); selection.stop() },
             songIdsForPlaylist = { keys -> com.metrolist.music.ui.component.SelectedTracks.songIdsOf(database, mapper, tracks.filter { it.id in keys }) },
-            onShare = { keys ->
-                val picked = tracks.filter { it.id in keys }
-                com.metrolist.music.ui.component.SelectedTracks.share(context, downloadUtil) {
-                    com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, picked)
-                }
+            shareMediaIds = { keys ->
+                com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, tracks.filter { it.id in keys })
             },
             onDelete = { keys ->
                 val picked = tracks.filter { it.id in keys }

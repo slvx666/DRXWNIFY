@@ -57,8 +57,17 @@ constructor(
 
     private fun loadAlbum() {
         viewModelScope.launch(Dispatchers.IO) {
-            _isLoading.value = true
             _error.value = null
+            // A downloaded album opens at once from its pinned copy, with no connection or a bad one;
+            // the catalog's version replaces it below when it comes.
+            val pinned = if (_tracks.value.isEmpty()) Catalog.pinnedAlbum(albumId) else null
+            if (pinned != null) {
+                _album.value = pinned
+                _tracks.value = pinned.tracks?.items?.filter { !it.isLocal }.orEmpty()
+                _isLoading.value = false
+            } else {
+                _isLoading.value = _tracks.value.isEmpty()
+            }
 
             Catalog.album(albumId).onSuccess { own ->
                 // A Yandex album (from the Yandex library) is shown from Spotify when Spotify has it:
@@ -68,9 +77,23 @@ constructor(
                     ?.let { Catalog.album(it).getOrNull() }
                     ?.takeIf { !it.tracks?.items.isNullOrEmpty() }
                     ?: own
-                _album.value = album
                 val loaded = album.tracks?.items?.filter { !it.isLocal } ?: emptyList()
+                // The pinned copy stays when the catalog answers with a different album (a Yandex
+                // album shown from Spotify only while Spotify is reachable): its tracks are the ones
+                // that were downloaded.
+                if (pinned != null && loaded.map { it.id }.toSet() != _tracks.value.map { it.id }.toSet() &&
+                    album.id != pinned.id
+                ) {
+                    _isLoading.value = false
+                    return@onSuccess
+                }
+                _album.value = album
                 _tracks.value = loaded
+                // Downloaded tracks in it: keep its page for opening offline (also albums downloaded
+                // before pinning existed, the first time they're opened online).
+                if (com.metrolist.music.playback.SpotifyBatchDownload.downloadedMediaIds(database, loaded).isNotEmpty()) {
+                    Catalog.pinAlbum(albumId, album)
+                }
                 // The whole album from VK in one go, when VK has it (see AlbumSources).
                 kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
                     runCatching {
@@ -94,7 +117,8 @@ constructor(
                 _isLoading.value = false
             }.onFailure { e ->
                 Timber.e(e, "Failed to load Spotify album: $albumId")
-                _error.value = e.message ?: "Failed to load album"
+                // Offline with the pinned copy on screen: nothing failed for the person.
+                if (_tracks.value.isEmpty()) _error.value = e.message ?: "Failed to load album"
                 _isLoading.value = false
             }
         }

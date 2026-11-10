@@ -200,7 +200,36 @@ object Catalog {
 
     private fun writeAlbumToDisk(id: String, album: SpotifyAlbum) {
         runCatching { albumFile(id)?.writeText(albumJson.encodeToString(SpotifyAlbum.serializer(), album)) }
+        // A pinned (downloaded) album keeps its copy up to date too.
+        pinnedFile(id)?.takeIf { it.exists() }?.let { file -> runCatching { file.writeText(albumJson.encodeToString(SpotifyAlbum.serializer(), album)) } }
     }
+
+    // ── Downloaded albums ──
+    // The cache above lives in the cache directory, which the system (or "clear cache") may empty
+    // at any time, and its copy is only made when the album is opened. A downloaded album must open
+    // without a connection whatever happened to the cache: its page is pinned in the app's files.
+
+    @Volatile
+    private var pinnedDir: java.io.File? = null
+
+    fun setPinnedDir(filesDir: java.io.File) {
+        pinnedDir = java.io.File(filesDir, "catalog_albums_pinned").also { it.mkdirs() }
+    }
+
+    private fun pinnedFile(id: String): java.io.File? =
+        pinnedDir?.let { java.io.File(it, id.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".json") }
+
+    /** Keeps [album] (shown as album [id]) for opening offline: it has downloaded tracks. */
+    fun pinAlbum(id: String, album: SpotifyAlbum) {
+        if (album.tracks?.items.isNullOrEmpty()) return
+        runCatching { pinnedFile(id)?.writeText(albumJson.encodeToString(SpotifyAlbum.serializer(), album)) }
+    }
+
+    /** The pinned copy of album [id], or null. */
+    fun pinnedAlbum(id: String): SpotifyAlbum? = runCatching {
+        val file = pinnedFile(id)?.takeIf { it.exists() } ?: return null
+        albumJson.decodeFromString(SpotifyAlbum.serializer(), file.readText())
+    }.getOrNull()
 
     suspend fun artist(id: String): Result<SpotifyArtist> =
         if (isYandexId(id)) YandexMusic.artist(id) else Spotify.artist(id)

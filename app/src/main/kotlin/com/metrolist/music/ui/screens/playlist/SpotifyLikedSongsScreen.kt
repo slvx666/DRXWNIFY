@@ -619,7 +619,7 @@ fun SpotifyLikedSongsScreen(
                 } else {
                     null
                 }
-                ListItem(
+                com.metrolist.music.ui.component.BlockedAware(track.id) { ListItem(
                     title = track.name,
                     subtitle = joinByBullet(
                         track.artists.joinToString { it.name },
@@ -687,7 +687,7 @@ fun SpotifyLikedSongsScreen(
                             },
                         )
                         .animateItem(),
-                )
+                ) }
             }
             item(key = "selection_space") { com.metrolist.music.ui.component.TrackSelectionSpacer(selection) }
         }
@@ -704,11 +704,8 @@ fun SpotifyLikedSongsScreen(
             selection = selection,
             onDownload = { keys -> downloadPicked(sortedTracks.filter { it.id in keys }); selection.stop() },
             songIdsForPlaylist = { keys -> com.metrolist.music.ui.component.SelectedTracks.songIdsOf(database, mapper, sortedTracks.filter { it.id in keys }) },
-            onShare = { keys ->
-                val picked = sortedTracks.filter { it.id in keys }
-                com.metrolist.music.ui.component.SelectedTracks.share(context, downloadUtil) {
-                    com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, picked)
-                }
+            shareMediaIds = { keys ->
+                com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, sortedTracks.filter { it.id in keys })
             },
             onDelete = { keys ->
                 val picked = sortedTracks.filter { it.id in keys }

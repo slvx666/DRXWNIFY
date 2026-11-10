@@ -180,6 +180,12 @@ fun SpotifyAlbumScreen(
         // Background scope: keep downloading even after the user opens
         // another album (previously this was cancelled on navigation).
         val appContext = context.applicationContext
+        // Its page is kept with the files, so the album opens offline later.
+        album?.let { shown ->
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                com.metrolist.music.catalog.Catalog.pinAlbum(viewModel.albumId, shown)
+            }
+        }
         SpotifyBatchDownload.start(
             appContext = appContext,
             sourceId = downloadSourceId,
@@ -454,7 +460,7 @@ fun SpotifyAlbumScreen(
                 )
                 val trackLiked = likedTracks.contains(track.id) ||
                     com.metrolist.music.playback.rememberCatalogTrackLiked(database, track.id, spotifyToYt[track.id])
-                ListItem(
+                com.metrolist.music.ui.component.BlockedAware(track.id) { ListItem(
                     title = track.name,
                     subtitle = joinByBullet(
                         track.artists.joinToString { it.name },
@@ -559,7 +565,7 @@ fun SpotifyAlbumScreen(
                             },
                         )
                         .animateItem(),
-                )
+                ) }
               }
             }
             item(key = "selection_space") { com.metrolist.music.ui.component.TrackSelectionSpacer(selection) }
@@ -569,11 +575,8 @@ fun SpotifyAlbumScreen(
             selection = selection,
             onDownload = { keys -> downloadTracks(tracks.filter { it.id in keys }); selection.stop() },
             songIdsForPlaylist = { keys -> com.metrolist.music.ui.component.SelectedTracks.songIdsOf(database, viewModel.mapper, tracks.filter { it.id in keys }) },
-            onShare = { keys ->
-                val picked = tracks.filter { it.id in keys }
-                com.metrolist.music.ui.component.SelectedTracks.share(context, downloadUtil) {
-                    com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, picked)
-                }
+            shareMediaIds = { keys ->
+                com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, tracks.filter { it.id in keys })
             },
             onDelete = { keys ->
                 val picked = tracks.filter { it.id in keys }

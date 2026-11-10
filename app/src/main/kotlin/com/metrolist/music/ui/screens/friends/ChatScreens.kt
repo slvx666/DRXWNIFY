@@ -406,6 +406,16 @@ fun ChatScreen(navController: NavController, peer: String) {
     val cached = remember(peer) { ChatHub.cachedMessages(peer) }
     val loaded by remember(peer) { ChatHub.messages(peer) }.collectAsState(initial = cached)
     val messages = loaded.orEmpty()
+    // The chat's tracks top to bottom (the database gives newest first), read only when one is
+    // started: a lambda that never changes, so new messages don't recompose the list for it.
+    val latestMessages = androidx.compose.runtime.rememberUpdatedState(messages)
+    val chatTracks: () -> List<Pair<String, ChatMusic>> = remember {
+        {
+            latestMessages.value.asReversed().flatMap { msg ->
+                ChatMusic.fromJson(msg.music)?.takeIf { it.kind == AppLinks.Kind.TRACK }?.let { listOf(msg.id to it) }.orEmpty()
+            }
+        }
+    }
     val reactions by remember(peer) { ChatHub.reactions(peer) }.collectAsState(initial = emptyMap())
     val me = FriendsHub.profile.collectAsState().value?.pubkey
     val name = peerName(peer)
@@ -583,7 +593,10 @@ fun ChatScreen(navController: NavController, peer: String) {
             }
             // A tap on a message waits less than the system's 0.3 s for a second one (a double tap
             // is the quick reaction), so the menu comes sooner.
-            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalViewConfiguration provides rememberChatViewConfiguration()) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalViewConfiguration provides rememberChatViewConfiguration(),
+                LocalChatTracks provides chatTracks,
+            ) {
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
@@ -799,7 +812,7 @@ private fun MessageItem(
 ) {
     val first = batch.first()
     val music = remember(m.music) { ChatMusic.fromJson(m.music) }
-    val tracks = remember(batch) { if (batch.size > 1) batch.mapNotNull { ChatMusic.fromJson(it.music) } else emptyList() }
+    val tracks = remember(batch) { if (batch.size > 1) batch.mapNotNull { b -> ChatMusic.fromJson(b.music)?.let { b.id to it } } else emptyList() }
     val stickersOnly = remember(m.text, music) { if (music == null && m.replyTo == null) Stickers.stickerOnly(m.text) else null }
     // A batch shows its worst: a failure, else a wait, else unread, else read.
     val shown = remember(batch) {
@@ -929,16 +942,16 @@ private fun MessageItem(
                 ) {
                     if (first.replyTo != null) Quote(reply, peerName, m.mine) { if (selecting) onSelect() else onQuoteClick(first.replyTo) }
                     when {
-                        tracks.size > 1 -> tracks.forEachIndexed { i, t ->
-                            TrackRow(t, textColor, onTap = pick, onHold = onHold, trailing = if (i == tracks.lastIndex) footer else null)
+                        tracks.size > 1 -> tracks.forEachIndexed { i, (id, t) ->
+                            TrackRow(t, id, textColor, onTap = pick, onHold = onHold, trailing = if (i == tracks.lastIndex) footer else null)
                         }
                         // A track alone: the time on the line of its length, as in Telegram.
                         music != null && music.kind == AppLinks.Kind.TRACK && m.text.isBlank() ->
-                            TrackRow(music, textColor, onTap = pick, onHold = onHold, trailing = footer)
+                            TrackRow(music, m.id, textColor, onTap = pick, onHold = onHold, trailing = footer)
                         else -> {
                             music?.let {
                                 if (it.kind == AppLinks.Kind.TRACK) {
-                                    TrackRow(it, textColor, onTap = pick, onHold = onHold, trailing = null)
+                                    TrackRow(it, m.id, textColor, onTap = pick, onHold = onHold, trailing = null)
                                 } else {
                                     CollectionCard(it, navController, textColor, onTap = pick, onHold = onHold)
                                 }
@@ -1085,12 +1098,16 @@ private fun BigSticker(sticker: Stickers.Sticker?, height: androidx.compose.ui.u
         return
     }
     val aspect = sticker.aspect.coerceIn(0.5f, 3.2f)
-    val width = minOf(height * aspect, maxWidth)
+    // An animated one (a GIF) a little larger than a picture, with soft corners like a video.
+    val grow = if (sticker.animated) 1.3f else 1f
+    val width = minOf(height * grow * aspect, maxWidth * grow)
     AsyncImage(
         model = sticker.uri,
         contentDescription = sticker.code,
         contentScale = ContentScale.Fit,
-        modifier = Modifier.size(width, width / aspect),
+        modifier = Modifier
+            .size(width, width / aspect)
+            .then(if (sticker.animated) Modifier.clip(RoundedCornerShape(12.dp)) else Modifier),
     )
 }
 
@@ -1100,6 +1117,12 @@ private fun BigSticker(sticker: Stickers.Sticker?, height: androidx.compose.ui.u
 private val startedFromChat = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
 /**
+ * Every track of the open conversation, top to bottom, with the message it is in: a track started
+ * from the chat goes on with the ones below it instead of stopping.
+ */
+private val LocalChatTracks = androidx.compose.runtime.staticCompositionLocalOf<() -> List<Pair<String, ChatMusic>>> { { emptyList() } }
+
+/**
  * A track: the cover with play/pause, the name, its length (and [trailing] on that line: the time).
  * A tap anywhere on it plays or pauses it ([onTap] instead, while picking messages).
  */
@@ -1107,6 +1130,7 @@ private val startedFromChat = kotlinx.coroutines.flow.MutableStateFlow<String?>(
 @Composable
 private fun TrackRow(
     music: ChatMusic,
+    messageId: String,
     textColor: Color,
     onTap: (() -> Unit)?,
     onHold: () -> Unit,
@@ -1117,6 +1141,7 @@ private fun TrackRow(
     val current by (player?.mediaMetadata ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsState()
     val isPlaying by (player?.isPlaying ?: kotlinx.coroutines.flow.MutableStateFlow(false)).collectAsState()
     val started by startedFromChat.collectAsState()
+    val chatTracks = LocalChatTracks.current
     val currentId = current?.id
     val isThis = currentId != null && (
         com.metrolist.music.resolver.FallbackIds.catalogIdOf(currentId) == music.id ||
@@ -1130,7 +1155,14 @@ private fun TrackRow(
         } else {
             startedFromChat.value = music.id
             scope.launch {
-                val queue = FriendPlayback.listQueue(listOf(music.trackRef()), 0)
+                // This track, then the chat's next ones (down the conversation), not just this one.
+                val all = chatTracks()
+                val at = all.indexOfFirst { it.first == messageId && it.second.id == music.id }
+                val queue = if (at < 0) {
+                    FriendPlayback.listQueue(listOf(music.trackRef()), 0)
+                } else {
+                    FriendPlayback.listQueue(all.map { it.second.trackRef() }, at)
+                }
                 player?.playQueue(queue)
             }
         }

@@ -2033,4 +2033,23 @@
     <string name="chat_reactions_old_app">У %1$s старая версия — реакции не увидит</string>
     <string name="settings_messages">Сообщения</string>
     <string name="settings_messages_quick_desc">Ставится двойным нажатием на сообщение (повторное — снимает)</string>
+    <string name="track_blocked">Трек запрещён</string>
+    <string name="track_blocked_skipped">Трек запрещён — пропущен</string>
+    <string name="selection_block">Запретить</string>
+    <string name="selection_unblock">Разрешить</string>
+    <string name="playlist_already_has">Уже есть</string>
+    <string name="playlist_already_has_some">Есть %1$d из %2$d</string>
+    <string name="changelog_2_2_5">### Новое\n+ Запрет треков: в выделении кнопка «Запретить» — такой трек блёклый, с ⊘, и не играет. Снять — там же\n+ Анимированные стикеры, ими можно ставить реакции\n+ «Отправить» в выделении: в чат, файлом, в плейлист или ссылкой\n### Изменено\n• «Перемешать» у исполнителя: все его треки без повторов, потом рекомендации\n• Трек из чата не останавливается — дальше играют следующие треки чата\n• Реакции чуть крупнее\n### Исправлено\n• Скачанные альбомы открываются сразу без интернета и на плохом\n• Плейлисты: видно, что трек там уже есть, повтор замечается и для того же трека из другого источника</string>
+    <plurals name="tracks_blocked">
+        <item quantity="one">Запрещён %d трек</item>
+        <item quantity="few">Запрещено %d трека</item>
+        <item quantity="many">Запрещено %d треков</item>
+        <item quantity="other">Запрещено %d треков</item>
+    </plurals>
+    <plurals name="tracks_unblocked">
+        <item quantity="one">Разрешён %d трек</item>
+        <item quantity="few">Разрешено %d трека</item>
+        <item quantity="many">Разрешено %d треков</item>
+        <item quantity="other">Разрешено %d треков</item>
+    </plurals>
 </resources>

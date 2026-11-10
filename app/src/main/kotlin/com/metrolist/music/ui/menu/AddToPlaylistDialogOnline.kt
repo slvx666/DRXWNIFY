@@ -142,12 +142,9 @@ fun AddToPlaylistDialogOnline(
                 if (playlists.isNotEmpty()) {
             withContext(Dispatchers.IO) {
                 val ids = songs.map { it.id }
-                playlistsContainingSong = playlists
-                    .filter { playlist ->
-                        database.playlistDuplicates(playlist.id, ids).isNotEmpty()
-                    }
-                    .map { it.id }
-                    .toSet()
+                playlistsContainingSong = com.metrolist.music.db.PlaylistDuplicates
+                    .find(database, playlists.map { it.id }, ids)
+                    .keys
             }
         }
     }

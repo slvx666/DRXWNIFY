@@ -13,17 +13,22 @@ import com.metrolist.spotify.models.SpotifyTrack
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.withPermit
 import timber.log.Timber
 
 /**
  * An artist's popular tracks that keep playing instead of stopping after the last one: first
  * 8–15 more songs by the same artist (from their albums and singles), then songs by similar artists.
+ *
+ * [shuffleAll] ("Shuffle" on the artist's page): after the popular ones, EVERY other song of the
+ * artist, shuffled, each once; only when they run out do similar artists come.
  */
 class ArtistTopTracksQueue(
     private val artistId: String,
     private val topTracks: List<SpotifyTrack>,
     startIndex: Int,
     mapper: SpotifyYouTubeMapper,
+    private val shuffleAll: Boolean = false,
 ) : SpotifyPagedQueue(startIndex, mapper, null) {
 
     override val logTag: String = "ArtistTopTracksQueue"
@@ -46,8 +51,14 @@ class ArtistTopTracksQueue(
                 .distinctBy { titleKey(it) }
 
         return when (current) {
-            0 -> fresh(moreFromArtist()).shuffled().take((MIN_MORE..MAX_MORE).random()).also {
-                Timber.d("$logTag: ${it.size} more tracks by the artist")
+            0 -> if (shuffleAll) {
+                fresh(moreFromArtist(ALL_RELEASES_TO_SCAN)).shuffled().also {
+                    Timber.d("$logTag: shuffle, ${it.size} more tracks by the artist")
+                }
+            } else {
+                fresh(moreFromArtist(RELEASES_TO_SCAN)).shuffled().take((MIN_MORE..MAX_MORE).random()).also {
+                    Timber.d("$logTag: ${it.size} more tracks by the artist")
+                }
             }
             else -> {
                 val seed = alreadyQueued.lastOrNull { track -> track.artists.any { it.id == artistId } }
@@ -61,13 +72,15 @@ class ArtistTopTracksQueue(
     }
 
     /** Songs from the artist's releases, newest first, beyond their popular tracks. */
-    private suspend fun moreFromArtist(): List<SpotifyTrack> = coroutineScope {
+    private suspend fun moreFromArtist(releasesToScan: Int): List<SpotifyTrack> = coroutineScope {
         val releases = Catalog.artistReleases(artistId).getOrNull().orEmpty()
             .sortedByDescending { it.releaseDate.orEmpty() }
-            .take(RELEASES_TO_SCAN)
+            .take(releasesToScan)
+        // A few albums at a time: a long discography must not fire dozens of requests at once.
+        val gate = kotlinx.coroutines.sync.Semaphore(PARALLEL_ALBUMS)
         releases.map { release ->
             async {
-                val album = Catalog.album(release.id).getOrNull() ?: return@async emptyList()
+                val album = gate.withPermit { Catalog.album(release.id).getOrNull() } ?: return@async emptyList()
                 val albumRef = SpotifySimpleAlbum(
                     id = album.id,
                     name = album.name,
@@ -90,5 +103,7 @@ class ArtistTopTracksQueue(
         const val MIN_MORE = 8
         const val MAX_MORE = 15
         const val RELEASES_TO_SCAN = 8
+        const val ALL_RELEASES_TO_SCAN = 60
+        const val PARALLEL_ALBUMS = 6
     }
 }

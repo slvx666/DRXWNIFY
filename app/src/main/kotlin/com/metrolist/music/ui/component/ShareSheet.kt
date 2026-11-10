@@ -66,12 +66,24 @@ object ShareSheet {
         val files: (suspend () -> List<String>)? = null,
         /** A single track's id in the app: its bitrate and format show under the title. */
         val mediaId: String? = null,
+        /** The tracks' song ids (rows already written), null when they can't go into a playlist. */
+        val playlistSongIds: (suspend () -> List<String>)? = null,
     )
 
     val request = MutableStateFlow<Request?>(null)
 
-    fun open(title: String, music: List<ChatMusic>, linkText: String?, files: (suspend () -> List<String>)? = null, mediaId: String? = null) {
-        request.value = Request(title, music, linkText, files, mediaId)
+    /** "To a playlist" was picked: the playlist picker is open for these song ids. */
+    val playlistPick = MutableStateFlow<(suspend () -> List<String>)?>(null)
+
+    fun open(
+        title: String,
+        music: List<ChatMusic>,
+        linkText: String?,
+        files: (suspend () -> List<String>)? = null,
+        mediaId: String? = null,
+        playlistSongIds: (suspend () -> List<String>)? = null,
+    ) {
+        request.value = Request(title, music, linkText, files, mediaId, playlistSongIds)
     }
 
     fun close() {
@@ -98,6 +110,17 @@ object ShareSheet {
 @Composable
 fun ShareSheetHost(navController: NavController) {
     val request by ShareSheet.request.collectAsState()
+    val playlistPick by ShareSheet.playlistPick.collectAsState()
+    playlistPick?.let { songIds ->
+        // A fresh picker per request: the dialog remembers the ids it was opened with.
+        androidx.compose.runtime.key(songIds) {
+            com.metrolist.music.ui.menu.AddToPlaylistDialog(
+                isVisible = true,
+                onGetSong = { songIds() },
+                onDismiss = { ShareSheet.playlistPick.value = null },
+            )
+        }
+    }
     val r = request ?: return
     val context = LocalContext.current
     val downloadUtil = LocalDownloadUtil.current
@@ -126,6 +149,13 @@ fun ShareSheetHost(navController: NavController) {
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
             ) {
+                if (r.music.isNotEmpty() && profile != null) {
+                    Option(R.drawable.chat_bubble, stringResource(R.string.share_to_chats)) {
+                        ChatHub.startForward(r.music)
+                        dismiss()
+                        runCatching { navController.navigate("chats") }
+                    }
+                }
                 val ids = fileIds
                 if (!ids.isNullOrEmpty()) {
                     Option(R.drawable.download, stringResource(R.string.share_as_file)) {
@@ -134,18 +164,17 @@ fun ShareSheetHost(navController: NavController) {
                         dismiss()
                     }
                 }
+                r.playlistSongIds?.let { songIds ->
+                    Option(R.drawable.playlist_add, stringResource(R.string.selection_to_playlist)) {
+                        ShareSheet.playlistPick.value = songIds
+                        dismiss()
+                    }
+                }
                 r.linkText?.let { link ->
                     Option(R.drawable.link, stringResource(R.string.share_as_link)) {
                         val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link)
                         context.startActivity(Intent.createChooser(send, null))
                         dismiss()
-                    }
-                }
-                if (r.music.isNotEmpty() && profile != null) {
-                    Option(R.drawable.chat_bubble, stringResource(R.string.share_to_chats)) {
-                        ChatHub.startForward(r.music)
-                        dismiss()
-                        runCatching { navController.navigate("chats") }
                     }
                 }
             }
@@ -158,7 +187,7 @@ private fun Option(icon: Int, label: String, onClick: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .width(96.dp)
+            .width(84.dp)
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),

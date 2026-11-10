@@ -221,6 +221,76 @@
    "code": "я",
    "w": 512,
    "h": 512
+  },
+  {
+   "id": "brrr",
+   "code": "брбрбрбрр",
+   "w": 220,
+   "h": 218,
+   "anim": true
+  },
+  {
+   "id": "faster",
+   "code": "быстрее",
+   "w": 256,
+   "h": 170,
+   "anim": true
+  },
+  {
+   "id": "loading",
+   "code": "грузит",
+   "w": 256,
+   "h": 145,
+   "anim": true
+  },
+  {
+   "id": "when",
+   "code": "когда",
+   "w": 256,
+   "h": 186,
+   "anim": true
+  },
+  {
+   "id": "suit_man",
+   "code": "мужик пиджак",
+   "w": 256,
+   "h": 227,
+   "anim": true
+  },
+  {
+   "id": "calm_man",
+   "code": "мужик спокойный",
+   "w": 256,
+   "h": 174,
+   "anim": true
+  },
+  {
+   "id": "skip",
+   "code": "скип",
+   "w": 246,
+   "h": 256,
+   "anim": true
+  },
+  {
+   "id": "cube_guy",
+   "code": "умный парень с кубиком",
+   "w": 256,
+   "h": 136,
+   "anim": true
+  },
+  {
+   "id": "hooray",
+   "code": "ураа",
+   "w": 256,
+   "h": 256,
+   "anim": true
+  },
+  {
+   "id": "shrek_smile",
+   "code": "шрек улыбается",
+   "w": 256,
+   "h": 144,
+   "anim": true
   }
  ]
 }

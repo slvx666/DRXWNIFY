@@ -941,7 +941,7 @@ fun LocalPlaylistScreen(
                 }
                 onExitSelectionMode()
             },
-            onShare = { ids -> com.metrolist.music.ui.component.SelectedTracks.share(context, downloadUtil) { ids } },
+            shareMediaIds = { ids -> ids },
             songIdsForPlaylist = { ids -> ids },
             onDelete = { ids -> com.metrolist.music.ui.component.SelectedTracks.delete(context, downloadUtil) { ids } },
             modifier = Modifier

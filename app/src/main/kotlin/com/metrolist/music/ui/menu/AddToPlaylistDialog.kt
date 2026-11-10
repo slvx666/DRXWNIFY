@@ -122,8 +122,9 @@ fun AddToPlaylistDialog(
     var duplicates by remember {
         mutableStateOf(emptyList<String>())
     }
+    // How many of the songs each playlist already has (playlists with none are missing).
     var playlistsContainingSong by remember {
-        mutableStateOf<Set<String>>(emptySet())
+        mutableStateOf<Map<String, Int>>(emptyMap())
     }
 
     suspend fun addSongsAndSync(targetPlaylist: Playlist, ids: List<String>) {
@@ -164,15 +165,14 @@ fun AddToPlaylistDialog(
     }
     LaunchedEffect(isVisible, songIds, playlists) {
         if (!isVisible) {
-            playlistsContainingSong = emptySet()
+            playlistsContainingSong = emptyMap()
             return@LaunchedEffect
         }
         val ids = songIds ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
-            playlistsContainingSong = playlists
-                .filter { database.playlistDuplicates(it.id, ids).isNotEmpty() }
-                .map { it.id }
-                .toSet()
+            playlistsContainingSong = com.metrolist.music.db.PlaylistDuplicates
+                .find(database, playlists.map { it.id }, ids)
+                .mapValues { it.value.size }
         }
     }
 
@@ -302,7 +302,9 @@ fun AddToPlaylistDialog(
             }
 
             items(playlists) { playlist ->
-                val containsSong = playlist.id in playlistsContainingSong
+                val alreadyHas = playlistsContainingSong[playlist.id] ?: 0
+                val containsSong = alreadyHas > 0
+                val total = songIds?.size ?: 0
                 val rowBg by animateColorAsState(
                     targetValue = if (containsSong)
                         MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
@@ -312,6 +314,36 @@ fun AddToPlaylistDialog(
                 )
                 PlaylistListItem(
                     playlist = playlist,
+                    // Plainly said, not just a tint: the track is already there (or how many of them).
+                    trailingContent = {
+                        if (containsSong) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .padding(end = 8.dp)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.done),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Text(
+                                    text = if (total <= 1) {
+                                        stringResource(R.string.playlist_already_has)
+                                    } else {
+                                        stringResource(R.string.playlist_already_has_some, alreadyHas, total)
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(start = 4.dp),
+                                )
+                            }
+                        }
+                    },
                     modifier = Modifier
                     .padding(horizontal = 8.dp, vertical = 2.dp)
                     .clip(RoundedCornerShape(16.dp))
@@ -324,7 +356,8 @@ fun AddToPlaylistDialog(
                             // may name a song that is not in the database yet, and such a song
                             // would be skipped without a word.
                             songIds = onGetSong(playlist)
-                            duplicates = database.playlistDuplicates(playlist.id, songIds!!)
+                            duplicates = com.metrolist.music.db.PlaylistDuplicates
+                                .find(database, listOf(playlist.id), songIds!!)[playlist.id].orEmpty()
                             if (duplicates.isNotEmpty()) {
                                 showDuplicateDialog = true
                             } else {

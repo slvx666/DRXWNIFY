@@ -18,7 +18,8 @@ import org.json.JSONObject
  * the id); an id must never change or be reused, or old messages would show another picture.
  */
 object Stickers {
-    data class Sticker(val id: String, val code: String, val width: Int, val height: Int) {
+    /** [animated]: a moving picture (an animated WebP, like a Telegram GIF), shown a little larger. */
+    data class Sticker(val id: String, val code: String, val width: Int, val height: Int, val animated: Boolean = false) {
         val uri: String get() = "file:///android_asset/stickers/$id.webp"
         val aspect: Float get() = if (height > 0) width.toFloat() / height else 1f
     }
@@ -45,7 +46,7 @@ object Stickers {
             val list = JSONObject(text).getJSONArray("stickers")
             all = (0 until list.length()).map { i ->
                 val o = list.getJSONObject(i)
-                Sticker(o.getString("id"), o.getString("code"), o.optInt("w"), o.optInt("h"))
+                Sticker(o.getString("id"), o.getString("code"), o.optInt("w"), o.optInt("h"), o.optBoolean("anim"))
             }
             byId = all.associateBy { it.id }
         }

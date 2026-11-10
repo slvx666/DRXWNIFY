@@ -162,25 +162,23 @@ fun SpotifyArtistScreen(
                                 Text(stringResource(R.string.play))
                             }
                             Spacer(Modifier.width(8.dp))
-                            // Shuffle: start from a random track, guaranteed different from the
-                            // previous shuffle press.
+                            // Shuffle: only the artist's songs, each once (the popular ones shuffled,
+                            // then all the rest shuffled), then similar artists. Never the same first
+                            // track as the previous press.
                             OutlinedButton(
                                 onClick = {
-                                    val count = topTracks.size
-                                    val start = if (count <= 1) {
-                                        0
-                                    } else {
-                                        var idx = (0 until count).random()
-                                        if (idx == lastShuffleIndex) idx = (idx + 1) % count
-                                        idx
+                                    var order = topTracks.shuffled()
+                                    if (order.size > 1 && topTracks.indexOf(order.first()) == lastShuffleIndex) {
+                                        order = order.drop(1) + order.first()
                                     }
-                                    lastShuffleIndex = start
+                                    lastShuffleIndex = topTracks.indexOf(order.first())
                                     playerConnection.playQueue(
                                         com.metrolist.music.playback.queues.ArtistTopTracksQueue(
                                             artistId = viewModel.artistId,
-                                            topTracks = topTracks,
-                                            startIndex = start,
+                                            topTracks = order,
+                                            startIndex = 0,
                                             mapper = viewModel.mapper,
+                                            shuffleAll = true,
                                         )
                                     )
                                 },

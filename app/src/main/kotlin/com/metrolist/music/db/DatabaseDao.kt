@@ -1143,6 +1143,29 @@ interface DatabaseDao {
         songId: String,
     ): Int
 
+    /** What tells one song from another for the duplicate check, for every song of [playlistIds]. */
+    @Query(
+        """
+        SELECT m.playlistId AS playlistId, s.id AS songId, s.title AS title, s.duration AS duration,
+               (SELECT a.name FROM song_artist_map sam JOIN artist a ON a.id = sam.artistId
+                WHERE sam.songId = s.id ORDER BY sam.position LIMIT 1) AS artist
+        FROM playlist_song_map m JOIN song s ON s.id = m.songId
+        WHERE m.playlistId IN (:playlistIds)
+        """
+    )
+    fun playlistSongKeys(playlistIds: List<String>): List<com.metrolist.music.db.entities.SongKeyRow>
+
+    /** The same for the songs [songIds] (playlistId is null). */
+    @Query(
+        """
+        SELECT NULL AS playlistId, s.id AS songId, s.title AS title, s.duration AS duration,
+               (SELECT a.name FROM song_artist_map sam JOIN artist a ON a.id = sam.artistId
+                WHERE sam.songId = s.id ORDER BY sam.position LIMIT 1) AS artist
+        FROM song s WHERE s.id IN (:songIds)
+        """
+    )
+    fun songKeys(songIds: List<String>): List<com.metrolist.music.db.entities.SongKeyRow>
+
     @Query("SELECT songId from playlist_song_map WHERE playlistId = :playlistId AND songId IN (:songIds)")
     fun playlistDuplicates(
         playlistId: String,

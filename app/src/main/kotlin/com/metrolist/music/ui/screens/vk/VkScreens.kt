@@ -136,7 +136,7 @@ fun VkTrackRow(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    ListItem(
+    com.metrolist.music.ui.component.BlockedAware(com.metrolist.music.resolver.SourceSearch.mediaIdOf(match)) { ListItem(
         title = match.title,
         subtitle = joinByBullet(
             match.artist.takeIf { it.isNotBlank() },
@@ -164,7 +164,7 @@ fun VkTrackRow(
         modifier = modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-    )
+    ) }
 }
 
 /**
@@ -514,10 +514,8 @@ fun VkPlaylistScreen(
         selection = selection,
         onDownload = { keys -> downloadTracks(tracks.filter { it.trackId in keys }); selection.stop() },
         songIdsForPlaylist = { keys -> com.metrolist.music.ui.component.SelectedTracks.songIdsOf(database, tracks.filter { it.trackId in keys }) },
-        onShare = { keys ->
-            val picked = tracks.filter { it.trackId in keys }
-            com.metrolist.music.ui.component.SelectedTracks.share(context, downloadUtil) { picked.map { SourceSearch.mediaIdOf(it) } }
-        },
+        shareMediaIds = { keys -> tracks.filter { it.trackId in keys }.map { SourceSearch.mediaIdOf(it) } },
+        blockKeys = { keys -> tracks.filter { it.trackId in keys }.map { com.metrolist.music.playback.BlockedTracks.keyOf(SourceSearch.mediaIdOf(it)) } },
         onDelete = { keys ->
             val picked = tracks.filter { it.trackId in keys }
             com.metrolist.music.ui.component.SelectedTracks.delete(context, downloadUtil) { picked.map { SourceSearch.mediaIdOf(it) } }

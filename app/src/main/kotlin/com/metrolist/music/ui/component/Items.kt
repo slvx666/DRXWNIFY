@@ -147,8 +147,26 @@ data class ListItemSizes(
 
 val LocalListItemSizes = androidx.compose.runtime.staticCompositionLocalOf { ListItemSizes() }
 
+/** How faded a blocked track's row is: still readable, plainly not like the others. */
+const val BLOCKED_ROW_ALPHA = 0.42f
+
 /** What the library uses — the same proportions as the connected account's library. */
 val LibraryListItemSizes = ListItemSizes(height = 80.dp, thumbnail = 64.dp)
+
+/**
+ * The track of the row being drawn is blocked ([com.metrolist.music.playback.BlockedTracks]): the
+ * row is faded and a small crossed circle stands before its title. Set per row by [BlockedAware].
+ */
+val LocalTrackBlocked = androidx.compose.runtime.compositionLocalOf { false }
+
+/** Draws [content] (a track's row) faded and marked when the track under [id] is blocked. */
+@Composable
+fun BlockedAware(id: String?, content: @Composable () -> Unit) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalTrackBlocked provides com.metrolist.music.playback.rememberIsBlocked(id),
+        content = content,
+    )
+}
 
 @Composable
 inline fun ListItem(
@@ -161,9 +179,10 @@ inline fun ListItem(
     isActive: Boolean = false,
     isAvailable: Boolean = true,
 ) {
+    val blocked = LocalTrackBlocked.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = if (isActive) {
+        modifier = (if (blocked) Modifier.graphicsLayer { alpha = BLOCKED_ROW_ALPHA } else Modifier).then(if (isActive) {
             modifier // playing highlight
                 .height(LocalListItemSizes.current.height)
                 .padding(horizontal = 8.dp)
@@ -183,7 +202,7 @@ inline fun ListItem(
             modifier // default
                 .height(LocalListItemSizes.current.height)
                 .padding(horizontal = 8.dp)
-        }
+        })
     ) {
         Box(
             modifier = Modifier.padding(6.dp),
@@ -217,13 +236,23 @@ inline fun ListItem(
                 .weight(1f)
                 .padding(horizontal = 6.dp)
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (blocked) {
+                    Icon(
+                        painter = painterResource(R.drawable.block),
+                        contentDescription = stringResource(R.string.track_blocked),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 4.dp).size(14.dp),
+                    )
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
             if (subtitle != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -420,7 +449,7 @@ fun SongListItem(
     val sourceTag = com.metrolist.music.resolver.SourceSearch.providerOf(song.id)?.let {
         stringResource(R.string.experimental_source_tag, providerLabel(it))
     }
-    val content: @Composable () -> Unit = {
+    val content: @Composable () -> Unit = { BlockedAware(song.id) {
         ListItem(
             title = song.song.title,
             subtitle = subtitleOverride ?: joinByBullet(
@@ -445,7 +474,7 @@ fun SongListItem(
             isSelected = isSelected,
             isActive = isActive
         )
-    }
+    } }
 
     if (isSwipeable && swipeEnabled) {
         SwipeToSongBox(

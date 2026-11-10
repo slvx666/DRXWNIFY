@@ -235,6 +235,8 @@ class App :
         }
         // Metadata/library catalog: Spotify and/or Yandex Music, per the connected accounts.
         com.metrolist.music.catalog.Catalog.setCacheDir(cacheDir)
+        com.metrolist.music.catalog.Catalog.setPinnedDir(filesDir)
+        com.metrolist.music.playback.BlockedTracks.init(this)
         com.metrolist.music.catalog.LibraryCache.setDir(cacheDir)
         com.metrolist.music.catalog.LikedSongsCache.setDir(cacheDir)
         com.metrolist.music.utils.UpdateCheckReceiver.schedule(this)

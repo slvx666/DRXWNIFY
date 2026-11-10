@@ -346,6 +346,7 @@ class ArtistViewModel @Inject constructor(
                                 topTracks = order,
                                 startIndex = 0,
                                 mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database),
+                                shuffleAll = true,
                             ),
                         )
                     }

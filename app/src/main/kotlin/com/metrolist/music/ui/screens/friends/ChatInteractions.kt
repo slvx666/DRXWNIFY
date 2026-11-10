@@ -202,7 +202,10 @@ internal fun ReplyArrow(state: SwipeReply, replyPx: Float, modifier: Modifier = 
 
 // ── A reaction, drawn ────────────────────────────────────────────────────────────────────────────
 
-/** An emoji as text, a sticker as its first frame (no animation: it costs nothing to show many). */
+/**
+ * An emoji as text, a picture sticker as its first frame. An animated sticker moves, filling the
+ * same square as the others (cropped, with soft corners) so every reaction is the same size.
+ */
 @Composable
 internal fun ReactionGlyph(key: String, size: Dp) {
     val reaction = remember(key) { ChatReactions.of(key) }
@@ -215,13 +218,21 @@ internal fun ReactionGlyph(key: String, size: Dp) {
         )
         is ChatReactions.Reaction.Sticker -> {
             val context = LocalContext.current
+            val animated = reaction.sticker.animated
             val request = remember(key) {
                 ImageRequest.Builder(context)
                     .data(reaction.sticker.uri)
-                    .decoderFactory(coil3.decode.BitmapFactoryDecoder.Factory())
+                    .apply { if (!animated) decoderFactory(coil3.decode.BitmapFactoryDecoder.Factory()) }
                     .build()
             }
-            AsyncImage(model = request, contentDescription = reaction.sticker.code, modifier = Modifier.size(size))
+            AsyncImage(
+                model = request,
+                contentDescription = reaction.sticker.code,
+                contentScale = if (animated) androidx.compose.ui.layout.ContentScale.Crop else androidx.compose.ui.layout.ContentScale.Fit,
+                modifier = Modifier
+                    .size(size)
+                    .then(if (animated) Modifier.clip(RoundedCornerShape(size * 0.22f)) else Modifier),
+            )
         }
         // A newer app's reaction: shown as something, never dropped.
         null -> Text("•", fontSize = with(LocalDensity.current) { (size * 0.7f).toSp() }, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -280,7 +291,7 @@ internal fun ReactionChips(
                         // only one that didn't go shows, with its "!".
                         .padding(horizontal = 7.dp, vertical = 3.dp),
                 ) {
-                    ReactionGlyph(key, 18.dp)
+                    ReactionGlyph(key, 22.dp)
                     if (count > 1) {
                         Text("2", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 3.dp))
                     }
@@ -458,12 +469,12 @@ private fun ReactionBar(top: List<String>, myKeys: List<String>, note: String?, 
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(38.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .background(if (key in myKeys) MaterialTheme.colorScheme.primary.copy(alpha = 0.28f) else Color.Transparent)
                             .clickable { onReact(key) },
                     ) {
-                        ReactionGlyph(key, 26.dp)
+                        ReactionGlyph(key, 30.dp)
                     }
                 }
                 Box(
@@ -544,7 +555,7 @@ internal fun ReactionPicker(myKeys: List<String>, onPick: (String) -> Unit, modi
                 }
             }
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(46.dp),
+                columns = GridCells.Adaptive(50.dp),
                 contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 8.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
@@ -552,12 +563,12 @@ internal fun ReactionPicker(myKeys: List<String>, onPick: (String) -> Unit, modi
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(46.dp)
+                            .size(50.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (r.key in myKeys) MaterialTheme.colorScheme.primary.copy(alpha = 0.28f) else Color.Transparent)
                             .clickable { onPick(r.key) },
                     ) {
-                        ReactionGlyph(r.key, 32.dp)
+                        ReactionGlyph(r.key, 36.dp)
                     }
                 }
             }

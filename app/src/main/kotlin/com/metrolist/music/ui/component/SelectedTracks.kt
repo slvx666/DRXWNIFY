@@ -9,6 +9,7 @@ import android.content.Context
 import android.widget.Toast
 import com.metrolist.music.R
 import com.metrolist.music.db.MusicDatabase
+import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.DownloadUtil
 import com.metrolist.music.utils.shareDownloadedFiles
 import com.metrolist.spotify.models.SpotifyTrack
@@ -47,6 +48,52 @@ object SelectedTracks {
             val ids = (selected + downloadedIds(downloadUtil, selected)).distinct()
             downloadUtil.removeDownloads(ids)
             Toast.makeText(appContext, R.string.downloads_removed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * "Send" for the ticked tracks: the share sheet with what fits them — to a chat (catalog tracks
+     * and videos), as files (the downloaded ones), to a playlist, and as a link when it's one track.
+     * [songIds] writes the tracks' song rows and returns their ids (null: only files can go);
+     * [mediaIds] gives the ids their downloads are looked up by.
+     */
+    fun openShareSheet(
+        context: Context,
+        database: MusicDatabase,
+        downloadUtil: DownloadUtil,
+        count: Int,
+        songIds: (suspend () -> List<String>)?,
+        mediaIds: suspend () -> List<String>,
+    ) {
+        val appContext = context.applicationContext
+        scope.launch {
+            val ids = songIds?.let { lookup -> withContext(Dispatchers.IO) { runCatching { lookup() }.getOrDefault(emptyList()) } }.orEmpty()
+            val songs = if (ids.isEmpty()) {
+                emptyList()
+            } else {
+                withContext(Dispatchers.IO) {
+                    val byId = runCatching { database.getSongsByIds(ids) }.getOrDefault(emptyList()).associateBy { it.id }
+                    ids.mapNotNull { byId[it] }
+                }
+            }
+            val metas = songs.map { it.toMediaMetadata() }
+            val single = metas.singleOrNull()?.takeIf { count == 1 }
+            val music = metas.mapNotNull { meta ->
+                val by = meta.artists.joinToString { it.name }
+                com.metrolist.music.friends.ChatMusic.ofMedia(meta.id, meta.title, by, meta.thumbnailUrl, meta.duration * 1000L)
+            }
+            val title = single?.let { meta ->
+                val by = meta.artists.joinToString { it.name }
+                if (by.isNotBlank()) "$by — ${meta.title}" else meta.title
+            } ?: appContext.resources.getQuantityString(R.plurals.n_song, count, count)
+            ShareSheet.open(
+                title = title,
+                music = music,
+                linkText = single?.let { com.metrolist.music.ui.menu.shareLinkOf(it, null) },
+                files = { downloadedIds(downloadUtil, mediaIds()) },
+                mediaId = single?.id,
+                playlistSongIds = ids.takeIf { it.isNotEmpty() }?.let { list -> { list } },
+            )
         }
     }
 
