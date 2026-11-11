@@ -24,6 +24,15 @@ interface Queue {
 
     fun hasNextPage(): Boolean
 
+    /**
+     * More of the list itself (the album's or playlist's next pages), not counting the radio an
+     * album goes on with. Shuffle plays the list alone, so it loads only this.
+     */
+    fun hasNextListPage(): Boolean = hasNextPage()
+
+    /** The queue is recommendations (a radio, "For you"): shuffle mixes what is already queued. */
+    val isRecommendations: Boolean get() = false
+
     suspend fun nextPage(): List<MediaItem>
 
     /**

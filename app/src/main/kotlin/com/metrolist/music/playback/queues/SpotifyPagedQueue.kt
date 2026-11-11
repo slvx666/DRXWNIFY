@@ -228,6 +228,11 @@ abstract class SpotifyPagedQueue(
         }
     }
 
+    override fun hasNextListPage(): Boolean =
+        apiHasMore || resolveOffset < (if (continuationStart >= 0) continuationStart else allTracks.size)
+
+    override val isRecommendations: Boolean get() = allRecommended
+
     override fun hasNextPage(): Boolean =
         resolveOffset < allTracks.size || apiHasMore || (continues && continuationRounds < maxContinuationRounds)
 

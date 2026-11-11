@@ -27,6 +27,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import java.lang.ref.WeakReference
 import kotlin.math.abs
@@ -215,14 +216,19 @@ object FriendPlayback {
 
         override suspend fun nextPage(): List<MediaItem> = withContext(Dispatchers.IO) { next(BATCH) }
 
-        private suspend fun next(count: Int): List<MediaItem> {
+        /** One page at a time: two at once read the same position and doubled or skipped tracks. */
+        private val paging = kotlinx.coroutines.sync.Mutex()
+
+        private suspend fun next(count: Int): List<MediaItem> = paging.withLock {
             val out = mutableListOf<MediaItem>()
             while (offset < tracks.size && out.size < count) {
                 // What the friend shared plays as is (instantly); a lookup only for what it can't describe.
-                runCatching { instantItem(tracks[offset])?.toMediaItem() ?: itemFor(tracks[offset]) }.getOrNull()?.let(out::add)
+                val item = runCatching { instantItem(tracks[offset])?.toMediaItem() ?: itemFor(tracks[offset]) }.getOrNull()
+                if (item == null) android.util.Log.w("DrxwAudio", "chat queue: no track for '${tracks[offset].artist} — ${tracks[offset].title}'")
+                item?.let(out::add)
                 offset++
             }
-            return out
+            out
         }
     }
 

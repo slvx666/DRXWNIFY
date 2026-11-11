@@ -53,7 +53,7 @@ class ArtistTopTracksQueue(
         return when (current) {
             0 -> if (shuffleAll) {
                 fresh(moreFromArtist(ALL_RELEASES_TO_SCAN)).shuffled().also {
-                    Timber.d("$logTag: shuffle, ${it.size} more tracks by the artist")
+                    android.util.Log.i("DrxwAudio", "$logTag: shuffle, ${it.size} more tracks by the artist (${alreadyQueued.size} queued)")
                 }
             } else {
                 fresh(moreFromArtist(RELEASES_TO_SCAN)).shuffled().take((MIN_MORE..MAX_MORE).random()).also {
@@ -65,7 +65,7 @@ class ArtistTopTracksQueue(
                     ?: topTracks.firstOrNull()
                     ?: return emptyList()
                 fresh(runCatching { SimilarArtistsRadio.build(seed) }.getOrDefault(emptyList())).also {
-                    Timber.d("$logTag: ${it.size} tracks from similar artists (round $current)")
+                    android.util.Log.i("DrxwAudio", "$logTag: ${it.size} tracks from similar artists (round $current)")
                 }
             }
         }

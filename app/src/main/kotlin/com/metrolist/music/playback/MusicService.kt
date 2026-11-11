@@ -1716,7 +1716,7 @@ class MusicService :
             if (player.shuffleModeEnabled) {
                 // Fallback when queue doesn't support getFullStatus: load remaining pages then shuffle
                 withContext(Dispatchers.IO) { queue.shuffleRemainingTracks() }
-                while (queue.hasNextPage() && player.mediaItemCount < SHUFFLE_PRELOAD_MAX_ITEMS) {
+                while (queue.hasNextListPage() && player.mediaItemCount < SHUFFLE_PRELOAD_MAX_ITEMS) {
                     val moreItems = withContext(Dispatchers.IO) {
                         queue.nextPage()
                             .filterExplicit(dataStore.get(HideExplicitKey, false))
@@ -2804,6 +2804,16 @@ class MusicService :
         if (!dataStore.get(AutoLoadMoreKey, true) || !currentQueue.hasNextPage()) return
         if (dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL) return
         if (loadMoreJob?.isActive == true) return
+        // The new queue is still being put together (its first track already plays): a page asked
+        // for now would run alongside it, on the same position in the queue, so tracks were
+        // skipped, doubled or queued out of order (a chat's tracks went round, an artist's shuffle
+        // went to recommendations after the first ten). The initial load fetches what follows.
+        if (queueLoadJob?.isActive == true) return
+        // Shuffling an album or playlist plays the list alone: no radio after it.
+        if (player.shuffleModeEnabled && !currentQueue.isRecommendations && !currentQueue.hasNextListPage()) {
+            val currentId = player.currentMediaItem?.mediaId
+            if (currentId == null || !RecommendedTracks.isRecommended(currentId)) return
+        }
         val queue = currentQueue
         loadMoreJob = scope.launch(SilentHandler) {
             val mediaItems =
@@ -3039,7 +3049,14 @@ class MusicService :
 
             val queue = currentQueue ?: return
             val currentPositionMs = player.currentPosition
-            // Prefer full playlist so shuffle includes all tracks (e.g. 227), not just from current onwards.
+            // Recommendations (a radio, "For you", the tracks after an album): the tracks already
+            // queued, in random order. Nothing is fetched or replaced.
+            val currentId = player.currentMediaItem?.mediaId
+            if (queue.isRecommendations || (currentId != null && RecommendedTracks.isRecommended(currentId))) {
+                applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst = false)
+            } else
+            // An album or playlist: the whole list in random order, and only the list (the radio an
+            // album goes on with is not loaded while shuffling).
             scope.launch(SilentHandler) {
                 val fullStatus = withContext(Dispatchers.IO) {
                     queue.getFullStatus()
@@ -3064,9 +3081,9 @@ class MusicService :
                     applyShuffleOrder(startIndex, fullStatus.items.size, shufflePlaylistFirst)
                     return@launch
                 }
-                if (queue.hasNextPage()) {
+                if (queue.hasNextListPage()) {
                     withContext(Dispatchers.IO) { queue.shuffleRemainingTracks() }
-                    while (queue.hasNextPage() && player.mediaItemCount < SHUFFLE_PRELOAD_MAX_ITEMS) {
+                    while (queue.hasNextListPage() && player.mediaItemCount < SHUFFLE_PRELOAD_MAX_ITEMS) {
                         val moreItems = withContext(Dispatchers.IO) {
                             queue.nextPage()
                                 .filterExplicit(dataStore.get(HideExplicitKey, false))

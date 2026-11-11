@@ -17,6 +17,9 @@ class YouTubeQueue(
     private var endpoint: WatchEndpoint,
     override val preloadItem: MediaMetadata? = null,
 ) : Queue {
+    /** A watch-next mix (radio from a song) is recommendations; a playlist endpoint is a list. */
+    override val isRecommendations: Boolean get() = endpoint.playlistId == null || endpoint.playlistId!!.startsWith("RD")
+
     private var continuation: String? = null
     private var retryCount = 0
     private val maxRetries = 3
