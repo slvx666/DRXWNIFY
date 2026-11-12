@@ -1015,6 +1015,42 @@ fun PlayerMenu(
                                 ),
                             )
                         }
+                        // A VK track known only as an upload ("artist – title"): its album and artist
+                        // are looked up when asked — VK's own release when it is one, else the same
+                        // title in the search catalog — on a page that shows it is loading.
+                        val vkFullId = com.metrolist.music.resolver.FallbackIds.catalogIdOf(mediaMetadata.id)
+                            ?.takeIf { com.metrolist.music.resolver.SourceSearch.providerOf(mediaMetadata.id) == com.metrolist.music.resolver.AudioProviderId.VK }
+                            ?.substringAfter("src:VK:")
+                        if (vkFullId != null && !isPodcast) {
+                            val vkArtist = mediaMetadata.artists.joinToString { it.name }
+                            if (navigableArtists.isEmpty()) {
+                                add(
+                                    Material3MenuItemData(
+                                        title = { Text(text = stringResource(R.string.view_artist)) },
+                                        description = { Text(text = vkArtist, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        icon = { Icon(painter = painterResource(R.drawable.artist), contentDescription = null, modifier = Modifier.size(24.dp)) },
+                                        onClick = {
+                                            navController.navigate(com.metrolist.music.ui.screens.vk.vkGoRoute(true, vkFullId, mediaMetadata.title, vkArtist))
+                                            playerBottomSheetState?.collapseSoft()
+                                            onDismiss()
+                                        },
+                                    ),
+                                )
+                            }
+                            if (mediaMetadata.album == null && spotifyAlbumId == null) {
+                                add(
+                                    Material3MenuItemData(
+                                        title = { Text(text = stringResource(R.string.view_album)) },
+                                        icon = { Icon(painter = painterResource(R.drawable.album), contentDescription = null, modifier = Modifier.size(24.dp)) },
+                                        onClick = {
+                                            navController.navigate(com.metrolist.music.ui.screens.vk.vkGoRoute(false, vkFullId, mediaMetadata.title, vkArtist))
+                                            playerBottomSheetState?.collapseSoft()
+                                            onDismiss()
+                                        },
+                                    ),
+                                )
+                            }
+                        }
                     },
             )
         }

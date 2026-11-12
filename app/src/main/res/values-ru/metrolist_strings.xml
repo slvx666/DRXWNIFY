@@ -2092,4 +2092,10 @@
         <item quantity="other">%d импортированного плейлиста, создаются постепенно в фоне</item>
     </plurals>
     <string name="yandex_tab_short">Яндекс</string>
+    <string name="vk_go_finding_album">Ищем альбом…</string>
+    <string name="vk_go_finding_artist">Ищем исполнителя…</string>
+    <string name="vk_go_album_not_found">Не нашли альбом</string>
+    <string name="vk_go_artist_not_found">Не нашли исполнителя</string>
+    <string name="vk_go_not_found_hint">У этой загрузки нет альбома, и в каталоге похожего не нашлось</string>
+    <string name="vk_go_back">Назад</string>
 </resources>

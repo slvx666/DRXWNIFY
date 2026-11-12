@@ -2141,4 +2141,10 @@ Such tracks are audio only: play them, queue them and download them — but they
         <item quantity="other">%d imported playlists, created slowly in the background</item>
     </plurals>
     <string name="yandex_tab_short">Yandex</string>
+    <string name="vk_go_finding_album">Finding the album…</string>
+    <string name="vk_go_finding_artist">Finding the artist…</string>
+    <string name="vk_go_album_not_found">Album not found</string>
+    <string name="vk_go_artist_not_found">Artist not found</string>
+    <string name="vk_go_not_found_hint">This upload names no album, and nothing like it turned up in the catalog</string>
+    <string name="vk_go_back">Back</string>
 </resources>
