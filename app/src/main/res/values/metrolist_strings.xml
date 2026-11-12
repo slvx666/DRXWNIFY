@@ -2147,4 +2147,5 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="vk_go_artist_not_found">Artist not found</string>
     <string name="vk_go_not_found_hint">This upload names no album, and nothing like it turned up in the catalog</string>
     <string name="vk_go_back">Back</string>
+    <string name="vk_recommendations">VK recommends</string>
 </resources>
