@@ -191,6 +191,8 @@ object PlaylistImporter {
         val playlistId = job.optString("playlistId").takeIf { it.isNotBlank() } ?: run {
             val playlist = PlaylistEntity(name = name, bookmarkedAt = java.time.LocalDateTime.now(), isEditable = true)
             database.query { insert(playlist) }
+            // Offered later for creating in the main account (RemotePlaylists).
+            RemotePlaylists.markImported(playlist.id)
             job.put("playlistId", playlist.id)
             file.writeText(job.toString())
             playlist.id

@@ -2148,4 +2148,30 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="vk_go_not_found_hint">This upload names no album, and nothing like it turned up in the catalog</string>
     <string name="vk_go_back">Back</string>
     <string name="vk_recommendations">VK recommends</string>
+    <string name="transfer_no_main">Make another account the main one first: transfers go into the main account.</string>
+    <string name="transfer_pick_all">Select all</string>
+    <string name="transfer_pick_none">Clear</string>
+    <string name="transfer_picked">Selected: %1$d playlists · %2$d albums · %3$d tracks</string>
+    <string name="transfer_start">Transfer to %1$s</string>
+    <string name="transfer_running">Transferring: %1$d of %2$d</string>
+    <string name="transfer_done">Done: %1$d of %2$d</string>
+    <string name="transfer_playlists_later">Playlists are in the app already; in the main account they appear little by little, in the background.</string>
+    <string name="transfer_again">Transfer something else</string>
+    <string name="push_local_screen_title">Imported playlists</string>
+    <string name="push_local_explain">These playlists live in the app. Ticked ones will be created in %1$s too — slowly, in the background; it may take a while.</string>
+    <string name="push_local_start">Create %1$d in %2$s</string>
+    <string name="push_state_app_only">In the app only</string>
+    <string name="push_state_queued">Waiting in line</string>
+    <string name="push_state_filling">Adding tracks: %1$d of %2$d</string>
+    <string name="push_state_done">Created</string>
+    <string name="push_state_done_missing">Created, %1$d tracks not found</string>
+    <string name="push_state_failed">Couldn\'t create: %1$s</string>
+    <plurals name="transfer_found">
+        <item quantity="one">%d item</item>
+        <item quantity="other">%d items</item>
+    </plurals>
+    <plurals name="transfer_missing">
+        <item quantity="one">Not found in the main account (%d):</item>
+        <item quantity="other">Not found in the main account (%d):</item>
+    </plurals>
 </resources>

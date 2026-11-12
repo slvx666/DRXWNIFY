@@ -1265,6 +1265,30 @@ object Spotify {
     /**
      * Renames a playlist and/or updates its description via GQL mutation.
      */
+    /**
+     * Creates a playlist in the user's library and returns its id. Through the public REST API with
+     * the web player's token; Spotify may refuse it (then the error says so and nothing is created).
+     */
+    suspend fun createPlaylist(name: String, description: String = ""): Result<String> =
+        runCatching {
+            val token = currentToken() ?: throw SpotifyException(401, "Not authenticated")
+            val body = buildJsonObject {
+                put("name", name)
+                put("description", description)
+                put("public", false)
+            }
+            val response = restClient.post("me/playlists") {
+                header("Authorization", "Bearer $token")
+                setBody(TextContent(body.toString(), ContentType.Application.Json))
+            }
+            log("D", "REST POST me/playlists -> ${response.status.value}")
+            if (response.status.value !in 200..299) {
+                throw SpotifyException(response.status.value, "Spotify refused to create the playlist (${response.status.value})")
+            }
+            json.parseToJsonElement(response.bodyAsText()).jsonObject.str("id")
+                ?: throw SpotifyException(500, "No playlist id in the answer")
+        }
+
     suspend fun editPlaylistAttributes(
         playlistId: String,
         newName: String? = null,

@@ -346,6 +346,47 @@ object YandexMusic {
             SpotifyPaging(items = items, total = refs.size, limit = limit, offset = offset)
         }
 
+    /** Creates a private playlist in the user's library; returns its id (`ym_<uid>_<kind>`). */
+    suspend fun createPlaylist(title: String): Result<String> = runCatching {
+        val obj = postForm("users/${requireUid()}/playlists/create", mapOf("title" to title, "visibility" to "private")) as? JsonObject
+            ?: throw YandexException(500, "Invalid playlist payload")
+        YandexParser.playlist(obj)?.id ?: throw YandexException(500, "Invalid playlist payload")
+    }
+
+    /**
+     * Puts tracks at the end of one of the user's playlists. [tracks]: raw track id → raw album id
+     * (Yandex wants both for each track).
+     */
+    suspend fun addToPlaylist(playlistId: String, tracks: List<Pair<String, String?>>): Result<Unit> = runCatching {
+        if (tracks.isEmpty()) return@runCatching
+        val (owner, kind) = YandexIds.parsePlaylist(playlistId) ?: throw YandexException(400, "Bad playlist id")
+        val current = getResult("users/$owner/playlists/$kind") as? JsonObject ?: throw YandexException(404, "Playlist not found")
+        val revision = current.str("revision") ?: "1"
+        val count = current.str("trackCount")?.toIntOrNull() ?: current.arr("tracks")?.size ?: 0
+        val diff = kotlinx.serialization.json.buildJsonArray {
+            add(
+                kotlinx.serialization.json.buildJsonObject {
+                    put("op", kotlinx.serialization.json.JsonPrimitive("insert"))
+                    put("at", kotlinx.serialization.json.JsonPrimitive(count))
+                    put(
+                        "tracks",
+                        kotlinx.serialization.json.buildJsonArray {
+                            tracks.forEach { (track, album) ->
+                                add(
+                                    kotlinx.serialization.json.buildJsonObject {
+                                        put("id", kotlinx.serialization.json.JsonPrimitive(track))
+                                        album?.let { put("albumId", kotlinx.serialization.json.JsonPrimitive(it)) }
+                                    },
+                                )
+                            }
+                        },
+                    )
+                },
+            )
+        }
+        postForm("users/$owner/playlists/$kind/change-relative", mapOf("diff" to diff.toString(), "revision" to revision))
+    }
+
     suspend fun likedAlbums(): Result<List<SpotifyAlbum>> = runCatching {
         (getResult("users/${requireUid()}/likes/albums", mapOf("rich" to "true")) as? JsonArray).orEmpty()
             .mapNotNull { el -> el.objOrNull()?.let { o -> (o.obj("album") ?: o).let(YandexParser::album) } }

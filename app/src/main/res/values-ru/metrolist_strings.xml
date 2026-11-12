@@ -2099,4 +2099,34 @@
     <string name="vk_go_not_found_hint">У этой загрузки нет альбома, и в каталоге похожего не нашлось</string>
     <string name="vk_go_back">Назад</string>
     <string name="vk_recommendations">Рекомендации ВК</string>
+    <string name="transfer_no_main">Сначала сделайте основным другой аккаунт: перенос идёт в основной.</string>
+    <string name="transfer_pick_all">Выбрать все</string>
+    <string name="transfer_pick_none">Снять все</string>
+    <string name="transfer_picked">Выбрано: плейлистов %1$d · альбомов %2$d · треков %3$d</string>
+    <string name="transfer_start">Перенести в %1$s</string>
+    <string name="transfer_running">Переносим: %1$d из %2$d</string>
+    <string name="transfer_done">Готово: %1$d из %2$d</string>
+    <string name="transfer_playlists_later">Плейлисты уже в приложении; в основном аккаунте они появятся постепенно, в фоне.</string>
+    <string name="transfer_again">Перенести ещё</string>
+    <string name="push_local_screen_title">Импортированные плейлисты</string>
+    <string name="push_local_explain">Эти плейлисты живут в приложении. Отмеченные будут созданы и в %1$s — постепенно, в фоне, это может занять время.</string>
+    <string name="push_local_start">Создать %1$d в %2$s</string>
+    <string name="push_state_app_only">Только в приложении</string>
+    <string name="push_state_queued">В очереди</string>
+    <string name="push_state_filling">Добавляем треки: %1$d из %2$d</string>
+    <string name="push_state_done">Создан</string>
+    <string name="push_state_done_missing">Создан, не нашлось треков: %1$d</string>
+    <string name="push_state_failed">Не удалось создать: %1$s</string>
+    <plurals name="transfer_found">
+        <item quantity="one">%d элемент</item>
+        <item quantity="few">%d элемента</item>
+        <item quantity="many">%d элементов</item>
+        <item quantity="other">%d элемента</item>
+    </plurals>
+    <plurals name="transfer_missing">
+        <item quantity="one">Не нашлось в основном аккаунте (%d):</item>
+        <item quantity="few">Не нашлось в основном аккаунте (%d):</item>
+        <item quantity="many">Не нашлось в основном аккаунте (%d):</item>
+        <item quantity="other">Не нашлось в основном аккаунте (%d):</item>
+    </plurals>
 </resources>

@@ -115,6 +115,8 @@ object CrossCatalog {
         liked: Boolean,
         songId: String? = null,
         album: String? = null,
+        /** False for a lookup that isn't a like (filling a playlist): the library's marks stay as they are. */
+        mark: Boolean = true,
     ): String? {
         if (Catalog.sourceOf(id) == target) return id.takeIf { Catalog.canWrite(it) }
         if (!Catalog.state.value.isConnected(target)) return null
@@ -128,7 +130,7 @@ object CrossCatalog {
             findTrack(target, title, artists, durationSec, album).getOrElse { return null }
                 .also { prefs?.edit()?.putString(key, it ?: NONE)?.apply() }
         }
-        if (isMain) {
+        if (isMain && mark) {
             setMissing("t:$id", liked && match == null)
             songId?.let { setMissing("s:$it", liked && match == null) }
         }
@@ -301,6 +303,20 @@ object CrossCatalog {
         }?.id
         prefs?.edit()?.putString(key, match ?: NONE)?.apply()
         return match
+    }
+
+    /** The album of this title by this artist in [target]'s catalog; null when it hasn't it or doesn't answer. */
+    suspend fun albumIn(target: MetadataSource, title: String, artist: String?): String? {
+        if (!Catalog.ensureSearchable(target)) return null
+        val wantedTitle = normalize(title).ifEmpty { return null }
+        val wantedArtist = artist?.split(", ")?.firstOrNull()?.let(::normalize).orEmpty()
+        for (query in listOfNotNull(artist?.let { "$it $title" }, title).distinct()) {
+            val found = Catalog.searchIn(target, query, listOf("album"), 15).getOrNull() ?: continue
+            found.albums?.items.orEmpty().firstOrNull { a ->
+                normalize(a.name) == wantedTitle && (wantedArtist.isEmpty() || a.artists.any { normalize(it.name) == wantedArtist })
+            }?.id?.let { return it }
+        }
+        return null
     }
 
     /** The catalog id of an artist saved in the app ("SP_…", a bare Spotify id, a Yandex one), or null. */
