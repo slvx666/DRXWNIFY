@@ -254,6 +254,7 @@ class App :
         com.metrolist.music.catalog.CrossCatalog.init(this, applicationScope)
         com.metrolist.music.catalog.VkCatalog.init(this)
         com.metrolist.music.playback.RemotePlaylists.init(this, database)
+        com.metrolist.music.catalog.ServiceStats.init(this)
         com.metrolist.music.catalog.AccountLikes.init(this)
 
         // تهيئة إعدادات التطبيق عند الإقلاع

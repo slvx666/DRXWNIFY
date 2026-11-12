@@ -1032,6 +1032,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         com.metrolist.music.ui.component.AppUpdateOffer()
+                        // The last month in review, once, on the first opening in a new month.
+                        com.metrolist.music.ui.screens.settings.integrations.MonthReviewOffer()
                         com.metrolist.music.ui.component.MigrationRestoreOffer()
                         com.metrolist.music.ui.component.DownloadFolderAccessPrompt()
                         // The old app id: at every start, how to move to 2.0.0 (see AppMigration).

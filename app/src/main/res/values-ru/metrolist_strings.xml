@@ -2129,4 +2129,17 @@
         <item quantity="many">Не нашлось в основном аккаунте (%d):</item>
         <item quantity="other">Не нашлось в основном аккаунте (%d):</item>
     </plurals>
+    <string name="stats_range_short">4 недели</string>
+    <string name="stats_range_medium">6 месяцев</string>
+    <string name="stats_range_long">Всё время</string>
+    <string name="stats_failed">Не удалось загрузить: %1$s</string>
+    <string name="stats_top_artists">Топ исполнителей</string>
+    <string name="stats_top_tracks">Топ треков</string>
+    <string name="stats_yandex_total">Лайкнутых треков: %1$d</string>
+    <string name="stats_likes_by_month">Лайки по месяцам</string>
+    <string name="stats_liked_artists">Чаще всего лайкали</string>
+    <string name="month_review_title">Итоги: %1$s</string>
+    <string name="month_review_numbers">%1$d мин · %2$d прослушиваний · новых исполнителей: %3$d</string>
+    <string name="month_review_artists">Исполнители месяца</string>
+    <string name="month_review_tracks">Треки месяца</string>
 </resources>

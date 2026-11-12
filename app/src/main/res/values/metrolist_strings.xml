@@ -2174,4 +2174,17 @@ Such tracks are audio only: play them, queue them and download them — but they
         <item quantity="one">Not found in the main account (%d):</item>
         <item quantity="other">Not found in the main account (%d):</item>
     </plurals>
+    <string name="stats_range_short">4 weeks</string>
+    <string name="stats_range_medium">6 months</string>
+    <string name="stats_range_long">All time</string>
+    <string name="stats_failed">Couldn\'t load: %1$s</string>
+    <string name="stats_top_artists">Top artists</string>
+    <string name="stats_top_tracks">Top tracks</string>
+    <string name="stats_yandex_total">%1$d liked tracks</string>
+    <string name="stats_likes_by_month">Likes by month</string>
+    <string name="stats_liked_artists">Most liked artists</string>
+    <string name="month_review_title">Your %1$s</string>
+    <string name="month_review_numbers">%1$d min · %2$d listens · %3$d new artists</string>
+    <string name="month_review_artists">Artists of the month</string>
+    <string name="month_review_tracks">Tracks of the month</string>
 </resources>
