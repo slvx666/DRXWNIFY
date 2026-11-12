@@ -2059,4 +2059,37 @@
     <string name="lib_sort_year">Год выпуска</string>
     <string name="lib_year_filter">Год</string>
     <string name="lib_year_all">Все годы</string>
+    <string name="vk_liked_songs">Моя музыка · ВК</string>
+    <string name="vk_music_name">ВК Музыка</string>
+    <string name="not_in_vk">Нет в ВК</string>
+    <string name="account_linked_title">%1$s привязан</string>
+    <string name="account_linked_subtitle">Пара настроек перед началом</string>
+    <string name="account_setup_done">Готово</string>
+    <string name="account_section_main">Аккаунт</string>
+    <string name="account_is_main">Основной аккаунт</string>
+    <string name="account_is_main_on">Медиатека, главная, рекомендации и профиль берутся отсюда</string>
+    <string name="account_is_main_off">Сейчас основной: %1$s</string>
+    <string name="account_only_one">Это единственный привязанный аккаунт</string>
+    <string name="account_library_tab">Вкладка в библиотеке</string>
+    <string name="account_library_tab_desc">Треки, альбомы и плейлисты этого аккаунта отдельной вкладкой</string>
+    <string name="like_mode_title">Куда уходит лайк</string>
+    <string name="like_mode_main_only">Только в основной аккаунт</string>
+    <string name="like_mode_main_and_source">В основной и туда, откуда трек</string>
+    <string name="like_mode_all">Во все привязанные аккаунты</string>
+    <string name="account_section_transfer">Перенос</string>
+    <string name="transfer_from_to">Из %1$s в %2$s</string>
+    <string name="transfer_from_desc">Выбрать плейлисты, альбомы и треки для переноса</string>
+    <string name="push_local_title">Создать импортированные плейлисты в %1$s</string>
+    <string name="account_section_stats">Статистика</string>
+    <string name="service_stats_title">Статистика</string>
+    <string name="service_stats_desc_spotify">Топ треков и исполнителей: 4 недели, 6 месяцев, всё время</string>
+    <string name="service_stats_desc_yandex">Лайки по месяцам, любимые исполнители</string>
+    <string name="account_section_account">Вход</string>
+    <plurals name="push_local_desc">
+        <item quantity="one">%d импортированный плейлист, создаётся постепенно в фоне</item>
+        <item quantity="few">%d импортированных плейлиста, создаются постепенно в фоне</item>
+        <item quantity="many">%d импортированных плейлистов, создаются постепенно в фоне</item>
+        <item quantity="other">%d импортированного плейлиста, создаются постепенно в фоне</item>
+    </plurals>
+    <string name="yandex_tab_short">Яндекс</string>
 </resources>

@@ -76,6 +76,8 @@ import com.metrolist.music.constants.SpotifyUsernameKey
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.dataStore
+import com.metrolist.music.ui.screens.settings.integrations.afterAccountLinked
+import com.metrolist.music.utils.get
 import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.SpotifyAuth
 import kotlinx.coroutines.CancellationException
@@ -790,6 +792,10 @@ private fun extractAndFetchToken(
                 Timber.w(e, "SpotifyLogin: could not fetch profile (non-fatal)")
             }
 
+            // A re-login (the cookie ran out) keeps everything as it was, the main account above all;
+            // linking Spotify for the first time goes on to the account's setup.
+            val relogin = context.dataStore.get(SpotifyAccessTokenKey, "").isNotEmpty()
+            val mainBefore = com.metrolist.music.catalog.Catalog.source
             context.dataStore.edit { prefs ->
                 prefs[SpotifyAccessTokenKey] = token.accessToken
                 prefs[SpotifyTokenExpiryKey] = token.accessTokenExpirationTimestampMs
@@ -809,10 +815,6 @@ private fun extractAndFetchToken(
                 if (prefs[com.metrolist.music.constants.SpotifySyncLikesKey] == null) {
                     prefs[com.metrolist.music.constants.SpotifySyncLikesKey] = true
                 }
-                if (prefs[com.metrolist.music.constants.YandexAccessTokenKey].isNullOrEmpty()) {
-                    prefs[com.metrolist.music.constants.PrimaryMetadataSourceKey] =
-                        com.metrolist.music.constants.MetadataSource.SPOTIFY.name
-                }
             }
 
             withContext(Dispatchers.Main) {
@@ -823,7 +825,7 @@ private fun extractAndFetchToken(
             delay(300)
 
             withContext(Dispatchers.Main) {
-                navController.navigateUp()
+                navController.afterAccountLinked(com.metrolist.music.constants.MetadataSource.SPOTIFY, relogin, mainBefore)
             }
         } catch (e: CancellationException) {
             throw e

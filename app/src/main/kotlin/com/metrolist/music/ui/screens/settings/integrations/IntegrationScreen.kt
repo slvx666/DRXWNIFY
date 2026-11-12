@@ -157,7 +157,8 @@ fun IntegrationScreen(
                     description = { Text(stringResource(R.string.integration_yandex_description)) },
                     trailingContent = if (yandexToken.isNotEmpty()) connected else null,
                     onClick = {
-                        if (yandexToken.isNotEmpty()) showYandexAccount = true else navController.navigate("settings/yandex/login")
+                        // The account's page: main account, its library tab, likes, statistics, sign out.
+                        if (yandexToken.isNotEmpty()) navController.navigate("settings/integrations/account/YANDEX") else navController.navigate("settings/yandex/login")
                     }
                 ),
                 IntegrationCardItem(
@@ -181,7 +182,7 @@ fun IntegrationScreen(
                     },
                     trailingContent = if (vkToken.isNotEmpty() && !vkRevoked) connected else null,
                     onClick = {
-                        if (vkToken.isNotEmpty() && !vkRevoked) showVkLogout = true else navController.navigate("settings/vk/login")
+                        if (vkToken.isNotEmpty() && !vkRevoked) navController.navigate("settings/integrations/account/VK") else navController.navigate("settings/vk/login")
                     }
                 ),
                 IntegrationCardItem(

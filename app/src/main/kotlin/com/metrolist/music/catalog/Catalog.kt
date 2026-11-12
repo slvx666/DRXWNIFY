@@ -11,6 +11,7 @@ import com.metrolist.music.constants.EnableSpotifyKey
 import com.metrolist.music.constants.MetadataSource
 import com.metrolist.music.constants.PrimaryMetadataSourceKey
 import com.metrolist.music.constants.SpotifyAccessTokenKey
+import com.metrolist.music.constants.VkAccessTokenKey
 import com.metrolist.music.constants.YandexAccessTokenKey
 import com.metrolist.music.constants.YandexUidKey
 import com.metrolist.music.utils.SpotifyTokenManager
@@ -41,14 +42,14 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.withLock
 
 /**
- * The music catalog = metadata + the user's library, owned by ONE account at a time: Spotify or
- * Yandex Music. The two are never mixed. With both accounts signed in, the user picks the data
- * source in Settings → Music sources (Spotify by default).
+ * The music catalog = metadata + the user's library, owned by the MAIN account: Spotify, Yandex
+ * Music or VK. With several accounts linked the user picks the main one (Spotify by default); the
+ * others can show as tabs of their own in the library.
  *
- *  - Collection calls (liked songs, library, search) use the selected source only.
- *  - Entity calls (album, playlist, artist, track, likes) are routed by id — Yandex entities carry a
- *    `ym_` id ([YandexIds]), everything else is Spotify — so an item that is already on screen keeps
- *    working even right after the source is switched.
+ *  - Collection calls (liked songs, library) use the main account; [myLibraryOf] reads another one.
+ *  - Entity calls (album, playlist, artist, track, likes) are routed by id ([sourceOf]) — Yandex
+ *    entities carry a `ym_` id ([YandexIds]), VK ones `src:VK:` / `vk_` / `vkar_` ([VkCatalog]),
+ *    everything else is Spotify — so an item already on screen keeps working after a switch.
  *
  * Audio is never taken from the catalog: see the resolver package.
  */
@@ -56,16 +57,24 @@ object Catalog {
     data class State(
         val spotifyConnected: Boolean = false,
         val yandexConnected: Boolean = false,
+        val vkConnected: Boolean = false,
         val preferred: MetadataSource = MetadataSource.SPOTIFY,
     ) {
-        /** The source feeding library/search right now, or null when no account is connected. */
+        fun isConnected(s: MetadataSource): Boolean = when (s) {
+            MetadataSource.SPOTIFY -> spotifyConnected
+            MetadataSource.YANDEX -> yandexConnected
+            MetadataSource.VK -> vkConnected
+        }
+
+        /** Every linked account, Spotify first. */
+        val connected: List<MetadataSource> get() = MetadataSource.entries.filter(::isConnected)
+
+        /**
+         * The main account, or null when none is linked. The chosen one while it is linked; else
+         * the first linked in the order Spotify, Yandex Music, VK.
+         */
         val source: MetadataSource?
-            get() = when {
-                spotifyConnected && yandexConnected -> preferred
-                spotifyConnected -> MetadataSource.SPOTIFY
-                yandexConnected -> MetadataSource.YANDEX
-                else -> null
-            }
+            get() = preferred.takeIf(::isConnected) ?: connected.firstOrNull()
 
         val isActive: Boolean get() = source != null
     }
@@ -82,6 +91,7 @@ object Catalog {
 
     fun init(dataStore: DataStore<Preferences>, scope: CoroutineScope, likedSongsTitle: String) {
         likedSongsName = likedSongsTitle
+        MainAccount.init(dataStore)
         // Liked Songs read from disk into memory a little after start (not holding up the intro): the
         // screen then opens with its list on the first frame.
         scope.launch(Dispatchers.IO) {
@@ -99,6 +109,8 @@ object Catalog {
                         spotifyConnected = (prefs[EnableSpotifyKey] ?: false) &&
                             prefs[SpotifyAccessTokenKey].orEmpty().isNotEmpty(),
                         yandexConnected = yandexToken.isNotEmpty(),
+                        // The user's own VK account only: the shared test account has no library.
+                        vkConnected = prefs[VkAccessTokenKey].orEmpty().isNotEmpty(),
                         preferred = prefs[PrimaryMetadataSourceKey]
                             ?.let { v -> MetadataSource.entries.firstOrNull { it.name == v } }
                             ?: MetadataSource.SPOTIFY,
@@ -121,16 +133,34 @@ object Catalog {
 
     fun isYandexId(id: String?): Boolean = YandexIds.isYandex(id)
 
+    fun isVkId(id: String?): Boolean = VkCatalog.isVkId(id)
+
+    /** The liked songs of Spotify opened as a playlist (from Spotify's own library tab). */
+    const val SPOTIFY_LIKED_ID = "sp_liked"
+
+    /** The catalog an id belongs to. */
+    fun sourceOf(id: String?): MetadataSource = when {
+        isYandexId(id) -> MetadataSource.YANDEX
+        isVkId(id) -> MetadataSource.VK
+        else -> MetadataSource.SPOTIFY
+    }
+
     /** True when the account owning [id] is signed in, i.e. writes (like, save, follow) can succeed. */
-    fun canWrite(id: String?): Boolean =
+    fun canWrite(id: String?): Boolean = when (sourceOf(id)) {
+        MetadataSource.YANDEX -> YandexMusic.isAuthenticated()
+        MetadataSource.VK -> _state.value.vkConnected && VkCatalog.isAuthenticated
         // Spotify's anonymous token (search and pages without an account) is a token too: it can't
         // write anything, so only a connected account counts.
-        if (isYandexId(id)) YandexMusic.isAuthenticated() else _state.value.spotifyConnected && Spotify.isAuthenticated()
+        MetadataSource.SPOTIFY -> _state.value.spotifyConnected && Spotify.isAuthenticated()
+    }
 
     /** Makes sure the selected source has a usable session. */
-    suspend fun ensureAuthenticated(): Boolean = when (source) {
+    suspend fun ensureAuthenticated(): Boolean = ensureAuthenticated(source)
+
+    suspend fun ensureAuthenticated(of: MetadataSource?): Boolean = when (of) {
         MetadataSource.SPOTIFY -> SpotifyTokenManager.ensureAuthenticated()
         MetadataSource.YANDEX -> YandexMusic.isAuthenticated()
+        MetadataSource.VK -> VkCatalog.isAuthenticated
         // No account: Spotify's public catalog is still open to anonymous clients, so search and
         // browsing work. Anything to do with a library stays unavailable ([noAccount]).
         null -> SpotifyTokenManager.ensurePublicAccess()
@@ -154,7 +184,11 @@ object Catalog {
             return Result.success(cached.second)
         }
         suspend fun fetch(): Result<SpotifyAlbum> {
-            val fresh = if (isYandexId(id)) YandexMusic.album(id) else Spotify.album(id)
+            val fresh = when (sourceOf(id)) {
+                MetadataSource.YANDEX -> YandexMusic.album(id)
+                MetadataSource.VK -> VkCatalog.album(id)
+                MetadataSource.SPOTIFY -> Spotify.album(id)
+            }
             fresh.onSuccess { album ->
                 if (album.tracks?.items.isNullOrEmpty()) return@onSuccess
                 albumMemory[id] = System.currentTimeMillis() to album
@@ -231,16 +265,24 @@ object Catalog {
         albumJson.decodeFromString(SpotifyAlbum.serializer(), file.readText())
     }.getOrNull()
 
-    suspend fun artist(id: String): Result<SpotifyArtist> =
-        if (isYandexId(id)) YandexMusic.artist(id) else Spotify.artist(id)
+    suspend fun artist(id: String): Result<SpotifyArtist> = when (sourceOf(id)) {
+        MetadataSource.YANDEX -> YandexMusic.artist(id)
+        MetadataSource.VK -> VkCatalog.artist(id)
+        MetadataSource.SPOTIFY -> Spotify.artist(id)
+    }
 
-    suspend fun artistTopTracks(id: String): Result<ArtistTopTracksResponse> =
-        if (isYandexId(id)) YandexMusic.artistTopTracks(id) else Spotify.artistTopTracks(id)
+    suspend fun artistTopTracks(id: String): Result<ArtistTopTracksResponse> = when (sourceOf(id)) {
+        MetadataSource.YANDEX -> YandexMusic.artistTopTracks(id)
+        MetadataSource.VK -> VkCatalog.artistTopTracks(id)
+        MetadataSource.SPOTIFY -> Spotify.artistTopTracks(id)
+    }
 
     /** All releases of an artist (albums, singles, EPs, compilations) from the catalog that owns it. */
     suspend fun artistReleases(id: String): Result<List<SpotifyAlbum>> =
         if (isYandexId(id)) {
             YandexMusic.artistAlbums(id)
+        } else if (isVkId(id)) {
+            VkCatalog.artistAlbums(id)
         } else {
             runCatching {
                 // The GQL overview only carries the most recent/popular releases; the REST listing is
@@ -280,33 +322,92 @@ object Catalog {
     suspend fun latestReleases(id: String): Result<List<SpotifyAlbum>> =
         if (isYandexId(id)) {
             YandexMusic.artistAlbums(id)
+        } else if (isVkId(id)) {
+            VkCatalog.artistAlbums(id)
         } else {
             Spotify.artistDiscography(id).map { d -> (listOfNotNull(d.latest) + d.albums + d.singles).distinctBy { it.id } }
         }
 
     /** Releases of other artists [id] appears on (features, collaborations), newest first. */
     suspend fun artistAppearsOn(id: String): Result<List<SpotifyAlbum>> =
-        (if (isYandexId(id)) YandexMusic.artistAppearsOn(id) else Spotify.artistAppearsOn(id))
+        (
+            when (sourceOf(id)) {
+                MetadataSource.YANDEX -> YandexMusic.artistAppearsOn(id)
+                // VK has no "appears on" list.
+                MetadataSource.VK -> Result.success(emptyList())
+                MetadataSource.SPOTIFY -> Spotify.artistAppearsOn(id)
+            }
+            )
             .map { list -> list.filter { it.id.isNotBlank() }.sortedByDescending { it.releaseDate.orEmpty() } }
 
-    suspend fun relatedArtists(id: String): Result<List<SpotifyArtist>> =
-        if (isYandexId(id)) YandexMusic.similarArtists(id) else Spotify.artistRelatedArtists(id)
+    suspend fun relatedArtists(id: String): Result<List<SpotifyArtist>> = when (sourceOf(id)) {
+        MetadataSource.YANDEX -> YandexMusic.similarArtists(id)
+        // VK keeps no "similar artists": the same artist on Spotify's public catalog has them.
+        MetadataSource.VK -> runCatching {
+            val name = VkCatalog.artist(id).getOrNull()?.name ?: return@runCatching emptyList()
+            val spotifyId = CrossCatalog.spotifyArtistByName(name) ?: return@runCatching emptyList()
+            Spotify.artistRelatedArtists(spotifyId).getOrDefault(emptyList())
+        }
+        MetadataSource.SPOTIFY -> Spotify.artistRelatedArtists(id)
+    }
 
-    suspend fun getTrack(id: String): Result<SpotifyTrack> =
-        if (isYandexId(id)) YandexMusic.getTrack(id) else Spotify.getTrack(id)
+    suspend fun getTrack(id: String): Result<SpotifyTrack> = when (sourceOf(id)) {
+        MetadataSource.YANDEX -> YandexMusic.getTrack(id)
+        MetadataSource.VK -> VkCatalog.getTrack(id)
+        MetadataSource.SPOTIFY -> Spotify.getTrack(id)
+    }
 
-    suspend fun playlist(id: String): Result<SpotifyPlaylist> =
-        if (isYandexId(id)) YandexMusic.playlist(id) else Spotify.playlist(id)
+    suspend fun playlist(id: String): Result<SpotifyPlaylist> = likedAsPlaylist(id)?.let { Result.success(it) } ?: when (sourceOf(id)) {
+        MetadataSource.YANDEX -> YandexMusic.playlist(id)
+        MetadataSource.VK -> VkCatalog.playlist(id)
+        MetadataSource.SPOTIFY -> Spotify.playlist(id)
+    }
 
-    suspend fun playlistTracks(id: String, limit: Int, offset: Int): Result<SpotifyPaging<SpotifyPlaylistTrack>> =
-        if (isYandexId(id)) YandexMusic.playlistTracks(id, limit, offset) else Spotify.playlistTracks(id, limit, offset)
+    /** An account's liked songs as a playlist page (its library tab opens them so), or null for any other id. */
+    private fun likedAsPlaylist(id: String): SpotifyPlaylist? {
+        val source = when (id) {
+            SPOTIFY_LIKED_ID -> MetadataSource.SPOTIFY
+            YandexIds.LIKED_SONGS_ID -> MetadataSource.YANDEX
+            else -> return null
+        }
+        return SpotifyPlaylist(
+            id = id,
+            name = if (source == MetadataSource.YANDEX) "$likedSongsName · Yandex Music" else "$likedSongsName · Spotify",
+        )
+    }
+
+    suspend fun playlistTracks(id: String, limit: Int, offset: Int): Result<SpotifyPaging<SpotifyPlaylistTrack>> = when (id) {
+        SPOTIFY_LIKED_ID, YandexIds.LIKED_SONGS_ID ->
+            likedSongsOf(if (id == SPOTIFY_LIKED_ID) MetadataSource.SPOTIFY else MetadataSource.YANDEX, limit, offset).map { page ->
+                SpotifyPaging(
+                    items = page.items.map { SpotifyPlaylistTrack(addedAt = it.addedAt, track = it.track) },
+                    total = page.total,
+                    limit = page.limit,
+                    offset = page.offset,
+                )
+            }
+        else -> playlistTracksById(id, limit, offset)
+    }
+
+    private suspend fun playlistTracksById(id: String, limit: Int, offset: Int): Result<SpotifyPaging<SpotifyPlaylistTrack>> = when (sourceOf(id)) {
+        MetadataSource.YANDEX -> YandexMusic.playlistTracks(id, limit, offset)
+        MetadataSource.VK -> VkCatalog.playlistTracks(id, limit, offset)
+        MetadataSource.SPOTIFY -> Spotify.playlistTracks(id, limit, offset)
+    }
 
     suspend fun saveTrack(id: String): Result<Unit> =
-        (if (isYandexId(id)) YandexMusic.setTrackLiked(id, true) else Spotify.saveTrack(id))
-            .onSuccess { invalidateCaches() }
+        when (sourceOf(id)) {
+            MetadataSource.YANDEX -> YandexMusic.setTrackLiked(id, true)
+            MetadataSource.VK -> VkCatalog.saveTrack(id)
+            MetadataSource.SPOTIFY -> Spotify.saveTrack(id)
+        }.onSuccess { invalidateCaches() }
 
     suspend fun removeTrack(id: String): Result<Unit> =
-        (if (isYandexId(id)) YandexMusic.setTrackLiked(id, false) else Spotify.removeTrack(id))
+        when (sourceOf(id)) {
+            MetadataSource.YANDEX -> YandexMusic.setTrackLiked(id, false)
+            MetadataSource.VK -> VkCatalog.removeTrack(id)
+            MetadataSource.SPOTIFY -> Spotify.removeTrack(id)
+        }
             .onSuccess {
                 LikedSongsCache.remove(id)
                 invalidateCaches()
@@ -336,12 +437,17 @@ object Catalog {
         ids
     }
 
-    suspend fun isAlbumSaved(id: String): Result<Boolean> =
-        if (isYandexId(id)) YandexMusic.isAlbumLiked(id) else runCatching { id in spotifySavedAlbumIds() }
+    suspend fun isAlbumSaved(id: String): Result<Boolean> = when (sourceOf(id)) {
+        MetadataSource.YANDEX -> YandexMusic.isAlbumLiked(id)
+        MetadataSource.VK -> VkCatalog.isAlbumSaved(id)
+        MetadataSource.SPOTIFY -> runCatching { id in spotifySavedAlbumIds() }
+    }
 
     suspend fun saveAlbum(id: String): Result<Unit> =
         if (isYandexId(id)) {
             YandexMusic.setAlbumLiked(id, true)
+        } else if (isVkId(id)) {
+            VkCatalog.saveAlbum(id)
         } else {
             SpotifyTokenManager.ensureAuthenticated()
             Spotify.addToLibrary(listOf("spotify:album:$id")).onSuccess { spotifySavedAlbums?.second?.add(id) }
@@ -350,6 +456,8 @@ object Catalog {
     suspend fun removeAlbum(id: String): Result<Unit> =
         if (isYandexId(id)) {
             YandexMusic.setAlbumLiked(id, false)
+        } else if (isVkId(id)) {
+            VkCatalog.removeAlbum(id)
         } else {
             SpotifyTokenManager.ensureAuthenticated()
             Spotify.removeFromLibrary(listOf("spotify:album:$id")).onSuccess { spotifySavedAlbums?.second?.remove(id) }
@@ -378,6 +486,9 @@ object Catalog {
     suspend fun isFollowingArtist(id: String): Result<Boolean> =
         if (isYandexId(id)) {
             YandexMusic.isArtistLiked(id)
+        } else if (isVkId(id)) {
+            // VK keeps no follows: an artist is followed in the app only.
+            Result.success(false)
         } else {
             runCatching { id in spotifyFollowedArtistIds() }
                 .recoverCatching { Spotify.isFollowingArtist(id).getOrThrow() }
@@ -391,6 +502,8 @@ object Catalog {
     suspend fun setFollowingArtist(id: String, follow: Boolean): Result<Unit> =
         if (isYandexId(id)) {
             YandexMusic.setArtistLiked(id, follow)
+        } else if (isVkId(id)) {
+            Result.failure(UnsupportedOperationException("VK has no artist follows"))
         } else {
             SpotifyTokenManager.ensureAuthenticated()
             val uris = listOf("spotify:artist:$id")
@@ -403,8 +516,8 @@ object Catalog {
                 }
         }.also { invalidateCaches() }
 
-    /** Yandex playlists are read-only in Drxwnify (no reorder/rename/remove through this API). */
-    fun isEditablePlaylist(id: String): Boolean = !isYandexId(id)
+    /** Yandex and VK playlists are read-only in Drxwnify (no reorder/rename/remove through these APIs). */
+    fun isEditablePlaylist(id: String): Boolean = !isYandexId(id) && !isVkId(id) && id != SPOTIFY_LIKED_ID
 
     // ── Collections (selected source only) ───────────────────────────────────────────────────────
 
@@ -426,11 +539,16 @@ object Catalog {
         LikedSongsCache.markStale()
         yandexLibrary.clear()
         spotifyLibraryPages.clear()
+        VkCatalog.invalidate()
     }
 
-    suspend fun likedSongs(limit: Int, offset: Int): Result<SpotifyPaging<SpotifySavedTrack>> = when (source) {
+    suspend fun likedSongs(limit: Int, offset: Int): Result<SpotifyPaging<SpotifySavedTrack>> = likedSongsOf(source, limit, offset)
+
+    /** Liked songs of one account (the main one or another linked one). */
+    suspend fun likedSongsOf(of: MetadataSource?, limit: Int, offset: Int): Result<SpotifyPaging<SpotifySavedTrack>> = when (of) {
         MetadataSource.SPOTIFY -> Spotify.likedSongs(limit, offset)
         MetadataSource.YANDEX -> YandexMusic.likedSongs(limit, offset)
+        MetadataSource.VK -> VkCatalog.likedSongs(limit, offset)
         null -> runCatching { noAccount() }
     }
 
@@ -458,7 +576,11 @@ object Catalog {
     }
 
     suspend fun myLibrary(filter: String?, limit: Int, offset: Int): Result<SpotifyPaging<SpotifyLibraryEntry>> =
-        when (source) {
+        myLibraryOf(source, filter, limit, offset)
+
+    /** One page of the library of [of] — the main account, or another linked one shown as its own tab. */
+    suspend fun myLibraryOf(of: MetadataSource?, filter: String?, limit: Int, offset: Int): Result<SpotifyPaging<SpotifyLibraryEntry>> =
+        when (of) {
             MetadataSource.SPOTIFY -> {
                 val key = "$filter|$limit|$offset"
                 val cached = spotifyLibraryPages[key]?.takeIf { System.currentTimeMillis() - it.first < LIBRARY_TTL_MS }
@@ -470,6 +592,16 @@ object Catalog {
                 val all = libraryMutex.withLock {
                     yandexLibrary[key]?.takeIf { offset > 0 || System.currentTimeMillis() - it.first < LIBRARY_TTL_MS }?.second
                         ?: YandexMusic.library(likedSongsName).getOrThrow()
+                            .filter { it.matchesFilter(filter) }
+                            .also { yandexLibrary[key] = System.currentTimeMillis() to it }
+                }
+                SpotifyPaging(items = all.drop(offset).take(limit), total = all.size, limit = limit, offset = offset)
+            }
+            MetadataSource.VK -> runCatching {
+                val key = "vk|" + (filter ?: "*")
+                val all = libraryMutex.withLock {
+                    yandexLibrary[key]?.takeIf { offset > 0 || System.currentTimeMillis() - it.first < LIBRARY_TTL_MS }?.second
+                        ?: VkCatalog.library(likedSongsName).getOrThrow()
                             .filter { it.matchesFilter(filter) }
                             .also { yandexLibrary[key] = System.currentTimeMillis() to it }
                 }
@@ -500,11 +632,13 @@ object Catalog {
     ): Result<SpotifySearchResult> = when (target) {
         MetadataSource.SPOTIFY -> Spotify.search(query, types, limit, offset)
         MetadataSource.YANDEX -> YandexMusic.search(query, types, limit, offset)
+        MetadataSource.VK -> VkCatalog.search(query, types, limit, offset)
     }
 
     /** Spotify works without an account too (public catalog); Yandex Music needs its account. */
     suspend fun ensureSearchable(target: MetadataSource): Boolean = when (target) {
         MetadataSource.YANDEX -> YandexMusic.isAuthenticated()
+        MetadataSource.VK -> VkCatalog.isAuthenticated
         MetadataSource.SPOTIFY -> if (_state.value.spotifyConnected) {
             SpotifyTokenManager.ensureAuthenticated()
         } else {
@@ -517,6 +651,9 @@ object Catalog {
         when (source) {
             MetadataSource.SPOTIFY -> Spotify.search(query, types, limit, offset)
             MetadataSource.YANDEX -> YandexMusic.search(query, types, limit, offset)
+            // VK's search has a strict limit (and is shared with playback): bulk lookups (an import,
+            // a like across catalogs) go to Spotify's public catalog instead.
+            MetadataSource.VK -> Spotify.search(query, types, limit, offset)
             // Public catalog, no account needed (see [ensureAuthenticated]).
             null -> Spotify.search(query, types, limit, offset)
         }

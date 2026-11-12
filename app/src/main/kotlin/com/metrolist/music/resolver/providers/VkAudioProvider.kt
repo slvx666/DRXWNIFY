@@ -92,11 +92,29 @@ class VkAudioProvider(
     private val throttle = kotlinx.coroutines.sync.Mutex()
     private var lastCallAtMs = 0L
 
+    /** Calls for what the user waits on (a track to play, a page on screen) waiting for their turn. */
+    private val foregroundWaiting = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /**
+     * Background work (a library read, a transfer, a playlist being written) goes after everything
+     * the user waits on: it shares VK's per-account limit with playback, and a long transfer must
+     * never hold up the next track.
+     */
+    private suspend fun <T> background(block: () -> T): T {
+        while (foregroundWaiting.get() > 0) kotlinx.coroutines.delay(150)
+        return throttled(block)
+    }
+
     private suspend fun <T> throttled(block: () -> T): T {
-        throttle.withLock {
-            val wait = lastCallAtMs + MIN_CALL_SPACING_MS - System.currentTimeMillis()
-            if (wait > 0) kotlinx.coroutines.delay(wait)
-            lastCallAtMs = System.currentTimeMillis()
+        foregroundWaiting.incrementAndGet()
+        try {
+            throttle.withLock {
+                val wait = lastCallAtMs + MIN_CALL_SPACING_MS - System.currentTimeMillis()
+                if (wait > 0) kotlinx.coroutines.delay(wait)
+                lastCallAtMs = System.currentTimeMillis()
+            }
+        } finally {
+            foregroundWaiting.decrementAndGet()
         }
         return try {
             runInterruptible(Dispatchers.IO) { block() }
@@ -143,7 +161,11 @@ class VkAudioProvider(
         val durationSec: Int,
         val url: String?,
         val thumb: String?,
-    )
+        val artists: List<VkArtistRef> = emptyList(),
+        val album: VkAlbumRef? = null,
+    ) {
+        fun toTrack() = VkTrack(fullId, title, artists.ifEmpty { listOf(VkArtistRef(null, artist)) }, durationSec, thumb ?: album?.cover, album)
+    }
 
     private fun parse(o: JSONObject): VkAudio? {
         val id = o.optLong("id", 0L).takeIf { it != 0L } ?: return null
@@ -154,14 +176,41 @@ class VkAudioProvider(
         val mainArtists = o.optJSONArray("main_artists")?.let { arr ->
             (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("name")?.takeIf { n -> n.isNotBlank() } }
         }.orEmpty()
+        // Official releases name their artists (with VK's artist ids) and their album; an upload
+        // by a user has neither, only the "artist" text.
+        val artistRefs = listOf("main_artists", "featured_artists").flatMap { key ->
+            o.optJSONArray(key)?.let { arr ->
+                (0 until arr.length()).mapNotNull { i ->
+                    val a = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val name = a.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    VkArtistRef(a.optString("id").takeIf { it.isNotBlank() && it != "0" }, name)
+                }
+            }.orEmpty()
+        }.distinctBy { it.name.lowercase() }
+        val albumObj = o.optJSONObject("album")
+        val albumRef = albumObj?.let { a ->
+            val albumOwner = a.optLong("owner_id", 0L)
+            val albumId = a.optLong("id", 0L)
+            if (albumOwner == 0L || albumId == 0L) return@let null
+            val thumb = a.optJSONObject("thumb")
+            VkAlbumRef(
+                ownerId = albumOwner,
+                id = albumId,
+                accessKey = a.optString("access_key").takeIf { it.isNotBlank() },
+                title = a.optString("title"),
+                cover = thumb?.let { t -> t.optString("photo_600").ifBlank { t.optString("photo_300") } }?.takeIf { it.isNotBlank() },
+            )
+        }
         return VkAudio(
             fullId = listOfNotNull("${owner}_$id", accessKey).joinToString("_"),
             title = title,
             artist = mainArtists.joinToString(", ").ifBlank { o.optString("artist") },
             durationSec = o.optInt("duration", 0),
             url = o.optString("url").takeIf { it.isNotBlank() }?.let(::toMp3Url),
-            thumb = o.optJSONObject("album")?.optJSONObject("thumb")?.optString("photo_300")?.takeIf { it.isNotBlank() },
-        )
+            thumb = albumObj?.optJSONObject("thumb")?.optString("photo_300")?.takeIf { it.isNotBlank() },
+            artists = artistRefs,
+            album = albumRef,
+        ).also { VkTrackStore.put(it.toTrack()) }
     }
 
     override suspend fun searchFree(text: String, limit: Int): List<ProviderMatch> {
@@ -494,6 +543,165 @@ class VkAudioProvider(
         }
     }
 
+    // ── The catalog side (VK as the main account) ────────────────────────────────────────────────
+
+    private fun items(root: JSONObject?): List<VkAudio> {
+        val response = root?.opt("response")
+        val arr = when (response) {
+            is org.json.JSONArray -> response
+            is JSONObject -> response.optJSONArray("items")
+            else -> null
+        }
+        return (0 until (arr?.length() ?: 0)).mapNotNull { arr?.optJSONObject(it)?.let(::parse) }
+    }
+
+    private fun rememberUrls(list: List<VkAudio>) {
+        val now = System.currentTimeMillis()
+        list.forEach { audio -> audio.url?.let { recentUrls[audio.fullId] = it to now } }
+    }
+
+    /** The user's own tracks ("My music") with their albums and artists, newest first. */
+    suspend fun myTrackList(max: Int = MAX_MY_TRACKS): List<VkTrack> {
+        if (!hasToken()) return emptyList()
+        val owner = ownerId() ?: return emptyList()
+        val all = mutableListOf<VkAudio>()
+        var offset = 0
+        while (all.size < max) {
+            val (page, total) = background {
+                val root = call("audio.get", mapOf("owner_id" to owner, "count" to TRACKS_PAGE.toString(), "offset" to offset.toString()))
+                    ?: throw IllegalStateException("VK API HTTP error")
+                items(root) to (root.optJSONObject("response")?.optInt("count", 0) ?: 0)
+            }
+            all += page
+            offset += TRACKS_PAGE
+            if (page.isEmpty() || offset >= total) break
+        }
+        rememberUrls(all)
+        return all.distinctBy { it.fullId }.map { it.toTrack() }
+    }
+
+    /** Every track of an album or playlist, with their albums and artists. */
+    suspend fun playlistTrackList(ownerId: Long, playlistId: Long, accessKey: String?): List<VkTrack> {
+        if (!hasToken()) return emptyList()
+        val list = throttled {
+            val params = buildMap {
+                put("owner_id", ownerId.toString())
+                put("album_id", playlistId.toString())
+                put("count", MAX_PLAYLIST_TRACKS.toString())
+                accessKey?.let { put("access_key", it) }
+            }
+            items(call("audio.get", params) ?: throw IllegalStateException("VK API HTTP error"))
+        }
+        rememberUrls(list)
+        return list.distinctBy { it.fullId }.map { it.toTrack() }
+    }
+
+    /** One album or playlist by its address. */
+    suspend fun playlistById(ownerId: Long, playlistId: Long, accessKey: String?): VkPlaylist? {
+        if (!hasToken()) return null
+        return throttled {
+            val params = buildMap {
+                put("owner_id", ownerId.toString())
+                put("playlist_id", playlistId.toString())
+                accessKey?.let { put("access_key", it) }
+            }
+            val response = call("audio.getPlaylistById", params)?.optJSONObject("response") ?: return@throttled null
+            parsePlaylists(org.json.JSONArray().put(response)).firstOrNull()
+        }
+    }
+
+    /** Tracks by their full ids ("owner_audio[_key]"), with their albums and artists. */
+    suspend fun tracksById(fullIds: List<String>): List<VkTrack> {
+        if (!hasToken() || fullIds.isEmpty()) return emptyList()
+        return fullIds.chunked(100).flatMap { chunk ->
+            val list = throttled {
+                items(call("audio.getById", mapOf("audios" to chunk.joinToString(","))))
+            }
+            rememberUrls(list)
+            list.map { it.toTrack() }
+        }
+    }
+
+    /** An artist's card: name and photo. */
+    suspend fun artist(artistId: String): VkArtist? {
+        if (!hasToken()) return null
+        return throttled {
+            val r = call("audio.getArtistById", mapOf("artist_id" to artistId))?.optJSONObject("response") ?: return@throttled null
+            val name = r.optString("name").takeIf { it.isNotBlank() } ?: return@throttled null
+            VkArtist(artistId, name, photoOf(r))
+        }
+    }
+
+    /** The biggest photo up to ~1000 px from VK's photo lists (several shapes exist). */
+    private fun photoOf(o: JSONObject): String? {
+        val arrays = listOfNotNull(o.optJSONArray("photo"), o.optJSONArray("photos")?.optJSONObject(0)?.optJSONArray("photo"))
+        for (arr in arrays) {
+            val sizes = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+                .mapNotNull { s -> s.optString("url").takeIf { it.isNotBlank() }?.let { it to s.optInt("width", 0) } }
+            sizes.filter { it.second <= 1000 }.maxByOrNull { it.second }?.first?.let { return it }
+            sizes.firstOrNull()?.first?.let { return it }
+        }
+        return o.optJSONObject("photo")?.let { p -> p.optString("photo_600").ifBlank { p.optString("photo_300") } }?.takeIf { it.isNotBlank() }
+    }
+
+    /** An artist's tracks, the popular ones first. */
+    suspend fun artistTracks(artistId: String, count: Int = 50): List<VkTrack> {
+        if (!hasToken()) return emptyList()
+        val list = throttled {
+            items(call("audio.getAudiosByArtist", mapOf("artist_id" to artistId, "count" to count.toString())))
+        }
+        rememberUrls(list)
+        return list.distinctBy { it.fullId }.map { it.toTrack() }
+    }
+
+    /** An artist's albums, singles and EPs. */
+    suspend fun artistAlbums(artistId: String, count: Int = 100): List<VkPlaylist> {
+        if (!hasToken()) return emptyList()
+        return throttled {
+            parsePlaylists(call("audio.getAlbumsByArtist", mapOf("artist_id" to artistId, "count" to count.toString()))?.optJSONObject("response")?.optJSONArray("items"))
+        }
+    }
+
+    /** VK's own recommendations for the user (what its "For you" plays). */
+    suspend fun recommendations(count: Int = 100): List<VkTrack> {
+        if (!hasToken()) return emptyList()
+        val list = background {
+            items(call("audio.getRecommendations", mapOf("count" to count.toString(), "shuffle" to "0")))
+        }
+        rememberUrls(list)
+        return list.distinctBy { it.fullId }.map { it.toTrack() }
+    }
+
+    /** VK's track search, as catalog tracks (VK's search has a strict limit: never for bulk work). */
+    suspend fun searchTracks(text: String, count: Int): List<VkTrack> {
+        if (!hasToken() || text.isBlank()) return emptyList()
+        checkSearchPause()
+        val list = fetch(text, count.coerceIn(1, 200), requireUrl = false)
+        rememberUrls(list)
+        return list.map { it.toTrack() }
+    }
+
+    /** A new playlist in the user's VK music; null when VK refuses. */
+    suspend fun createPlaylist(title: String, description: String = ""): VkPlaylist? {
+        val owner = ownerId() ?: return null
+        return background {
+            val response = call("audio.createPlaylist", mapOf("owner_id" to owner, "title" to title, "description" to description))
+                ?.optJSONObject("response") ?: return@background null
+            parsePlaylists(org.json.JSONArray().put(response)).firstOrNull()
+        }
+    }
+
+    /** Puts tracks ("owner_audio" ids) at the end of one of the user's playlists. */
+    suspend fun addToPlaylist(ownerId: Long, playlistId: Long, audioIds: List<String>) {
+        if (audioIds.isEmpty()) return
+        background {
+            call(
+                "audio.addToPlaylist",
+                mapOf("owner_id" to ownerId.toString(), "playlist_id" to playlistId.toString(), "audio_ids" to audioIds.joinToString(",")),
+            ) ?: throw IllegalStateException("VK API HTTP error")
+        }
+    }
+
     /** The signed-in user's VK id, or null when unknown. */
     suspend fun myId(): Long? = ownerId()?.toLongOrNull()
 
@@ -756,6 +964,43 @@ sealed interface VkAudioAccess {
 }
 
 /** A VK album or playlist; [ownerId]/[id]/[accessKey] address its tracks. */
+/** A track's artist as VK names it; [id] only for an artist VK has a page for. */
+data class VkArtistRef(val id: String?, val name: String)
+
+/** The album a track belongs to (official releases only). */
+data class VkAlbumRef(val ownerId: Long, val id: Long, val accessKey: String?, val title: String, val cover: String?)
+
+/** A VK track with what the catalog needs: its artists and album, when VK knows them. */
+data class VkTrack(
+    /** "owner_audio[_accessKey]". */
+    val fullId: String,
+    val title: String,
+    val artists: List<VkArtistRef>,
+    val durationSec: Int,
+    val thumb: String?,
+    val album: VkAlbumRef?,
+) {
+    /** "owner_audio", the same track whatever access key came with it. */
+    val baseId: String get() = fullId.split('_').take(2).joinToString("_")
+}
+
+data class VkArtist(val id: String, val name: String, val photo: String?)
+
+/**
+ * Every VK track seen this session (search, library, albums), by id: "go to album / artist" for a
+ * track on screen or in the player needs no second request.
+ */
+object VkTrackStore {
+    private val byId = java.util.concurrent.ConcurrentHashMap<String, VkTrack>()
+
+    fun put(track: VkTrack) {
+        if (byId.size > 20_000) byId.clear()
+        byId[track.baseId] = track
+    }
+
+    fun get(fullId: String): VkTrack? = byId[fullId.split('_').take(2).joinToString("_")]
+}
+
 data class VkPlaylist(
     val ownerId: Long,
     val id: Long,

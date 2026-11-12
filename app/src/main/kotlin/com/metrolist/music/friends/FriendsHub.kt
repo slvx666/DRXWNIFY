@@ -862,6 +862,19 @@ object FriendsHub {
         RelayPool.publish(Nostr.sign(sk, Nostr.KIND_METADATA, emptyList(), metadata))
     }
 
+    /** The main music account changed: friends get its likes and the profile built from it. */
+    fun mainAccountChanged() {
+        if (secretKey == null) return
+        scope.launch {
+            val db = database ?: return@launch
+            runCatching {
+                val privacy = _privacy.value
+                if (privacy.playlists != Audience.NOBODY) publishLikes(db, privacy.playlists, null)
+                publishPortraitIfStale(force = true)
+            }.onFailure { Timber.w(it, "FriendsHub: republishing after the account switch failed") }
+        }
+    }
+
     @Volatile
     private var lastNow: NowPlaying? = null
     private var nowJob: Job? = null

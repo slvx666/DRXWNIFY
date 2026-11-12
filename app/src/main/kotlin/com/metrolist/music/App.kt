@@ -252,6 +252,7 @@ class App :
         com.metrolist.music.friends.ChatHub.init(this)
         com.metrolist.music.catalog.Catalog.init(dataStore, applicationScope, getString(R.string.liked_songs))
         com.metrolist.music.catalog.CrossCatalog.init(this, applicationScope)
+        com.metrolist.music.catalog.VkCatalog.init(this)
         com.metrolist.music.catalog.AccountLikes.init(this)
 
         // تهيئة إعدادات التطبيق عند الإقلاع

@@ -121,6 +121,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Composable
 fun YandexLoginScreen(navController: NavController) {
     val context = LocalContext.current
+    // Read in onToken, used once the login went through (a re-login keeps everything as it was).
+    var yandexRelogin by remember { mutableStateOf(false) }
+    var yandexMainBefore by remember { mutableStateOf<MetadataSource?>(null) }
     OAuthTokenLoginScreen(
         navController = navController,
         title = stringResource(R.string.yandex_login),
@@ -130,8 +133,11 @@ fun YandexLoginScreen(navController: NavController) {
         vpnFailure = stringResource(R.string.yandex_vpn_turn_off),
         pageScript = yandexPageScript(),
         confirmPath = "/authorize/allow",
+        onConnected = { nav -> nav.afterAccountLinked(MetadataSource.YANDEX, yandexRelogin, yandexMainBefore) },
         onToken = { params ->
             val token = params["access_token"] ?: return@OAuthTokenLoginScreen "no token"
+            yandexRelogin = context.dataStore.get(YandexAccessTokenKey, "").isNotEmpty()
+            yandexMainBefore = com.metrolist.music.catalog.Catalog.source
             YandexMusic.accessToken = token
             YandexMusic.uid = null
             YandexMusic.account().fold(
@@ -140,10 +146,6 @@ fun YandexLoginScreen(navController: NavController) {
                         prefs[YandexAccessTokenKey] = token
                         prefs[YandexUidKey] = account.uid
                         prefs[YandexUsernameKey] = account.displayName ?: account.login ?: account.uid
-                        // First account linked → it owns the library.
-                        if (prefs[SpotifyAccessTokenKey].isNullOrEmpty()) {
-                            prefs[PrimaryMetadataSourceKey] = MetadataSource.YANDEX.name
-                        }
                     }
                     null
                 },
@@ -173,7 +175,12 @@ fun VkLoginScreen(navController: NavController) {
     val context = LocalContext.current
     var useWebLogin by rememberSaveable { mutableStateOf(false) }
 
+    var vkRelogin by remember { mutableStateOf(false) }
+    var vkMainBefore by remember { mutableStateOf<MetadataSource?>(null) }
+
     suspend fun saveToken(token: String, userId: String?) {
+        vkRelogin = context.dataStore.get(VkAccessTokenKey, "").isNotEmpty()
+        vkMainBefore = com.metrolist.music.catalog.Catalog.source
         context.dataStore.edit { prefs ->
             prefs[VkAccessTokenKey] = token
             userId?.let { prefs[VkUserIdKey] = it }
@@ -201,6 +208,7 @@ fun VkLoginScreen(navController: NavController) {
             title = stringResource(R.string.vk_login),
             startUrl = VkAudioProvider.OAUTH_URL,
             note = stringResource(R.string.vk_privacy_note),
+            onConnected = { nav -> nav.afterAccountLinked(MetadataSource.VK, vkRelogin, vkMainBefore) },
             onToken = { params ->
                 val token = params["access_token"] ?: return@OAuthTokenLoginScreen "no token"
                 saveToken(token, params["user_id"])
@@ -281,7 +289,7 @@ fun VkLoginScreen(navController: NavController) {
                     runCatching { autofill?.commit() }
                     password = ""
                     Toast.makeText(context, context.getString(R.string.login_connected), Toast.LENGTH_SHORT).show()
-                    navController.navigateUp()
+                    navController.afterAccountLinked(MetadataSource.VK, vkRelogin, vkMainBefore)
                 }
                 is VkDirectAuth.Result.NeedCode -> {
                     val first = needCode == null
@@ -548,7 +556,7 @@ fun VkLoginScreen(navController: NavController) {
                 if (pasted.isNotEmpty()) {
                     scope.launch {
                         saveToken(pasted, null)
-                        navController.navigateUp()
+                        navController.afterAccountLinked(MetadataSource.VK, vkRelogin, vkMainBefore)
                     }
                 }
             },
@@ -580,6 +588,8 @@ private fun OAuthTokenLoginScreen(
     vpnFailure: String? = null,
     pageScript: String? = null,
     confirmPath: String? = null,
+    /** After a successful login: back by default; the account's setup for a first link. */
+    onConnected: (NavController) -> Unit = { it.navigateUp() },
     onToken: suspend (Map<String, String>) -> String?,
 ) {
     val context = LocalContext.current
@@ -652,7 +662,7 @@ private fun OAuthTokenLoginScreen(
                 if (error == null) {
                     // The cover stays up while the screen leaves: under it is Yandex's blank page.
                     Toast.makeText(context, context.getString(R.string.login_connected), Toast.LENGTH_SHORT).show()
-                    navController.navigateUp()
+                    onConnected(navController)
                 } else {
                     processing = false
                     confirming = false

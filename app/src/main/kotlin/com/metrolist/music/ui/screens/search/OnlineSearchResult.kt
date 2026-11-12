@@ -718,6 +718,7 @@ private fun SearchSourceLine(isSpotifySearch: Boolean, target: com.metrolist.mus
     val name = if (isSpotifySearch) {
         when (target) {
             com.metrolist.music.constants.MetadataSource.YANDEX -> "Yandex Music"
+            com.metrolist.music.constants.MetadataSource.VK -> "VK"
             else -> "Spotify"
         }
     } else {

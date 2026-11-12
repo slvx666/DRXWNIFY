@@ -256,6 +256,13 @@ object AudioFallbackEngine {
                 memory.put(key, manual)
                 return@withContext manual
             }
+            // A source track names its own upload (see SourceSearch.directMatch): no race for it.
+            SourceSearch.directMatch(query)
+                ?.takeIf { it.provider !in exclude && it.trackId !in query.excludedTrackIds }
+                ?.let { direct ->
+                    memory.put(key, direct)
+                    return@withContext direct
+                }
             val fresh = !forceRace && stored.any { row -> row.selected && System.currentTimeMillis() - row.matchedAt < SELECTION_TTL_MS }
             if (fresh) {
                 // Re-decide over what is stored instead of trusting the old "selected" flag: matches

@@ -255,12 +255,16 @@ val YandexAccessTokenKey = stringPreferencesKey("yandexAccessToken")
 val YandexUidKey = stringPreferencesKey("yandexUid")
 val YandexUsernameKey = stringPreferencesKey("yandexUsername")
 
-/** Which account provides metadata/library when both are signed in (Spotify by default). Never mixed. */
+/**
+ * The main music account: it gives the library, the home page and recommendations, the library's
+ * colour and the profile's tracks. Any linked one can be it (Spotify by default).
+ */
 val PrimaryMetadataSourceKey = stringPreferencesKey("primaryMetadataSource")
 
 enum class MetadataSource {
     SPOTIFY,
     YANDEX,
+    VK,
 }
 
 // Audio fallbacks: where the audio for a catalog track may come from. All enabled by default.

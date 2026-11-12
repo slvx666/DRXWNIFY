@@ -62,6 +62,19 @@ class SpotifyLibraryViewModel @Inject constructor(
     private val fetchedYears = MutableStateFlow<Map<String, Int>>(emptyMap())
     private var yearJob: Job? = null
 
+    /**
+     * The account this library shows: null = the main one; another linked account when the
+     * library is that account's own tab. Set once by the screen ([start]) before anything loads.
+     */
+    private val _tabSource = MutableStateFlow<com.metrolist.music.constants.MetadataSource?>(null)
+    private val isTab: Boolean get() = _tabSource.value != null
+
+    /** The account the lists come from right now. */
+    private fun accountSource(): com.metrolist.music.constants.MetadataSource? = _tabSource.value ?: Catalog.source
+
+    @Volatile
+    private var started = false
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
@@ -169,8 +182,11 @@ class SpotifyLibraryViewModel @Inject constructor(
         missing: Set<String>,
     ): List<SpotifyLibraryEntry> {
         val mark = context.getString(
-            if (source == com.metrolist.music.constants.MetadataSource.YANDEX) com.metrolist.music.R.string.not_in_yandex
-            else com.metrolist.music.R.string.not_in_spotify,
+            when (source) {
+                com.metrolist.music.constants.MetadataSource.YANDEX -> com.metrolist.music.R.string.not_in_yandex
+                com.metrolist.music.constants.MetadataSource.VK -> com.metrolist.music.R.string.not_in_vk
+                else -> com.metrolist.music.R.string.not_in_spotify
+            },
         )
         val missingArtists = artists.filter { a ->
             com.metrolist.music.catalog.CrossCatalog.catalogArtistId(a.artist)?.let { "a:$it" in missing } == true
@@ -213,8 +229,11 @@ class SpotifyLibraryViewModel @Inject constructor(
             _filter,
             combine(_sort, fetchedYears, ::Pair),
             _reversed,
-            combine(localPlaylists, appCollection, ::Pair),
-        ) { (c, _), f, (s, years), reversed, (local, app) ->
+            combine(localPlaylists, appCollection, _tabSource, ::Triple),
+        ) { (c, _), f, (s, years), reversed, (localAll, appAll, tab) ->
+            // An account's own tab shows that account only: the app's playlists and likes belong to the main library.
+            val local = if (tab != null) emptyList() else localAll
+            val app = if (tab != null) emptyList() else appAll
             val own = if (f == Filter.ALL || f == Filter.PLAYLISTS) local else emptyList()
             val saved = app.filter { entry ->
                 when (f) {
@@ -226,7 +245,7 @@ class SpotifyLibraryViewModel @Inject constructor(
             }
             // Spotify's own "Liked songs" is left out: the app's "All liked songs" holds them (and
             // the likes made in the app). Yandex Music's stays: what is on the account, beside all.
-            val yandex = Catalog.state.value.source == com.metrolist.music.constants.MetadataSource.YANDEX
+            val yandex = tab != null || Catalog.state.value.source != com.metrolist.music.constants.MetadataSource.SPOTIFY
             val account = c[f].orEmpty().filterNot { e ->
                 !yandex && e.kind == SpotifyLibraryEntry.Kind.LIKED_SONGS && e.uri != APP_LIKED_URI
             }
@@ -294,11 +313,22 @@ class SpotifyLibraryViewModel @Inject constructor(
 
     private fun accountLikedTitle() = context.getString(com.metrolist.music.ui.component.catalogLikedSongsTitleRes())
 
-    init {
+    /**
+     * Starts the library for the main account ([tab] null) or for another linked account's tab.
+     * Called by the screen once; the lists load only then, so a tab never flashes the main library.
+     */
+    fun start(tab: com.metrolist.music.constants.MetadataSource?) {
+        if (started) return
+        started = true
+        _tabSource.value = tab
         load(Filter.ALL)
+        if (tab != null) return
         viewModelScope.launch(Dispatchers.IO) { com.metrolist.music.catalog.CrossCatalog.fillArtistPhotos(database) }
         // What was liked or followed in the app before goes to the account too, once per account.
         viewModelScope.launch(Dispatchers.IO) { com.metrolist.music.catalog.CrossCatalog.syncApp(database) }
+    }
+
+    init {
         // The Year order on Albums: the years the library didn't bring are read in the background.
         viewModelScope.launch {
             combine(yearSortActive, unfilteredEntries.map { it.size }, ::Pair).collect { (active, _) ->
@@ -309,6 +339,7 @@ class SpotifyLibraryViewModel @Inject constructor(
         // not when the saved copy grows old.
         viewModelScope.launch {
             Catalog.libraryVersion.drop(1).collect {
+                if (!started) return@collect
                 cache.value = cache.value.filterKeys { it == _filter.value }
                 load(_filter.value, force = true)
             }
@@ -319,7 +350,7 @@ class SpotifyLibraryViewModel @Inject constructor(
     fun toggleFilter(f: Filter) {
         val next = if (_filter.value == f) Filter.ALL else f
         _filter.value = next
-        if (cache.value[next] == null) load(next)
+        if (cache.value[next] == null && started) load(next)
     }
 
     fun clearFilter() {
@@ -362,7 +393,8 @@ class SpotifyLibraryViewModel @Inject constructor(
         loadingFilter = f
         val job = viewModelScope.launch(Dispatchers.IO, start = kotlinx.coroutines.CoroutineStart.LAZY) {
             // What was loaded last time shows at once; a fresh copy needs no request at all.
-            val account = Catalog.source?.name ?: "none"
+            val source = accountSource()
+            val account = source?.name ?: "none"
             val cached = com.metrolist.music.catalog.LibraryCache.get(f.name, account)
             if (cached != null) {
                 cache.value = cache.value + (f to cached.first)
@@ -373,11 +405,11 @@ class SpotifyLibraryViewModel @Inject constructor(
             try {
                 // The library of the connected account(s): Spotify, Yandex Music or both merged.
                 // Without one there is nothing to fetch (the app's own collection is local).
-                if (!Catalog.isActive || !Catalog.ensureAuthenticated()) return@launch
+                if (source == null || !Catalog.ensureAuthenticated(source)) return@launch
                 val all = mutableListOf<SpotifyLibraryEntry>()
                 var offset = 0
                 while (offset < MAX_ITEMS) {
-                    val page = Catalog.myLibrary(filter = f.gql, limit = PAGE, offset = offset).getOrElse {
+                    val page = Catalog.myLibraryOf(source, filter = f.gql, limit = PAGE, offset = offset).getOrElse {
                         Timber.w(it, "SpotifyLibrary: page failed (filter=$f offset=$offset)")
                         null
                     } ?: break

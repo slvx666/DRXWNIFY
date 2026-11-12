@@ -185,6 +185,11 @@ fun SpotifySettings(
             },
         )
 
+        // Main account, library tab, where likes go, transfers and statistics: like every account.
+        if (isLoggedIn && enableSpotify) {
+            AccountCommonSettings(navController, com.metrolist.music.constants.MetadataSource.SPOTIFY)
+        }
+
         PreferenceGroupTitle(
             title = stringResource(R.string.options),
         )

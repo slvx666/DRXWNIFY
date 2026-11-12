@@ -125,6 +125,9 @@ object CrossCatalog {
     suspend fun syncApp(database: com.metrolist.music.db.MusicDatabase) {
         Catalog.awaitAccounts()
         val source = Catalog.source ?: return
+        // Not onto VK: its search limit is shared with playback, and hundreds of lookups in a row
+        // would silence VK's audio for hours. VK likes made from now on still go there.
+        if (source == MetadataSource.VK) return
         val flag = "synced5:${source.name}"
         val p = prefs ?: return
         ensureLoaded()
@@ -200,6 +203,38 @@ object CrossCatalog {
         if (!Catalog.isYandexId(yandexId)) null else withTimeoutOrNull(PAIR_TIMEOUT_MS) { pairAlbum(yandexId, title, artist) }
 
     private const val PAIR_TIMEOUT_MS = 6_000L
+
+    /** The Spotify artist of exactly this name (VK and other sources give names, not Spotify ids); null when none. */
+    suspend fun spotifyArtistByName(name: String): String? = withTimeoutOrNull(PAIR_TIMEOUT_MS) {
+        val wanted = normalize(name).ifEmpty { return@withTimeoutOrNull null }
+        val key = "pn:$wanted"
+        prefs?.getString(key, null)?.let { known ->
+            return@withTimeoutOrNull known.ifEmpty { null }?.takeIf { Catalog.ensureSearchable(MetadataSource.SPOTIFY) }
+        }
+        if (!Catalog.ensureSearchable(MetadataSource.SPOTIFY)) return@withTimeoutOrNull null
+        val found = Catalog.searchIn(MetadataSource.SPOTIFY, name, listOf("artist"), 10).getOrNull() ?: return@withTimeoutOrNull null
+        val match = found.artists?.items.orEmpty().firstOrNull { normalize(it.name) == wanted }?.id
+        prefs?.edit()?.putString(key, match ?: NONE)?.apply()
+        match
+    }
+
+    /** The Spotify album of this title by this artist, for a track or album known by name only; null when none. */
+    suspend fun spotifyAlbumByName(title: String, artist: String?): String? = withTimeoutOrNull(PAIR_TIMEOUT_MS) {
+        val key = "pln:" + normalize(title) + "|" + artist.orEmpty().let(::normalize)
+        prefs?.getString(key, null)?.let { known ->
+            return@withTimeoutOrNull known.ifEmpty { null }?.takeIf { Catalog.ensureSearchable(MetadataSource.SPOTIFY) }
+        }
+        if (!Catalog.ensureSearchable(MetadataSource.SPOTIFY)) return@withTimeoutOrNull null
+        val found = Catalog.searchIn(MetadataSource.SPOTIFY, listOfNotNull(artist, title).joinToString(" "), listOf("album"), 15).getOrNull()
+            ?: return@withTimeoutOrNull null
+        val wantedTitle = normalize(title)
+        val wantedArtist = artist?.let(::normalize).orEmpty()
+        val match = found.albums?.items.orEmpty().firstOrNull { a ->
+            normalize(a.name) == wantedTitle && (wantedArtist.isEmpty() || a.artists.any { normalize(it.name) == wantedArtist })
+        }?.id
+        prefs?.edit()?.putString(key, match ?: NONE)?.apply()
+        match
+    }
 
     private suspend fun pairArtist(yandexId: String, name: String?): String? {
         val key = "pa:$yandexId"

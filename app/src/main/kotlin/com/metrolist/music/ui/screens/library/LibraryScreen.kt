@@ -57,15 +57,22 @@ fun LibraryScreen(navController: NavController) {
         ?.getStateFlow("scrollToTop", false)
         ?.collectAsState() ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
 
-    // "VK": the connected VK account's own music, next to the other chips.
-    val (vkToken) = com.metrolist.music.utils.rememberPreference(com.metrolist.music.constants.VkAccessTokenKey, "")
-    var showVk by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(resetRequested) {
-        if (resetRequested) showVk = false
+    // Other linked accounts as tabs of their own, when the user switched them on (each account's
+    // page in Integrations; off by default). The main account is the library itself.
+    val wantedTabs by com.metrolist.music.catalog.MainAccount.tabs.collectAsState()
+    val accountTabs = com.metrolist.music.constants.MetadataSource.entries.filter { s ->
+        s in wantedTabs && s != catalogState.source && catalogState.isConnected(s)
     }
-    val openVk: (() -> Unit)? = if (vkToken.isNotEmpty()) ({ showVk = true }) else null
-    val vkOpen = showVk && vkToken.isNotEmpty()
-    if (vkOpen) androidx.activity.compose.BackHandler { showVk = false }
+    var openTab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(resetRequested) {
+        if (resetRequested) openTab = null
+    }
+    val tabOpen = openTab?.let { v -> accountTabs.firstOrNull { it.name == v } }
+    if (tabOpen != null) androidx.activity.compose.BackHandler { openTab = null }
+
+    // "VK": the VK account's own music (its richer page of its own), as such a tab.
+    val openVk: (() -> Unit)? = if (com.metrolist.music.constants.MetadataSource.VK in accountTabs) ({ openTab = "VK" }) else null
+    val vkOpen = tabOpen == com.metrolist.music.constants.MetadataSource.VK
 
     // "drxwnslvt's": his album reviews, for the profiles he marked.
     val reviewsAccess by com.metrolist.music.friends.FriendsHub.reviewsAccess.collectAsState()
@@ -97,6 +104,7 @@ fun LibraryScreen(navController: NavController) {
                 concertsOpen -> "concerts"
                 reviewsOpen -> "reviews"
                 vkOpen -> "vk"
+                tabOpen != null -> "tab_" + tabOpen.name
                 else -> "library"
             },
             transitionSpec = { librarySectionTransition() },
@@ -104,9 +112,17 @@ fun LibraryScreen(navController: NavController) {
             modifier = Modifier.fillMaxSize(),
         ) { section ->
             when (section) {
-                "vk" -> com.metrolist.music.ui.screens.vk.VkLibraryScreen(
-                    navController = navController,
-                    onClose = { showVk = false },
+                "vk" -> androidx.compose.runtime.CompositionLocalProvider(LocalLibrarySource provides com.metrolist.music.constants.MetadataSource.VK) {
+                    com.metrolist.music.ui.screens.vk.VkLibraryScreen(
+                        navController = navController,
+                        onClose = { openTab = null },
+                    )
+                }
+                "tab_SPOTIFY", "tab_YANDEX" -> SpotifyLibraryScreen(
+                    navController,
+                    onLocalSelected = {},
+                    tabSource = com.metrolist.music.constants.MetadataSource.valueOf(section.removePrefix("tab_")),
+                    onCloseTab = { openTab = null },
                 )
                 "concerts" -> com.metrolist.music.ui.screens.ConcertsContent(
                     navController = navController,
@@ -135,7 +151,10 @@ fun LibraryScreen(navController: NavController) {
                     },
                 )
                 // One library, account or not: without one it lists what is saved in the app.
-                else -> AccountLibrary(navController, resetRequested, openVk, openReviews, openConcerts)
+                else -> AccountLibrary(
+                    navController, resetRequested, openVk, openReviews, openConcerts,
+                    accountTabs.filter { it != com.metrolist.music.constants.MetadataSource.VK },
+                ) { openTab = it.name }
             }
         }
     }
@@ -143,7 +162,15 @@ fun LibraryScreen(navController: NavController) {
 
 /** The library of the connected Spotify / Yandex Music account, with "Local" one chip away. */
 @Composable
-private fun AccountLibrary(navController: NavController, resetRequested: Boolean, openVk: (() -> Unit)?, openReviews: (() -> Unit)?, openConcerts: (() -> Unit)?) {
+private fun AccountLibrary(
+    navController: NavController,
+    resetRequested: Boolean,
+    openVk: (() -> Unit)?,
+    openReviews: (() -> Unit)?,
+    openConcerts: (() -> Unit)?,
+    accountTabs: List<com.metrolist.music.constants.MetadataSource> = emptyList(),
+    onAccountTab: (com.metrolist.music.constants.MetadataSource) -> Unit = {},
+) {
     var showLocal by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(resetRequested) {
         if (resetRequested) showLocal = false
@@ -170,7 +197,15 @@ private fun AccountLibrary(navController: NavController, resetRequested: Boolean
                 },
             )
         } else {
-            SpotifyLibraryScreen(navController, onLocalSelected = { showLocal = true }, onVkSelected = openVk, onReviewsSelected = openReviews, onConcertsSelected = openConcerts)
+            SpotifyLibraryScreen(
+                navController,
+                onLocalSelected = { showLocal = true },
+                onVkSelected = openVk,
+                onReviewsSelected = openReviews,
+                onConcertsSelected = openConcerts,
+                accountTabs = accountTabs,
+                onAccountTab = onAccountTab,
+            )
         }
     }
 }

@@ -2110,4 +2110,35 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="lib_sort_year">Release year</string>
     <string name="lib_year_filter">Year</string>
     <string name="lib_year_all">All years</string>
+    <string name="vk_liked_songs">VK Music · My music</string>
+    <string name="vk_music_name">VK Music</string>
+    <string name="not_in_vk">Not on VK</string>
+    <string name="account_linked_title">%1$s is linked</string>
+    <string name="account_linked_subtitle">A few settings before you start</string>
+    <string name="account_setup_done">Done</string>
+    <string name="account_section_main">Account</string>
+    <string name="account_is_main">Main account</string>
+    <string name="account_is_main_on">The library, home page, recommendations and profile come from here</string>
+    <string name="account_is_main_off">Main now: %1$s</string>
+    <string name="account_only_one">It is the only linked account</string>
+    <string name="account_library_tab">Tab in the library</string>
+    <string name="account_library_tab_desc">This account\'s tracks, albums and playlists as a tab of their own</string>
+    <string name="like_mode_title">Where likes go</string>
+    <string name="like_mode_main_only">Only to the main account</string>
+    <string name="like_mode_main_and_source">The main account and where the track is from</string>
+    <string name="like_mode_all">Every linked account</string>
+    <string name="account_section_transfer">Transfer</string>
+    <string name="transfer_from_to">From %1$s to %2$s</string>
+    <string name="transfer_from_desc">Pick playlists, albums and tracks to bring over</string>
+    <string name="push_local_title">Create imported playlists in %1$s</string>
+    <string name="account_section_stats">Statistics</string>
+    <string name="service_stats_title">Statistics</string>
+    <string name="service_stats_desc_spotify">Top tracks and artists: 4 weeks, 6 months, all time</string>
+    <string name="service_stats_desc_yandex">Likes by month, most liked artists</string>
+    <string name="account_section_account">Sign-in</string>
+    <plurals name="push_local_desc">
+        <item quantity="one">%d imported playlist, created slowly in the background</item>
+        <item quantity="other">%d imported playlists, created slowly in the background</item>
+    </plurals>
+    <string name="yandex_tab_short">Yandex</string>
 </resources>

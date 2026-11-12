@@ -161,16 +161,18 @@ fun MusicSourcesSettings(
             },
         )
 
-        val bothConnected = spotifyConnected && yandexConnected
+        // The main account: any of the linked ones (Spotify, Yandex Music, VK).
+        val severalConnected = catalogState.connected.size > 1
         PreferenceEntry(
             title = { Text(stringResource(R.string.data_source_account)) },
             description = when {
-                bothConnected -> sourceName(preferred) + " — " + stringResource(R.string.data_source_account_description)
+                catalogState.source != null && severalConnected ->
+                    sourceName(catalogState.source!!) + " — " + stringResource(R.string.data_source_account_description)
                 catalogState.source != null -> sourceName(catalogState.source!!) + " — " + stringResource(R.string.data_source_account_single)
                 else -> stringResource(R.string.data_source_account_single)
             },
             onClick = { showSourceDialog = true },
-            isEnabled = bothConnected,
+            isEnabled = severalConnected,
         )
 
         // ── Audio sources ────────────────────────────────────────────────────────────────────────
@@ -488,13 +490,13 @@ fun MusicSourcesSettings(
         EnumDialog(
             onDismiss = { showSourceDialog = false },
             onSelect = {
+                com.metrolist.music.catalog.MainAccount.choose(it)
                 preferred = it
-                Catalog.invalidateCaches()
                 showSourceDialog = false
             },
             title = stringResource(R.string.data_source_account),
-            current = preferred,
-            values = MetadataSource.entries.toList(),
+            current = catalogState.source ?: preferred,
+            values = catalogState.connected,
             valueText = { sourceName(it) },
         )
     }
@@ -581,6 +583,7 @@ fun AudioSearchLogScreen(navController: NavController) {
 private fun sourceName(source: MetadataSource): String = when (source) {
     MetadataSource.SPOTIFY -> "Spotify"
     MetadataSource.YANDEX -> stringResource(R.string.yandex_music)
+    MetadataSource.VK -> stringResource(R.string.vk_music_name)
 }
 
 @Composable

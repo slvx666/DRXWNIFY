@@ -59,6 +59,27 @@ object SourceSearch {
     fun isSourceTrack(mediaId: String?): Boolean =
         mediaId != null && FallbackIds.catalogIdOf(mediaId)?.startsWith(CATALOG_PREFIX) == true
 
+    /**
+     * The upload a source track names in its own id (`src:VK:owner_audio_key`): that upload is the
+     * answer for its audio, no race needed. Tracks of VK as the main account carry such ids, and
+     * their lists don't pin each upload the way a hand pick does.
+     */
+    fun directMatch(query: AudioQuery): ProviderMatch? {
+        val id = query.catalogId ?: return null
+        if (!id.startsWith(CATALOG_PREFIX)) return null
+        val rest = id.removePrefix(CATALOG_PREFIX)
+        val provider = AudioProviderId.entries.firstOrNull { it.name == rest.substringBefore(':') } ?: return null
+        val trackId = rest.substringAfter(':', "").takeIf { it.isNotBlank() } ?: return null
+        return ProviderMatch(
+            provider = provider,
+            trackId = trackId,
+            title = query.title,
+            artist = query.primaryArtist,
+            durationMs = query.durationMs.takeIf { it > 0 },
+            confidence = ParallelAudioResolver.MANUAL_CONFIDENCE,
+        )
+    }
+
     /** Which source a track came from, for the badge under its name. */
     fun providerOf(mediaId: String?): AudioProviderId? {
         val catalogId = mediaId?.let { FallbackIds.catalogIdOf(it) } ?: return null

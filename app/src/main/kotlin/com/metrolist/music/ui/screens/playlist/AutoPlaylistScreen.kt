@@ -150,6 +150,7 @@ fun AutoPlaylistScreen(
     val notInAccountMark = when (catalogSource) {
         com.metrolist.music.constants.MetadataSource.YANDEX -> stringResource(R.string.not_in_yandex)
         com.metrolist.music.constants.MetadataSource.SPOTIFY -> stringResource(R.string.not_in_spotify)
+        com.metrolist.music.constants.MetadataSource.VK -> stringResource(R.string.not_in_vk)
         null -> null
     }
     val playlist =

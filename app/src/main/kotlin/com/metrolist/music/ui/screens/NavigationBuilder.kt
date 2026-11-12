@@ -539,6 +539,73 @@ fun NavGraphBuilder.navigationBuilder(
     }
 
     composable(
+        route = "account_setup/{service}/{mainBefore}",
+        arguments = listOf(
+            navArgument("service") { type = NavType.StringType },
+            navArgument("mainBefore") { type = NavType.StringType },
+        ),
+    ) { entry ->
+        val service = entry.arguments?.getString("service")
+            ?.let { v -> com.metrolist.music.constants.MetadataSource.entries.firstOrNull { it.name == v } }
+            ?: com.metrolist.music.constants.MetadataSource.SPOTIFY
+        val before = entry.arguments?.getString("mainBefore")
+            ?.let { v -> com.metrolist.music.constants.MetadataSource.entries.firstOrNull { it.name == v } }
+        com.metrolist.music.ui.screens.settings.integrations.AccountSetupScreen(navController, service, before)
+    }
+
+    composable(
+        route = "settings/integrations/account/{service}",
+        arguments = listOf(navArgument("service") { type = NavType.StringType }),
+    ) { entry ->
+        val service = entry.arguments?.getString("service")
+            ?.let { v -> com.metrolist.music.constants.MetadataSource.entries.firstOrNull { it.name == v } }
+            ?: com.metrolist.music.constants.MetadataSource.YANDEX
+        com.metrolist.music.ui.screens.settings.integrations.AccountPageScreen(navController, service)
+    }
+
+    composable(
+        route = "account_transfer/{service}",
+        arguments = listOf(navArgument("service") { type = NavType.StringType }),
+    ) { entry ->
+        val service = entry.arguments?.getString("service")
+            ?.let { v -> com.metrolist.music.constants.MetadataSource.entries.firstOrNull { it.name == v } }
+            ?: com.metrolist.music.constants.MetadataSource.YANDEX
+        com.metrolist.music.ui.screens.settings.integrations.AccountTransferScreen(navController, service)
+    }
+
+    composable("account_push_local") {
+        com.metrolist.music.ui.screens.settings.integrations.PushLocalPlaylistsScreen(navController)
+    }
+
+    composable(
+        route = "account_stats/{service}",
+        arguments = listOf(navArgument("service") { type = NavType.StringType }),
+    ) { entry ->
+        val service = entry.arguments?.getString("service")
+            ?.let { v -> com.metrolist.music.constants.MetadataSource.entries.firstOrNull { it.name == v } }
+            ?: com.metrolist.music.constants.MetadataSource.SPOTIFY
+        com.metrolist.music.ui.screens.settings.integrations.ServiceStatsScreen(navController, service)
+    }
+
+    composable(
+        route = "vk_go/{kind}/{fullId}?title={title}&artist={artist}",
+        arguments = listOf(
+            navArgument("kind") { type = NavType.StringType },
+            navArgument("fullId") { type = NavType.StringType },
+            navArgument("title") { type = NavType.StringType; defaultValue = "" },
+            navArgument("artist") { type = NavType.StringType; defaultValue = "" },
+        ),
+    ) { entry ->
+        com.metrolist.music.ui.screens.vk.VkGoToScreen(
+            navController = navController,
+            toArtist = entry.arguments?.getString("kind") == "artist",
+            fullId = entry.arguments?.getString("fullId").orEmpty(),
+            title = entry.arguments?.getString("title").orEmpty(),
+            artist = entry.arguments?.getString("artist").orEmpty(),
+        )
+    }
+
+    composable(
         route = "spotify_playlist/{playlistId}",
         arguments = listOf(
             navArgument("playlistId") {

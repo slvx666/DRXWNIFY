@@ -88,19 +88,22 @@ private val SpotifyGreen = Color(0xFF1ED760)
 
 /**
  * The library's highlight (selected chips and tabs, the sort mark, pins) in the colour of the
- * account the library comes from: Yandex yellow, Spotify green; with neither (or VK only) the
- * theme's own accent.
+ * account the library comes from — Spotify green, Yandex yellow, VK blue, each in the theme's own
+ * shade ([com.metrolist.music.ui.theme.serviceColor]); with no account the theme's accent. A tab of
+ * another account ([LocalLibrarySource]) takes that account's colour.
  */
-private data class LibraryAccent(val color: Color, val onColor: Color)
+data class LibraryAccent(val color: Color, val onColor: Color)
+
+/** The account a library view shows when it isn't the main one (an account's own tab). */
+val LocalLibrarySource = androidx.compose.runtime.compositionLocalOf<com.metrolist.music.constants.MetadataSource?> { null }
 
 @Composable
-private fun libraryAccent(): LibraryAccent {
-    val source = com.metrolist.music.catalog.Catalog.state.collectAsState().value.source
-    return when (source) {
-        com.metrolist.music.constants.MetadataSource.YANDEX -> LibraryAccent(com.metrolist.music.ui.component.YandexMusicYellow, Color.Black)
-        com.metrolist.music.constants.MetadataSource.SPOTIFY -> LibraryAccent(SpotifyGreen, Color.Black)
-        else -> LibraryAccent(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
-    }
+fun libraryAccent(): LibraryAccent {
+    val main = com.metrolist.music.catalog.Catalog.state.collectAsState().value.source
+    val source = LocalLibrarySource.current ?: main
+        ?: return LibraryAccent(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
+    val color = com.metrolist.music.ui.theme.serviceColor(source)
+    return LibraryAccent(color, com.metrolist.music.ui.theme.ServiceColors.onColor(color))
 }
 private const val REVIEWS_CHIP = "drxwnslvt's"
 private val LibraryGridKey = booleanPreferencesKey("spotify_library_grid")
@@ -118,7 +121,32 @@ fun SpotifyLibraryScreen(
     onVkSelected: (() -> Unit)? = null,
     onReviewsSelected: (() -> Unit)? = null,
     onConcertsSelected: (() -> Unit)? = null,
-    viewModel: SpotifyLibraryViewModel = hiltViewModel(),
+    /** Other linked accounts shown as library tabs, and opening one. */
+    accountTabs: List<com.metrolist.music.constants.MetadataSource> = emptyList(),
+    onAccountTab: (com.metrolist.music.constants.MetadataSource) -> Unit = {},
+    /** This library is the tab of another linked account (not the main one); [onCloseTab] leaves it. */
+    tabSource: com.metrolist.music.constants.MetadataSource? = null,
+    onCloseTab: () -> Unit = {},
+    viewModel: SpotifyLibraryViewModel = hiltViewModel(key = "library_" + (tabSource?.name ?: "main")),
+) {
+    androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.start(tabSource) }
+    androidx.compose.runtime.CompositionLocalProvider(LocalLibrarySource provides tabSource) {
+        SpotifyLibraryContent(navController, onLocalSelected, onVkSelected, onReviewsSelected, onConcertsSelected, accountTabs, onAccountTab, tabSource, onCloseTab, viewModel)
+    }
+}
+
+@Composable
+private fun SpotifyLibraryContent(
+    navController: NavController,
+    onLocalSelected: () -> Unit,
+    onVkSelected: (() -> Unit)?,
+    onReviewsSelected: (() -> Unit)?,
+    onConcertsSelected: (() -> Unit)?,
+    accountTabs: List<com.metrolist.music.constants.MetadataSource>,
+    onAccountTab: (com.metrolist.music.constants.MetadataSource) -> Unit,
+    tabSource: com.metrolist.music.constants.MetadataSource?,
+    onCloseTab: () -> Unit,
+    viewModel: SpotifyLibraryViewModel,
 ) {
     val entries by viewModel.entries.collectAsState()
     val filter by viewModel.filter.collectAsState()
@@ -202,18 +230,24 @@ fun SpotifyLibraryScreen(
         modifier = Modifier.fillMaxSize(),
     ) {
         item(key = "chips", span = { GridItemSpan(maxLineSpan) }) {
-            LibraryChips(
-                selected = filter,
-                localSelected = false,
-                onSelect = { viewModel.toggleFilter(it) },
-                onClear = { viewModel.clearFilter() },
-                onLocal = onLocalSelected,
-                onCreatePlaylist = { showCreatePlaylistDialog = true },
-                onImportPlaylist = { navController.navigate("import_playlist") },
-                onVk = onVkSelected,
-                onReviews = onReviewsSelected,
-                onConcerts = onConcertsSelected,
-            )
+            if (tabSource != null) {
+                AccountTabChips(tabSource, filter, onSelect = { viewModel.toggleFilter(it) }, onClose = onCloseTab)
+            } else {
+                LibraryChips(
+                    selected = filter,
+                    localSelected = false,
+                    onSelect = { viewModel.toggleFilter(it) },
+                    onClear = { viewModel.clearFilter() },
+                    onLocal = onLocalSelected,
+                    onCreatePlaylist = { showCreatePlaylistDialog = true },
+                    onImportPlaylist = { navController.navigate("import_playlist") },
+                    onVk = onVkSelected,
+                    onReviews = onReviewsSelected,
+                    onConcerts = onConcertsSelected,
+                    accountTabs = accountTabs,
+                    onAccountTab = onAccountTab,
+                )
+            }
         }
         item(key = "sort", span = { GridItemSpan(maxLineSpan) }) {
             SortRow(
@@ -261,7 +295,7 @@ fun SpotifyLibraryScreen(
                 }
             }
             item(key = entry.uri.ifBlank { entry.id }) {
-            val onClick = { openEntry(navController, entry) }
+            val onClick = { openEntry(navController, entry, tabSource) }
             // Switching filters fades rows in/out and slides the ones that stay into place,
             // instead of the list snapping to its new contents.
             Box(
@@ -311,6 +345,9 @@ fun LibraryChips(
     concertsSelected: Boolean = false,
     /** Shows the "Афиша" chip (the concert poster); null while the poster is switched off. */
     onConcerts: (() -> Unit)? = null,
+    /** Other linked accounts the user wants as tabs (Spotify / Yandex Music; VK has [onVk]). */
+    accountTabs: List<com.metrolist.music.constants.MetadataSource> = emptyList(),
+    onAccountTab: (com.metrolist.music.constants.MetadataSource) -> Unit = {},
 ) {
     val labels = listOf(
         Filter.PLAYLISTS to stringResource(R.string.filter_playlists),
@@ -350,6 +387,7 @@ fun LibraryChips(
                 onConcerts?.let { Chip(concertsLabel, selected = false, onClick = it) }
                 onReviews?.let { Chip(REVIEWS_CHIP, selected = false, onClick = it) }
                 onVk?.let { Chip("VK", selected = false, onClick = it) }
+                accountTabs.forEach { tab -> Chip(accountTabLabel(tab), selected = false) { onAccountTab(tab) } }
             } else {
                 CloseChip(onClick = onClear)
                 if (current == "concerts") {
@@ -704,7 +742,60 @@ private fun LibraryGridCell(entry: SpotifyLibraryEntry, pinnedHere: Boolean, onC
     }
 }
 
-private fun openEntry(navController: NavController, entry: SpotifyLibraryEntry) {
+/** The short name of an account's library tab. */
+@Composable
+fun accountTabLabel(source: com.metrolist.music.constants.MetadataSource): String = when (source) {
+    com.metrolist.music.constants.MetadataSource.SPOTIFY -> "Spotify"
+    com.metrolist.music.constants.MetadataSource.YANDEX -> stringResource(R.string.yandex_tab_short)
+    com.metrolist.music.constants.MetadataSource.VK -> "VK"
+}
+
+/**
+ * Chip row of another account's tab: "Spotify ×" (or Yandex, VK) leaving it, then its albums,
+ * artists and playlists, in that account's colour.
+ */
+@Composable
+private fun AccountTabChips(source: com.metrolist.music.constants.MetadataSource, selected: Filter, onSelect: (Filter) -> Unit, onClose: () -> Unit) {
+    val tabs = listOf(
+        Filter.ALBUMS to stringResource(R.string.filter_albums),
+        Filter.ARTISTS to stringResource(R.string.filter_artists),
+        Filter.PLAYLISTS to stringResource(R.string.filter_playlists),
+    )
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = libraryAccent().color,
+            modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onClose),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
+                Text(accountTabLabel(source), style = MaterialTheme.typography.labelLarge, color = libraryAccent().onColor)
+                Spacer(Modifier.width(4.dp))
+                Icon(painterResource(R.drawable.close), contentDescription = null, modifier = Modifier.size(16.dp), tint = libraryAccent().onColor)
+            }
+        }
+        tabs.forEach { (value, label) -> Chip(label, selected = value == selected) { onSelect(value) } }
+    }
+}
+
+/** The liked songs of an account opened from its tab (not the main account's list). */
+private fun likedIdOf(source: com.metrolist.music.constants.MetadataSource): String = when (source) {
+    com.metrolist.music.constants.MetadataSource.SPOTIFY -> com.metrolist.music.catalog.Catalog.SPOTIFY_LIKED_ID
+    com.metrolist.music.constants.MetadataSource.YANDEX -> com.metrolist.yandex.YandexIds.LIKED_SONGS_ID
+    com.metrolist.music.constants.MetadataSource.VK -> com.metrolist.music.catalog.VkCatalog.LIKED_SONGS_ID
+}
+
+private fun openEntry(navController: NavController, entry: SpotifyLibraryEntry, tabSource: com.metrolist.music.constants.MetadataSource? = null) {
+    if (tabSource != null && entry.kind == SpotifyLibraryEntry.Kind.LIKED_SONGS) {
+        navController.navigate("spotify_playlist/${likedIdOf(tabSource)}")
+        return
+    }
     // Playlists made inside the app live in the local database, not in the connected account.
     if (entry.uri.startsWith(SpotifyLibraryViewModel.LOCAL_PLAYLIST_URI_PREFIX)) {
         navController.navigate("local_playlist/${entry.id}")
