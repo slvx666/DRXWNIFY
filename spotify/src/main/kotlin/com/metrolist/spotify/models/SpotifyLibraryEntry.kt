@@ -22,6 +22,8 @@ data class SpotifyLibraryEntry(
     /** ISO-8601 "added at" timestamp, when Spotify provides it. */
     val addedAt: String? = null,
     val totalCount: Int = 0,
+    /** Album release year when the source tells it with the library (Yandex does, Spotify's library may not). */
+    val year: Int? = null,
 ) {
     @Serializable
     enum class Kind { PLAYLIST, ALBUM, ARTIST, LIKED_SONGS, FOLDER }

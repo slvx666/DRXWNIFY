@@ -7,6 +7,8 @@ package com.metrolist.music.ui.screens.settings.integrations
 
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -42,10 +44,15 @@ import com.metrolist.music.constants.YandexAccessTokenKey
 fun IntegrationScreen(
     navController: NavController
 ) {
+    // A hair taller than the screen even when the list is short, so it always answers a swipe
+    // (scrolls and stretches) instead of standing still.
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+    val minHeight = maxHeight + 1.dp
     Column(
         Modifier
-            .windowInsetsPadding(LocalPlayerAwareWindowInsets.current)
             .verticalScroll(rememberScrollState())
+            .heightIn(min = minHeight)
+            .windowInsetsPadding(LocalPlayerAwareWindowInsets.current)
             .padding(horizontal = 16.dp),
     ) {
         val (discordToken) = rememberPreference(DiscordTokenKey, "")
@@ -205,6 +212,7 @@ fun IntegrationScreen(
                 ),
             )
         )
+    }
     }
 
     TopAppBar(

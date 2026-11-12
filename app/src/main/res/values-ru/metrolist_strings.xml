@@ -1633,7 +1633,7 @@
     <string name="romanization_all">Все</string>
     <string name="recognition_history_empty">Распознанных треков пока нет</string>
     <string name="icon_updated_restart">Иконка изменена, перезапусти приложение</string>
-    <string name="import_paste_placeholder">Исполнитель - Название\nhttps://open.spotify.com/playlist/…</string>
+    <string name="import_paste_placeholder">Исполнитель - Название\nhttps://music.yandex.ru/album/…\nhttps://open.spotify.com/playlist/…</string>
     <string name="lt_joined_room">Ты в комнате %s</string>
     <string name="lt_join_rejected">Запрос отклонён: %s</string>
     <string name="lt_wants_to_join">%s хочет присоединиться</string>
@@ -2052,4 +2052,11 @@
         <item quantity="many">Разрешено %d треков</item>
         <item quantity="other">Разрешено %d треков</item>
     </plurals>
+    <string name="import_links_supported">Ссылки: плейлисты и альбомы Spotify и Яндекс Музыки, плейлисты YouTube, SoundCloud</string>
+    <string name="import_name_from_link">Можно не вводить: возьмём название плейлиста по ссылке</string>
+    <string name="import_name_required">Введите название плейлиста</string>
+    <string name="import_default_name">Импорт %1$s</string>
+    <string name="lib_sort_year">Год выпуска</string>
+    <string name="lib_year_filter">Год</string>
+    <string name="lib_year_all">Все годы</string>
 </resources>

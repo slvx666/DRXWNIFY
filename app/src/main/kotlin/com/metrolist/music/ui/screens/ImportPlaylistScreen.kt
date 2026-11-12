@@ -84,6 +84,8 @@ fun ImportPlaylistScreen(navController: NavController, targetPlaylistId: String?
     }
     val scope = rememberCoroutineScope()
     var name by rememberSaveable { mutableStateOf("") }
+    // Shown red after "Import" was tapped with no name where one is needed (no link to take it from).
+    var nameError by rememberSaveable { mutableStateOf(false) }
     var text by rememberSaveable { mutableStateOf("") }
     var fileName by rememberSaveable { mutableStateOf<String?>(null) }
     var fileText by remember { mutableStateOf<String?>(null) }
@@ -172,9 +174,18 @@ fun ImportPlaylistScreen(navController: NavController, targetPlaylistId: String?
             if (!intoExisting) {
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it },
+                    onValueChange = {
+                        name = it
+                        nameError = false
+                    },
                     label = { Text(stringResource(R.string.import_name)) },
                     singleLine = true,
+                    isError = nameError,
+                    supportingText = when {
+                        nameError -> ({ Text(stringResource(R.string.import_name_required)) })
+                        name.isBlank() && parsed.links.isNotEmpty() -> ({ Text(stringResource(R.string.import_name_from_link)) })
+                        else -> null
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 )
             } else {
@@ -228,6 +239,7 @@ fun ImportPlaylistScreen(navController: NavController, targetPlaylistId: String?
                 onValueChange = { text = it },
                 label = { Text(stringResource(R.string.import_paste)) },
                 placeholder = { Text(androidx.compose.ui.res.stringResource(R.string.import_paste_placeholder)) },
+                supportingText = { Text(stringResource(R.string.import_links_supported)) },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp),
             )
             Text(
@@ -237,9 +249,19 @@ fun ImportPlaylistScreen(navController: NavController, targetPlaylistId: String?
             )
             val destination = if (intoExisting) ownPlaylists.firstOrNull { it.id == target } else null
             Button(
-                enabled = !starting && (if (intoExisting) destination != null else name.isNotBlank()) &&
+                // Lights up as soon as there is something to import: a missing name is pointed out on tap.
+                enabled = !starting && (!intoExisting || destination != null) &&
                     (parsed.entries.isNotEmpty() || parsed.links.isNotEmpty() || audioUris.isNotEmpty()),
                 onClick = {
+                    if (!intoExisting && name.isBlank() && parsed.links.isEmpty()) {
+                        nameError = true
+                        return@Button
+                    }
+                    // Several links and nothing else, no name: one playlist per link, each named as at its source.
+                    if (!intoExisting && name.isBlank() && parsed.links.size > 1 && parsed.entries.isEmpty() && audioUris.isEmpty()) {
+                        PlaylistImporter.enqueue(context, parsed.links.map { PlaylistImporter.Queued("", it) })
+                        return@Button
+                    }
                     starting = true
                     scope.launch {
                         val localIds = com.metrolist.music.playback.LocalAudioImport.importFiles(context, database, audioUris)

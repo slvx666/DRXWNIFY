@@ -319,7 +319,7 @@ fun friendsListening(
     return friends.filter { it.pubkey != myKey }.mapNotNull { f ->
         val d = data[f.pubkey] ?: return@mapNotNull null
         val name = nameOf(f.pubkey, d.name ?: f.name.ifBlank { null })
-        val playing = d.now?.takeIf { it.playing && now - it.at < 20 * 60_000L }
+        val playing = d.now?.takeIf { it.isLive(now) }
         if (playing != null) {
             FriendListening(f.pubkey, name, d.avatar, playing.track, now = true, at = playing.at)
         } else {

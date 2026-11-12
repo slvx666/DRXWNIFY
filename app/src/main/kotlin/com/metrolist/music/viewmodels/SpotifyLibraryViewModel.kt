@@ -35,8 +35,8 @@ class SpotifyLibraryViewModel @Inject constructor(
     private val likedSongsTitle = context.getString(com.metrolist.music.R.string.liked_songs)
 
     enum class Filter(val gql: String?) { ALL(null), PLAYLISTS("Playlists"), ALBUMS("Albums"), ARTISTS("Artists") }
-    /** Spotify's four orders; each can be flipped ([reversed]). */
-    enum class Sort { RECENTS, DATE_ADDED, NAME, CREATOR }
+    /** Spotify's four orders, plus release year for albums; each can be flipped ([reversed]). */
+    enum class Sort { RECENTS, DATE_ADDED, NAME, CREATOR, YEAR }
 
     private val _filter = MutableStateFlow(Filter.ALL)
     val filter: StateFlow<Filter> = _filter.asStateFlow()
@@ -50,6 +50,17 @@ class SpotifyLibraryViewModel @Inject constructor(
 
     private val _reversed = MutableStateFlow(prefs.getBoolean("reversed", false))
     val reversed: StateFlow<Boolean> = _reversed.asStateFlow()
+
+    /** With the Year order on Albums: only albums released in this year (null = every year). */
+    private val _yearFilter = MutableStateFlow<Int?>(null)
+    val yearFilter: StateFlow<Int?> = _yearFilter.asStateFlow()
+
+    /**
+     * Release years read album by album, for libraries that don't tell them with the list (Spotify's
+     * may not): album id → year. Asked only while the Year order is on, a few at a time.
+     */
+    private val fetchedYears = MutableStateFlow<Map<String, Int>>(emptyMap())
+    private var yearJob: Job? = null
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -127,6 +138,7 @@ class SpotifyLibraryViewModel @Inject constructor(
                             creator = album.artists.joinToString { it.name }.ifBlank { null },
                             imageUrl = album.album.thumbnailUrl,
                             addedAt = (album.album.bookmarkedAt ?: album.album.likedDate)?.toString(),
+                            year = album.album.year,
                         ),
                     )
                 }
@@ -194,14 +206,15 @@ class SpotifyLibraryViewModel @Inject constructor(
         }
     }
 
-    val entries: StateFlow<List<SpotifyLibraryEntry>> =
+    /** Every album entry before the year filter, years filled in where they were read later. */
+    private val unfilteredEntries: StateFlow<List<SpotifyLibraryEntry>> =
         combine(
             combine(cache, com.metrolist.music.playback.LibraryRecents.version, ::Pair),
             _filter,
-            _sort,
+            combine(_sort, fetchedYears, ::Pair),
             _reversed,
             combine(localPlaylists, appCollection, ::Pair),
-        ) { (c, _), f, s, reversed, (local, app) ->
+        ) { (c, _), f, (s, years), reversed, (local, app) ->
             val own = if (f == Filter.ALL || f == Filter.PLAYLISTS) local else emptyList()
             val saved = app.filter { entry ->
                 when (f) {
@@ -221,8 +234,63 @@ class SpotifyLibraryViewModel @Inject constructor(
             val merged = (saved + account).distinctBy { e ->
                 if (e.kind == SpotifyLibraryEntry.Kind.ALBUM) "album:" + e.name.trim().lowercase() + "|" + e.creator.orEmpty().trim().lowercase() else e.kind.name + e.id
             }
-            applySort(own, merged, s, reversed)
+            val withYears = merged.map { e ->
+                if (e.kind == SpotifyLibraryEntry.Kind.ALBUM && e.year == null) years[e.id]?.let { e.copy(year = it) } ?: e else e
+            }
+            // The Year order belongs to Albums; elsewhere the list keeps the usual recents order.
+            val effective = if (s == Sort.YEAR && f != Filter.ALBUMS) Sort.RECENTS else s
+            applySort(own, withYears, effective, reversed)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Whether the Year order is in effect (it is offered on Albums only). */
+    val yearSortActive: StateFlow<Boolean> =
+        combine(_sort, _filter) { s, f -> s == Sort.YEAR && f == Filter.ALBUMS }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** The years the user's albums come from, newest first: the choices of the year filter. */
+    val availableYears: StateFlow<List<Int>> =
+        combine(unfilteredEntries, yearSortActive) { list, active ->
+            if (!active) emptyList() else list.mapNotNull { it.year }.distinct().sortedDescending()
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val entries: StateFlow<List<SpotifyLibraryEntry>> =
+        combine(unfilteredEntries, yearSortActive, _yearFilter) { list, active, year ->
+            if (!active || year == null) list else list.filter { it.year == year }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun setYearFilter(year: Int?) {
+        _yearFilter.value = year
+    }
+
+    /** Reads the release years the library didn't bring, while the Year order is on. */
+    private fun fillYears() {
+        if (yearJob?.isActive == true) return
+        yearJob = viewModelScope.launch(Dispatchers.IO) {
+            val missing = unfilteredEntries.value
+                .filter { it.kind == SpotifyLibraryEntry.Kind.ALBUM && it.year == null && it.id.isNotBlank() }
+                .filterNot { it.uri.startsWith(APP_ALBUM_URI_PREFIX) || it.id in fetchedYears.value }
+                .map { it.id }
+                .distinct()
+            if (missing.isEmpty()) return@launch
+            val gate = kotlinx.coroutines.sync.Semaphore(4)
+            missing.chunked(12).forEach { chunk ->
+                val found = kotlinx.coroutines.coroutineScope {
+                    chunk.map { id ->
+                        kotlinx.coroutines.async {
+                            gate.acquire()
+                            try {
+                                id to Catalog.album(id).getOrNull()?.releaseDate?.take(4)?.toIntOrNull()
+                            } finally {
+                                gate.release()
+                            }
+                        }
+                    }.map { it.await() }
+                }
+                val add = found.mapNotNull { (id, year) -> year?.let { id to it } }.toMap()
+                if (add.isNotEmpty()) fetchedYears.value = fetchedYears.value + add
+            }
+        }
+    }
 
     private fun accountLikedTitle() = context.getString(com.metrolist.music.ui.component.catalogLikedSongsTitleRes())
 
@@ -231,6 +299,12 @@ class SpotifyLibraryViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) { com.metrolist.music.catalog.CrossCatalog.fillArtistPhotos(database) }
         // What was liked or followed in the app before goes to the account too, once per account.
         viewModelScope.launch(Dispatchers.IO) { com.metrolist.music.catalog.CrossCatalog.syncApp(database) }
+        // The Year order on Albums: the years the library didn't bring are read in the background.
+        viewModelScope.launch {
+            combine(yearSortActive, unfilteredEntries.map { it.size }, ::Pair).collect { (active, _) ->
+                if (active) fillYears() else _yearFilter.value = null
+            }
+        }
         // A like, a follow or a saved album (here or on any other screen) shows in the list at once,
         // not when the saved copy grows old.
         viewModelScope.launch {
@@ -377,6 +451,16 @@ class SpotifyLibraryViewModel @Inject constructor(
                 compareBy<SpotifyLibraryEntry, String>(collator) { it.creator ?: it.name }
                     .thenBy(collator) { it.name },
             )
+            // Newest release first; within a year by artist, then title. Unknown years go last.
+            Sort.YEAR -> {
+                val (known, unknown) = (own + rest).partition { it.year != null }
+                val byYear = known.sortedWith(
+                    compareByDescending<SpotifyLibraryEntry> { it.year }
+                        .thenBy(collator) { it.creator ?: it.name }
+                        .thenBy(collator) { it.name },
+                )
+                return pinned + (if (reversed) byYear.asReversed() else byYear) + unknown
+            }
         }
         return pinned + if (reversed) sorted.asReversed() else sorted
     }

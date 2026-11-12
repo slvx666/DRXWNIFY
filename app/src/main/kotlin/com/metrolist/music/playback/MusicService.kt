@@ -5356,6 +5356,8 @@ class MusicService :
     override fun onDestroy() {
         isRunning = false
         preCacheJob?.cancel()
+        // Friends see the music stop now, not a "playing" that never ends.
+        runCatching { com.metrolist.music.friends.FriendsHub.playerStopped() }
 
         // Save episode position before destroying
         val currentMetadata = player.currentMediaItem?.metadata

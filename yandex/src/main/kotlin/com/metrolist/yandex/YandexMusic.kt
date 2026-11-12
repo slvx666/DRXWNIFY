@@ -287,6 +287,32 @@ object YandexMusic {
             .mapNotNull { it.objOrNull()?.let(YandexParser::playlist) }
     }
 
+    /**
+     * The catalog id (`ym_…`) behind an album or playlist link, or null when the link is neither.
+     * A `/playlists/{uuid}` share link is looked up once to learn its owner and kind.
+     */
+    suspend fun idOfLink(url: String): Result<String?> = runCatching {
+        when (val link = YandexIds.parseLink(url)) {
+            is YandexIds.Link.Album -> YandexIds.album(link.rawId)
+            is YandexIds.Link.Playlist -> {
+                // A login in the link: the payload names the owner's uid, which the id needs.
+                if (link.owner.all { it.isDigit() }) {
+                    YandexIds.playlist(link.owner, link.kind)
+                } else {
+                    val obj = getResult("users/${link.owner}/playlists/${link.kind}", anonymous = true) as? JsonObject
+                    obj?.let(YandexParser::playlist)?.id ?: YandexIds.playlist(link.owner, link.kind)
+                }
+            }
+            is YandexIds.Link.PlaylistUuid -> {
+                val obj = getResult("playlist/${link.uuid}", anonymous = true) as? JsonObject
+                    ?: throw YandexException(404, "Playlist not found")
+                (obj.obj("playlist") ?: obj).let(YandexParser::playlist)?.id
+                    ?: throw YandexException(500, "Invalid playlist payload")
+            }
+            null -> null
+        }
+    }
+
     suspend fun playlist(playlistId: String): Result<SpotifyPlaylist> = runCatching {
         val (owner, kind) = YandexIds.parsePlaylist(playlistId) ?: throw YandexException(400, "Bad playlist id")
         val obj = getResult("users/$owner/playlists/$kind", anonymous = true) as? JsonObject
@@ -301,7 +327,8 @@ object YandexMusic {
     suspend fun playlistTracks(playlistId: String, limit: Int, offset: Int): Result<SpotifyPaging<SpotifyPlaylistTrack>> =
         runCatching {
             val (owner, kind) = YandexIds.parsePlaylist(playlistId) ?: throw YandexException(400, "Bad playlist id")
-            val obj = getResult("users/$owner/playlists/$kind", mapOf("rich-tracks" to "true")) as? JsonObject
+            // Anonymous like [playlist]: a shared public playlist opens (and imports) without an account.
+            val obj = getResult("users/$owner/playlists/$kind", mapOf("rich-tracks" to "true"), anonymous = true) as? JsonObject
                 ?: throw YandexException(404, "Playlist not found")
             val refs = obj.arr("tracks").orEmpty().mapNotNull { it.objOrNull() }
             val page = refs.drop(offset).take(limit)

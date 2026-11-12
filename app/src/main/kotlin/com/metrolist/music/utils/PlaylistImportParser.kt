@@ -14,7 +14,8 @@ import org.json.JSONObject
  *  - M3U / M3U8 (AIMP, VLC, Winamp…) and AIMP's own playlist file;
  *  - CSV (Exportify, TuneMyMusic, Soundiiz…) with track and artist columns;
  *  - plain lines "Artist - Title";
- *  - links (Spotify / YouTube playlists and albums) — returned separately, fetched by the caller.
+ *  - links (Spotify / Yandex Music / YouTube playlists and albums, SoundCloud) — returned
+ *    separately, fetched by the caller.
  */
 object PlaylistImportParser {
     data class Entry(val artist: String?, val title: String, val durationSec: Int? = null) {
@@ -37,7 +38,8 @@ object PlaylistImportParser {
             rest.any { it.startsWith("#EXTM3U") || it.startsWith("#EXTINF") } -> parseM3u(rest)
             rest.any { it.startsWith("#-----") } || rest.count { it.count { c -> c == '|' } >= 3 } > rest.size / 2 -> parseAimp(rest)
             looksLikeCsv(rest) -> parseCsv(rest)
-            else -> rest.mapNotNull(::parseLine)
+            // A lone link nobody can read (an artist page, another site) is not a track name.
+            else -> rest.filterNot { LINK.matches(it) }.mapNotNull(::parseLine)
         }
         return Parsed(entries.distinctBy { it.label.lowercase() }, links.distinct())
     }
@@ -45,7 +47,8 @@ object PlaylistImportParser {
     fun isPlaylistLink(url: String): Boolean =
         ("open.spotify.com/" in url && ("/playlist/" in url || "/album/" in url)) ||
             (("youtube.com/" in url || "youtu.be/" in url) && "list=" in url) ||
-            "soundcloud.com/" in url
+            "soundcloud.com/" in url ||
+            com.metrolist.yandex.YandexIds.parseLink(url) != null
 
     /** Telegram Desktop "Export chat history" as JSON: messages with media_type = audio_file. */
     private fun parseTelegram(text: String): List<Entry>? {

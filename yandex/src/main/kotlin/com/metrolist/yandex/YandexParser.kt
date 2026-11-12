@@ -48,6 +48,32 @@ object YandexIds {
         if (sep <= 0 || sep == raw.lastIndex) return null
         return raw.substring(0, sep) to raw.substring(sep + 1)
     }
+
+    /** What a music.yandex.* link points at. */
+    sealed interface Link {
+        data class Album(val rawId: String) : Link
+        /** `/users/{login or uid}/playlists/{kind}`; the API takes a login as well as a uid. */
+        data class Playlist(val owner: String, val kind: String) : Link
+        /** The newer share link `/playlists/{uuid}` (e.g. `lk.1a2b…`). */
+        data class PlaylistUuid(val uuid: String) : Link
+    }
+
+    private val HOST = Regex("""https?://(?:www\.)?music\.yandex\.(?:ru|com|by|kz|uz)/""", RegexOption.IGNORE_CASE)
+    private val ALBUM_LINK = Regex("""^album/(\d+)""")
+    private val USER_PLAYLIST_LINK = Regex("""^users/([^/?#]+)/playlists/(\d+)""")
+    private val UUID_PLAYLIST_LINK = Regex("""^playlists/([A-Za-z0-9.\-]+)""")
+
+    fun isLink(url: String): Boolean = HOST.containsMatchIn(url)
+
+    /** An album or playlist link to Yandex Music, or null for anything else (a track, an artist, other sites). */
+    fun parseLink(url: String): Link? {
+        val host = HOST.find(url) ?: return null
+        val path = url.substring(host.range.last + 1)
+        ALBUM_LINK.find(path)?.let { return Link.Album(it.groupValues[1]) }
+        USER_PLAYLIST_LINK.find(path)?.let { return Link.Playlist(java.net.URLDecoder.decode(it.groupValues[1], "UTF-8"), it.groupValues[2]) }
+        UUID_PLAYLIST_LINK.find(path)?.let { return Link.PlaylistUuid(it.groupValues[1]) }
+        return null
+    }
 }
 
 /**
@@ -235,6 +261,7 @@ object YandexParser {
         albumType = a.albumType,
         addedAt = addedAt,
         totalCount = totalCount,
+        year = a.releaseDate?.take(4)?.toIntOrNull(),
     )
 
     fun artistEntry(a: SpotifyArtist, addedAt: String? = null) = SpotifyLibraryEntry(

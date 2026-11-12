@@ -22,6 +22,8 @@ import com.metrolist.music.utils.FuzzyTrackMatch
 import com.metrolist.music.utils.PlaylistImportParser
 import com.metrolist.spotify.SpotifyMapper
 import com.metrolist.spotify.models.SpotifyTrack
+import com.metrolist.yandex.YandexIds
+import com.metrolist.yandex.YandexMusic
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -172,7 +174,18 @@ object PlaylistImporter {
         val job = runCatching { JSONObject(file.readText()) }.getOrNull() ?: run { file.delete(); return }
         val mapper = SpotifyYouTubeMapper(database)
         Catalog.ensureSearchable(Catalog.source ?: MetadataSource.SPOTIFY)
-        val name = job.getString("name")
+        // No name given: the playlist or album behind the first link names it (else "Import <date>").
+        val name = job.getString("name").ifBlank {
+            val links = job.optJSONArray("links")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty()
+            val resolved = links.firstNotNullOfOrNull { link -> runCatching { linkTitle(link) }.getOrNull()?.takeIf { it.isNotBlank() } }
+                ?: context.getString(
+                    com.metrolist.music.R.string.import_default_name,
+                    java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("d MMM")),
+                )
+            job.put("name", resolved)
+            file.writeText(job.toString())
+            resolved
+        }
 
         // The playlist exists from the first moment, so it is in the library while it fills.
         val playlistId = job.optString("playlistId").takeIf { it.isNotBlank() } ?: run {
@@ -446,19 +459,22 @@ object PlaylistImporter {
             }
             return
         }
-        val spotifyId = Regex("open\\.spotify\\.com/(?:intl-[a-z]+/)?(playlist|album)/([A-Za-z0-9]+)").find(link)
+        if (YandexIds.isLink(link)) {
+            val id = YandexMusic.idOfLink(link).getOrThrow() ?: return
+            if (YandexIds.parseLink(link) is YandexIds.Link.Album) {
+                Catalog.album(id).getOrNull()?.tracks?.items?.let(direct::addAll)
+            } else {
+                readAllPlaylistTracks(id, direct)
+            }
+            return
+        }
+        val spotifyId = SPOTIFY_LINK.find(link)
         if (spotifyId != null) {
             val (kind, id) = spotifyId.destructured
             if (kind == "album") {
                 Catalog.album(id).getOrNull()?.tracks?.items?.let(direct::addAll)
             } else {
-                var offset = 0
-                while (offset < MAX_LINK_TRACKS) {
-                    val page = Catalog.playlistTracks(id, 100, offset).getOrNull() ?: break
-                    direct += page.items.mapNotNull { it.track?.takeIf { t -> !t.isLocal } }
-                    offset += 100
-                    if (page.items.isEmpty() || offset >= page.total) break
-                }
+                readAllPlaylistTracks(id, direct)
             }
             return
         }
@@ -473,6 +489,37 @@ object PlaylistImporter {
         }
         entries += songs.map { PlaylistImportParser.Entry(it.artists.firstOrNull()?.name, it.title, it.duration) }
     }
+
+    private suspend fun readAllPlaylistTracks(id: String, direct: MutableList<SpotifyTrack>) {
+        var offset = 0
+        while (offset < MAX_LINK_TRACKS) {
+            val page = Catalog.playlistTracks(id, 100, offset).getOrNull() ?: break
+            direct += page.items.mapNotNull { it.track?.takeIf { t -> !t.isLocal } }
+            offset += 100
+            if (page.items.isEmpty() || offset >= page.total) break
+        }
+    }
+
+    /** The name of the playlist or album a link points at, as its own service calls it; null when unknown. */
+    suspend fun linkTitle(link: String): String? {
+        if (YandexIds.isLink(link)) {
+            val id = YandexMusic.idOfLink(link).getOrNull() ?: return null
+            return if (YandexIds.parseLink(link) is YandexIds.Link.Album) {
+                Catalog.album(id).getOrNull()?.name
+            } else {
+                Catalog.playlist(id).getOrNull()?.name
+            }
+        }
+        SPOTIFY_LINK.find(link)?.let { m ->
+            val (kind, id) = m.destructured
+            return if (kind == "album") Catalog.album(id).getOrNull()?.name else Catalog.playlist(id).getOrNull()?.name
+        }
+        if ("soundcloud.com/" in link) return null
+        val listId = Regex("[?&]list=([A-Za-z0-9_-]+)").find(link)?.groupValues?.get(1) ?: return null
+        return YouTube.playlist(listId).getOrNull()?.playlist?.title
+    }
+
+    private val SPOTIFY_LINK = Regex("open\\.spotify\\.com/(?:intl-[a-z]+/)?(playlist|album)/([A-Za-z0-9]+)")
 
     private const val CONCURRENT_LOOKUPS = 6
     private const val BATCH = 30

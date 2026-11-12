@@ -364,7 +364,7 @@ private fun PeerAvatar(peer: String, name: String, size: androidx.compose.ui.uni
     Box {
         FriendAvatar(peer, name, d?.avatar, size)
         androidx.compose.animation.AnimatedVisibility(
-            visible = d?.now?.playing == true,
+            visible = d?.now?.isLive(com.metrolist.music.ui.screens.friends.rememberLiveClock()) == true,
             enter = androidx.compose.animation.scaleIn() + fadeIn(),
             exit = androidx.compose.animation.scaleOut() + fadeOut(),
             modifier = Modifier.align(Alignment.BottomEnd),
@@ -556,7 +556,7 @@ fun ChatScreen(navController: NavController, peer: String) {
                         val now = data[peer]?.now
                         val status = when {
                             typing -> stringResource(R.string.chat_typing)
-                            now != null && now.playing -> stringResource(R.string.chat_listening, "${now.track.artist} — ${now.track.title}")
+                            now != null && now.isLive(rememberLiveClock()) -> stringResource(R.string.chat_listening, "${now.track.artist} — ${now.track.title}")
                             else -> null
                         }
                         androidx.compose.animation.AnimatedContent(status, label = "status") { s ->

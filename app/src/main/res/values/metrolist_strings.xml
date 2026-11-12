@@ -1696,7 +1696,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="romanization_all">All</string>
     <string name="recognition_history_empty">No recognition history</string>
     <string name="icon_updated_restart">Icon updated, restart to apply</string>
-    <string name="import_paste_placeholder">Artist - Title\nhttps://open.spotify.com/playlist/…</string>
+    <string name="import_paste_placeholder">Artist - Title\nhttps://music.yandex.com/album/…\nhttps://open.spotify.com/playlist/…</string>
     <string name="lt_joined_room">Joined room: %s</string>
     <string name="lt_join_rejected">Join rejected: %s</string>
     <string name="lt_wants_to_join">%s wants to join</string>
@@ -2103,4 +2103,11 @@ Such tracks are audio only: play them, queue them and download them — but they
         <item quantity="one">%d track allowed</item>
         <item quantity="other">%d tracks allowed</item>
     </plurals>
+    <string name="import_links_supported">Links: Spotify and Yandex Music playlists and albums, YouTube playlists, SoundCloud</string>
+    <string name="import_name_from_link">Optional: the playlist\'s own name is taken from the link</string>
+    <string name="import_name_required">Enter a playlist name</string>
+    <string name="import_default_name">Import %1$s</string>
+    <string name="lib_sort_year">Release year</string>
+    <string name="lib_year_filter">Year</string>
+    <string name="lib_year_all">All years</string>
 </resources>

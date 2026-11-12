@@ -232,10 +232,23 @@ fun FriendsScreen(navController: NavController) {
     }
 }
 
+/** The time, renewed every half minute: a friend's "listening now" goes out by itself once it is stale. */
+@Composable
+fun rememberLiveClock(): Long {
+    val time by androidx.compose.runtime.produceState(System.currentTimeMillis()) {
+        while (true) {
+            kotlinx.coroutines.delay(30_000L)
+            value = System.currentTimeMillis()
+        }
+    }
+    return time
+}
+
 /** Everything about friends, as a list: the "Friends" tab of "Together" and the standalone screen. */
 @Composable
 fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
     LiveWhileShown()
+    val liveClock = rememberLiveClock()
     val context = LocalContext.current
     val profile by FriendsHub.profile.collectAsState()
     val friends by FriendsHub.friends.collectAsState()
@@ -488,14 +501,21 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
             }
         }
 
-        // Pinned friends first (in the order they were pinned), then the rest as before.
+        // Pinned friends first (in the order they were pinned), then the rest by how recently they
+        // were around: listening now, then by their last word (newest first), then the silent ones.
+        val clock = liveClock
         val others = friends.filter { it.pubkey != me.pubkey }.let { list ->
             val byKey = list.associateBy { it.pubkey }
-            pinned.mapNotNull { byKey[it] } + list.filter { it.pubkey !in pinned }
+            val rest = list.filter { it.pubkey !in pinned }.withIndex().sortedWith(
+                compareByDescending<IndexedValue<FriendsHub.Friend>> { data[it.value.pubkey]?.now?.isLive(clock) == true }
+                    .thenByDescending { data[it.value.pubkey]?.now?.at ?: 0L }
+                    .thenBy { it.index },
+            ).map { it.value }
+            pinned.mapNotNull { byKey[it] } + rest
         }
 
         // Who is playing something right now, as a row of covers: the liveliest part of the tab.
-        val playingNow = others.filter { data[it.pubkey]?.now?.playing == true }
+        val playingNow = others.filter { data[it.pubkey]?.now?.isLive(clock) == true }
         if (playingNow.isNotEmpty()) {
             item(key = "now_title") { SectionTitle(stringResource(R.string.friends_now_listening), null) }
             item(key = "now_row") {
@@ -867,6 +887,7 @@ private fun FriendRow(
     val context = LocalContext.current
     val verifiedSet by FriendsHub.verified.collectAsState()
     val myProfile by FriendsHub.profile.collectAsState()
+    val live = now?.isLive(rememberLiveClock()) == true
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
@@ -876,7 +897,7 @@ private fun FriendRow(
     ) {
         Box {
             FriendAvatar(pubkey, name, avatar, 50.dp)
-            if (now?.playing == true) {
+            if (live) {
                 // A small "on air" dot on the avatar.
                 Box(
                     Modifier
@@ -891,7 +912,7 @@ private fun FriendRow(
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             NameLine(pubkey, name, MaterialTheme.typography.bodyLarge, verified = myProfile?.isDeveloper == true && pubkey in verifiedSet)
-            val playing = now?.playing == true
+            val playing = live
             Text(
                 when {
                     now == null -> stringResource(R.string.friends_nothing_shared)
@@ -1064,7 +1085,7 @@ fun FriendScreen(navController: NavController, pubkey: String) {
                                     Text(now.track.title, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     Text(now.track.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1)
                                     Text(
-                                        if (now.playing) stringResource(R.string.friends_playing_now) else stringResource(R.string.friends_paused, ago(context, now.at)),
+                                        if (now.isLive(rememberLiveClock())) stringResource(R.string.friends_playing_now) else stringResource(R.string.friends_paused, ago(context, now.at)),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.primary,
                                     )

@@ -994,6 +994,7 @@ object Spotify {
                     imageUrl = parseGqlImages(data.obj("coverArt")?.arr("sources")).firstOrNull()?.url,
                     albumType = data.str("type")?.lowercase(),
                     pinned = pinned, addedAt = addedAt,
+                    year = gqlReleaseDate(data.obj("date"))?.take(4)?.toIntOrNull(),
                 )
             }
             typeName.contains("Artist", true) -> {

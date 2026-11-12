@@ -125,6 +125,9 @@ fun SpotifyLibraryScreen(
     val sort by viewModel.sort.collectAsState()
     val sortReversed by viewModel.reversed.collectAsState()
     val loading by viewModel.loading.collectAsState()
+    val yearSort by viewModel.yearSortActive.collectAsState()
+    val years by viewModel.availableYears.collectAsState()
+    val yearFilter by viewModel.yearFilter.collectAsState()
     var grid by rememberPreference(LibraryGridKey, false)
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -215,6 +218,10 @@ fun SpotifyLibraryScreen(
         item(key = "sort", span = { GridItemSpan(maxLineSpan) }) {
             SortRow(
                 sort = sort,
+                albumsShown = filter == Filter.ALBUMS,
+                years = if (yearSort) years else emptyList(),
+                selectedYear = yearFilter,
+                onYear = viewModel::setYearFilter,
                 reversed = sortReversed,
                 grid = grid,
                 isSearchActive = isSearchActive,
@@ -236,7 +243,24 @@ fun SpotifyLibraryScreen(
                 )
             }
         }
-        items(filteredEntries, key = { it.uri.ifBlank { it.id } }) { entry ->
+        // The Year order in the list view: a year heading where each year begins.
+        val yearHeadings = yearSort && !grid && yearFilter == null
+        // Pinned albums sit on top out of order: a year is headed once (a repeated key would crash the list).
+        val headedYears = HashSet<Int>()
+        filteredEntries.forEachIndexed { index, entry ->
+            val year = entry.year
+            if (yearHeadings && year != null && (index == 0 || filteredEntries[index - 1].year != year) && headedYears.add(year)) {
+                item(key = "year_$year", span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        text = year.toString(),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = libraryAccent().color,
+                        modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 2.dp),
+                    )
+                }
+            }
+            item(key = entry.uri.ifBlank { entry.id }) {
             val onClick = { openEntry(navController, entry) }
             // Switching filters fades rows in/out and slides the ones that stay into place,
             // instead of the list snapping to its new contents.
@@ -250,8 +274,9 @@ fun SpotifyLibraryScreen(
                 ),
             ) {
                 val pinnedHere = pinKey(entry) in pins
-                if (grid) LibraryGridCell(entry, pinnedHere, onClick) { togglePin(entry) }
-                else LibraryRow(entry, pinnedHere, onClick) { togglePin(entry) }
+                if (grid) LibraryGridCell(entry, pinnedHere, onClick, showYear = yearSort) { togglePin(entry) }
+                else LibraryRow(entry, pinnedHere, onClick, showYear = yearSort) { togglePin(entry) }
+            }
             }
         }
         // The app's own playlists show at once; the account's library arrives later. Until it has,
@@ -397,6 +422,12 @@ private fun CloseChip(onClick: () -> Unit) {
 @Composable
 private fun SortRow(
     sort: Sort,
+    /** Albums are on screen: the Year order is offered. */
+    albumsShown: Boolean,
+    /** The years to filter by (the Year order is on); empty hides the filter button. */
+    years: List<Int>,
+    selectedYear: Int?,
+    onYear: (Int?) -> Unit,
     reversed: Boolean,
     grid: Boolean,
     isSearchActive: Boolean,
@@ -409,12 +440,14 @@ private fun SortRow(
     onToggleGrid: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    // Spotify's four orders.
-    val options = listOf(
+    var yearMenu by remember { mutableStateOf(false) }
+    // Spotify's four orders, and release year on Albums.
+    val options = listOfNotNull(
         Sort.RECENTS to R.string.lib_sort_recents,
         Sort.DATE_ADDED to R.string.lib_sort_recently_added,
         Sort.NAME to R.string.lib_sort_alphabetical,
         Sort.CREATOR to R.string.lib_sort_creator,
+        (Sort.YEAR to R.string.lib_sort_year).takeIf { albumsShown },
     )
     // The arrow turns over smoothly when the order is flipped.
     val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
@@ -436,7 +469,8 @@ private fun SortRow(
         // "Recents · ↓": the name opens the list of orders, the arrow after the dot flips the order.
         Box {
             Text(
-                text = stringResource(options.first { it.first == sort }.second),
+                // Year chosen on Albums but another chip open: the list is in the usual recents order.
+                text = stringResource((options.firstOrNull { it.first == sort } ?: options.first()).second),
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
@@ -471,6 +505,45 @@ private fun SortRow(
                     .graphicsLayer { rotationZ = arrowRotation },
             )
         }
+        // The Year order: a filter button with the years the albums come from.
+        if (years.isNotEmpty()) {
+            Box {
+                androidx.compose.material3.FilterChip(
+                    selected = selectedYear != null,
+                    onClick = { yearMenu = true },
+                    label = { Text(selectedYear?.toString() ?: stringResource(R.string.lib_year_filter)) },
+                    leadingIcon = { Icon(painterResource(R.drawable.tune), null, Modifier.size(16.dp)) },
+                    colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = libraryAccent().color,
+                        selectedLabelColor = libraryAccent().onColor,
+                        selectedLeadingIconColor = libraryAccent().onColor,
+                    ),
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+                DropdownMenu(expanded = yearMenu, onDismissRequest = { yearMenu = false }) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(R.string.lib_year_all),
+                                color = if (selectedYear == null) libraryAccent().color else MaterialTheme.colorScheme.onSurface,
+                            )
+                        },
+                        onClick = { onYear(null); yearMenu = false },
+                    )
+                    years.forEach { y ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    y.toString(),
+                                    color = if (y == selectedYear) libraryAccent().color else MaterialTheme.colorScheme.onSurface,
+                                )
+                            },
+                            onClick = { onYear(y); yearMenu = false },
+                        )
+                    }
+                }
+            }
+        }
         Spacer(Modifier.weight(1f))
         IconButton(
             onClick = { onSearchActiveChange(true) },
@@ -496,7 +569,7 @@ private fun SortRow(
 }
 
 @Composable
-private fun entrySubtitle(entry: SpotifyLibraryEntry): String {
+private fun entrySubtitle(entry: SpotifyLibraryEntry, showYear: Boolean = false): String {
     val type = when (entry.kind) {
         SpotifyLibraryEntry.Kind.PLAYLIST, SpotifyLibraryEntry.Kind.LIKED_SONGS -> stringResource(R.string.lib_type_playlist)
         SpotifyLibraryEntry.Kind.ARTIST -> stringResource(R.string.lib_type_artist)
@@ -523,7 +596,8 @@ private fun entrySubtitle(entry: SpotifyLibraryEntry): String {
         else -> entry.creator
         }
     }
-    return if (creator.isNullOrBlank()) type else "$type • $creator"
+    val base = if (creator.isNullOrBlank()) type else "$type • $creator"
+    return if (showYear && entry.year != null) "$base • ${entry.year}" else base
 }
 
 @Composable
@@ -568,7 +642,7 @@ private fun EntryArtwork(entry: SpotifyLibraryEntry, modifier: Modifier) {
 private fun pinKey(entry: SpotifyLibraryEntry): String = entry.uri.ifBlank { entry.id }
 
 @Composable
-private fun PinnedSubtitle(entry: SpotifyLibraryEntry, pinnedHere: Boolean = false, maxLines: Int = 1) {
+private fun PinnedSubtitle(entry: SpotifyLibraryEntry, pinnedHere: Boolean = false, maxLines: Int = 1, showYear: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         if (entry.pinned || pinnedHere) {
             Icon(
@@ -580,7 +654,7 @@ private fun PinnedSubtitle(entry: SpotifyLibraryEntry, pinnedHere: Boolean = fal
             Spacer(Modifier.width(4.dp))
         }
         Text(
-            text = entrySubtitle(entry),
+            text = entrySubtitle(entry, showYear),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = maxLines,
@@ -591,7 +665,7 @@ private fun PinnedSubtitle(entry: SpotifyLibraryEntry, pinnedHere: Boolean = fal
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun LibraryRow(entry: SpotifyLibraryEntry, pinnedHere: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun LibraryRow(entry: SpotifyLibraryEntry, pinnedHere: Boolean, onClick: () -> Unit, showYear: Boolean = false, onLongClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -609,14 +683,14 @@ private fun LibraryRow(entry: SpotifyLibraryEntry, pinnedHere: Boolean, onClick:
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(2.dp))
-            PinnedSubtitle(entry, pinnedHere)
+            PinnedSubtitle(entry, pinnedHere, showYear = showYear)
         }
     }
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun LibraryGridCell(entry: SpotifyLibraryEntry, pinnedHere: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun LibraryGridCell(entry: SpotifyLibraryEntry, pinnedHere: Boolean, onClick: () -> Unit, showYear: Boolean = false, onLongClick: () -> Unit) {
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
@@ -626,7 +700,7 @@ private fun LibraryGridCell(entry: SpotifyLibraryEntry, pinnedHere: Boolean, onC
         EntryArtwork(entry, Modifier.fillMaxWidth().aspectRatio(1f))
         Spacer(Modifier.height(6.dp))
         Text(entry.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        PinnedSubtitle(entry, pinnedHere)
+        PinnedSubtitle(entry, pinnedHere, showYear = showYear)
     }
 }
 

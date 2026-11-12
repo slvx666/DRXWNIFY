@@ -119,6 +119,19 @@ object FriendsHub {
 
     data class NowPlaying(val track: TrackRef, val positionMs: Long, val playing: Boolean, val at: Long, val listenAlong: Boolean) {
         fun positionNow(): Long = if (playing) positionMs + (System.currentTimeMillis() - at).coerceAtLeast(0) else positionMs
+
+        /**
+         * Playing right now, as far as one can tell: the last word was "playing" AND the track would
+         * not have ended yet (a friend whose phone killed the app never sends "stopped", and showed
+         * as listening for hours). Every track change sends a new word, so an old "playing" past its
+         * track's end (plus a few minutes for clocks and a slow network) is stale. Needs nothing new
+         * from the sender, so it works with friends on older versions too.
+         */
+        fun isLive(nowMs: Long = System.currentTimeMillis()): Boolean {
+            if (!playing) return false
+            val left = if (track.durationMs > 0) (track.durationMs - positionMs).coerceAtLeast(0) else UNKNOWN_LENGTH_MS
+            return nowMs <= at + left + LIVE_SLACK_MS
+        }
     }
 
     data class SharedPlaylist(val name: String, val total: Int, val tracks: List<TrackRef>)
@@ -853,6 +866,21 @@ object FriendsHub {
     private var lastNow: NowPlaying? = null
     private var nowJob: Job? = null
 
+    /**
+     * From the player service going away (the app swiped off, the system closing it): friends see
+     * the music stopped at once — before, the last "playing" stayed and they saw it for hours.
+     */
+    fun playerStopped() {
+        if (secretKey == null) return
+        ChatHub.hold("playing", false)
+        nowJob?.cancel()
+        val last = lastNow ?: return
+        if (!last.playing) return
+        val stopped = last.copy(positionMs = last.positionNow(), playing = false, at = System.currentTimeMillis())
+        lastNow = stopped
+        scope.launch { publishNow(stopped) }
+    }
+
     /** From the player: what plays now changed (track, play/pause, seek). Debounced. */
     fun playerChanged(player: Player, database: MusicDatabase) {
         if (secretKey == null) return
@@ -1180,6 +1208,12 @@ object FriendsHub {
     }
 
     private const val NOW_DEBOUNCE_MS = 1_500L
+
+    /** How long past a track's expected end a "playing" still counts (clocks, slow network, buffering). */
+    private const val LIVE_SLACK_MS = 3 * 60_000L
+
+    /** A "playing" with no track length counts this long. */
+    private const val UNKNOWN_LENGTH_MS = 12 * 60_000L
     private const val LIBRARY_REFRESH_MS = 6 * 60 * 60_000L
     private const val HISTORY_PUBLISH_DELAY_MS = 2 * 60_000L
     private const val MAX_HISTORY = 50

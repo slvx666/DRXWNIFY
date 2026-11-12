@@ -73,4 +73,22 @@ class PlaylistImportParserTest {
         assertEquals(PlaylistImportParser.Entry("Nubia & Friends", "Development", 348), e[0])
         assertEquals(PlaylistImportParser.Entry(null, "Intro", 3723), e[1])
     }
+
+    @Test
+    fun yandexLinks() {
+        val text = """
+            https://music.yandex.ru/album/123456
+            https://music.yandex.com/users/some.login/playlists/1003?utm_source=share
+            https://music.yandex.ru/playlists/lk.1a2b3c4d-5e6f-7a8b-9c0d-112233445566
+            https://music.yandex.ru/artist/42
+        """.trimIndent()
+        val parsed = PlaylistImportParser.parse(text)
+        assertEquals(3, parsed.links.size)
+        assertEquals(com.metrolist.yandex.YandexIds.Link.Album("123456"), com.metrolist.yandex.YandexIds.parseLink(parsed.links[0]))
+        assertEquals(com.metrolist.yandex.YandexIds.Link.Playlist("some.login", "1003"), com.metrolist.yandex.YandexIds.parseLink(parsed.links[1]))
+        assertEquals(
+            com.metrolist.yandex.YandexIds.Link.PlaylistUuid("lk.1a2b3c4d-5e6f-7a8b-9c0d-112233445566"),
+            com.metrolist.yandex.YandexIds.parseLink(parsed.links[2]),
+        )
+    }
 }
