@@ -101,6 +101,40 @@ object CrossCatalog {
         return match
     }
 
+    /**
+     * The id to like [id] with in the [target] account: itself when it belongs to that account
+     * (and the account can take it), else the same track in that account's catalog, else null.
+     * Only the main account's misses are marked in [missing] (that is what the library shows).
+     */
+    suspend fun trackFor(
+        target: MetadataSource,
+        id: String,
+        title: String,
+        artists: List<String>,
+        durationSec: Int,
+        liked: Boolean,
+        songId: String? = null,
+        album: String? = null,
+    ): String? {
+        if (Catalog.sourceOf(id) == target) return id.takeIf { Catalog.canWrite(it) }
+        if (!Catalog.state.value.isConnected(target)) return null
+        val isMain = target == Catalog.source
+        val key = "t:${target.name}:$id"
+        val known = prefs?.getString(key, null)
+        val match = if (known != null) {
+            known.ifEmpty { null }
+        } else {
+            if (!Catalog.ensureSearchable(target)) return null
+            findTrack(target, title, artists, durationSec, album).getOrElse { return null }
+                .also { prefs?.edit()?.putString(key, it ?: NONE)?.apply() }
+        }
+        if (isMain) {
+            setMissing("t:$id", liked && match == null)
+            songId?.let { setMissing("s:$it", liked && match == null) }
+        }
+        return match
+    }
+
     /** Like [trackForAccount], for an artist followed by [name]. */
     suspend fun artistForAccount(id: String, name: String, followed: Boolean): String? {
         if (Catalog.canWrite(id)) return id

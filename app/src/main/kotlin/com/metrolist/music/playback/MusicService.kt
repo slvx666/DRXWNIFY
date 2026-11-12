@@ -2356,48 +2356,53 @@ class MusicService :
                 }
             }
 
-            // A VK track from the experimental search: the like also goes to the user's VK music.
-            if (com.metrolist.music.resolver.SourceSearch.providerOf(songEntity.id) ==
-                com.metrolist.music.resolver.AudioProviderId.VK &&
-                com.metrolist.music.resolver.VkMusic.likesToAccount
-            ) {
-                val vkTrackId = com.metrolist.music.resolver.FallbackIds.catalogIdOf(songEntity.id)
-                    ?.substringAfter("VK:")
-                if (vkTrackId != null) {
-                    scope.launch(Dispatchers.IO) {
-                        com.metrolist.music.resolver.VkMusic.setTrackSaved(this@MusicService, vkTrackId, liked)
-                            .onFailure { Timber.w(it, "VK like sync failed for $vkTrackId") }
+            // Mirror the like to the linked accounts, as the user set it (Integrations → an account →
+            // "Where likes go"): the main account only, the main one and the one the track is from
+            // (the default), or every linked one. A track from another catalog goes on the same track
+            // in each account's catalog (see CrossCatalog); one an account doesn't have is skipped
+            // there, and marked in the library when that account is the main one. An unlike goes
+            // the same way. A VK track's like goes to VK only while "likes to VK" is on.
+            // A VK upload (from VK's own lists or the source search) is a VK catalog track too.
+            val likeId = catalogId ?: com.metrolist.music.resolver.FallbackIds.catalogIdOf(songEntity.id)
+                ?.takeIf { it.startsWith(com.metrolist.music.catalog.VkCatalog.TRACK_PREFIX) }
+            if (likeId != null) {
+                scope.launch(Dispatchers.IO) {
+                    val state = com.metrolist.music.catalog.Catalog.state.value
+                    val main = state.source
+                    val origin = com.metrolist.music.catalog.Catalog.sourceOf(likeId)
+                        .takeIf { state.isConnected(it) && com.metrolist.music.catalog.Catalog.canWrite(likeId) }
+                    val targets = when (com.metrolist.music.catalog.MainAccount.likeMode.value) {
+                        com.metrolist.music.catalog.MainAccount.LikeMode.MAIN_ONLY -> listOfNotNull(main)
+                        com.metrolist.music.catalog.MainAccount.LikeMode.MAIN_AND_SOURCE -> listOfNotNull(main, origin)
+                        com.metrolist.music.catalog.MainAccount.LikeMode.ALL -> state.connected
+                    }.distinct().filter { t ->
+                        t != com.metrolist.music.constants.MetadataSource.VK || com.metrolist.music.resolver.VkMusic.likesToAccount
                     }
-                }
-            }
-
-            // Mirror the like to the linked account: the heart means "add to Liked Songs" on Spotify
-            // or Yandex Music. A track from the other catalog goes on the same track in the account's
-            // (see CrossCatalog); one the account doesn't have stays liked in the app, marked so.
-            scope.launch(Dispatchers.IO) {
-                runCatching {
-                    val target = catalogId?.let {
-                        com.metrolist.music.catalog.CrossCatalog.trackForAccount(
-                            id = it,
-                            title = songEntity.title,
-                            artists = librarySong.artists.map { a -> a.name },
-                            durationSec = songEntity.duration,
-                            liked = liked,
-                            songId = songEntity.id,
-                            album = songEntity.albumName,
-                        )
-                    }
-                    if (target != null) {
-                        if (liked) {
-                            com.metrolist.music.catalog.Catalog.saveTrack(target).getOrThrow()
-                        } else {
-                            com.metrolist.music.catalog.Catalog.removeTrack(target).getOrThrow()
+                    var mainFailed = false
+                    for (t in targets) {
+                        runCatching {
+                            val target = com.metrolist.music.catalog.CrossCatalog.trackFor(
+                                target = t,
+                                id = likeId,
+                                title = songEntity.title,
+                                artists = librarySong.artists.map { a -> a.name },
+                                durationSec = songEntity.duration,
+                                liked = liked,
+                                songId = songEntity.id,
+                                album = songEntity.albumName,
+                            ) ?: return@runCatching
+                            if (liked) {
+                                com.metrolist.music.catalog.Catalog.saveTrack(target).getOrThrow()
+                            } else {
+                                com.metrolist.music.catalog.Catalog.removeTrack(target).getOrThrow()
+                            }
+                        }.onFailure {
+                            Timber.w(it, "Like sync to %s failed for %s", t, songEntity.id)
+                            if (t == main) mainFailed = true
                         }
                     }
-                }.onFailure {
-                    Timber.w(it, "Catalog like sync failed for ${songEntity.id}")
-                    // Put the heart back so it never claims a state the account doesn't have.
-                    if (catalogId != null) SpotifyLikeCache.setLiked(catalogId, !liked)
+                    // Put the heart back so it never claims a state the main account doesn't have.
+                    if (mainFailed && catalogId != null) SpotifyLikeCache.setLiked(catalogId, !liked)
                 }
             }
 
