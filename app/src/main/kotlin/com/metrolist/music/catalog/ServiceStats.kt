@@ -110,7 +110,15 @@ object ServiceStats {
  */
 object MonthReview {
     /** A track or an artist of the month, with how many listens and its picture. */
-    data class Item(val title: String, val subtitle: String?, val count: Int, val image: String?, val minutes: Long = 0)
+    data class Item(
+        val title: String,
+        val subtitle: String?,
+        val count: Int,
+        val image: String?,
+        val minutes: Long = 0,
+        /** The song to play on its page: the track itself, or the artist's most played one. */
+        val songId: String? = null,
+    )
 
     data class Review(
         val month: YearMonth,
@@ -126,6 +134,8 @@ object MonthReview {
         val busiestDayMinutes: Long,
         /** The hour of the day most listened at (0–23). */
         val topHour: Int?,
+        /** The month's genres by listens (from the artists' Last.fm tags), the biggest first. */
+        val genres: List<Pair<String, Int>> = emptyList(),
     )
 
     private const val PREFS = "month_review"
@@ -164,6 +174,7 @@ object MonthReview {
                 count = events.size,
                 image = e.song.song.thumbnailUrl,
                 minutes = events.sumOf { it.event.playTime } / 60_000L,
+                songId = e.song.id,
             )
         }
         val artistOf = { e: com.metrolist.music.db.entities.EventWithSong -> e.song.artists.firstOrNull()?.name }
@@ -178,6 +189,7 @@ object MonthReview {
                         ?: events.groupingBy { it.song.id }.eachCount().maxByOrNull { it.value }
                             ?.let { top -> events.first { it.song.id == top.key }.song.song.thumbnailUrl },
                     minutes = events.sumOf { it.event.playTime } / 60_000L,
+                    songId = events.groupingBy { it.song.id }.eachCount().maxByOrNull { it.value }?.key,
                 )
             }
         val before = all.filter { it.event.timestamp < start }.mapNotNull(artistOf).toSet()
@@ -185,6 +197,15 @@ object MonthReview {
         val byDay = inMonth.groupBy { it.event.timestamp.toLocalDate() }.mapValues { (_, v) -> v.sumOf { it.event.playTime } / 60_000L }
         val busiest = byDay.maxByOrNull { it.value }
         val topHour = inMonth.groupingBy { it.event.timestamp.hour }.eachCount().maxByOrNull { it.value }?.key
+        // Genres: each listen counts for its artist's genres (the 30 most played artists are looked up).
+        val listensByArtist = inMonth.mapNotNull(artistOf).groupingBy { it }.eachCount()
+        val topNames = listensByArtist.entries.sortedByDescending { it.value }.take(30).map { it.key }
+        runCatching { com.metrolist.music.portrait.Genres.ensure(topNames) }
+        val genreCounts = HashMap<String, Int>()
+        topNames.forEach { name ->
+            com.metrolist.music.portrait.Genres.cached(name).take(2).forEach { g -> genreCounts.merge(g, listensByArtist[name] ?: 0, Int::plus) }
+        }
+        val genres = genreCounts.entries.sortedByDescending { it.value }.take(5).map { it.key to it.value }
         return Review(
             month = month,
             minutes = minutes,
@@ -197,6 +218,7 @@ object MonthReview {
             busiestDay = busiest?.key,
             busiestDayMinutes = busiest?.value ?: 0,
             topHour = topHour,
+            genres = genres,
         )
     }
 

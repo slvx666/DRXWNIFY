@@ -556,6 +556,8 @@ object HomeFeed {
 
     private fun catalogIdOf(id: String?): String? = when {
         id.isNullOrBlank() -> null
+        // A VK artist: found by name in the catalog instead (VK has no similar artists or genres).
+        com.metrolist.music.catalog.VkCatalog.isVkId(id.removePrefix(SPOTIFY_ID_PREFIX)) -> null
         id.startsWith(SPOTIFY_ID_PREFIX) -> id.removePrefix(SPOTIFY_ID_PREFIX)
         YandexIds.isYandex(id) -> id
         // A plain catalog id, as the account's liked tracks carry them.

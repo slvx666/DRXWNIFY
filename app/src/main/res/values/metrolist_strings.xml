@@ -2206,4 +2206,27 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="story_top_hour">your favourite hour</string>
     <string name="story_new_artists">new artists discovered</string>
     <string name="stats_rate_limited">Spotify asks to wait a little: try again in a few minutes</string>
+    <string name="story_hello">Hi!</string>
+    <string name="story_hello_sub">Time to look back at %1$s. It\'s ready — are you?</string>
+    <string name="story_minutes_pre">In %1$s the music played for</string>
+    <string name="story_listens_line">%1$d listens in all</string>
+    <string name="story_day_pre">The day with the most music</string>
+    <string name="story_day_minutes">%1$d minutes in one day</string>
+    <string name="story_hour_line">Your favourite hour: %1$s</string>
+    <string name="story_tracks_count">%1$d different tracks played this month</string>
+    <string name="story_tracks_tease">But one was on repeat…</string>
+    <string name="story_artists_count">%1$d artists played for you</string>
+    <string name="story_artists_tease">But someone became truly special…</string>
+    <string name="story_played_times">Played %1$d times</string>
+    <string name="story_genres">Your genres</string>
+    <string name="story_genres_pre">What the month sounded like</string>
+    <string name="story_share">Share</string>
+    <string name="story_save">Save</string>
+    <string name="story_saved">Saved to Pictures/Drxwnify</string>
+    <string name="story_save_failed">Couldn\'t save</string>
+    <string name="story_card_title">My %1$s in music</string>
+    <string name="story_top_artists_short">Top artists</string>
+    <string name="story_top_tracks_short">Top tracks</string>
+    <string name="story_top_genre">Genre of the month</string>
+    <string name="transfer_already_in">already in %1$s</string>
 </resources>

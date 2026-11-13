@@ -2161,4 +2161,27 @@
     <string name="story_top_hour">любимое время</string>
     <string name="story_new_artists">новых исполнителей открыто</string>
     <string name="stats_rate_limited">Spotify просит подождать: попробуйте через несколько минут</string>
+    <string name="story_hello">Привет!</string>
+    <string name="story_hello_sub">Пора подвести итоги: %1$s. Они уже готовы — а ты?</string>
+    <string name="story_minutes_pre">В %1$s музыка играла</string>
+    <string name="story_listens_line">Всего %1$d прослушиваний</string>
+    <string name="story_day_pre">День, когда музыки было больше всего</string>
+    <string name="story_day_minutes">%1$d минут за один день</string>
+    <string name="story_hour_line">Любимое время: %1$s</string>
+    <string name="story_tracks_count">За месяц играло %1$d разных треков</string>
+    <string name="story_tracks_tease">Но один крутился на повторе…</string>
+    <string name="story_artists_count">Для тебя играли %1$d исполнителей</string>
+    <string name="story_artists_tease">Но кое-кто стал по-настоящему особенным…</string>
+    <string name="story_played_times">Сыграл %1$d раз</string>
+    <string name="story_genres">Твои жанры</string>
+    <string name="story_genres_pre">Как звучал этот месяц</string>
+    <string name="story_share">Поделиться</string>
+    <string name="story_save">Сохранить</string>
+    <string name="story_saved">Сохранено в Pictures/Drxwnify</string>
+    <string name="story_save_failed">Не удалось сохранить</string>
+    <string name="story_card_title">Мой %1$s в музыке</string>
+    <string name="story_top_artists_short">Исполнители</string>
+    <string name="story_top_tracks_short">Треки</string>
+    <string name="story_top_genre">Жанр месяца</string>
+    <string name="transfer_already_in">уже в %1$s</string>
 </resources>

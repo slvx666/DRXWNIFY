@@ -99,6 +99,8 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
     var entries by remember { mutableStateOf<List<SpotifyLibraryEntry>>(emptyList()) }
     var tracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var pickedTracks by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // Albums the main account has already ("title|artist", folded), to say so on their rows.
+    var mainAlbums by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pickedAlbums by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pickedPlaylists by remember { mutableStateOf<Set<String>>(emptySet()) }
 
@@ -124,11 +126,23 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
                     if (page.items.isEmpty() || offset >= page.total) break
                 }
                 tracks = liked.distinctBy { it.id }
+                main?.let { m ->
+                    val have = HashSet<String>()
+                    var o = 0
+                    while (o < 1000) {
+                        val page = Catalog.myLibraryOf(m, "Albums", 50, o).getOrNull() ?: break
+                        page.items.forEach { have += albumKey(it.name, it.creator) }
+                        o += 50
+                        if (page.items.isEmpty() || o >= page.total) break
+                    }
+                    mainAlbums = have
+                }
             }
         }
         loading = false
     }
 
+    val alreadyLabel = main?.let { stringResource(R.string.transfer_already_in, stringResource(serviceNameRes(it))) }.orEmpty()
     val needle = query.trim().lowercase()
     fun matches(vararg texts: String?) = needle.isEmpty() || texts.any { it?.lowercase()?.contains(needle) == true }
     val rows: List<Pickable> = when (tab) {
@@ -136,7 +150,13 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
             Pickable(t.id, t.name, t.artists.joinToString { it.name }, t.album?.images?.firstOrNull()?.url)
         }
         TransferTab.ALBUMS -> entries.filter { it.kind == SpotifyLibraryEntry.Kind.ALBUM && matches(it.name, it.creator) }.map { e ->
-            Pickable(e.id, e.name, e.creator, e.imageUrl)
+            val already = albumKey(e.name, e.creator) in mainAlbums
+            Pickable(
+                e.id,
+                e.name,
+                listOfNotNull(e.creator, alreadyLabel.takeIf { already }).joinToString(" · ").ifBlank { null },
+                e.imageUrl,
+            )
         }
         TransferTab.PLAYLISTS -> entries.filter { it.kind == SpotifyLibraryEntry.Kind.PLAYLIST && matches(it.name, it.creator) }.map { e ->
             Pickable(e.id, e.name, e.creator, e.imageUrl)
@@ -391,3 +411,8 @@ fun PushLocalPlaylistsScreen(navController: NavController) {
         },
     )
 }
+
+/** An album's name and first artist, folded, for telling "the same album" across catalogs. */
+private fun albumKey(name: String, artist: String?): String =
+    (name.lowercase().replace(Regex("""\s*[(\[][^)\]]*[)\]]"""), "") + "|" + artist.orEmpty().split(", ").first().lowercase())
+        .replace(Regex("""[^\p{L}\p{N}|]+"""), "")

@@ -795,7 +795,12 @@ class MainActivity : ComponentActivity() {
 
                 val navigationBarHeight by animateDpAsState(
                     targetValue = if (shouldShowNavigationBar && !showRail) NavigationBarHeight else 0.dp,
-                    animationSpec = NavigationBarAnimationSpec,
+                    // Short and even: the long soft spring ran while the screen underneath was being
+                    // built, and the bar came back in jerks.
+                    animationSpec = androidx.compose.animation.core.tween(
+                        durationMillis = 300,
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                    ),
                     label = "navBarHeight",
                 )
 
@@ -1242,7 +1247,9 @@ class MainActivity : ComponentActivity() {
                                         modifier =
                                             Modifier
                                                 .align(Alignment.BottomCenter)
-                                                .height(bottomInset + navPadding)
+                                                // Always its full height: it slides out and back (below), it
+                                                // doesn't collapse — collapsing made it vanish at once.
+                                                .height(bottomInset + if (showRail) 0.dp else if (slimNav) SlimNavBarHeight else NavigationBarHeight)
                                                 // Use graphicsLayer instead of offset to avoid recomposition
                                                 // graphicsLayer runs during draw phase, not composition phase
                                                 .graphicsLayer {
