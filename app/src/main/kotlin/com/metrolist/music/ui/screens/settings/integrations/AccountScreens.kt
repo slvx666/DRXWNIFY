@@ -205,7 +205,8 @@ fun AccountCommonSettings(navController: NavController, service: MetadataSource,
             )
         }
     }
-    if (service == MetadataSource.YANDEX) {
+    // Spotify's tops come over the web player's own query (the public API is rate limited for everyone).
+    if (service == MetadataSource.YANDEX || service == MetadataSource.SPOTIFY) {
         PreferenceGroupTitle(title = stringResource(R.string.account_section_stats))
         PreferenceEntry(
             title = { Text(stringResource(R.string.service_stats_title)) },

@@ -2206,4 +2206,5 @@
     <string name="app_stats_written">Сообщений написано</string>
     <string name="app_stats_received">Сообщений получено</string>
     <string name="app_stats_reviews_loading">Собираем итоги…</string>
+    <string name="app_stats_scope">Считается по прослушиваниям в этом приложении — без истории Spotify, Яндекса и ВК</string>
 </resources>

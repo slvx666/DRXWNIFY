@@ -111,6 +111,9 @@ object Spotify {
         }
     }
 
+    /** Plain pages of the web player (no API defaults): where a renamed query's id is read from. */
+    private val webClient by lazy { HttpClient(OkHttp) }
+
     private val gqlClient by lazy {
         HttpClient(OkHttp) {
             engine {
@@ -1392,7 +1395,68 @@ object Spotify {
             log("D", "removeFromLibrary: removed ${uris.size} items")
         }
 
-    // ── Top Tracks (REST fallback — no GQL equivalent) ──────────────────
+    // ── Top tracks and artists (GQL: userTopContent) ────────────────────
+    //
+    // The public REST me/top answers 429 to every call: the web player's client id is limited for
+    // everyone at once, whatever the wait. The web player's own profile page ("top this month") asks
+    // pathfinder's userTopContent instead, which works like the library queries. Ranges: SHORT_TERM
+    // (four weeks), MID_TERM (half a year), LONG_TERM (all time); up to 100 a call.
+
+    private fun gqlTimeRange(timeRange: String): String = when (timeRange) {
+        "long_term" -> "LONG_TERM"
+        "medium_term" -> "MID_TERM"
+        else -> "SHORT_TERM"
+    }
+
+    private suspend fun userTopContent(timeRange: String, limit: Int, artists: Boolean): JsonObject {
+        val input = buildJsonObject {
+            put("offset", 0)
+            put("limit", limit.coerceIn(1, 100))
+            put("sortBy", "AFFINITY")
+            put("timeRange", gqlTimeRange(timeRange))
+        }
+        val variables = buildJsonObject {
+            put("includeTopArtists", artists)
+            put("topArtistsInput", input)
+            put("includeTopTracks", !artists)
+            put("topTracksInput", input)
+        }
+        val call = suspend { graphqlPost(operationName = "userTopContent", variables = variables) }
+        val response = try {
+            call()
+        } catch (e: SpotifyException) {
+            // A new web player build renamed the query: its current id is read from the player itself.
+            if (e.statusCode != 412) throw e
+            val fresh = scrapeUserTopContentHash() ?: throw e
+            log("W", "GQL userTopContent: new hash from the web player")
+            SpotifyHashProvider.updateHashes(
+                mapOf("userTopContent" to SpotifyHashProvider.RemoteHashEntry(fresh)),
+                SpotifyHashProvider.HashSource.REMOTE,
+            )
+            call()
+        }
+        return response.obj("data")?.obj("me")?.obj("profile")
+            ?: throw SpotifyException(500, "Invalid userTopContent response")
+    }
+
+    /**
+     * The userTopContent query id from the web player: it lives in the profile page's lazily loaded
+     * chunk (xpui-routes-profile.<hash>.js), named in the main web-player script.
+     */
+    private suspend fun scrapeUserTopContentHash(): String? = runCatching {
+        val browser = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+        suspend fun text(url: String): String = webClient.get(url) { header("User-Agent", browser) }.bodyAsText()
+        val base = "https://open.spotifycdn.com/cdn/build/web-player/"
+        val page = text("https://open.spotify.com/")
+        val main = Regex("""web-player/(web-player\.[0-9a-f]+\.js)""").find(page)?.groupValues?.get(1) ?: return@runCatching null
+        val script = text(base + main)
+        val chunkId = Regex("""(\d+):"xpui-routes-profile"""").find(script)?.groupValues?.get(1) ?: return@runCatching null
+        val idPattern = Regex("""[,{]$chunkId:"([0-9a-f]{8})"""")
+        idPattern.findAll(script).map { it.groupValues[1] }.distinct().firstNotNullOfOrNull { h ->
+            runCatching { text("${base}xpui-routes-profile.$h.js") }.getOrNull()
+                ?.let { Regex(""""userTopContent","query","([0-9a-f]{64})"""").find(it)?.groupValues?.get(1) }
+        }
+    }.getOrNull()
 
     suspend fun topTracks(
         timeRange: String = "medium_term",
@@ -1400,14 +1464,14 @@ object Spotify {
         offset: Int = 0,
     ): Result<SpotifyPaging<SpotifyTrack>> =
         runCatching {
-            authenticatedGet("me/top/tracks", failFastOn429 = true) {
-                parameter("time_range", timeRange)
-                parameter("limit", limit)
-                parameter("offset", offset)
-            }
+            val page = userTopContent(timeRange, limit, artists = false).obj("topTracks")
+            val items = page?.arr("items")?.mapNotNull { elem ->
+                val data = elem.jsonObject.obj("data") ?: return@mapNotNull null
+                if (data.str("__typename") != "Track") return@mapNotNull null
+                parseGqlTrack(data)
+            } ?: emptyList()
+            SpotifyPaging(items = items, total = page?.int("totalCount") ?: items.size, limit = limit, offset = offset)
         }
-
-    // ── Top Artists (REST fallback — no GQL equivalent) ─────────────────
 
     suspend fun topArtists(
         timeRange: String = "medium_term",
@@ -1415,11 +1479,19 @@ object Spotify {
         offset: Int = 0,
     ): Result<SpotifyPaging<SpotifyArtist>> =
         runCatching {
-            authenticatedGet("me/top/artists", failFastOn429 = true) {
-                parameter("time_range", timeRange)
-                parameter("limit", limit)
-                parameter("offset", offset)
-            }
+            val page = userTopContent(timeRange, limit, artists = true).obj("topArtists")
+            val items = page?.arr("items")?.mapNotNull { elem ->
+                val data = elem.jsonObject.obj("data") ?: return@mapNotNull null
+                if (data.str("__typename") != "Artist") return@mapNotNull null
+                val uri = data.str("uri") ?: return@mapNotNull null
+                SpotifyArtist(
+                    id = uri.substringAfterLast(":"),
+                    name = data.obj("profile")?.str("name") ?: "",
+                    images = parseGqlImages(data.obj("visuals")?.obj("avatarImage")?.arr("sources")),
+                    uri = uri,
+                )
+            } ?: emptyList()
+            SpotifyPaging(items = items, total = page?.int("totalCount") ?: items.size, limit = limit, offset = offset)
         }
 
     // ── Search (GQL: searchDesktop) ─────────────────────────────────────

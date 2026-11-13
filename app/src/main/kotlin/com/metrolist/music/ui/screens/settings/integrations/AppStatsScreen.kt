@@ -112,6 +112,13 @@ fun AppStatsScreen(navController: NavController) {
             return@Column
         }
 
+        // Only this app's own listening: none of the services' histories come into it.
+        Text(
+            stringResource(R.string.app_stats_scope),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
         PreferenceGroupTitle(title = stringResource(R.string.app_stats_reviews))
         if (monthsLoading) {
             // The reviews take a few seconds (genres are looked up): an outline says they are coming.
