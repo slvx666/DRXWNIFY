@@ -97,7 +97,8 @@ object ForYouRecommender {
                 val more = if (!mixesTried) {
                     mixesTried = true
                     runCatching {
-                        if (Catalog.source == MetadataSource.SPOTIFY) madeForYou() else emptyList()
+                        // Spotify's own mixes whenever Spotify is linked, whatever the main account is.
+                        if (Catalog.state.value.spotifyConnected) madeForYou() else emptyList()
                     }.onFailure { Timber.w(it, "forYou: Spotify mixes unavailable") }.getOrDefault(emptyList())
                 } else {
                     fromTaste(t, seeds(t))

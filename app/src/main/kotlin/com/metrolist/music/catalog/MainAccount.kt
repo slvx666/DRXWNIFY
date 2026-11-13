@@ -96,6 +96,7 @@ object MainAccount {
         scope.launch {
             store.edit { it[PrimaryMetadataSourceKey] = source.name }
             Catalog.invalidateCaches()
+            com.metrolist.music.home.HomeFeed.markStale()
             runCatching { com.metrolist.music.playback.SpotifyProfileCache.invalidate() }
             // Friends see the likes and the profile of the new main account.
             runCatching { com.metrolist.music.friends.FriendsHub.mainAccountChanged() }

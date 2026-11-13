@@ -2184,4 +2184,9 @@
     <string name="story_top_tracks_short">Треки</string>
     <string name="story_top_genre">Жанр месяца</string>
     <string name="transfer_already_in">уже в %1$s</string>
+    <string name="story_since_played">С %1$s он играл %2$d раз</string>
+    <string name="story_streak">Твой рекорд — %1$d дней подряд</string>
+    <string name="story_change_pre">Всё меняется. Даже твои вкусы</string>
+    <string name="story_change">Месяц начался с жанра %1$s, а закончился жанром %2$s</string>
+    <string name="story_restart">Посмотреть заново</string>
 </resources>

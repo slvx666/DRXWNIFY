@@ -69,6 +69,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -199,10 +200,17 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
             ) {
                 AnimatedContent(
                     targetState = index,
+                    // A slow crossfade with a light zoom and a short drift the way the story goes.
                     transitionSpec = {
                         val d = direction
-                        (fadeIn(tween(420, easing = FastOutSlowInEasing)) + slideInHorizontally(tween(420, easing = FastOutSlowInEasing)) { it / 5 * d }) togetherWith
-                            (fadeOut(tween(260)) + slideOutHorizontally(tween(320, easing = FastOutSlowInEasing)) { -it / 6 * d })
+                        (
+                            fadeIn(tween(700, delayMillis = 120, easing = Settle)) +
+                                scaleIn(tween(800, easing = Settle), initialScale = 0.96f) +
+                                slideInHorizontally(tween(800, easing = Settle)) { it / 14 * d }
+                            ) togetherWith (
+                            fadeOut(tween(380)) +
+                                androidx.compose.animation.scaleOut(tween(420), targetScale = 1.03f)
+                            )
                     },
                     label = "storyPage",
                     modifier = Modifier.fillMaxSize(),
@@ -210,7 +218,9 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.fillMaxSize().padding(start = 28.dp, end = 28.dp, top = 96.dp, bottom = 32.dp),
-                    ) { pages[i].content() }
+                    ) {
+                        androidx.compose.runtime.CompositionLocalProvider(LocalStoryRestart provides { go(0) }) { pages[i].content() }
+                    }
                 }
             }
 
@@ -278,10 +288,16 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
 
 // ── the pages ──
 
+/** Going back to the first page (the "Watch again" button on the card). */
+private val LocalStoryRestart = androidx.compose.runtime.staticCompositionLocalOf<() -> Unit> { {} }
+
+/** Soft, long ease-out: things settle in place instead of popping. */
+private val Settle = androidx.compose.animation.core.CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
+
 private fun monthName(review: MonthReview.Review): String =
     review.month.month.getDisplayName(TextStyle.FULL_STANDALONE, Locale.getDefault()).replaceFirstChar { it.uppercase() }
 
-/** In "{month}" in the prepositional case where the language needs it (ru), else the plain name. */
+/** "{month}" in the prepositional case where the language needs it (ru), else the plain name. */
 private fun inMonth(review: MonthReview.Review): String {
     if (Locale.getDefault().language != "ru") return monthName(review)
     return when (review.month.monthValue) {
@@ -290,63 +306,75 @@ private fun inMonth(review: MonthReview.Review): String {
     }
 }
 
+private fun dayText(d: java.time.LocalDate): String =
+    "${d.dayOfMonth} " + d.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
+
 private fun storyPages(r: MonthReview.Review): List<StoryPage> = buildList {
     add(StoryPage("hello", 6_000) { HelloPage(r) })
-    add(StoryPage("minutes", 7_000) { MinutesPage(r) })
-    r.busiestDay?.let { add(StoryPage("day", 7_000) { BusiestDayPage(r) }) }
+    add(StoryPage("minutes", 8_000) { MinutesPage(r) })
+    r.busiestDay?.let { add(StoryPage("day", 8_000) { BusiestDayPage(r) }) }
     val topTrack = r.topTracks.firstOrNull()
     if (topTrack != null) {
-        add(StoryPage("tracksTease", 6_000) { TeasePage(stringResource(R.string.story_tracks_count, r.distinctTracks), stringResource(R.string.story_tracks_tease)) })
-        add(StoryPage("topTrack", 9_000, topTrack.songId) { TopTrackPage(topTrack) })
+        add(StoryPage("topTrack", 11_000, topTrack.songId) { TopTrackPage(r, topTrack) })
         if (r.topTracks.size > 1) add(StoryPage("topTracks", 10_000, topTrack.songId) { RankPage(stringResource(R.string.story_top_tracks), r.topTracks, round = false) })
     }
     val topArtist = r.topArtists.firstOrNull()
     if (topArtist != null) {
-        add(StoryPage("artistsTease", 6_000) { TeasePage(stringResource(R.string.story_artists_count, r.distinctArtists), stringResource(R.string.story_artists_tease)) })
-        add(StoryPage("topArtist", 9_000, topArtist.songId) { TopArtistPage(topArtist) })
+        add(StoryPage("topArtist", 11_000, topArtist.songId) { TopArtistPage(r, topArtist) })
         if (r.topArtists.size > 1) add(StoryPage("topArtists", 10_000, topArtist.songId) { RankPage(stringResource(R.string.story_top_artists), r.topArtists, round = true) })
     }
-    if (r.genres.isNotEmpty()) add(StoryPage("genres", 9_000) { GenresPage(r) })
+    if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000) { GenresPage(r) })
     add(StoryPage("card", 0) { CardPage(r) })
 }
 
-/** A short line first; after [delayMs] the rest comes, slowly. */
+/**
+ * Appears after [delayMs], in place: it keeps its room from the start (nothing above or below
+ * moves), fades in and glides the last bit of the way — from the right ([fromRight]) or from below.
+ */
 @Composable
-private fun Reveal(delayMs: Long, content: @Composable () -> Unit) {
-    var shown by remember { mutableStateOf(false) }
+private fun Appear(delayMs: Long, fromRight: Boolean = false, durationMs: Int = 1_000, content: @Composable () -> Unit) {
+    val t = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         delay(delayMs)
-        shown = true
+        t.animateTo(1f, tween(durationMs, easing = Settle))
     }
-    AnimatedVisibility(
-        visible = shown,
-        enter = fadeIn(tween(700, easing = FastOutSlowInEasing)) +
-            scaleIn(tween(700, easing = FastOutSlowInEasing), initialScale = 0.92f) +
-            slideInVertically(tween(700, easing = FastOutSlowInEasing)) { it / 8 },
+    Box(
+        Modifier.graphicsLayer {
+            alpha = t.value
+            val left = 1f - t.value
+            if (fromRight) translationX = left * size.width * 0.35f else translationY = left * 36.dp.toPx()
+            val scale = 0.97f + 0.03f * t.value
+            scaleX = scale
+            scaleY = scale
+        },
     ) { content() }
 }
 
-/** A number counting up from zero. */
+/** A number counting up from zero, starting after [delayMs]. */
 @Composable
 private fun CountUp(value: Long, delayMs: Long = 0, style: @Composable (String) -> Unit) {
     val n = remember { Animatable(0f) }
     LaunchedEffect(value) {
         delay(delayMs)
-        n.animateTo(value.toFloat(), tween(1_400, easing = FastOutSlowInEasing))
+        n.animateTo(value.toFloat(), tween(1_800, easing = Settle))
     }
     style("%,d".format(n.value.toLong()).replace(',', ' '))
 }
 
 @Composable
-private fun Preface(text: String) {
-    Text(text, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+private fun Preface(text: String, delayMs: Long = 0) {
+    Appear(delayMs, durationMs = 800) {
+        Text(text, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+    }
 }
 
 @Composable
 private fun HelloPage(r: MonthReview.Review) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Text(stringResource(R.string.story_hello), fontSize = 40.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-        Reveal(900) {
+        Appear(150, durationMs = 1_100) {
+            Text(stringResource(R.string.story_hello), fontSize = 44.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+        }
+        Appear(1_100) {
             Text(
                 stringResource(R.string.story_hello_sub, monthName(r)),
                 style = MaterialTheme.typography.titleMedium,
@@ -360,18 +388,15 @@ private fun HelloPage(r: MonthReview.Review) {
 @Composable
 private fun MinutesPage(r: MonthReview.Review) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Preface(stringResource(R.string.story_minutes_pre, inMonth(r)))
-        Reveal(1_200) {
+        Preface(stringResource(R.string.story_minutes_pre, inMonth(r)), 100)
+        Appear(1_400) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CountUp(r.minutes) { Text(it, fontSize = 56.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary) }
+                CountUp(r.minutes, 1_400) { Text(it, fontSize = 60.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary) }
                 Text(stringResource(R.string.story_minutes), style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    stringResource(R.string.story_listens_line, r.listens),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
+        }
+        Appear(3_600) {
+            Text(stringResource(R.string.story_listens_line, r.listens), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -380,111 +405,101 @@ private fun MinutesPage(r: MonthReview.Review) {
 private fun BusiestDayPage(r: MonthReview.Review) {
     val day = r.busiestDay ?: return
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Preface(stringResource(R.string.story_day_pre))
-        Reveal(1_300) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    "${day.dayOfMonth} " + day.month.getDisplayName(TextStyle.FULL, Locale.getDefault()),
-                    fontSize = 44.sp,
-                    fontWeight = FontWeight.Black,
-                    textAlign = TextAlign.Center,
-                )
-                Text(
-                    stringResource(R.string.story_day_minutes, r.busiestDayMinutes),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                r.topHour?.let { h ->
-                    Spacer(Modifier.height(14.dp))
-                    Text(
-                        stringResource(R.string.story_hour_line, "%02d:00".format(h)),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+        Preface(stringResource(R.string.story_day_pre), 100)
+        Appear(1_500) {
+            Text(dayText(day), fontSize = 46.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+        }
+        Appear(2_500) {
+            Text(stringResource(R.string.story_day_minutes, r.busiestDayMinutes), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        }
+        r.topHour?.let { h ->
+            Appear(4_000) {
+                Text(stringResource(R.string.story_hour_line, "%02d:00".format(h)), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
 }
 
 @Composable
-private fun TeasePage(line: String, tease: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text(line, fontSize = 32.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
-        Reveal(1_500) { Preface(tease) }
-    }
-}
-
-@Composable
-private fun TopTrackPage(top: MonthReview.Item) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Preface(stringResource(R.string.story_top_track))
-        Reveal(1_400) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+private fun TopTrackPage(r: MonthReview.Review, top: MonthReview.Item) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // The lead-in, then the track: on the same page.
+        Preface(stringResource(R.string.story_tracks_count, r.distinctTracks), 100)
+        Preface(stringResource(R.string.story_tracks_tease), 1_200)
+        Appear(2_800, durationMs = 1_300) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 AsyncImage(
                     model = top.image,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth(0.72f).aspectRatio(1f).clip(RoundedCornerShape(14.dp))
+                    modifier = Modifier.fillMaxWidth(0.62f).aspectRatio(1f).clip(RoundedCornerShape(14.dp))
                         .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 )
-                Text(top.title, fontSize = 28.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(top.title, fontSize = 26.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 top.subtitle?.let { Text(it, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
         }
-        Reveal(2_600) {
-            Text(stringResource(R.string.story_played_times, top.count), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-        }
-    }
-}
-
-@Composable
-private fun TopArtistPage(top: MonthReview.Item) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Preface(stringResource(R.string.story_top_artist))
-        Reveal(1_400) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                AsyncImage(
-                    model = top.image,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth(0.62f).aspectRatio(1f).clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                )
-                Text(top.title, fontSize = 32.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        Reveal(2_600) {
+        Appear(4_400) {
             Text(
-                stringResource(R.string.story_listens_minutes, top.count, top.minutes),
+                top.since?.let { stringResource(R.string.story_since_played, dayText(it), top.sinceCount) }
+                    ?: stringResource(R.string.story_played_times, top.count),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center,
             )
         }
     }
 }
 
+@Composable
+private fun TopArtistPage(r: MonthReview.Review, top: MonthReview.Item) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Preface(stringResource(R.string.story_artists_count, r.distinctArtists), 100)
+        Preface(stringResource(R.string.story_artists_tease), 1_200)
+        Appear(2_800, durationMs = 1_300) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                AsyncImage(
+                    model = top.image,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth(0.56f).aspectRatio(1f).clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                )
+                Text(top.title, fontSize = 30.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Appear(4_200) {
+            Text(stringResource(R.string.story_listens_minutes, top.count, top.minutes), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        }
+        if (top.streakDays > 1) {
+            Appear(5_200) {
+                Text(stringResource(R.string.story_streak, top.streakDays), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
 /**
- * Top five, revealed from fifth place to first: the fifth after 0.5 s, then each a little later
- * than the one before (0.6, 0.7, 0.8, 0.9 s), so the first place takes the longest to come.
+ * Top five, from fifth place to first, each sliding in from the right: the fifth after 0.5 s,
+ * then 0.6, 0.7, 0.8, 0.9 s between them, so the first place comes last and slowest. Every row
+ * holds its place from the start: nothing moves when the next one comes.
  */
 @Composable
 private fun RankPage(title: String, items: List<MonthReview.Item>, round: Boolean) {
     val delays = remember(items.size) {
-        var t = 600L
+        var t = 700L
         val gaps = listOf(500L, 600L, 700L, 800L, 900L)
-        // From the last place up: place i (0 = first) appears at the summed gaps.
         val byPlace = LongArray(items.size)
-        for ((step, place) in (items.indices.reversed()).withIndex()) {
+        for ((step, place) in items.indices.reversed().withIndex()) {
             t += gaps.getOrElse(step) { 900L }
             byPlace[place] = t
         }
         byPlace
     }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text(title, fontSize = 30.sp, fontWeight = FontWeight.Black)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Appear(100, durationMs = 800) { Text(title, fontSize = 30.sp, fontWeight = FontWeight.Black) }
         items.forEachIndexed { i, item ->
-            Reveal(delays[i]) {
+            Appear(delays[i], fromRight = true, durationMs = 900 + i * 60) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${i + 1}", fontSize = 26.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(34.dp))
                     AsyncImage(
@@ -514,22 +529,31 @@ private fun RankPage(title: String, items: List<MonthReview.Item>, round: Boolea
 @Composable
 private fun GenresPage(r: MonthReview.Review) {
     val max = r.genres.maxOf { it.second }.coerceAtLeast(1)
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(stringResource(R.string.story_genres), fontSize = 30.sp, fontWeight = FontWeight.Black)
-        Preface(stringResource(R.string.story_genres_pre))
+    fun label(g: String) = com.metrolist.music.portrait.Genres.displayName(g) ?: g
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Preface(stringResource(R.string.story_change_pre), 100)
+        // How the taste moved over the month, when it did.
+        val early = r.genreEarly
+        val late = r.genreLate
+        if (early != null && late != null && early != late) {
+            Appear(1_300) {
+                Text(
+                    stringResource(R.string.story_change, label(early), label(late)),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+        Appear(2_200, durationMs = 800) { Text(stringResource(R.string.story_genres), fontSize = 28.sp, fontWeight = FontWeight.Black) }
         r.genres.forEachIndexed { i, (genre, n) ->
-            Reveal(900L + (r.genres.lastIndex - i) * 550L) {
+            Appear(2_700L + (r.genres.lastIndex - i) * 600L, fromRight = true) {
                 Column {
-                    Text(
-                        com.metrolist.music.portrait.Genres.displayName(genre) ?: genre,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    Text(label(genre), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
-                    val bar = remember { Animatable(0f) }
-                    LaunchedEffect(Unit) { bar.animateTo(n.toFloat() / max, tween(900, easing = FastOutSlowInEasing)) }
                     Box(
-                        Modifier.fillMaxWidth(bar.value.coerceAtLeast(0.03f)).height(8.dp).clip(RoundedCornerShape(4.dp))
+                        Modifier.fillMaxWidth((n.toFloat() / max).coerceAtLeast(0.04f)).height(8.dp).clip(RoundedCornerShape(4.dp))
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 1f - i * 0.14f)),
                     )
                 }
@@ -566,6 +590,12 @@ private fun CardPage(r: MonthReview.Review) {
                     Toast.makeText(context, if (ok) R.string.story_saved else R.string.story_save_failed, Toast.LENGTH_SHORT).show()
                 }
             }) { Text(stringResource(R.string.story_save)) }
+        }
+        val restart = LocalStoryRestart.current
+        androidx.compose.material3.TextButton(onClick = restart) {
+            Icon(painterResource(R.drawable.replay), contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.story_restart))
         }
     }
 }

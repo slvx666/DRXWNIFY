@@ -118,6 +118,11 @@ object MonthReview {
         val minutes: Long = 0,
         /** The song to play on its page: the track itself, or the artist's most played one. */
         val songId: String? = null,
+        /** A track: the day it was first played here, and its listens since then (all time). */
+        val since: java.time.LocalDate? = null,
+        val sinceCount: Int = 0,
+        /** An artist: the most days in a row it was played this month. */
+        val streakDays: Int = 0,
     )
 
     data class Review(
@@ -136,6 +141,9 @@ object MonthReview {
         val topHour: Int?,
         /** The month's genres by listens (from the artists' Last.fm tags), the biggest first. */
         val genres: List<Pair<String, Int>> = emptyList(),
+        /** The genre leading the first half of the month, and the one leading the second. */
+        val genreEarly: String? = null,
+        val genreLate: String? = null,
     )
 
     private const val PREFS = "month_review"
@@ -175,6 +183,8 @@ object MonthReview {
                 image = e.song.song.thumbnailUrl,
                 minutes = events.sumOf { it.event.playTime } / 60_000L,
                 songId = e.song.id,
+                since = all.filter { it.song.id == e.song.id }.minOfOrNull { it.event.timestamp }?.toLocalDate(),
+                sinceCount = all.count { it.song.id == e.song.id },
             )
         }
         val artistOf = { e: com.metrolist.music.db.entities.EventWithSong -> e.song.artists.firstOrNull()?.name }
@@ -190,6 +200,7 @@ object MonthReview {
                             ?.let { top -> events.first { it.song.id == top.key }.song.song.thumbnailUrl },
                     minutes = events.sumOf { it.event.playTime } / 60_000L,
                     songId = events.groupingBy { it.song.id }.eachCount().maxByOrNull { it.value }?.key,
+                    streakDays = longestRun(events.map { it.event.timestamp.toLocalDate() }.toSet()),
                 )
             }
         val before = all.filter { it.event.timestamp < start }.mapNotNull(artistOf).toSet()
@@ -206,6 +217,17 @@ object MonthReview {
             com.metrolist.music.portrait.Genres.cached(name).take(2).forEach { g -> genreCounts.merge(g, listensByArtist[name] ?: 0, Int::plus) }
         }
         val genres = genreCounts.entries.sortedByDescending { it.value }.take(5).map { it.key to it.value }
+        // How the taste moved: the leading genre of each half of the month.
+        val half = month.atDay(minOf(16, month.lengthOfMonth())).atStartOfDay()
+        fun leading(events: List<com.metrolist.music.db.entities.EventWithSong>): String? {
+            val counts = HashMap<String, Int>()
+            events.mapNotNull(artistOf).forEach { name ->
+                com.metrolist.music.portrait.Genres.cached(name).take(2).forEach { g -> counts.merge(g, 1, Int::plus) }
+            }
+            return counts.maxByOrNull { it.value }?.key
+        }
+        val genreEarly = leading(inMonth.filter { it.event.timestamp < half })
+        val genreLate = leading(inMonth.filter { it.event.timestamp >= half })
         return Review(
             month = month,
             minutes = minutes,
@@ -219,8 +241,22 @@ object MonthReview {
             busiestDayMinutes = busiest?.value ?: 0,
             topHour = topHour,
             genres = genres,
+            genreEarly = genreEarly,
+            genreLate = genreLate,
         )
     }
 
     private const val MIN_LISTENS = 10
+
+    /** The longest run of consecutive days in [days]. */
+    private fun longestRun(days: Set<java.time.LocalDate>): Int {
+        var best = 0
+        for (d in days) {
+            if (d.minusDays(1) in days) continue
+            var n = 1
+            while (d.plusDays(n.toLong()) in days) n++
+            best = maxOf(best, n)
+        }
+        return best
+    }
 }

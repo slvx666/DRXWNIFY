@@ -97,7 +97,7 @@ object HomeFeed {
     private const val FORGOTTEN_AFTER_DAYS = 60L
 
     /** Bumped when the rows are chosen differently: a feed kept from before is rebuilt on the next start. */
-    const val FORMAT = 4
+    const val FORMAT = 5
 
     /** Below this an artist is only listened to, not loved: never a seed for recommendations. */
     private const val MIN_LOVE = 1.0
@@ -118,6 +118,11 @@ object HomeFeed {
                 _feed.value = if (saved.format == FORMAT) saved else saved.copy(similar = emptyList(), genreRows = emptyList())
             }
         }.onFailure { Timber.w(it, "HomeFeed: saved feed unreadable") }
+    }
+
+    /** The main account changed: the rows are built anew on the next opening of the home page. */
+    fun markStale() {
+        _feed.update { it?.copy(builtAt = 0) }
     }
 
     /** Rebuilds the feed when it is older than [TTL_MS], or always with [force] (a pull to refresh). */
@@ -244,10 +249,13 @@ object HomeFeed {
         // Plain plays only break ties — capped, so a lot of listening alone never reaches MIN_LOVE.
         plays.forEach { (key, p) -> love.merge(key, minOf(0.5, p * 0.02), Double::plus) }
 
-        // Likes say what is loved, however long ago.
+        // Likes say what is loved, however long ago — in every linked account, not only the main one
+        // (with VK as the main account its likes alone made a thinner page: VK artists have no pages).
         val source = Catalog.source
-        val liked = source?.let { LikedSongsCache.get(it.name) }?.tracks.orEmpty()
-        val likedAt = source?.let { LikedSongsCache.addedAt(it.name) }.orEmpty()
+        val sources = (listOfNotNull(source) + Catalog.state.value.connected).distinct()
+        val liked = sources.flatMap { s -> LikedSongsCache.get(s.name)?.tracks.orEmpty() }
+            .distinctBy { t -> t.artists.firstOrNull()?.name.orEmpty().lowercase() + "|" + t.name.lowercase() }
+        val likedAt = sources.fold(emptyMap<String, Long>()) { acc, s -> LikedSongsCache.addedAt(s.name) + acc }
         liked.forEach { t ->
             val artist = t.artists.firstOrNull() ?: return@forEach
             val key = note(artist.name, artist.id) ?: return@forEach

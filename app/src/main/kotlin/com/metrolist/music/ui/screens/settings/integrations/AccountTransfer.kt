@@ -78,7 +78,26 @@ import kotlinx.coroutines.withContext
 private enum class TransferTab { TRACKS, ALBUMS, PLAYLISTS }
 
 /** One row to pick: a track, an album or a playlist of the other account. */
-private data class Pickable(val key: String, val title: String, val subtitle: String?, val image: String?, val round: Boolean = false)
+private data class Pickable(
+    val key: String,
+    val title: String,
+    val subtitle: String?,
+    val image: String?,
+    val round: Boolean = false,
+    /** Already in the main account (an album saved there): a green check says so. */
+    val already: Boolean = false,
+)
+
+/** What the transfer window read of an account, kept a while: reopening it doesn't read it all again. */
+private class TransferLists(
+    val at: Long,
+    val entries: List<SpotifyLibraryEntry>,
+    val tracks: List<SpotifyTrack>,
+    val mainAlbums: Set<String>,
+)
+
+private val transferCache = java.util.concurrent.ConcurrentHashMap<String, TransferLists>()
+private const val TRANSFER_CACHE_MS = 15 * 60_000L
 
 /**
  * What to bring over from another linked account to the main one: its liked tracks, saved albums
@@ -104,7 +123,18 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
     var pickedAlbums by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pickedPlaylists by remember { mutableStateOf<Set<String>>(emptySet()) }
 
+    // A finished transfer's result was shown already: the window opens on the lists again.
+    LaunchedEffect(Unit) { AccountTransfer.clear() }
+
     LaunchedEffect(from) {
+        val cacheKey = "${from.name}>${main?.name}"
+        transferCache[cacheKey]?.takeIf { System.currentTimeMillis() - it.at < TRANSFER_CACHE_MS }?.let { c ->
+            entries = c.entries
+            tracks = c.tracks
+            mainAlbums = c.mainAlbums
+            loading = false
+            return@LaunchedEffect
+        }
         withContext(Dispatchers.IO) {
             runCatching {
                 if (!Catalog.ensureAuthenticated(from)) return@runCatching
@@ -137,6 +167,9 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
                     }
                     mainAlbums = have
                 }
+                if (entries.isNotEmpty() || tracks.isNotEmpty()) {
+                    transferCache[cacheKey] = TransferLists(System.currentTimeMillis(), entries, tracks, mainAlbums)
+                }
             }
         }
         loading = false
@@ -150,13 +183,7 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
             Pickable(t.id, t.name, t.artists.joinToString { it.name }, t.album?.images?.firstOrNull()?.url)
         }
         TransferTab.ALBUMS -> entries.filter { it.kind == SpotifyLibraryEntry.Kind.ALBUM && matches(it.name, it.creator) }.map { e ->
-            val already = albumKey(e.name, e.creator) in mainAlbums
-            Pickable(
-                e.id,
-                e.name,
-                listOfNotNull(e.creator, alreadyLabel.takeIf { already }).joinToString(" · ").ifBlank { null },
-                e.imageUrl,
-            )
+            Pickable(e.id, e.name, e.creator, e.imageUrl, already = albumKey(e.name, e.creator) in mainAlbums)
         }
         TransferTab.PLAYLISTS -> entries.filter { it.kind == SpotifyLibraryEntry.Kind.PLAYLIST && matches(it.name, it.creator) }.map { e ->
             Pickable(e.id, e.name, e.creator, e.imageUrl)
@@ -245,6 +272,13 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
                                 row.subtitle?.let {
                                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
+                                if (row.already) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                                        Icon(painterResource(R.drawable.check), contentDescription = null, tint = AlreadyGreen, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(alreadyLabel, style = MaterialTheme.typography.labelMedium, color = AlreadyGreen, maxLines = 1)
+                                    }
+                                }
                             }
                             Checkbox(checked = on, onCheckedChange = { setPicked(if (on) picked - row.key else picked + row.key) })
                         }
@@ -268,6 +302,8 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
                 Button(
                     enabled = pickedPlaylists.size + pickedAlbums.size + pickedTracks.size > 0,
                     onClick = {
+                        // The main account changes with the transfer: its lists are read anew next time.
+                        transferCache.clear()
                         AccountTransfer.start(
                             database,
                             from,
@@ -416,3 +452,5 @@ fun PushLocalPlaylistsScreen(navController: NavController) {
 private fun albumKey(name: String, artist: String?): String =
     (name.lowercase().replace(Regex("""\s*[(\[][^)\]]*[)\]]"""), "") + "|" + artist.orEmpty().split(", ").first().lowercase())
         .replace(Regex("""[^\p{L}\p{N}|]+"""), "")
+
+private val AlreadyGreen = androidx.compose.ui.graphics.Color(0xFF4CAF50)
