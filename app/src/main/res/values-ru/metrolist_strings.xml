@@ -2205,4 +2205,5 @@
     <string name="app_stats_friends">Друзей</string>
     <string name="app_stats_written">Сообщений написано</string>
     <string name="app_stats_received">Сообщений получено</string>
+    <string name="app_stats_reviews_loading">Собираем итоги…</string>
 </resources>

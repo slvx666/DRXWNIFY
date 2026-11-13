@@ -120,7 +120,7 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current
-    val audio = remember { StoryAudio(context, database) }
+    val audio = remember { StoryAudio(database) { playerConnection?.service?.createPreviewPlayer() } }
     // What was playing pauses while the story plays its own music, and goes on afterwards.
     DisposableEffect(Unit) {
         val wasPlaying = playerConnection?.player?.isPlaying == true
@@ -131,7 +131,9 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
         }
     }
 
-    val pages = remember(review) { storyPages(review) }
+    // "Watch again" starts a new round: the genre page picks another of its songs.
+    var round by remember { mutableIntStateOf(0) }
+    val pages = remember(review, round) { storyPages(review, round) }
     var index by remember { mutableIntStateOf(0) }
     var direction by remember { mutableIntStateOf(1) }
     var paused by remember { mutableStateOf(false) }
@@ -158,7 +160,7 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
         if (index < pages.lastIndex) go(index + 1)
     }
     LaunchedEffect(index) { audio.play(pages[index].songId) }
-    LaunchedEffect(paused, holding) { if (paused || holding) audio.pause() else audio.resume() }
+    // Pausing the story holds the pages, not the music: it plays on.
 
     val accent = MaterialTheme.colorScheme.primary
     ModalBottomSheet(
@@ -219,7 +221,7 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.fillMaxSize().padding(start = 28.dp, end = 28.dp, top = 96.dp, bottom = 32.dp),
                     ) {
-                        androidx.compose.runtime.CompositionLocalProvider(LocalStoryRestart provides { go(0) }) { pages[i].content() }
+                        androidx.compose.runtime.CompositionLocalProvider(LocalStoryRestart provides { round++; go(0) }) { pages[i].content() }
                     }
                 }
             }
@@ -309,8 +311,9 @@ private fun inMonth(review: MonthReview.Review): String {
 private fun dayText(d: java.time.LocalDate): String =
     "${d.dayOfMonth} " + d.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
 
-private fun storyPages(r: MonthReview.Review): List<StoryPage> = buildList {
-    add(StoryPage("hello", 6_000) { HelloPage(r) })
+private fun storyPages(r: MonthReview.Review, round: Int = 0): List<StoryPage> = buildList {
+    // The text is all there after ~2.1 s; the wait after it is a third shorter than before.
+    add(StoryPage("hello", 4_700) { HelloPage(r) })
     add(StoryPage("minutes", 8_000) { MinutesPage(r) })
     r.busiestDay?.let { add(StoryPage("day", 8_000) { BusiestDayPage(r) }) }
     val topTrack = r.topTracks.firstOrNull()
@@ -323,7 +326,9 @@ private fun storyPages(r: MonthReview.Review): List<StoryPage> = buildList {
         add(StoryPage("topArtist", 11_000, topArtist.songId) { TopArtistPage(r, topArtist) })
         if (r.topArtists.size > 1) add(StoryPage("topArtists", 10_000, topArtist.songId) { RankPage(stringResource(R.string.story_top_artists), r.topArtists, round = true) })
     }
-    if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000) { GenresPage(r) })
+    // The top genre's page plays one of its songs, another one each round.
+    val genreSong = r.genreSongs.takeIf { it.isNotEmpty() }?.let { it[kotlin.random.Random(r.month.hashCode() + round * 7919).nextInt(it.size)] }
+    if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000, genreSong) { GenresPage(r) })
     add(StoryPage("card", 0) { CardPage(r) })
 }
 

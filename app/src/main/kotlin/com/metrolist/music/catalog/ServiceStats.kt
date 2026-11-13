@@ -144,6 +144,8 @@ object MonthReview {
         /** The genre leading the first half of the month, and the one leading the second. */
         val genreEarly: String? = null,
         val genreLate: String? = null,
+        /** Songs of the top genre for its page: liked ones, else ones played this month. */
+        val genreSongs: List<String> = emptyList(),
     )
 
     private const val PREFS = "month_review"
@@ -226,6 +228,15 @@ object MonthReview {
             }
             return counts.maxByOrNull { it.value }?.key
         }
+        // The top genre's songs: liked ones by its artists first, else this month's plays of them.
+        val topGenre = genres.firstOrNull()?.first
+        val genreSongs = if (topGenre == null) emptyList() else {
+            fun ofGenre(artist: String?) = artist != null && topGenre in com.metrolist.music.portrait.Genres.cached(artist)
+            val liked = runCatching {
+                database.likedSongs(com.metrolist.music.constants.SongSortType.CREATE_DATE, true).first()
+            }.getOrDefault(emptyList()).filter { ofGenre(it.artists.firstOrNull()?.name) }.map { it.id }
+            liked.ifEmpty { inMonth.filter { ofGenre(artistOf(it)) }.map { it.song.id }.distinct() }
+        }
         val genreEarly = leading(inMonth.filter { it.event.timestamp < half })
         val genreLate = leading(inMonth.filter { it.event.timestamp >= half })
         return Review(
@@ -243,6 +254,7 @@ object MonthReview {
             genres = genres,
             genreEarly = genreEarly,
             genreLate = genreLate,
+            genreSongs = genreSongs.take(200),
         )
     }
 

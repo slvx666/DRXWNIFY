@@ -67,7 +67,7 @@ data class HomeFeedData(
     val format: Int = 0,
     /** Releases of the favourite artists from the last months, newest first. */
     val newReleases: List<SpotifyAlbum> = emptyList(),
-    /** "More like <artist>" for two of the favourites, a different pair each day and each refresh. */
+    /** "More like <artist>" for three of the favourites, different ones each day and each refresh. */
     val similar: List<SimilarRow> = emptyList(),
     /** "More <genre>": the two main genres and the one with many likes but less listening. */
     val genreRows: List<SimilarRow> = emptyList(),
@@ -97,7 +97,7 @@ object HomeFeed {
     private const val FORGOTTEN_AFTER_DAYS = 60L
 
     /** Bumped when the rows are chosen differently: a feed kept from before is rebuilt on the next start. */
-    const val FORMAT = 5
+    const val FORMAT = 6
 
     /** Below this an artist is only listened to, not loved: never a seed for recommendations. */
     private const val MIN_LOVE = 1.0
@@ -320,7 +320,7 @@ object HomeFeed {
         gate: Semaphore,
     ): List<SimilarRow> = coroutineScope {
         val random = Random(rotation)
-        pick(favorites, 2, pool = 12, random).mapIndexed { index, seed ->
+        pick(favorites, 3, pool = 14, random).mapIndexed { index, seed ->
             async {
                 val rowRandom = Random(rotation * 31 + index)
                 val image = async { gate.withPermit { artistImage(seed.id!!) } }

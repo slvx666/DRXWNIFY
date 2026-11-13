@@ -2250,4 +2250,5 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="app_stats_friends">Friends</string>
     <string name="app_stats_written">Messages written</string>
     <string name="app_stats_received">Messages received</string>
+    <string name="app_stats_reviews_loading">Putting the reviews together…</string>
 </resources>

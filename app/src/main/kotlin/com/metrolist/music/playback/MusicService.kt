@@ -1218,6 +1218,23 @@ class MusicService :
         }
     }
 
+    /**
+     * A player of its own on the same sources as the main one (catalog tracks resolved to any
+     * source, VK's HLS, YouTube, the cache): the month-in-review story plays its pieces on it,
+     * leaving the queue alone.
+     */
+    fun createPreviewPlayer(): ExoPlayer =
+        ExoPlayer.Builder(this)
+            .setMediaSourceFactory(createMediaSourceFactory())
+            .setAudioAttributes(
+                androidx.media3.common.AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                false,
+            )
+            .build()
+
     private fun createExoPlayer(): ExoPlayer {
         val eqProcessor = CustomEqualizerAudioProcessor()
         equalizerService.addAudioProcessor(eqProcessor)

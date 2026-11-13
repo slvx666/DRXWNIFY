@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -77,6 +80,7 @@ fun AppStatsScreen(navController: NavController) {
     var numbers by remember { mutableStateOf<Numbers?>(null) }
     var months by remember { mutableStateOf<List<MonthReview.Review>>(emptyList()) }
     var story by remember { mutableStateOf<MonthReview.Review?>(null) }
+    var monthsLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -99,6 +103,7 @@ fun AppStatsScreen(navController: NavController) {
             months = (1..6).mapNotNull { back ->
                 runCatching { MonthReview.build(database, thisMonth.minusMonths(back.toLong())) }.getOrNull()
             }
+            monthsLoading = false
         }
     }
 
@@ -116,7 +121,32 @@ fun AppStatsScreen(navController: NavController) {
         }
 
         PreferenceGroupTitle(title = stringResource(R.string.app_stats_reviews))
-        if (months.isEmpty()) {
+        if (monthsLoading) {
+            // The reviews take a few seconds (genres are looked up): an outline says they are coming.
+            com.metrolist.music.ui.component.shimmer.ShimmerHost(showGradient = false, modifier = Modifier.padding(horizontal = 16.dp)) {
+                repeat(2) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 10.dp)) {
+                        Box(
+                            Modifier
+                                .padding(end = 14.dp)
+                                .size(28.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(MaterialTheme.colorScheme.onSurface),
+                        )
+                        Column(Modifier.weight(1f)) {
+                            com.metrolist.music.ui.component.shimmer.TextPlaceholder(height = 18.dp, shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                            com.metrolist.music.ui.component.shimmer.TextPlaceholder(height = 12.dp, shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                        }
+                    }
+                }
+            }
+            Text(
+                stringResource(R.string.app_stats_reviews_loading),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        } else if (months.isEmpty()) {
             Text(stringResource(R.string.app_stats_no_review), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
         }
         months.forEachIndexed { i, r ->

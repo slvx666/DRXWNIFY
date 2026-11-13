@@ -5,14 +5,9 @@
 
 package com.metrolist.music.ui.screens
 
-import android.content.Context
-import android.net.ConnectivityManager
-import androidx.core.net.toUri
-import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import com.metrolist.music.db.MusicDatabase
-import com.metrolist.music.resolver.AudioFallbackEngine
-import com.metrolist.music.resolver.FallbackIds
+import com.metrolist.music.extensions.toMediaItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,15 +15,15 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import timber.log.Timber
 
 /**
- * The sound of the month-in-review story: a piece of the page's track (from its middle part),
- * on a player of its own — the user's queue and what was playing are left alone (the main player
- * is paused while the story plays and goes on after it only if it was playing). Each track fades
- * in and out; [volume] is the slider on top of the story.
+ * The sound of the month-in-review story: a piece of the page's track, from a moment in its
+ * middle, on a player of its own made by the music service ([newPlayer]) — the same sources as the
+ * main player (VK, YouTube, any catalog track, the cache), while the queue is left alone. Each
+ * track fades in and out; [volume] is the slider on top of the story. The same track asked for
+ * again (the next page about it) just goes on.
  */
-class StoryAudio(private val context: Context, private val database: MusicDatabase) {
+class StoryAudio(private val database: MusicDatabase, private val newPlayer: () -> ExoPlayer?) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var player: ExoPlayer? = null
     private var job: Job? = null
@@ -40,77 +35,53 @@ class StoryAudio(private val context: Context, private val database: MusicDataba
             player?.volume = field
         }
 
-    private fun ensurePlayer(): ExoPlayer =
-        player ?: ExoPlayer.Builder(context).build().also { player = it }
+    private fun ensurePlayer(): ExoPlayer? = player ?: newPlayer()?.also { player = it }
 
-    /** Plays [songId] (or keeps playing it); null stops the sound. */
+    /** Plays [songId] (or keeps playing it); null fades the sound out. */
     fun play(songId: String?) {
         if (songId == current) return
         current = songId
         job?.cancel()
         job = scope.launch {
-            fadeTo(0f)
+            fadeTo(0f, FADE_OUT_MS)
             if (songId == null) {
                 player?.pause()
                 return@launch
             }
-            val uri = withContext(Dispatchers.IO) { streamOf(songId) } ?: run {
-                player?.pause()
-                return@launch
-            }
-            val p = ensurePlayer()
+            val song = withContext(Dispatchers.IO) { database.getSongById(songId) } ?: return@launch
+            val p = ensurePlayer() ?: return@launch
             p.volume = 0f
-            p.setMediaItem(MediaItem.Builder().setUri(uri).setMediaId(songId).build())
+            p.setMediaItem(song.toMediaItem())
             p.prepare()
-            // From the second third: past the intro, where a track is most itself.
-            val length = withContext(Dispatchers.IO) { database.getSongByIdBlocking(songId)?.song?.duration ?: 0 }
+            // A moment from its second third: past the intro, where a track is most itself.
+            val length = song.song.duration
             if (length > 60) p.seekTo(length * 1000L / 3)
             p.play()
-            fadeTo(volume)
+            fadeTo(volume, FADE_IN_MS)
         }
-    }
-
-    fun pause() {
-        player?.pause()
-    }
-
-    fun resume() {
-        if (current != null) player?.play()
     }
 
     fun release() {
         job?.cancel()
         scope.launch {
-            fadeTo(0f)
+            fadeTo(0f, FADE_OUT_MS)
             player?.release()
             player = null
         }
     }
 
-    private suspend fun fadeTo(target: Float) {
+    private suspend fun fadeTo(target: Float, durationMs: Long) {
         val p = player ?: return
         val start = p.volume
-        val steps = 12
+        val steps = 20
         for (i in 1..steps) {
             p.volume = start + (target - start) * i / steps
-            delay(25)
+            delay(durationMs / steps)
         }
     }
 
-    /** An address a plain player can stream: a YouTube video's, or the source upload the engine picks. */
-    private suspend fun streamOf(songId: String): android.net.Uri? = runCatching {
-        if (!FallbackIds.isFallbackId(songId) && !songId.startsWith("local:")) {
-            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val quality = com.metrolist.music.constants.AudioQuality.HIGH
-            return@runCatching com.metrolist.music.utils.YTPlayerUtils
-                .playerResponseForPlayback(videoId = songId, audioQuality = quality, connectivityManager = cm)
-                .getOrNull()?.streamUrl?.takeIf { it.isNotBlank() }?.toUri()
-        }
-        val song = database.getSongById(songId)
-        val query = AudioFallbackEngine.queryFor(songId, song) ?: return@runCatching null
-        val match = AudioFallbackEngine.resolve(query) ?: return@runCatching null
-        val stream = AudioFallbackEngine.provider(match.provider)?.stream(query, match) ?: return@runCatching null
-        // VK's HLS goes through the app's own data source; a plain player plays plain addresses only.
-        stream.uri.takeIf { it.startsWith("http") && !it.contains(".m3u8") }?.toUri()
-    }.onFailure { Timber.w(it, "StoryAudio: no stream for %s", songId) }.getOrNull()
+    private companion object {
+        const val FADE_IN_MS = 1_600L
+        const val FADE_OUT_MS = 700L
+    }
 }
