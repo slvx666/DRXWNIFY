@@ -136,7 +136,9 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
             Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         }
         error?.takeIf { !loading && spotify == null && yandex == null }?.let {
-            Text(stringResource(R.string.stats_failed, it), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
+            // Spotify answers "too many requests" to its top lists now and then: said plainly, with when to try.
+            val text = if (it.contains("rate limit", ignoreCase = true) || it.contains("429")) stringResource(R.string.stats_rate_limited) else stringResource(R.string.stats_failed, it)
+            Text(text, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
         }
         if (service == MetadataSource.SPOTIFY && !loading) {
             spotify?.let { tops ->
@@ -165,9 +167,16 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
                 y.artists.forEachIndexed { i, a -> RankRow(i + 1, a.name, a.count.toString(), null, round = true) {} }
             }
         }
+        var showStory by remember { mutableStateOf(false) }
         review?.let { r ->
             PreferenceGroupTitle(title = stringResource(R.string.month_review_title, monthName(r.month)))
             MonthReviewBody(r)
+            androidx.compose.material3.Button(
+                onClick = { showStory = true },
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
+            ) { Text(stringResource(R.string.story_open)) }
+            if (showStory) com.metrolist.music.ui.screens.MonthReviewStory(r) { showStory = false }
         }
         Spacer(Modifier.height(24.dp))
     }
@@ -248,11 +257,18 @@ fun MonthReviewBody(r: MonthReview.Review) {
         )
         if (r.topArtists.isNotEmpty()) {
             Text(stringResource(R.string.month_review_artists), style = MaterialTheme.typography.titleSmall)
-            r.topArtists.forEachIndexed { i, (name, n) -> Text("${i + 1}. $name · $n", style = MaterialTheme.typography.bodyMedium) }
+            r.topArtists.forEachIndexed { i, a -> Text("${i + 1}. ${a.title} · ${a.count}", style = MaterialTheme.typography.bodyMedium) }
         }
         if (r.topTracks.isNotEmpty()) {
             Text(stringResource(R.string.month_review_tracks), style = MaterialTheme.typography.titleSmall)
-            r.topTracks.forEachIndexed { i, (name, n) -> Text("${i + 1}. $name · $n", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            r.topTracks.forEachIndexed { i, t ->
+                Text(
+                    "${i + 1}. " + listOfNotNull(t.subtitle, t.title).joinToString(" – ") + " · ${t.count}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -275,11 +291,6 @@ fun MonthReviewOffer() {
         MonthReview.markShown(context, r.month)
         review = null
     }
-    AlertDialog(
-        onDismissRequest = close,
-        icon = { Icon(painterResource(R.drawable.stats), null) },
-        title = { Text(stringResource(R.string.month_review_title, monthName(r.month))) },
-        text = { Column(Modifier.verticalScroll(rememberScrollState())) { MonthReviewBody(r) } },
-        confirmButton = { TextButton(onClick = close) { Text(stringResource(android.R.string.ok)) } },
-    )
+    // As a story in a sheet over nearly the whole screen, like the patch notes.
+    com.metrolist.music.ui.screens.MonthReviewStory(r, onDismiss = close)
 }

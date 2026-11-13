@@ -2733,6 +2733,15 @@ class MusicService :
         ) {
             loadMoreOfQueue(resumeWhenLoaded = false)
         }
+        // The last track of a VK list started: what follows is queued now, so there is no gap.
+        if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
+            player.currentMediaItemIndex == player.mediaItemCount - 1 &&
+            player.repeatMode == REPEAT_MODE_OFF &&
+            dataStore.get(AutoLoadMoreKey, true) && !currentQueue.hasNextPage() &&
+            vkUploadOf(player.currentMediaItem?.mediaId) != null
+        ) {
+            continueAfterVk()
+        }
 
         // Pre-cache upcoming tracks for offline playback
         triggerPreCache()
@@ -2794,6 +2803,49 @@ class MusicService :
             if (!BlockedTracks.isBlocked(player.getMediaItemAt(index).mediaId)) return index
         }
         return C.INDEX_UNSET
+    }
+
+    private fun vkUploadOf(mediaId: String?): String? =
+        mediaId?.let { FallbackIds.catalogIdOf(it) }
+            ?.takeIf { it.startsWith(com.metrolist.music.catalog.VkCatalog.TRACK_PREFIX) }
+            ?.removePrefix(com.metrolist.music.catalog.VkCatalog.TRACK_PREFIX)
+
+    private var vkContinueJob: Job? = null
+
+    /**
+     * What plays after a VK list ended: the same artist's tracks on VK (shuffled, a handful), then
+     * VK's own recommendations for the user — none of them already in the queue.
+     */
+    private fun continueAfterVk() {
+        if (vkContinueJob?.isActive == true) return
+        val lastId = player.currentMediaItem?.mediaId ?: return
+        val vk = vkUploadOf(lastId) ?: return
+        vkContinueJob = scope.launch(SilentHandler) {
+            val tracks = withContext(Dispatchers.IO) {
+                val info = com.metrolist.music.catalog.VkCatalog.trackInfo(vk)
+                val artistId = info?.artists?.firstOrNull { it.id != null }?.id
+                val byArtist = artistId?.let {
+                    com.metrolist.music.catalog.VkCatalog.artistTopTracks(com.metrolist.music.catalog.VkCatalog.artistId(it)).getOrNull()?.tracks
+                }.orEmpty().shuffled().take(8)
+                val recommended = com.metrolist.music.catalog.VkCatalog.recommendations().shuffled().take(25)
+                val queued = (0 until player.mediaItemCount).mapTo(HashSet()) { player.getMediaItemAt(it).mediaId }
+                (byArtist + recommended).distinctBy { it.id }.filter { FallbackIds.of(it.id) !in queued }
+            }
+            if (tracks.isEmpty() || player.currentMediaItem?.mediaId != lastId) return@launch
+            val mapper = SpotifyYouTubeMapper(database)
+            val items = withContext(Dispatchers.IO) {
+                tracks.map { mapper.quickMetadata(it).toMediaItem() }
+                    .filterNot { BlockedTracks.isBlocked(it.mediaId) }
+            }
+            if (items.isEmpty()) return@launch
+            val firstNew = player.mediaItemCount
+            player.addMediaItems(items)
+            if (player.playbackState == Player.STATE_ENDED) {
+                player.seekTo(firstNew, 0)
+                player.prepare()
+                player.play()
+            }
+        }
     }
 
     private val BLOCKED_LOAD_ATTEMPTS = 3
@@ -2885,6 +2937,10 @@ class MusicService :
                 player.seekTo(0, 0)
                 player.prepare()
                 player.play()
+            } else if (dataStore.get(AutoLoadMoreKey, true) && !currentQueue.hasNextPage() && vkUploadOf(player.currentMediaItem?.mediaId) != null) {
+                // A VK album or playlist played to its end: VK's music goes on (the artist's
+                // tracks, then VK's recommendations), as a catalog album goes on into its radio.
+                continueAfterVk()
             } else {
                 // The queue ran out before its next page arrived: an endless queue goes on.
                 loadMoreOfQueue(resumeWhenLoaded = true)

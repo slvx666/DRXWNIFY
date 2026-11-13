@@ -68,6 +68,14 @@ class VkPlaylistViewModel @Inject constructor(
             failed.value = true
             return
         }
+        // Opened a moment ago: the list is there on the first frame, no spinner.
+        val cached = VkMusic.cachedTracks(target)
+        if (cached != null) {
+            tracks.value = cached
+            isLoading.value = false
+            failed.value = false
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             isLoading.value = true
             failed.value = false

@@ -266,16 +266,22 @@ object VkCatalog {
      */
     suspend fun library(likedSongsName: String): Result<List<SpotifyLibraryEntry>> = runCatching {
         val playlists = myPlaylists()
+        // "My music" under VK's own name and with its size (read once; kept for a few minutes).
+        val myCount = runCatching { myTracks().size }.getOrDefault(likedCount())
         val liked = SpotifyLibraryEntry(
             kind = SpotifyLibraryEntry.Kind.LIKED_SONGS,
             id = LIKED_SONGS_ID,
             uri = "vk:collection",
-            name = likedSongsName,
-            totalCount = likedCount(),
+            name = appContext?.getString(com.metrolist.music.R.string.vk_liked_songs) ?: likedSongsName,
+            totalCount = myCount,
             pinned = true,
         )
+        val context = appContext
         listOf(liked) + playlists.map { p ->
-            if (p.isAlbum) {
+            // A user's playlist that is one artist's record ("Artist - Album") is an album too:
+            // the kind decided by its tracks (VK's own tab keeps it) wins over VK's flags.
+            val album = context?.let { com.metrolist.music.resolver.VkMusic.knownKind(it, p) } ?: p.isAlbum
+            if (album) {
                 SpotifyLibraryEntry(
                     kind = SpotifyLibraryEntry.Kind.ALBUM,
                     id = playlistId(p),

@@ -87,8 +87,19 @@ object VkMusic {
     suspend fun myTracks(): Result<List<ProviderMatch>> =
         runCatching { provider?.myTracks().orEmpty() }
 
-    suspend fun tracks(playlist: VkPlaylist): Result<List<ProviderMatch>> =
-        runCatching { provider?.playlistTracks(playlist).orEmpty() }
+    /** Tracks of albums/playlists opened recently: reopening one shows it at once (refreshed behind after a while). */
+    private val trackCache = ConcurrentHashMap<String, Pair<Long, List<ProviderMatch>>>()
+
+    /** The tracks of [playlist] already read, without asking VK. */
+    fun cachedTracks(playlist: VkPlaylist): List<ProviderMatch>? = trackCache[playlist.key]?.second
+
+    suspend fun tracks(playlist: VkPlaylist, force: Boolean = false): Result<List<ProviderMatch>> {
+        trackCache[playlist.key]?.takeIf { !force && System.currentTimeMillis() - it.first < TRACKS_TTL_MS }?.let { return Result.success(it.second) }
+        return runCatching { provider?.playlistTracks(playlist).orEmpty() }
+            .onSuccess { if (it.isNotEmpty()) trackCache[playlist.key] = System.currentTimeMillis() to it }
+    }
+
+    private const val TRACKS_TTL_MS = 30 * 60_000L
 
     /**
      * Mirrors a like of a VK track into the user's VK music: liked → added to "My music",

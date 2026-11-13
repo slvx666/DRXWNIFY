@@ -196,7 +196,7 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
                 modifier = Modifier.padding(end = 8.dp),
             )
         }
-        Box(Modifier.weight(1f)) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             if (loading) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             } else {

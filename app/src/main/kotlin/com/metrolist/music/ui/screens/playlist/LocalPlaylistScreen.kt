@@ -181,6 +181,8 @@ fun LocalPlaylistScreen(
 
     val playlist by viewModel.playlist.collectAsState()
     val songs by viewModel.playlistSongs.collectAsState()
+    // Tracks that came without a cover (VK uploads) get one from the catalog, in the background.
+    LaunchedEffect(songs.size) { com.metrolist.music.playback.MissingCovers.fill(database, songs.map { it.song }) }
     val mutableSongs = remember { mutableStateListOf<PlaylistSong>() }
     val playlistLength =
         remember(songs) {

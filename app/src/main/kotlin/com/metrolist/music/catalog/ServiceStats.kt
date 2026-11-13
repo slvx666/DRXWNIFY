@@ -109,13 +109,23 @@ object ServiceStats {
  * the month had any listening).
  */
 object MonthReview {
+    /** A track or an artist of the month, with how many listens and its picture. */
+    data class Item(val title: String, val subtitle: String?, val count: Int, val image: String?, val minutes: Long = 0)
+
     data class Review(
         val month: YearMonth,
         val minutes: Long,
         val listens: Int,
-        val topTracks: List<Pair<String, Int>>,
-        val topArtists: List<Pair<String, Int>>,
+        val topTracks: List<Item>,
+        val topArtists: List<Item>,
         val newArtists: Int,
+        val distinctArtists: Int,
+        val distinctTracks: Int,
+        /** The day with the most listening, and how many minutes it had. */
+        val busiestDay: java.time.LocalDate?,
+        val busiestDayMinutes: Long,
+        /** The hour of the day most listened at (0–23). */
+        val topHour: Int?,
     )
 
     private const val PREFS = "month_review"
@@ -146,17 +156,48 @@ object MonthReview {
             .filter { com.metrolist.music.portrait.Listening.counts(it.event.playTime, it.song.song.duration * 1000L) }
         if (inMonth.size < MIN_LISTENS) return null
         val minutes = inMonth.sumOf { it.event.playTime } / 60_000L
-        val topTracks = inMonth.groupingBy { it.song.id }.eachCount().entries.sortedByDescending { it.value }.take(5).mapNotNull { (id, n) ->
-            inMonth.firstOrNull { it.song.id == id }?.let { e ->
-                listOfNotNull(e.song.artists.firstOrNull()?.name, e.song.song.title).joinToString(" – ") to n
-            }
+        val topTracks = inMonth.groupBy { it.song.id }.entries.sortedByDescending { it.value.size }.take(5).map { (_, events) ->
+            val e = events.first()
+            Item(
+                title = e.song.song.title,
+                subtitle = e.song.artists.joinToString { it.name }.ifBlank { null },
+                count = events.size,
+                image = e.song.song.thumbnailUrl,
+                minutes = events.sumOf { it.event.playTime } / 60_000L,
+            )
         }
         val artistOf = { e: com.metrolist.music.db.entities.EventWithSong -> e.song.artists.firstOrNull()?.name }
-        val topArtists = inMonth.mapNotNull(artistOf).groupingBy { it }.eachCount()
-            .entries.sortedByDescending { it.value }.take(5).map { it.key to it.value }
+        val topArtists = inMonth.filter { artistOf(it) != null }.groupBy { artistOf(it)!! }.entries
+            .sortedByDescending { it.value.size }.take(5).map { (name, events) ->
+                Item(
+                    title = name,
+                    subtitle = null,
+                    count = events.size,
+                    // The artist's photo when the app has one, else the cover of their most played track.
+                    image = events.firstNotNullOfOrNull { it.song.artists.firstOrNull()?.thumbnailUrl }
+                        ?: events.groupingBy { it.song.id }.eachCount().maxByOrNull { it.value }
+                            ?.let { top -> events.first { it.song.id == top.key }.song.song.thumbnailUrl },
+                    minutes = events.sumOf { it.event.playTime } / 60_000L,
+                )
+            }
         val before = all.filter { it.event.timestamp < start }.mapNotNull(artistOf).toSet()
         val newArtists = inMonth.mapNotNull(artistOf).toSet().count { it !in before }
-        return Review(month, minutes, inMonth.size, topTracks, topArtists, newArtists)
+        val byDay = inMonth.groupBy { it.event.timestamp.toLocalDate() }.mapValues { (_, v) -> v.sumOf { it.event.playTime } / 60_000L }
+        val busiest = byDay.maxByOrNull { it.value }
+        val topHour = inMonth.groupingBy { it.event.timestamp.hour }.eachCount().maxByOrNull { it.value }?.key
+        return Review(
+            month = month,
+            minutes = minutes,
+            listens = inMonth.size,
+            topTracks = topTracks,
+            topArtists = topArtists,
+            newArtists = newArtists,
+            distinctArtists = inMonth.mapNotNull(artistOf).toSet().size,
+            distinctTracks = inMonth.map { it.song.id }.toSet().size,
+            busiestDay = busiest?.key,
+            busiestDayMinutes = busiest?.value ?: 0,
+            topHour = topHour,
+        )
     }
 
     private const val MIN_LISTENS = 10

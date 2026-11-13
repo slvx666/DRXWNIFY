@@ -106,10 +106,11 @@ class SpotifyLibraryViewModel @Inject constructor(
                         uri = LOCAL_PLAYLIST_URI_PREFIX + playlist.id,
                         name = playlist.playlist.name,
                         creator = null,
-                        // The cover is the artwork of the track added last, nothing fancier.
+                        // The same cover the playlist's own page shows (its first cover in the list's
+                        // order); the library used to pick another track's, so the two differed.
                         imageUrl = playlist.playlist.thumbnailUrl
-                            ?: coverOf[playlist.id]
-                            ?: playlist.thumbnails.firstOrNull(),
+                            ?: playlist.thumbnails.firstOrNull()
+                            ?: coverOf[playlist.id],
                         totalCount = playlist.songCount,
                     )
                 }
@@ -396,6 +397,13 @@ class SpotifyLibraryViewModel @Inject constructor(
             // What was loaded last time shows at once; a fresh copy needs no request at all.
             val source = accountSource()
             val account = source?.name ?: "none"
+            // Another account than the lists on screen came from (the main account was switched):
+            // its lists go at once, the new account's load with the spinner — the old library in the
+            // new colour stood there until the new one arrived.
+            if (account != loadedAccount) {
+                cache.value = emptyMap()
+                loadedAccount = account
+            }
             val cached = com.metrolist.music.catalog.LibraryCache.get(f.name, account)
             if (cached != null) {
                 cache.value = cache.value + (f to cached.first)
@@ -445,6 +453,10 @@ class SpotifyLibraryViewModel @Inject constructor(
         loadJob = job
         job.start()
     }
+
+    /** The account the lists in [cache] belong to. */
+    @Volatile
+    private var loadedAccount: String? = null
 
     /** The filter [loadJob] is loading. */
     @Volatile

@@ -1042,6 +1042,13 @@ fun BottomSheetPlayer(
                                                             state.collapseSoft()
                                                             navController.navigate("album/$albumId")
                                                         }
+                                                        // A VK upload: its album is looked up on a page that shows it.
+                                                        else -> vkFullIdOf(mediaMetadata.id)?.let { vk ->
+                                                            state.collapseSoft()
+                                                            navController.navigate(
+                                                                com.metrolist.music.ui.screens.vk.vkGoRoute(false, vk, mediaMetadata.title, mediaMetadata.artists.joinToString { it.name }),
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             }
@@ -1122,7 +1129,14 @@ fun BottomSheetPlayer(
                                                 onClick = {
                                                     val tapPosition = clickOffset
                                                     val layout = layoutResult
-                                                    if (tapPosition != null && layout != null) {
+                                                    // A VK upload names its artists without ids: looked up on a page that shows it.
+                                                    val vkUpload = vkFullIdOf(mediaMetadata.id)
+                                                    if (vkUpload != null && artistLinks.none { !it.second.isNullOrBlank() }) {
+                                                        state.collapseSoft()
+                                                        navController.navigate(
+                                                            com.metrolist.music.ui.screens.vk.vkGoRoute(true, vkUpload, mediaMetadata.title, artistLinks.joinToString { it.first }),
+                                                        )
+                                                    } else if (tapPosition != null && layout != null) {
                                                         val offset = layout.getOffsetForPosition(tapPosition)
                                                         annotatedString
                                                             .getStringAnnotations(offset, offset)
@@ -2411,3 +2425,9 @@ private fun PlayerMoreMenuButton(
         )
     }
 }
+
+/** The VK upload ("owner_audio[_key]") a media id plays, or null for anything else. */
+private fun vkFullIdOf(mediaId: String?): String? =
+    mediaId?.let { com.metrolist.music.resolver.FallbackIds.catalogIdOf(it) }
+        ?.takeIf { it.startsWith(com.metrolist.music.catalog.VkCatalog.TRACK_PREFIX) }
+        ?.removePrefix(com.metrolist.music.catalog.VkCatalog.TRACK_PREFIX)

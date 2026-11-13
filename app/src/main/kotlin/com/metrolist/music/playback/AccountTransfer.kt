@@ -131,6 +131,8 @@ object AccountTransfer {
         val mapper = SpotifyYouTubeMapper(database)
         val ids = tracks.map { mapper.persistWithoutResolving(it).id }.distinct()
         if (ids.isNotEmpty()) database.playlist(playlist.id).firstOrNull()?.let { database.addSongToPlaylist(it, ids) }
+        // Covers for the tracks that came without one (VK uploads), in the background.
+        MissingCovers.fill(database, database.playlistSongs(playlist.id).firstOrNull().orEmpty().map { it.song })
         return playlist.id
     }
 

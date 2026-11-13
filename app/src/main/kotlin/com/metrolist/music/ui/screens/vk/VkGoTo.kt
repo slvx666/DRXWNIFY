@@ -175,16 +175,30 @@ private suspend fun findRoute(toArtist: Boolean, fullId: String, title: String, 
         return null
     }
     info?.album?.let { a -> return "spotify_album/${VkCatalog.playlistId(a.ownerId, a.id, a.accessKey)}" }
-    // An upload: the same track in the search catalog, and its album.
-    val trackTitle = info?.title ?: title
+    // An upload: the same track in the search catalog, and the album that track is on (taken from
+    // the search answer itself — asking for the track again was rate-limited and found nothing).
+    val trackTitle = (info?.title ?: title).trim()
     if (trackTitle.isBlank()) return null
     if (!Catalog.ensureSearchable(MetadataSource.SPOTIFY)) return null
-    val trackId = CrossCatalog.trackIn(
-        MetadataSource.SPOTIFY,
-        trackTitle,
-        listOfNotNull(firstArtist),
-        info?.durationSec ?: 0,
-    ) ?: return null
-    val albumId = Catalog.getTrack(trackId).getOrNull()?.album?.id?.takeIf { it.isNotBlank() } ?: return null
-    return "spotify_album/$albumId"
+    val wantedTitle = norm(cleanTitle(trackTitle))
+    val wantedArtist = firstArtist?.let(::norm).orEmpty()
+    val queries = listOfNotNull(firstArtist?.let { "$it ${cleanTitle(trackTitle)}" }, cleanTitle(trackTitle)).distinct()
+    for (query in queries) {
+        val found = Catalog.searchIn(MetadataSource.SPOTIFY, query, listOf("track"), 20).getOrNull()?.tracks?.items.orEmpty()
+        val best = found.filter { it.album?.id?.isNotBlank() == true }.firstOrNull { t ->
+            val n = norm(cleanTitle(t.name))
+            (n == wantedTitle || n.startsWith(wantedTitle) || wantedTitle.startsWith(n)) &&
+                (wantedArtist.isEmpty() || t.artists.any { a -> norm(a.name) == wantedArtist })
+        }
+        if (best != null) return "spotify_album/${best.album!!.id}"
+    }
+    // The track itself didn't come up: an album of the artist named like the title (a single).
+    if (firstArtist != null) CrossCatalog.spotifyAlbumByName(cleanTitle(trackTitle), firstArtist)?.let { return "spotify_album/$it" }
+    return null
 }
+
+/** "Title (feat. X)" / "Title [Remastered]" → "Title". */
+private fun cleanTitle(t: String): String =
+    t.replace(Regex("""\s*[(\[][^)\]]*[)\]]"""), "").trim().ifBlank { t }
+
+private fun norm(t: String): String = t.lowercase().replace(Regex("""[^\p{L}\p{N}]+"""), "")

@@ -90,7 +90,9 @@ fun TogetherScreen(
         val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = order.indexOf(tab).coerceAtLeast(0)) { order.size }
         var neighbours by androidx.compose.runtime.remember { mutableIntStateOf(0) }
         LaunchedEffect(Unit) {
-            kotlinx.coroutines.delay(600)
+            // After the bottom bar has slid away (its spring takes ~0.9 s): built during the slide,
+            // the two other tabs cost frames and the bar went off in jerks.
+            kotlinx.coroutines.delay(1_100)
             neighbours = 1
         }
         // A tab picked (tapped, an invite, a forward): the pager goes there; a swipe: the tab follows.

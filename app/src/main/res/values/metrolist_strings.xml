@@ -2188,4 +2188,22 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="month_review_numbers">%1$d min · %2$d listens · %3$d new artists</string>
     <string name="month_review_artists">Artists of the month</string>
     <string name="month_review_tracks">Tracks of the month</string>
+    <string name="story_top_artists">Your top artists</string>
+    <string name="story_top_tracks">Your top tracks</string>
+    <string name="story_close">Close</string>
+    <string name="story_open">Open as a story</string>
+    <string name="story_intro_over">Your month in music</string>
+    <string name="story_minutes">minutes of music</string>
+    <string name="story_listens">listens</string>
+    <string name="story_tracks">tracks</string>
+    <string name="story_artists">artists</string>
+    <string name="story_top_artist">Artist of the month</string>
+    <string name="story_listens_minutes">%1$d listens · %2$d min</string>
+    <string name="story_top_track">Track of the month</string>
+    <string name="story_times">%1$d×</string>
+    <string name="story_habits">How you listened</string>
+    <string name="story_busiest_day">the busiest day: %1$d min</string>
+    <string name="story_top_hour">your favourite hour</string>
+    <string name="story_new_artists">new artists discovered</string>
+    <string name="stats_rate_limited">Spotify asks to wait a little: try again in a few minutes</string>
 </resources>
