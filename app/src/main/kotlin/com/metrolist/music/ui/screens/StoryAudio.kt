@@ -37,8 +37,11 @@ class StoryAudio(private val database: MusicDatabase, private val newPlayer: () 
 
     private fun ensurePlayer(): ExoPlayer? = player ?: newPlayer()?.also { player = it }
 
-    /** Plays [songId] (or keeps playing it); null fades the sound out. */
-    fun play(songId: String?) {
+    /**
+     * Plays [songId] (or keeps playing it); null fades the sound out. The new track rises from
+     * silence to full volume by [fullAt] (wall clock): the moment its title shows on the page.
+     */
+    fun play(songId: String?, fullAt: Long = System.currentTimeMillis() + FADE_IN_MS) {
         if (songId == current) return
         current = songId
         job?.cancel()
@@ -57,7 +60,10 @@ class StoryAudio(private val database: MusicDatabase, private val newPlayer: () 
             val length = song.song.duration
             if (length > 60) p.seekTo(length * 1000L / 3)
             p.play()
-            fadeTo(volume, FADE_IN_MS)
+            // The rise starts once the sound is actually there, and still ends on time.
+            val waitUntil = System.currentTimeMillis() + 6_000
+            while (!p.isPlaying && System.currentTimeMillis() < waitUntil) delay(50)
+            fadeTo(volume, (fullAt - System.currentTimeMillis()).coerceAtLeast(MIN_FADE_IN_MS))
         }
     }
 
@@ -70,18 +76,23 @@ class StoryAudio(private val database: MusicDatabase, private val newPlayer: () 
         }
     }
 
+    /** A smooth fade: slow at first when rising (the ear hears loudness that way), even when falling. */
     private suspend fun fadeTo(target: Float, durationMs: Long) {
         val p = player ?: return
         val start = p.volume
-        val steps = 20
+        val steps = 40
+        val rising = target > start
         for (i in 1..steps) {
-            p.volume = start + (target - start) * i / steps
+            val x = i.toFloat() / steps
+            val curve = if (rising) x * x * (3f - 2f * x) * x else x
+            p.volume = start + (target - start) * curve
             delay(durationMs / steps)
         }
     }
 
     private companion object {
-        const val FADE_IN_MS = 1_600L
+        const val FADE_IN_MS = 3_000L
+        const val MIN_FADE_IN_MS = 600L
         const val FADE_OUT_MS = 700L
     }
 }

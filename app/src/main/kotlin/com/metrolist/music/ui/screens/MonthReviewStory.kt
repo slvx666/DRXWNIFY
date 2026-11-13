@@ -100,6 +100,10 @@ private class StoryPage(
     val key: String,
     val durationMs: Long,
     val songId: String? = null,
+    /** When the page's music must be at full volume (from the page's start): when its track or artist shows. */
+    val fullVolumeAtMs: Long = 2_800,
+    /** A long list: laid out from the top (centred it ran off the bottom). */
+    val top: Boolean = false,
     val content: @Composable () -> Unit,
 )
 
@@ -151,7 +155,13 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
     }
 
     // The page's time runs while it isn't paused; at its end the next page comes.
-    LaunchedEffect(index) { progress.snapTo(0f) }
+    // Which page [progress] belongs to: a new page's bar is empty from its very first frame (it
+    // showed the old page's full bar for one frame before going back to the start).
+    var progressFor by remember { mutableIntStateOf(0) }
+    LaunchedEffect(index) {
+        progress.snapTo(0f)
+        progressFor = index
+    }
     LaunchedEffect(index, paused, holding) {
         val page = pages[index]
         if (paused || holding || page.durationMs <= 0) return@LaunchedEffect
@@ -159,7 +169,7 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
         progress.animateTo(1f, tween(left, easing = LinearEasing))
         if (index < pages.lastIndex) go(index + 1)
     }
-    LaunchedEffect(index) { audio.play(pages[index].songId) }
+    LaunchedEffect(index) { audio.play(pages[index].songId, System.currentTimeMillis() + pages[index].fullVolumeAtMs) }
     // Pausing the story holds the pages, not the music: it plays on.
 
     val accent = MaterialTheme.colorScheme.primary
@@ -218,8 +228,8 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
                     modifier = Modifier.fillMaxSize(),
                 ) { i ->
                     Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.fillMaxSize().padding(start = 28.dp, end = 28.dp, top = 96.dp, bottom = 32.dp),
+                        contentAlignment = if (pages[i].top) Alignment.TopCenter else Alignment.Center,
+                        modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, top = if (pages[i].top) 84.dp else 96.dp, bottom = 24.dp),
                     ) {
                         androidx.compose.runtime.CompositionLocalProvider(LocalStoryRestart provides { round++; go(0) }) { pages[i].content() }
                     }
@@ -232,7 +242,7 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
                     pages.forEachIndexed { i, _ ->
                         val fill = when {
                             i < index -> 1f
-                            i == index -> progress.value
+                            i == index -> if (progressFor == index) progress.value else 0f
                             else -> 0f
                         }
                         Box(
@@ -318,17 +328,17 @@ private fun storyPages(r: MonthReview.Review, round: Int = 0): List<StoryPage> =
     r.busiestDay?.let { add(StoryPage("day", 8_000) { BusiestDayPage(r) }) }
     val topTrack = r.topTracks.firstOrNull()
     if (topTrack != null) {
-        add(StoryPage("topTrack", 11_000, topTrack.songId) { TopTrackPage(r, topTrack) })
-        if (r.topTracks.size > 1) add(StoryPage("topTracks", 10_000, topTrack.songId) { RankPage(stringResource(R.string.story_top_tracks), r.topTracks, round = false) })
+        add(StoryPage("topTrack", 11_000, topTrack.songId, fullVolumeAtMs = 2_900) { TopTrackPage(r, topTrack) })
+        if (r.topTracks.size > 1) add(StoryPage("topTracks", 12_000, topTrack.songId, top = true) { TopTracksPage(r.topTracks) })
     }
     val topArtist = r.topArtists.firstOrNull()
     if (topArtist != null) {
-        add(StoryPage("topArtist", 11_000, topArtist.songId) { TopArtistPage(r, topArtist) })
-        if (r.topArtists.size > 1) add(StoryPage("topArtists", 10_000, topArtist.songId) { RankPage(stringResource(R.string.story_top_artists), r.topArtists, round = true) })
+        add(StoryPage("topArtist", 11_000, topArtist.songId, fullVolumeAtMs = 2_900) { TopArtistPage(r, topArtist) })
+        if (r.topArtists.size > 1) add(StoryPage("topArtists", 12_000, topArtist.songId, top = true) { TopArtistsPage(r.topArtists) })
     }
     // The top genre's page plays one of its songs, another one each round.
     val genreSong = r.genreSongs.takeIf { it.isNotEmpty() }?.let { it[kotlin.random.Random(r.month.hashCode() + round * 7919).nextInt(it.size)] }
-    if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000, genreSong) { GenresPage(r) })
+    if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000, genreSong, fullVolumeAtMs = 2_700) { GenresPage(r) })
     add(StoryPage("card", 0) { CardPage(r) })
 }
 
@@ -524,6 +534,148 @@ private fun RankPage(title: String, items: List<MonthReview.Item>, round: Boolea
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * When each place appears: the small ones (from the last up) quickly first, then the top five from
+ * fifth to first with 0.5 / 0.6 / 0.7 / 0.8 / 0.9 s between them — the first comes last.
+ */
+private fun revealTimes(count: Int, top: Int): LongArray {
+    val at = LongArray(count)
+    var t = 600L
+    for (place in (count - 1) downTo top) {
+        at[place] = t
+        t += 70L
+    }
+    if (count > top) t += 350L
+    val gaps = listOf(500L, 600L, 700L, 800L, 900L)
+    for ((step, place) in (minOf(top, count) - 1 downTo 0).withIndex()) {
+        t += gaps.getOrElse(step) { 900L }
+        at[place] = t
+    }
+    return at
+}
+
+/** The top five tracks large, then sixteen more small: eight in each of two columns. */
+@Composable
+private fun TopTracksPage(items: List<MonthReview.Item>) {
+    val at = remember(items.size) { revealTimes(items.size, 5) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Appear(100, durationMs = 800) { Text(stringResource(R.string.story_top_tracks), fontSize = 26.sp, fontWeight = FontWeight.Black) }
+        items.take(5).forEachIndexed { i, item ->
+            Appear(at[i], fromRight = true, durationMs = 900 + i * 60) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${i + 1}", fontSize = 24.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(30.dp))
+                    AsyncImage(
+                        model = item.image,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(46.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(item.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            listOfNotNull(item.subtitle, stringResource(R.string.story_times, item.count)).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+        val rest = items.drop(5).take(16)
+        if (rest.isNotEmpty()) {
+            val half = (rest.size + 1) / 2
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                listOf(0 until half, half until rest.size).forEach { range ->
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        range.forEach { k ->
+                            val item = rest[k]
+                            Appear(at.getOrElse(5 + k) { 600L }, fromRight = true, durationMs = 700) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("${6 + k}", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(24.dp))
+                                    AsyncImage(
+                                        model = item.image,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.size(32.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(item.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(stringResource(R.string.story_times, item.count), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Ten artists: the first largest and each next place a little smaller down to the fifth (4 and 5
+ * alike); places 6–10 as smaller rows under them, three on the left and two on the right. Every one says how many times.
+ */
+@Composable
+private fun TopArtistsPage(items: List<MonthReview.Item>) {
+    val at = remember(items.size) { revealTimes(items.size, 5) }
+    val image = listOf(88, 74, 64, 56, 56)
+    val name = listOf(24, 21, 19, 17, 17)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Appear(100, durationMs = 800) { Text(stringResource(R.string.story_top_artists), fontSize = 28.sp, fontWeight = FontWeight.Black) }
+        items.take(5).forEachIndexed { i, item ->
+            Appear(at[i], fromRight = true, durationMs = 900 + i * 60) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${i + 1}", fontSize = (name[i] + 4).sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(34.dp))
+                    AsyncImage(
+                        model = item.image,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(image[i].dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(item.title, fontSize = name[i].sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(stringResource(R.string.story_times, item.count), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        val rest = items.drop(5).take(5)
+        if (rest.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                listOf(rest.indices.take(3), rest.indices.drop(3)).forEach { column ->
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        column.forEach { k ->
+                            val item = rest[k]
+                            Appear(at.getOrElse(5 + k) { 600L }, fromRight = true, durationMs = 700) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("${6 + k}", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(24.dp))
+                                    AsyncImage(
+                                        model = item.image,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(item.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(stringResource(R.string.story_times, item.count), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

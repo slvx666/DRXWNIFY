@@ -176,7 +176,7 @@ object MonthReview {
             .filter { com.metrolist.music.portrait.Listening.counts(it.event.playTime, it.song.song.duration * 1000L) }
         if (inMonth.size < MIN_LISTENS) return null
         val minutes = inMonth.sumOf { it.event.playTime } / 60_000L
-        val topTracks = inMonth.groupBy { it.song.id }.entries.sortedByDescending { it.value.size }.take(5).map { (_, events) ->
+        val topTracks = inMonth.groupBy { it.song.id }.entries.sortedByDescending { it.value.size }.take(21).map { (_, events) ->
             val e = events.first()
             Item(
                 title = e.song.song.title,
@@ -191,7 +191,7 @@ object MonthReview {
         }
         val artistOf = { e: com.metrolist.music.db.entities.EventWithSong -> e.song.artists.firstOrNull()?.name }
         val topArtists = inMonth.filter { artistOf(it) != null }.groupBy { artistOf(it)!! }.entries
-            .sortedByDescending { it.value.size }.take(5).map { (name, events) ->
+            .sortedByDescending { it.value.size }.take(10).map { (name, events) ->
                 Item(
                     title = name,
                     subtitle = null,

@@ -192,6 +192,27 @@ object FriendsHub {
     val privacy: StateFlow<Privacy> = _privacy
 
     private val _data = MutableStateFlow<Map<String, FriendData>>(emptyMap())
+
+    /**
+     * Friends' names and pictures kept on the phone: a relay that no longer gives an old profile
+     * (or asks for authentication first) used to leave friends without their avatars.
+     */
+    private fun saveFaces() {
+        val faces = org.json.JSONObject()
+        _data.value.forEach { (key, d) ->
+            if (d.avatar != null || d.name != null) faces.put(key, org.json.JSONObject().put("n", d.name ?: "").put("a", d.avatar ?: ""))
+        }
+        prefs?.edit()?.putString("faces", faces.toString())?.apply()
+    }
+
+    private fun loadFaces() {
+        val saved = runCatching { org.json.JSONObject(prefs?.getString("faces", "{}") ?: "{}") }.getOrNull() ?: return
+        val loaded = saved.keys().asSequence().associateWith { key ->
+            val o = saved.getJSONObject(key)
+            FriendData(name = o.optString("n").ifBlank { null }, avatar = o.optString("a").ifBlank { null })
+        }
+        _data.value = loaded + _data.value
+    }
     val data: StateFlow<Map<String, FriendData>> = _data
 
     private val _requests = MutableStateFlow<List<FriendRequest>>(emptyList())
@@ -243,6 +264,11 @@ object FriendsHub {
         this.database = database
         val p = context.getSharedPreferences("friends", Context.MODE_PRIVATE)
         prefs = p
+        loadFaces()
+        // Relays that ask who we are (NIP-42) get it signed with this profile's key.
+        RelayPool.authSigner = { relay, challenge ->
+            secretKey?.let { sk -> Nostr.sign(sk, 22242, listOf(listOf("relay", relay), listOf("challenge", challenge)), "") }
+        }
         p.getString("sk", null)?.let { hex ->
             runCatching {
                 val sk = hex.hexToBytes()
@@ -266,6 +292,11 @@ object FriendsHub {
             _privacy.value = open
             p.edit().putString("privacy", privacyToJson(open).toString()).apply()
             scope.launch { delay(5_000L); publishProfile(); publishLibrary() }
+        }
+        // The profile (name, picture) again every few days: relays drop old events, and friends lost
+        // the avatars of people who set them long ago.
+        if (secretKey != null && System.currentTimeMillis() - p.getLong("profileAt", 0L) > PROFILE_REFRESH_MS) {
+            scope.launch { delay(20_000L); publishProfile() }
         }
         dropSelfFromFriends()
         ensureDeveloperFriend()
@@ -749,6 +780,7 @@ object FriendsHub {
                 else -> return
             }.copy(stamps = stamps)
             _data.value = _data.value + (author to updated)
+            if (field == F_PROFILE) saveFaces()
             if (field == F_PROFILE && updated.name != null) {
                 val friend = _friends.value.firstOrNull { it.pubkey == author }
                 if (friend != null && friend.name != updated.name) {
@@ -849,6 +881,7 @@ object FriendsHub {
     private fun publishProfile() {
         val sk = secretKey ?: return
         val me = _profile.value ?: return
+        prefs?.edit()?.putLong("profileAt", System.currentTimeMillis())?.apply()
         publishPublic(
             F_PROFILE,
             JSONObject().put("name", me.name).put("find", _privacy.value.discoverable)
@@ -1221,6 +1254,9 @@ object FriendsHub {
     }
 
     private const val NOW_DEBOUNCE_MS = 1_500L
+
+    /** How often the profile is sent again by itself. */
+    private const val PROFILE_REFRESH_MS = 3 * 24 * 60 * 60_000L
 
     /** How long past a track's expected end a "playing" still counts (clocks, slow network, buffering). */
     private const val LIVE_SLACK_MS = 3 * 60_000L

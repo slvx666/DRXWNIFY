@@ -67,6 +67,26 @@ internal object RelayPool {
         val bucket = Bucket()
         /** Failed connects in a row: the next try waits longer (reset when one opens). */
         @Volatile var failures = 0
+        /** Subscriptions this relay closed asking for authentication: sent again once it is done. */
+        val waitingForAuth = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        /** The AUTH event sent to this relay (its "OK" means the relay knows who we are now). */
+        @Volatile var authEventId: String? = null
+        @Volatile var challenge: String? = null
+    }
+
+    /**
+     * Signs the relay's authentication event (NIP-42, kind 22242) with this profile's key; set by
+     * FriendsHub. Some relays (relay.damus.io) now answer "auth-required" to the friends' data
+     * queries — profiles with their avatars among them — and send nothing until the client says who it is.
+     */
+    @Volatile
+    var authSigner: ((relay: String, challenge: String) -> NostrEvent?)? = null
+
+    private fun authenticate(relay: Relay) {
+        val challenge = relay.challenge ?: return
+        val event = authSigner?.invoke(relay.url, challenge) ?: return
+        relay.authEventId = event.id
+        relay.socket?.takeIf { relay.open }?.send(JSONArray().put("AUTH").put(event.toJson()).toString())
     }
 
     /** At most [BURST] messages at once, then [PER_SECOND] a second. */
@@ -221,6 +241,8 @@ internal object RelayPool {
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     relay.open = true
+                    relay.challenge = null
+                    relay.authEventId = null
                     relay.failures = 0
                     // Subscriptions that started while this relay was away run here too.
                     val queued = generateSequence { relay.pending.poll() }.toList()
@@ -267,9 +289,25 @@ internal object RelayPool {
         val message = runCatching { JSONArray(text) }.getOrNull() ?: return
         when (message.optString(0)) {
             "EVENT" -> Unit
+            "AUTH" -> {
+                relay.challenge = message.optString(1).takeIf { it.isNotBlank() }
+                if (relay.waitingForAuth.isNotEmpty()) authenticate(relay)
+                return
+            }
             "OK" -> {
                 val ok = message.optBoolean(2)
                 val reason = message.optString(3)
+                // Authenticated: what this relay refused before is asked for again.
+                if (message.optString(1) == relay.authEventId) {
+                    android.util.Log.i(LOG_TAG, "${relay.url} auth ${if (ok) "ok" else "refused: $reason"}")
+                    if (ok) {
+                        val again = relay.waitingForAuth.toList()
+                        relay.waitingForAuth.clear()
+                        again.forEach { id -> subscriptions[id]?.let { sub -> relay.out.trySend(reqMessage(id, sub.filters)) } }
+                        ensureWriter(relay)
+                    }
+                    return
+                }
                 if (!ok) android.util.Log.i(LOG_TAG, "${relay.url} refused ${message.optString(1).take(8)}: $reason")
                 acks[message.optString(1)]?.let { runCatching { it(relay.url, ok, reason) } }
                 return
@@ -279,7 +317,13 @@ internal object RelayPool {
                 return
             }
             "NOTICE", "CLOSED" -> {
-                android.util.Log.i(LOG_TAG, "${relay.url} ${message.optString(0)}: ${message.optString(message.length() - 1)}")
+                val text = message.optString(message.length() - 1)
+                android.util.Log.i(LOG_TAG, "${relay.url} ${message.optString(0)}: $text")
+                // "auth-required": the client says who it is (with the challenge the relay sent), then asks again.
+                if (message.optString(0) == "CLOSED" && text.startsWith("auth-required")) {
+                    relay.waitingForAuth += message.optString(1)
+                    authenticate(relay)
+                }
                 return
             }
             else -> return

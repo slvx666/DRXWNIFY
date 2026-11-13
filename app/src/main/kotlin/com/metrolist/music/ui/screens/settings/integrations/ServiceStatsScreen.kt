@@ -257,11 +257,11 @@ fun MonthReviewBody(r: MonthReview.Review) {
         )
         if (r.topArtists.isNotEmpty()) {
             Text(stringResource(R.string.month_review_artists), style = MaterialTheme.typography.titleSmall)
-            r.topArtists.forEachIndexed { i, a -> Text("${i + 1}. ${a.title} · ${a.count}", style = MaterialTheme.typography.bodyMedium) }
+            r.topArtists.take(5).forEachIndexed { i, a -> Text("${i + 1}. ${a.title} · ${a.count}", style = MaterialTheme.typography.bodyMedium) }
         }
         if (r.topTracks.isNotEmpty()) {
             Text(stringResource(R.string.month_review_tracks), style = MaterialTheme.typography.titleSmall)
-            r.topTracks.forEachIndexed { i, t ->
+            r.topTracks.take(5).forEachIndexed { i, t ->
                 Text(
                     "${i + 1}. " + listOfNotNull(t.subtitle, t.title).joinToString(" – ") + " · ${t.count}",
                     style = MaterialTheme.typography.bodyMedium,
