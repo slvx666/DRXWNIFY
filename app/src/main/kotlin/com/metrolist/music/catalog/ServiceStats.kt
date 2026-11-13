@@ -191,7 +191,7 @@ object MonthReview {
         }
         val artistOf = { e: com.metrolist.music.db.entities.EventWithSong -> e.song.artists.firstOrNull()?.name }
         val topArtists = inMonth.filter { artistOf(it) != null }.groupBy { artistOf(it)!! }.entries
-            .sortedByDescending { it.value.size }.take(10).map { (name, events) ->
+            .sortedByDescending { it.value.size }.take(11).map { (name, events) ->
                 Item(
                     title = name,
                     subtitle = null,

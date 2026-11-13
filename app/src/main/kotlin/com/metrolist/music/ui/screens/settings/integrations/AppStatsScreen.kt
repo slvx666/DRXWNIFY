@@ -23,7 +23,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -58,29 +57,20 @@ import java.time.YearMonth
 /**
  * The app's own statistics, in Integrations: the month in review (any of the last months with
  * listening, as a story), and plain numbers from what is already on the phone — listening, likes,
- * playlists, friends and messages. Read once when the page opens; nothing is asked from the net.
+ * playlists, friends and messages. Nothing is asked from the net. What was read stays in memory
+ * ([StatsCache]): coming back shows it at once — past months don't change, the numbers are read again quietly.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppStatsScreen(navController: NavController) {
     val database = LocalDatabase.current
 
-    data class Numbers(
-        val minutesMonth: Long,
-        val minutesAll: Long,
-        val listensAll: Int,
-        val artistsAll: Int,
-        val liked: Int,
-        val playlists: Int,
-        val friends: Int,
-        val written: Int,
-        val received: Int,
-    )
-
-    var numbers by remember { mutableStateOf<Numbers?>(null) }
-    var months by remember { mutableStateOf<List<MonthReview.Review>>(emptyList()) }
+    val thisMonthNow = remember { YearMonth.now() }
+    val cachedMonths = StatsCache.months?.takeIf { it.first == thisMonthNow }?.second
+    var numbers by remember { mutableStateOf(StatsCache.numbers) }
+    var months by remember { mutableStateOf(cachedMonths ?: emptyList()) }
     var story by remember { mutableStateOf<MonthReview.Review?>(null) }
-    var monthsLoading by remember { mutableStateOf(true) }
+    var monthsLoading by remember { mutableStateOf(cachedMonths == null) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -98,11 +88,13 @@ fun AppStatsScreen(navController: NavController) {
                 friends = com.metrolist.music.friends.FriendsHub.friends.value.size,
                 written = written,
                 received = received,
-            )
+            ).also { StatsCache.numbers = it }
+            if (!monthsLoading) return@withContext
             // The months with enough listening, newest first (the last six).
             months = (1..6).mapNotNull { back ->
                 runCatching { MonthReview.build(database, thisMonth.minusMonths(back.toLong())) }.getOrNull()
             }
+            StatsCache.months = thisMonth to months
             monthsLoading = false
         }
     }
@@ -149,7 +141,7 @@ fun AppStatsScreen(navController: NavController) {
         } else if (months.isEmpty()) {
             Text(stringResource(R.string.app_stats_no_review), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
         }
-        months.forEachIndexed { i, r ->
+        months.forEach { r ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().clickable { story = r }.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -164,8 +156,15 @@ fun AppStatsScreen(navController: NavController) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (i == 0) {
-                    Button(onClick = { story = r }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.story_open)) }
+                // Every month opens as a story: an arrow in a circle says the row is to be tapped.
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+                ) {
+                    Icon(painterResource(R.drawable.navigate_next), contentDescription = stringResource(R.string.story_open), tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -193,6 +192,24 @@ fun AppStatsScreen(navController: NavController) {
             }
         },
     )
+}
+
+private data class Numbers(
+    val minutesMonth: Long,
+    val minutesAll: Long,
+    val listensAll: Int,
+    val artistsAll: Int,
+    val liked: Int,
+    val playlists: Int,
+    val friends: Int,
+    val written: Int,
+    val received: Int,
+)
+
+/** What the statistics page read last, kept while the app lives (the months for the month they were read in). */
+private object StatsCache {
+    @Volatile var numbers: Numbers? = null
+    @Volatile var months: Pair<YearMonth, List<MonthReview.Review>>? = null
 }
 
 @Composable

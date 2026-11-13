@@ -124,7 +124,12 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current
-    val audio = remember { StoryAudio(database) { playerConnection?.service?.createPreviewPlayer() } }
+    val audio = remember {
+        StoryAudio(database) { playerConnection?.service?.createPreviewPlayer() }.also { a ->
+            // As loud as the app's own music would play.
+            runCatching { playerConnection?.service?.playerVolume?.value }.getOrNull()?.let { a.volume = it }
+        }
+    }
     // What was playing pauses while the story plays its own music, and goes on afterwards.
     DisposableEffect(Unit) {
         val wasPlaying = playerConnection?.player?.isPlaying == true
@@ -229,7 +234,7 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
                 ) { i ->
                     Box(
                         contentAlignment = if (pages[i].top) Alignment.TopCenter else Alignment.Center,
-                        modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, top = if (pages[i].top) 84.dp else 96.dp, bottom = 24.dp),
+                        modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, top = if (pages[i].top) 84.dp else 96.dp, bottom = if (pages[i].top) 40.dp else 24.dp),
                     ) {
                         androidx.compose.runtime.CompositionLocalProvider(LocalStoryRestart provides { round++; go(0) }) { pages[i].content() }
                     }
@@ -339,7 +344,8 @@ private fun storyPages(r: MonthReview.Review, round: Int = 0): List<StoryPage> =
     // The top genre's page plays one of its songs, another one each round.
     val genreSong = r.genreSongs.takeIf { it.isNotEmpty() }?.let { it[kotlin.random.Random(r.month.hashCode() + round * 7919).nextInt(it.size)] }
     if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000, genreSong, fullVolumeAtMs = 2_700) { GenresPage(r) })
-    add(StoryPage("card", 0) { CardPage(r) })
+    // The last page keeps the song before it playing to its end.
+    add(StoryPage("card", 0, lastOrNull()?.songId) { CardPage(r) })
 }
 
 /**
@@ -561,11 +567,14 @@ private fun revealTimes(count: Int, top: Int): LongArray {
     return at
 }
 
-/** The top five tracks large, then sixteen more small: eight in each of two columns. */
+/**
+ * The top five tracks large, then sixteen more small: eight in each of two columns. The page's
+ * whole height is used: what is left goes between the rows, not under them.
+ */
 @Composable
 private fun TopTracksPage(items: List<MonthReview.Item>) {
     val at = remember(items.size) { revealTimes(items.size, 5) }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
         Appear(100, durationMs = 800) { Text(stringResource(R.string.story_top_tracks), fontSize = 26.sp, fontWeight = FontWeight.Black) }
         items.take(5).forEachIndexed { i, item ->
             Appear(at[i], fromRight = true, durationMs = 900 + i * 60) {
@@ -575,7 +584,7 @@ private fun TopTracksPage(items: List<MonthReview.Item>) {
                         model = item.image,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(46.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                        modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
                     )
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -596,7 +605,7 @@ private fun TopTracksPage(items: List<MonthReview.Item>) {
             val half = (rest.size + 1) / 2
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 listOf(0 until half, half until rest.size).forEach { range ->
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         range.forEach { k ->
                             val item = rest[k]
                             Appear(at.getOrElse(5 + k) { 600L }, fromRight = true, durationMs = 700) {
@@ -606,7 +615,7 @@ private fun TopTracksPage(items: List<MonthReview.Item>) {
                                         model = item.image,
                                         contentDescription = null,
                                         contentScale = ContentScale.Crop,
-                                        modifier = Modifier.size(32.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                        modifier = Modifier.size(40.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Column(Modifier.weight(1f)) {
@@ -624,15 +633,16 @@ private fun TopTracksPage(items: List<MonthReview.Item>) {
 }
 
 /**
- * Ten artists: the first largest and each next place a little smaller down to the fifth (4 and 5
- * alike); places 6–10 as smaller rows under them, three on the left and two on the right. Every one says how many times.
+ * Eleven artists: the first largest and each next place a little smaller down to the fifth (4 and 5
+ * alike); places 6–11 as smaller rows under them, three on the left and three on the right. Every
+ * one says how many times. Like the tracks, the page's whole height is used.
  */
 @Composable
 private fun TopArtistsPage(items: List<MonthReview.Item>) {
     val at = remember(items.size) { revealTimes(items.size, 5) }
-    val image = listOf(88, 74, 64, 56, 56)
-    val name = listOf(24, 21, 19, 17, 17)
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val image = listOf(96, 84, 74, 66, 66)
+    val name = listOf(25, 22, 20, 18, 18)
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
         Appear(100, durationMs = 800) { Text(stringResource(R.string.story_top_artists), fontSize = 28.sp, fontWeight = FontWeight.Black) }
         items.take(5).forEachIndexed { i, item ->
             Appear(at[i], fromRight = true, durationMs = 900 + i * 60) {
@@ -652,11 +662,11 @@ private fun TopArtistsPage(items: List<MonthReview.Item>) {
                 }
             }
         }
-        val rest = items.drop(5).take(5)
+        val rest = items.drop(5).take(6)
         if (rest.isNotEmpty()) {
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 listOf(rest.indices.take(3), rest.indices.drop(3)).forEach { column ->
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         column.forEach { k ->
                             val item = rest[k]
                             Appear(at.getOrElse(5 + k) { 600L }, fromRight = true, durationMs = 700) {
@@ -666,7 +676,7 @@ private fun TopArtistsPage(items: List<MonthReview.Item>) {
                                         model = item.image,
                                         contentDescription = null,
                                         contentScale = ContentScale.Crop,
-                                        modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                        modifier = Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Column(Modifier.weight(1f)) {
