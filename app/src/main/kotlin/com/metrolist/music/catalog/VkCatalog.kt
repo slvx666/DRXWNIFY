@@ -25,6 +25,7 @@ import com.metrolist.spotify.models.SpotifySearchResult
 import com.metrolist.spotify.models.SpotifySimpleAlbum
 import com.metrolist.spotify.models.SpotifySimpleArtist
 import com.metrolist.spotify.models.SpotifyTrack
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -277,6 +278,7 @@ object VkCatalog {
             pinned = true,
         )
         val context = appContext
+        classifyInBackground(playlists)
         listOf(liked) + playlists.map { p ->
             // A user's playlist that is one artist's record ("Artist - Album") is an album too:
             // the kind decided by its tracks (VK's own tab keeps it) wins over VK's flags.
@@ -306,6 +308,36 @@ object VkCatalog {
             }
         }
     }
+
+    private val backgroundScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
+    @Volatile
+    private var classifyJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * People's playlists whose kind isn't known yet are looked at by their tracks, in the
+     * background (one artist on every track = an album, see VkMusic.isAlbum; kept on the phone):
+     * the library and the transfer window then show them where they belong.
+     */
+    private fun classifyInBackground(playlists: List<VkPlaylist>) {
+        val context = appContext ?: return
+        if (classifyJob?.isActive == true) return
+        val unknown = playlists.filter { it.ownerId > 0 && com.metrolist.music.resolver.VkMusic.knownKind(context, it) == null }
+        if (unknown.isEmpty()) return
+        classifyJob = backgroundScope.launch {
+            var learned = 0
+            for (p in unknown.take(MAX_CLASSIFY)) {
+                if (com.metrolist.music.resolver.VkMusic.isAlbum(context, p) != null) learned++
+                kotlinx.coroutines.delay(400)
+            }
+            if (learned > 0) {
+                myPlaylistsCache = null
+                Catalog.invalidateCaches()
+            }
+        }
+    }
+
+    private const val MAX_CLASSIFY = 200
 
     // ── likes and saved albums ──
 

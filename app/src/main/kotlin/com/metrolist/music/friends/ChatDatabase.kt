@@ -118,6 +118,10 @@ interface ChatDao {
     @Query("SELECT COUNT(*) FROM message WHERE owner = :owner AND mine = 0 AND read = 0 AND deleted = 0")
     fun unreadTotal(owner: String): Flow<Int>
 
+    /** Messages written ([mine]) or received, for the statistics page. */
+    @Query("SELECT COUNT(*) FROM message WHERE owner = :owner AND mine = :mine AND deleted = 0")
+    suspend fun countMessages(owner: String, mine: Boolean): Int
+
     @Query("SELECT * FROM message WHERE owner = :owner AND peer = :peer AND id = :id")
     suspend fun get(owner: String, peer: String, id: String): ChatMessage?
 

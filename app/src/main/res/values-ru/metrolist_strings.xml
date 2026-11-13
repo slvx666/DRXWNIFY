@@ -2189,4 +2189,20 @@
     <string name="story_change_pre">Всё меняется. Даже твои вкусы</string>
     <string name="story_change">Месяц начался с жанра %1$s, а закончился жанром %2$s</string>
     <string name="story_restart">Посмотреть заново</string>
+    <string name="app_stats_title">Статистика</string>
+    <string name="app_stats_desc">Итоги месяца и цифры из приложения</string>
+    <string name="app_stats_reviews">Итоги месяца</string>
+    <string name="app_stats_no_review">Пока мало прослушиваний для итогов месяца</string>
+    <string name="app_stats_review_line">%1$d мин · исполнитель месяца: %2$s</string>
+    <string name="app_stats_listening">Прослушивание</string>
+    <string name="app_stats_minutes_month">Минут в этом месяце</string>
+    <string name="app_stats_minutes_all">Минут всего</string>
+    <string name="app_stats_listens_all">Прослушиваний всего</string>
+    <string name="app_stats_artists_all">Исполнителей услышано</string>
+    <string name="app_stats_liked">Любимых треков</string>
+    <string name="app_stats_playlists">Плейлистов</string>
+    <string name="app_stats_social">Друзья и чаты</string>
+    <string name="app_stats_friends">Друзей</string>
+    <string name="app_stats_written">Сообщений написано</string>
+    <string name="app_stats_received">Сообщений получено</string>
 </resources>

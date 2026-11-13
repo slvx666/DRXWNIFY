@@ -178,13 +178,13 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
                 Modifier
                     .fillMaxSize()
                     .pointerInput(pages.size) {
+                        // Holding pauses; letting go only resumes. Pages flip by swiping.
                         detectTapGestures(
                             onPress = {
                                 holding = true
                                 tryAwaitRelease()
                                 holding = false
                             },
-                            onTap = { offset -> if (offset.x < size.width / 3f) go(index - 1) else go(index + 1) },
                         )
                     }
                     .pointerInput(pages.size) {

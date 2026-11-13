@@ -90,6 +90,13 @@ object ChatHub {
     private val dao get() = database?.dao
     private fun me(): String? = FriendsHub.profile.value?.pubkey
 
+    /** How many messages were written and received here (statistics). */
+    suspend fun messageCounts(): Pair<Int, Int> {
+        val me = me() ?: return 0 to 0
+        val d = dao ?: return 0 to 0
+        return runCatching { d.countMessages(me, true) to d.countMessages(me, false) }.getOrDefault(0 to 0)
+    }
+
     // ── Peers: did they add me, and does their app have chats ────────────────────────────────────
 
     /** [protocol] 0 = no chats in their app; [version] their app's version, when it says. */

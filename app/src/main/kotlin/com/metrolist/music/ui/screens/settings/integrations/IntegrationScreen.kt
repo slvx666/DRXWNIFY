@@ -143,6 +143,12 @@ fun IntegrationScreen(
                     }
                 ),
                 IntegrationCardItem(
+                    icon = painterResource(R.drawable.stats),
+                    title = { Text(stringResource(R.string.app_stats_title)) },
+                    description = { Text(stringResource(R.string.app_stats_desc)) },
+                    onClick = { navController.navigate("settings/integrations/stats") },
+                ),
+                IntegrationCardItem(
                     icon = painterResource(R.drawable.spotify),
                     title = { Text(stringResource(R.string.spotify_integration)) },
                     description = { Text(stringResource(R.string.integration_spotify_description)) },

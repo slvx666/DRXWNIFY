@@ -2234,4 +2234,20 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="story_change_pre">Everything changes. Even your taste</string>
     <string name="story_change">The month began with %1$s and ended with %2$s</string>
     <string name="story_restart">Watch again</string>
+    <string name="app_stats_title">Statistics</string>
+    <string name="app_stats_desc">Month in review and numbers from the app</string>
+    <string name="app_stats_reviews">Month in review</string>
+    <string name="app_stats_no_review">Not enough listening yet for a month in review</string>
+    <string name="app_stats_review_line">%1$d min · artist of the month: %2$s</string>
+    <string name="app_stats_listening">Listening</string>
+    <string name="app_stats_minutes_month">Minutes this month</string>
+    <string name="app_stats_minutes_all">Minutes in all</string>
+    <string name="app_stats_listens_all">Listens in all</string>
+    <string name="app_stats_artists_all">Artists heard</string>
+    <string name="app_stats_liked">Liked tracks</string>
+    <string name="app_stats_playlists">Playlists</string>
+    <string name="app_stats_social">Friends and chats</string>
+    <string name="app_stats_friends">Friends</string>
+    <string name="app_stats_written">Messages written</string>
+    <string name="app_stats_received">Messages received</string>
 </resources>

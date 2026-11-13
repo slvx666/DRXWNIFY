@@ -573,6 +573,10 @@ fun NavGraphBuilder.navigationBuilder(
         com.metrolist.music.ui.screens.settings.integrations.AccountTransferScreen(navController, service)
     }
 
+    composable("settings/integrations/stats") {
+        com.metrolist.music.ui.screens.settings.integrations.AppStatsScreen(navController)
+    }
+
     composable("account_push_local") {
         com.metrolist.music.ui.screens.settings.integrations.PushLocalPlaylistsScreen(navController)
     }

@@ -205,7 +205,7 @@ fun AccountCommonSettings(navController: NavController, service: MetadataSource,
             )
         }
     }
-    if (service == MetadataSource.SPOTIFY || service == MetadataSource.YANDEX) {
+    if (service == MetadataSource.YANDEX) {
         PreferenceGroupTitle(title = stringResource(R.string.account_section_stats))
         PreferenceEntry(
             title = { Text(stringResource(R.string.service_stats_title)) },

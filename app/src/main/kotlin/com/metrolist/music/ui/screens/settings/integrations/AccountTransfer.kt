@@ -89,12 +89,27 @@ private data class Pickable(
 )
 
 /** What the transfer window read of an account, kept a while: reopening it doesn't read it all again. */
-private class TransferLists(
+@kotlinx.serialization.Serializable
+private data class TransferLists(
     val at: Long,
     val entries: List<SpotifyLibraryEntry>,
     val tracks: List<SpotifyTrack>,
     val mainAlbums: Set<String>,
 )
+
+private val transferJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = false }
+
+private fun transferFile(context: android.content.Context, key: String) =
+    java.io.File(context.cacheDir, "transfer_" + key.replace(Regex("[^A-Za-z0-9_]"), "_") + ".json")
+
+/** The lists read last time, from the phone (they show at once, the fresh ones come behind them). */
+private fun readTransfer(context: android.content.Context, key: String): TransferLists? = runCatching {
+    transferFile(context, key).takeIf { it.exists() }?.readText()?.let { transferJson.decodeFromString(TransferLists.serializer(), it) }
+}.getOrNull()
+
+private fun writeTransfer(context: android.content.Context, key: String, lists: TransferLists) {
+    runCatching { transferFile(context, key).writeText(transferJson.encodeToString(TransferLists.serializer(), lists)) }
+}
 
 private val transferCache = java.util.concurrent.ConcurrentHashMap<String, TransferLists>()
 private const val TRANSFER_CACHE_MS = 15 * 60_000L
@@ -126,13 +141,26 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
     // A finished transfer's result was shown already: the window opens on the lists again.
     LaunchedEffect(Unit) { AccountTransfer.clear() }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(from) {
         val cacheKey = "${from.name}>${main?.name}"
-        transferCache[cacheKey]?.takeIf { System.currentTimeMillis() - it.at < TRANSFER_CACHE_MS }?.let { c ->
+        fun show(c: TransferLists) {
             entries = c.entries
             tracks = c.tracks
             mainAlbums = c.mainAlbums
             loading = false
+        }
+        // Read a moment ago: as it is. Read before (even days ago, kept on the phone): shown at once,
+        // and the fresh lists replace it quietly when they arrive — no spinner on every opening.
+        val memory = transferCache[cacheKey]
+        if (memory != null && System.currentTimeMillis() - memory.at < TRANSFER_CACHE_MS) {
+            show(memory)
+            return@LaunchedEffect
+        }
+        val saved = memory ?: withContext(Dispatchers.IO) { readTransfer(context, cacheKey) }
+        saved?.let { show(it) }
+        if (saved != null && System.currentTimeMillis() - saved.at < TRANSFER_CACHE_MS) {
+            transferCache[cacheKey] = saved
             return@LaunchedEffect
         }
         withContext(Dispatchers.IO) {
@@ -146,7 +174,7 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
                     offset += 50
                     if (page.items.isEmpty() || offset >= page.total) break
                 }
-                entries = all.distinctBy { it.uri.ifBlank { it.id } }
+                val freshEntries = all.distinctBy { it.uri.ifBlank { it.id } }
                 val liked = mutableListOf<SpotifyTrack>()
                 offset = 0
                 while (offset < 3000) {
@@ -155,9 +183,8 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
                     offset += 50
                     if (page.items.isEmpty() || offset >= page.total) break
                 }
-                tracks = liked.distinctBy { it.id }
+                val have = HashSet<String>()
                 main?.let { m ->
-                    val have = HashSet<String>()
                     var o = 0
                     while (o < 1000) {
                         val page = Catalog.myLibraryOf(m, "Albums", 50, o).getOrNull() ?: break
@@ -165,10 +192,12 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
                         o += 50
                         if (page.items.isEmpty() || o >= page.total) break
                     }
-                    mainAlbums = have
                 }
-                if (entries.isNotEmpty() || tracks.isNotEmpty()) {
-                    transferCache[cacheKey] = TransferLists(System.currentTimeMillis(), entries, tracks, mainAlbums)
+                if (freshEntries.isNotEmpty() || liked.isNotEmpty()) {
+                    val lists = TransferLists(System.currentTimeMillis(), freshEntries, liked.distinctBy { it.id }, have)
+                    transferCache[cacheKey] = lists
+                    writeTransfer(context, cacheKey, lists)
+                    withContext(Dispatchers.Main) { show(lists) }
                 }
             }
         }
@@ -178,12 +207,23 @@ fun AccountTransferScreen(navController: NavController, from: MetadataSource) {
     val alreadyLabel = main?.let { stringResource(R.string.transfer_already_in, stringResource(serviceNameRes(it))) }.orEmpty()
     val needle = query.trim().lowercase()
     fun matches(vararg texts: String?) = needle.isEmpty() || texts.any { it?.lowercase()?.contains(needle) == true }
+    // Albums already in the main account: matched loosely ("Artist - Title (2024)" in a VK playlist's
+    // name, "(Deluxe)", a year), worked out once per list.
+    val alreadyIds = remember(entries, mainAlbums) {
+        val inMain = mainAlbums.map { it.substringBefore('|') to it.substringAfter('|') }
+        entries.filter { it.kind == SpotifyLibraryEntry.Kind.ALBUM }.filter { e ->
+            val key = albumKey(e.name, e.creator)
+            val a = key.substringBefore('|')
+            val t = key.substringAfter('|')
+            inMain.any { (ma, mt) -> sameAlbum(a, t, ma, mt) }
+        }.map { it.id }.toSet()
+    }
     val rows: List<Pickable> = when (tab) {
         TransferTab.TRACKS -> tracks.filter { matches(it.name, it.artists.joinToString { a -> a.name }) }.map { t ->
             Pickable(t.id, t.name, t.artists.joinToString { it.name }, t.album?.images?.firstOrNull()?.url)
         }
         TransferTab.ALBUMS -> entries.filter { it.kind == SpotifyLibraryEntry.Kind.ALBUM && matches(it.name, it.creator) }.map { e ->
-            Pickable(e.id, e.name, e.creator, e.imageUrl, already = albumKey(e.name, e.creator) in mainAlbums)
+            Pickable(e.id, e.name, e.creator, e.imageUrl, already = e.id in alreadyIds)
         }
         TransferTab.PLAYLISTS -> entries.filter { it.kind == SpotifyLibraryEntry.Kind.PLAYLIST && matches(it.name, it.creator) }.map { e ->
             Pickable(e.id, e.name, e.creator, e.imageUrl)
@@ -448,9 +488,42 @@ fun PushLocalPlaylistsScreen(navController: NavController) {
     )
 }
 
-/** An album's name and first artist, folded, for telling "the same album" across catalogs. */
-private fun albumKey(name: String, artist: String?): String =
-    (name.lowercase().replace(Regex("""\s*[(\[][^)\]]*[)\]]"""), "") + "|" + artist.orEmpty().split(", ").first().lowercase())
-        .replace(Regex("""[^\p{L}\p{N}|]+"""), "")
+/**
+ * An album's first artist and title, folded: "artist|title". A name like "Artist - Title (2024)"
+ * (a VK playlist holding a record) gives both; brackets, years and "deluxe / remastered / EP"
+ * notes are dropped from the title.
+ */
+private fun albumKey(name: String, creator: String?): String {
+    var artist = creator?.split(", ", " & ", " feat. ")?.firstOrNull()?.trim().orEmpty()
+    var title = name
+    val dash = Regex("""\s[-–—]\s""").find(name)
+    if (dash != null) {
+        val before = name.substring(0, dash.range.first)
+        if (artist.isBlank() || fold(before) == fold(artist)) {
+            artist = before
+            title = name.substring(dash.range.last + 1)
+        }
+    }
+    return fold(artist) + "|" + foldTitle(title)
+}
+
+private fun fold(t: String): String = t.lowercase().replace(Regex("""[^\p{L}\p{N}]+"""), "")
+
+private fun foldTitle(t: String): String = fold(
+    t.lowercase()
+        .replace(Regex("""[(\[][^)\]]*[)\]]"""), " ")
+        .replace(Regex("""\b(deluxe|edition|remaster(ed)?|expanded|version|ep|single|lp)\b"""), " ")
+        .replace(Regex("""\b(19|20)\d{2}\b"""), " "),
+)
+
+/** The same record: the same title (or one the start of the other, for longer ones) by the same artist. */
+private fun sameAlbum(artist: String, title: String, mainArtist: String, mainTitle: String): Boolean {
+    if (title.isEmpty() || mainTitle.isEmpty()) return false
+    val titleOk = title == mainTitle ||
+        (minOf(title.length, mainTitle.length) >= 5 && (title.startsWith(mainTitle) || mainTitle.startsWith(title)))
+    if (!titleOk) return false
+    if (artist.isEmpty() || mainArtist.isEmpty()) return title == mainTitle
+    return artist == mainArtist || artist.contains(mainArtist) || mainArtist.contains(artist)
+}
 
 private val AlreadyGreen = androidx.compose.ui.graphics.Color(0xFF4CAF50)
