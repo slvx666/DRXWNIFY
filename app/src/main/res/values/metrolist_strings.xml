@@ -2252,4 +2252,19 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="app_stats_received">Messages received</string>
     <string name="app_stats_reviews_loading">Putting the reviews together…</string>
     <string name="app_stats_scope">Counted from what you played in this app — not your Spotify, Yandex or VK history</string>
+    <string name="story_service_sub">Your %1$s wrap-up: %2$s. Ready?</string>
+    <string name="story_period_short">the last 4 weeks</string>
+    <string name="story_period_medium">the last 6 months</string>
+    <string name="story_period_long">all time</string>
+    <string name="story_period_likes">all your likes</string>
+    <string name="story_service_track_pre">The track you played the most</string>
+    <string name="story_service_artist_pre">The artist you played the most</string>
+    <string name="story_yandex_artist_pre">The artist with the most of your likes</string>
+    <string name="story_in_likes">%d in your likes</string>
+    <string name="story_likes_pre">Your likes in %1$s</string>
+    <string name="story_likes_unit">liked tracks</string>
+    <string name="story_likes_month">The most were in %1$s: %2$d</string>
+    <string name="story_service_card">My %1$s · %2$s</string>
+    <string name="story_card_likes">Likes</string>
+    <string name="story_watch">Watch the wrap-up</string>
 </resources>

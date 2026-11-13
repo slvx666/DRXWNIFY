@@ -39,7 +39,12 @@ object ServiceStats {
     data class MonthCount(val month: String, val count: Int)
 
     @Serializable
-    data class ArtistCount(val name: String, val count: Int)
+    data class ArtistCount(
+        val name: String,
+        val count: Int,
+        /** A liked track of the artist: its cover stands in for a picture, and it plays in the story. */
+        val track: SpotifyTrack? = null,
+    )
 
     @Serializable
     data class YandexStats(val total: Int, val byMonth: List<MonthCount>, val artists: List<ArtistCount>, val at: Long)
@@ -92,10 +97,9 @@ object ServiceStats {
                 MonthCount(m.toString(), months[m] ?: 0)
             }
             val tracks = YandexMusic.allLikedSongs().getOrDefault(emptyList())
-            val artists = tracks.mapNotNull { it.track.artists.firstOrNull()?.name }
-                .groupingBy { it }.eachCount()
-                .entries.sortedByDescending { it.value }.take(15)
-                .map { ArtistCount(it.key, it.value) }
+            val byArtist = tracks.groupBy { it.track.artists.firstOrNull()?.name }.filterKeys { it != null }
+            val artists = byArtist.entries.sortedByDescending { it.value.size }.take(15)
+                .map { (name, liked) -> ArtistCount(name!!, liked.size, liked.first().track) }
             YandexStats(refs.size, byMonth, artists, System.currentTimeMillis()).also { write("yandex", it) }
         }.recoverCatching { e -> saved ?: throw e }
     }
@@ -146,6 +150,19 @@ object MonthReview {
         val genreLate: String? = null,
         /** Songs of the top genre for its page: liked ones, else ones played this month. */
         val genreSongs: List<String> = emptyList(),
+        /**
+         * A service's own tops instead of the app's listening (its name, e.g. "Spotify"): no minutes,
+         * days or genres, and the counts only where the service gives them.
+         */
+        val service: String? = null,
+        /** What the service's tops cover, said on the first page and the card ("the last 4 weeks"). */
+        val period: String? = null,
+        /** Yandex: all the likes, and the month with the most of them. */
+        val likesTotal: Int = 0,
+        val likesBestMonth: YearMonth? = null,
+        val likesBestCount: Int = 0,
+        /** A song not in the app's database (a service's track) by its key: something to play. */
+        val media: (suspend (String) -> androidx.media3.common.MediaItem?)? = null,
     )
 
     private const val PREFS = "month_review"

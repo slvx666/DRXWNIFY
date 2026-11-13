@@ -70,8 +70,9 @@ import java.util.Locale
 
 /**
  * The service's own statistics on the account's page: Spotify's tops (4 weeks / 6 months / all
- * time), Yandex Music's likes by month and most liked artists — and the month in review from the
- * app's history. Not shared with friends.
+ * time), Yandex Music's likes by month and most liked artists — each also as a full-screen
+ * wrap-up story. Only what the service gives (the app's own listening is in Statistics). Not
+ * shared with friends.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,7 +83,8 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
     var yandex by remember { mutableStateOf<ServiceStats.YandexStats?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
-    var review by remember { mutableStateOf<MonthReview.Review?>(null) }
+    var story by remember { mutableStateOf<MonthReview.Review?>(null) }
+    val context = LocalContext.current
 
     LaunchedEffect(service, range) {
         loading = true
@@ -97,11 +99,6 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
             }
         }
         loading = false
-    }
-    LaunchedEffect(Unit) {
-        review = withContext(Dispatchers.IO) {
-            runCatching { MonthReview.build(database, java.time.YearMonth.now().minusMonths(1)) }.getOrNull()
-        }
     }
 
     Column(
@@ -142,6 +139,16 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
         }
         if (service == MetadataSource.SPOTIFY && !loading) {
             spotify?.let { tops ->
+                val period = stringResource(
+                    when (range) {
+                        ServiceStats.Range.SHORT -> R.string.story_period_short
+                        ServiceStats.Range.MEDIUM -> R.string.story_period_medium
+                        ServiceStats.Range.LONG -> R.string.story_period_long
+                    },
+                )
+                if (tops.tracks.isNotEmpty() || tops.artists.isNotEmpty()) {
+                    WatchButton { story = spotifyStory(tops, period, database) }
+                }
                 PreferenceGroupTitle(title = stringResource(R.string.stats_top_artists))
                 tops.artists.take(20).forEachIndexed { i, a ->
                     RankRow(i + 1, a.name, null, a.images.firstOrNull()?.url, round = true) { navController.navigate("spotify_artist/${a.id}") }
@@ -156,6 +163,9 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
         }
         if (service == MetadataSource.YANDEX && !loading) {
             yandex?.let { y ->
+                val period = stringResource(R.string.story_period_likes)
+                val name = stringResource(serviceNameRes(MetadataSource.YANDEX))
+                if (y.artists.isNotEmpty()) WatchButton { story = yandexStory(y, name, period, database) }
                 Text(
                     stringResource(R.string.stats_yandex_total, y.total),
                     style = MaterialTheme.typography.titleMedium,
@@ -167,19 +177,9 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
                 y.artists.forEachIndexed { i, a -> RankRow(i + 1, a.name, a.count.toString(), null, round = true) {} }
             }
         }
-        var showStory by remember { mutableStateOf(false) }
-        review?.let { r ->
-            PreferenceGroupTitle(title = stringResource(R.string.month_review_title, monthName(r.month)))
-            MonthReviewBody(r)
-            androidx.compose.material3.Button(
-                onClick = { showStory = true },
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                shape = com.metrolist.music.ui.theme.tuiButtonShape(),
-            ) { Text(stringResource(R.string.story_open)) }
-            if (showStory) com.metrolist.music.ui.screens.MonthReviewStory(r) { showStory = false }
-        }
         Spacer(Modifier.height(24.dp))
     }
+    story?.let { r -> com.metrolist.music.ui.screens.MonthReviewStory(r) { story = null } }
     TopAppBar(
         title = { Text(stringResource(R.string.service_stats_title) + " · " + stringResource(serviceNameRes(service))) },
         navigationIcon = {
@@ -189,6 +189,90 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
         },
     )
 }
+
+/** Opens the service's wrap-up as a full-screen story. */
+@Composable
+private fun WatchButton(onClick: () -> Unit) {
+    androidx.compose.material3.Button(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = com.metrolist.music.ui.theme.tuiButtonShape(),
+    ) {
+        Icon(painterResource(R.drawable.play), contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(stringResource(R.string.story_watch))
+    }
+}
+
+private fun biggest(images: List<com.metrolist.spotify.models.SpotifyImage>?): String? =
+    images?.maxByOrNull { it.width ?: it.height ?: 0 }?.url ?: images?.firstOrNull()?.url
+
+/**
+ * Spotify's tops as a wrap-up story: 21 tracks and 11 artists, no counts (Spotify doesn't tell how
+ * many times). A track plays from the app's database when it is there, else found the way any
+ * Spotify track is.
+ */
+private fun spotifyStory(
+    tops: ServiceStats.SpotifyTops,
+    period: String,
+    database: com.metrolist.music.db.MusicDatabase,
+): MonthReview.Review {
+    val tracks = tops.tracks.filter { it.id.isNotBlank() }.take(21)
+    val items = tracks.map { t ->
+        MonthReview.Item(title = t.name, subtitle = t.artists.joinToString { it.name }, count = 0, image = biggest(t.album?.images), songId = t.id)
+    }
+    val artists = tops.artists.take(11).map { a ->
+        // The artist's page plays its best placed track, else the top track.
+        val own = tops.tracks.firstOrNull { t -> t.artists.any { it.id == a.id || it.name.equals(a.name, ignoreCase = true) } }
+        MonthReview.Item(title = a.name, subtitle = null, count = 0, image = biggest(a.images), songId = own?.id ?: tracks.firstOrNull()?.id)
+    }
+    val byId = tops.tracks.associateBy { it.id }
+    val mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database)
+    return serviceReview("Spotify", period, items, artists) { id -> byId[id]?.let { mapper.resolveToMediaItem(it) } }
+}
+
+/** Yandex Music's likes as a wrap-up story: how many, the month with the most, the most liked artists. */
+private fun yandexStory(
+    y: ServiceStats.YandexStats,
+    name: String,
+    period: String,
+    database: com.metrolist.music.db.MusicDatabase,
+): MonthReview.Review {
+    val artists = y.artists.take(11).map { a ->
+        MonthReview.Item(title = a.name, subtitle = null, count = a.count, image = biggest(a.track?.album?.images), songId = a.track?.id)
+    }
+    val byId = y.artists.mapNotNull { it.track }.associateBy { it.id }
+    val best = y.byMonth.maxByOrNull { it.count }?.takeIf { it.count > 0 }
+    val mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database)
+    return serviceReview(name, period, emptyList(), artists) { id -> byId[id]?.let { mapper.resolveToMediaItem(it) } }.copy(
+        likesTotal = y.total,
+        likesBestMonth = best?.let { runCatching { java.time.YearMonth.parse(it.month) }.getOrNull() },
+        likesBestCount = best?.count ?: 0,
+    )
+}
+
+private fun serviceReview(
+    service: String,
+    period: String,
+    tracks: List<MonthReview.Item>,
+    artists: List<MonthReview.Item>,
+    media: suspend (String) -> androidx.media3.common.MediaItem?,
+) = MonthReview.Review(
+    month = java.time.YearMonth.now(),
+    minutes = 0,
+    listens = 0,
+    topTracks = tracks,
+    topArtists = artists,
+    newArtists = 0,
+    distinctArtists = 0,
+    distinctTracks = 0,
+    busiestDay = null,
+    busiestDayMinutes = 0,
+    topHour = null,
+    service = service,
+    period = period,
+    media = media,
+)
 
 @Composable
 private fun RankRow(rank: Int, title: String, subtitle: String?, image: String?, round: Boolean = false, onClick: () -> Unit) {

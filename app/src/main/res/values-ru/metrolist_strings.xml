@@ -2207,4 +2207,19 @@
     <string name="app_stats_received">Сообщений получено</string>
     <string name="app_stats_reviews_loading">Собираем итоги…</string>
     <string name="app_stats_scope">Считается по прослушиваниям в этом приложении — без истории Spotify, Яндекса и ВК</string>
+    <string name="story_service_sub">Твои итоги в %1$s: %2$s. Готов?</string>
+    <string name="story_period_short">последние 4 недели</string>
+    <string name="story_period_medium">последние полгода</string>
+    <string name="story_period_long">за всё время</string>
+    <string name="story_period_likes">все твои лайки</string>
+    <string name="story_service_track_pre">Трек, который ты слушал больше всего</string>
+    <string name="story_service_artist_pre">Исполнитель, которого ты слушал больше всех</string>
+    <string name="story_yandex_artist_pre">Больше всего твоих лайков у исполнителя</string>
+    <string name="story_in_likes">в лайках: %d</string>
+    <string name="story_likes_pre">Твоих лайков в %1$s</string>
+    <string name="story_likes_unit">треков с лайком</string>
+    <string name="story_likes_month">Больше всего — в %1$s: %2$d</string>
+    <string name="story_service_card">Мой %1$s · %2$s</string>
+    <string name="story_card_likes">Лайков</string>
+    <string name="story_watch">Смотреть итоги</string>
 </resources>

@@ -23,7 +23,12 @@ import kotlinx.coroutines.withContext
  * track fades in and out; [volume] is the slider on top of the story. The same track asked for
  * again (the next page about it) just goes on.
  */
-class StoryAudio(private val database: MusicDatabase, private val newPlayer: () -> ExoPlayer?) {
+class StoryAudio(
+    private val database: MusicDatabase,
+    /** A song the database doesn't have (a service's track in its own wrap-up): something to play. */
+    private val resolve: (suspend (String) -> androidx.media3.common.MediaItem?)? = null,
+    private val newPlayer: () -> ExoPlayer?,
+) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var player: ExoPlayer? = null
     private var job: Job? = null
@@ -51,14 +56,25 @@ class StoryAudio(private val database: MusicDatabase, private val newPlayer: () 
                 player?.pause()
                 return@launch
             }
-            val song = withContext(Dispatchers.IO) { database.getSongById(songId) } ?: return@launch
+            val song = withContext(Dispatchers.IO) { database.getSongById(songId) }
+            val item = song?.toMediaItem()
+                ?: resolve?.let { r -> withContext(Dispatchers.IO) { runCatching { r(songId) }.getOrNull() } }
+                ?: return@launch
+            if (current != songId) return@launch
             val p = ensurePlayer() ?: return@launch
             p.volume = 0f
-            p.setMediaItem(song.toMediaItem())
+            p.setMediaItem(item)
             p.prepare()
             // A moment from its second third: past the intro, where a track is most itself.
-            val length = song.song.duration
-            if (length > 60) p.seekTo(length * 1000L / 3)
+            val known = song?.song?.duration ?: 0
+            if (known > 60) {
+                p.seekTo(known * 1000L / 3)
+            } else {
+                // A service's track: its length is known once it is loaded.
+                val until = System.currentTimeMillis() + 6_000
+                while (p.duration == androidx.media3.common.C.TIME_UNSET && System.currentTimeMillis() < until) delay(50)
+                if (p.duration != androidx.media3.common.C.TIME_UNSET && p.duration > 60_000) p.seekTo(p.duration / 3)
+            }
             p.play()
             // The rise starts once the sound is actually there, and still ends on time.
             val waitUntil = System.currentTimeMillis() + 6_000

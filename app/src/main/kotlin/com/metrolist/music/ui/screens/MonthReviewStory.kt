@@ -125,9 +125,9 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current
     val audio = remember {
-        StoryAudio(database) { playerConnection?.service?.createPreviewPlayer() }.also { a ->
-            // As loud as the app's own music would play.
-            runCatching { playerConnection?.service?.playerVolume?.value }.getOrNull()?.let { a.volume = it }
+        StoryAudio(database, review.media) { playerConnection?.service?.createPreviewPlayer() }.also { a ->
+            // A little quieter than the app's own music would play; from then on only the slider on top sets it.
+            runCatching { playerConnection?.service?.playerVolume?.value }.getOrNull()?.let { a.volume = it * STORY_VOLUME }
         }
     }
     // What was playing pauses while the story plays its own music, and goes on afterwards.
@@ -303,6 +303,9 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
     }
 }
 
+/** The story's music against the app's volume: a little quieter, under the words. */
+private const val STORY_VOLUME = 0.8f
+
 // ── the pages ──
 
 /** Going back to the first page (the "Watch again" button on the card). */
@@ -315,9 +318,11 @@ private fun monthName(review: MonthReview.Review): String =
     review.month.month.getDisplayName(TextStyle.FULL_STANDALONE, Locale.getDefault()).replaceFirstChar { it.uppercase() }
 
 /** "{month}" in the prepositional case where the language needs it (ru), else the plain name. */
-private fun inMonth(review: MonthReview.Review): String {
-    if (Locale.getDefault().language != "ru") return monthName(review)
-    return when (review.month.monthValue) {
+private fun inMonth(review: MonthReview.Review): String = inMonthOf(review.month)
+
+private fun inMonthOf(month: java.time.YearMonth): String {
+    if (Locale.getDefault().language != "ru") return month.month.getDisplayName(TextStyle.FULL_STANDALONE, Locale.getDefault())
+    return when (month.monthValue) {
         1 -> "январе"; 2 -> "феврале"; 3 -> "марте"; 4 -> "апреле"; 5 -> "мае"; 6 -> "июне"
         7 -> "июле"; 8 -> "августе"; 9 -> "сентябре"; 10 -> "октябре"; 11 -> "ноябре"; else -> "декабре"
     }
@@ -326,7 +331,27 @@ private fun inMonth(review: MonthReview.Review): String {
 private fun dayText(d: java.time.LocalDate): String =
     "${d.dayOfMonth} " + d.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
 
-private fun storyPages(r: MonthReview.Review, round: Int = 0): List<StoryPage> = buildList {
+private fun storyPages(r: MonthReview.Review, round: Int = 0): List<StoryPage> =
+    if (r.service != null) servicePages(r) else appPages(r, round)
+
+/** A service's wrap-up: its tops (and Yandex's likes), no minutes, days or genres. */
+private fun servicePages(r: MonthReview.Review): List<StoryPage> = buildList {
+    add(StoryPage("hello", 4_700) { HelloPage(r) })
+    if (r.likesTotal > 0) add(StoryPage("likes", 8_000) { LikesPage(r) })
+    val topTrack = r.topTracks.firstOrNull()
+    if (topTrack != null) {
+        add(StoryPage("topTrack", 11_000, topTrack.songId, fullVolumeAtMs = 2_900) { TopTrackPage(r, topTrack) })
+        if (r.topTracks.size > 1) add(StoryPage("topTracks", 12_000, topTrack.songId, top = true) { TopTracksPage(r, r.topTracks) })
+    }
+    val topArtist = r.topArtists.firstOrNull()
+    if (topArtist != null) {
+        add(StoryPage("topArtist", 11_000, topArtist.songId, fullVolumeAtMs = 2_900) { TopArtistPage(r, topArtist) })
+        if (r.topArtists.size > 1) add(StoryPage("topArtists", 12_000, topArtist.songId, top = true) { TopArtistsPage(r, r.topArtists) })
+    }
+    add(StoryPage("card", 0, lastOrNull()?.songId) { CardPage(r) })
+}
+
+private fun appPages(r: MonthReview.Review, round: Int): List<StoryPage> = buildList {
     // The text is all there after ~2.1 s; the wait after it is a third shorter than before.
     add(StoryPage("hello", 4_700) { HelloPage(r) })
     add(StoryPage("minutes", 8_000) { MinutesPage(r) })
@@ -334,12 +359,12 @@ private fun storyPages(r: MonthReview.Review, round: Int = 0): List<StoryPage> =
     val topTrack = r.topTracks.firstOrNull()
     if (topTrack != null) {
         add(StoryPage("topTrack", 11_000, topTrack.songId, fullVolumeAtMs = 2_900) { TopTrackPage(r, topTrack) })
-        if (r.topTracks.size > 1) add(StoryPage("topTracks", 12_000, topTrack.songId, top = true) { TopTracksPage(r.topTracks) })
+        if (r.topTracks.size > 1) add(StoryPage("topTracks", 12_000, topTrack.songId, top = true) { TopTracksPage(r, r.topTracks) })
     }
     val topArtist = r.topArtists.firstOrNull()
     if (topArtist != null) {
         add(StoryPage("topArtist", 11_000, topArtist.songId, fullVolumeAtMs = 2_900) { TopArtistPage(r, topArtist) })
-        if (r.topArtists.size > 1) add(StoryPage("topArtists", 12_000, topArtist.songId, top = true) { TopArtistsPage(r.topArtists) })
+        if (r.topArtists.size > 1) add(StoryPage("topArtists", 12_000, topArtist.songId, top = true) { TopArtistsPage(r, r.topArtists) })
     }
     // The top genre's page plays one of its songs, another one each round.
     val genreSong = r.genreSongs.takeIf { it.isNotEmpty() }?.let { it[kotlin.random.Random(r.month.hashCode() + round * 7919).nextInt(it.size)] }
@@ -397,7 +422,8 @@ private fun HelloPage(r: MonthReview.Review) {
         }
         Appear(1_100) {
             Text(
-                stringResource(R.string.story_hello_sub, monthName(r)),
+                if (r.service != null) stringResource(R.string.story_service_sub, r.service, r.period.orEmpty())
+                else stringResource(R.string.story_hello_sub, monthName(r)),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -441,12 +467,49 @@ private fun BusiestDayPage(r: MonthReview.Review) {
     }
 }
 
+/** Yandex: all the likes, counting up, and the month with the most of them. */
+@Composable
+private fun LikesPage(r: MonthReview.Review) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Preface(stringResource(R.string.story_likes_pre, r.service.orEmpty()), 100)
+        Appear(1_400) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CountUp(r.likesTotal.toLong(), 1_400) { Text(it, fontSize = 60.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary) }
+                Text(stringResource(R.string.story_likes_unit), style = MaterialTheme.typography.titleMedium)
+            }
+        }
+        r.likesBestMonth?.let { m ->
+            Appear(3_600) {
+                Text(
+                    stringResource(R.string.story_likes_month, inMonthOf(m), r.likesBestCount),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
+/** How many times, as the review knows it: the app's plays, Yandex's likes, nothing for Spotify. */
+@Composable
+private fun countText(r: MonthReview.Review, item: MonthReview.Item): String? = when {
+    r.service == null -> stringResource(R.string.story_times, item.count)
+    item.count > 0 -> stringResource(R.string.story_in_likes, item.count)
+    else -> null
+}
+
 @Composable
 private fun TopTrackPage(r: MonthReview.Review, top: MonthReview.Item) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // The lead-in, then the track: on the same page.
-        Preface(stringResource(R.string.story_tracks_count, r.distinctTracks), 100)
-        Preface(stringResource(R.string.story_tracks_tease), 1_200)
+        if (r.service != null) {
+            Preface(r.period.orEmpty().replaceFirstChar { it.uppercase() }, 100)
+            Preface(stringResource(R.string.story_service_track_pre), 1_200)
+        } else {
+            Preface(stringResource(R.string.story_tracks_count, r.distinctTracks), 100)
+            Preface(stringResource(R.string.story_tracks_tease), 1_200)
+        }
         Appear(2_800, durationMs = 1_300) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 AsyncImage(
@@ -460,7 +523,7 @@ private fun TopTrackPage(r: MonthReview.Review, top: MonthReview.Item) {
                 top.subtitle?.let { Text(it, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
         }
-        Appear(4_400) {
+        if (r.service == null) Appear(4_400) {
             Text(
                 top.since?.let { stringResource(R.string.story_since_played, dayText(it), top.sinceCount) }
                     ?: stringResource(R.string.story_played_times, top.count),
@@ -475,8 +538,13 @@ private fun TopTrackPage(r: MonthReview.Review, top: MonthReview.Item) {
 @Composable
 private fun TopArtistPage(r: MonthReview.Review, top: MonthReview.Item) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Preface(stringResource(R.string.story_artists_count, r.distinctArtists), 100)
-        Preface(stringResource(R.string.story_artists_tease), 1_200)
+        if (r.service != null) {
+            Preface(r.period.orEmpty().replaceFirstChar { it.uppercase() }, 100)
+            Preface(stringResource(if (r.likesTotal > 0) R.string.story_yandex_artist_pre else R.string.story_service_artist_pre), 1_200)
+        } else {
+            Preface(stringResource(R.string.story_artists_count, r.distinctArtists), 100)
+            Preface(stringResource(R.string.story_artists_tease), 1_200)
+        }
         Appear(2_800, durationMs = 1_300) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 AsyncImage(
@@ -490,7 +558,8 @@ private fun TopArtistPage(r: MonthReview.Review, top: MonthReview.Item) {
             }
         }
         Appear(4_200) {
-            Text(stringResource(R.string.story_listens_minutes, top.count, top.minutes), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            val line = if (r.service == null) stringResource(R.string.story_listens_minutes, top.count, top.minutes) else countText(r, top)
+            line?.let { Text(it, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary) }
         }
         if (top.streakDays > 1) {
             Appear(5_200) {
@@ -572,7 +641,7 @@ private fun revealTimes(count: Int, top: Int): LongArray {
  * whole height is used: what is left goes between the rows, not under them.
  */
 @Composable
-private fun TopTracksPage(items: List<MonthReview.Item>) {
+private fun TopTracksPage(r: MonthReview.Review, items: List<MonthReview.Item>) {
     val at = remember(items.size) { revealTimes(items.size, 5) }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
         Appear(100, durationMs = 800) { Text(stringResource(R.string.story_top_tracks), fontSize = 26.sp, fontWeight = FontWeight.Black) }
@@ -590,7 +659,7 @@ private fun TopTracksPage(items: List<MonthReview.Item>) {
                     Column(Modifier.weight(1f)) {
                         Text(item.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            listOfNotNull(item.subtitle, stringResource(R.string.story_times, item.count)).joinToString(" · "),
+                            listOfNotNull(item.subtitle, countText(r, item)).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -620,7 +689,7 @@ private fun TopTracksPage(items: List<MonthReview.Item>) {
                                     Spacer(Modifier.width(8.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(item.title, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(stringResource(R.string.story_times, item.count), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        countText(r, item)?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                     }
                                 }
                             }
@@ -638,7 +707,7 @@ private fun TopTracksPage(items: List<MonthReview.Item>) {
  * one says how many times. Like the tracks, the page's whole height is used.
  */
 @Composable
-private fun TopArtistsPage(items: List<MonthReview.Item>) {
+private fun TopArtistsPage(r: MonthReview.Review, items: List<MonthReview.Item>) {
     val at = remember(items.size) { revealTimes(items.size, 5) }
     val image = listOf(96, 84, 74, 66, 66)
     val name = listOf(25, 22, 20, 18, 18)
@@ -657,7 +726,7 @@ private fun TopArtistsPage(items: List<MonthReview.Item>) {
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text(item.title, fontSize = name[i].sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(stringResource(R.string.story_times, item.count), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        countText(r, item)?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
             }
@@ -681,7 +750,7 @@ private fun TopArtistsPage(items: List<MonthReview.Item>) {
                                     Spacer(Modifier.width(8.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(item.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(stringResource(R.string.story_times, item.count), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        countText(r, item)?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                     }
                                 }
                             }
@@ -786,7 +855,12 @@ private fun SummaryCard(r: MonthReview.Review) {
             modifier = Modifier.fillMaxWidth().aspectRatio(1.6f).clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest),
         )
-        Text(stringResource(R.string.story_card_title, monthName(r)), fontSize = 22.sp, fontWeight = FontWeight.Black)
+        Text(
+            if (r.service != null) stringResource(R.string.story_service_card, r.service, r.period.orEmpty())
+            else stringResource(R.string.story_card_title, monthName(r)),
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Black,
+        )
         Row(Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f)) {
                 Text(stringResource(R.string.story_top_artists_short), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -798,10 +872,10 @@ private fun SummaryCard(r: MonthReview.Review) {
                 r.topTracks.take(5).forEachIndexed { i, t -> Text("${i + 1} ${t.title}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
         }
-        Row(verticalAlignment = Alignment.Bottom) {
+        if (r.service == null || r.likesTotal > 0) Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.story_minutes), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("%,d".format(r.minutes).replace(',', ' '), fontSize = 26.sp, fontWeight = FontWeight.Black, color = accent)
+                Text(stringResource(if (r.service == null) R.string.story_minutes else R.string.story_card_likes), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("%,d".format(if (r.service == null) r.minutes else r.likesTotal.toLong()).replace(',', ' '), fontSize = 26.sp, fontWeight = FontWeight.Black, color = accent)
             }
             r.genres.firstOrNull()?.let { (g, _) ->
                 Column(horizontalAlignment = Alignment.End) {
@@ -814,7 +888,8 @@ private fun SummaryCard(r: MonthReview.Review) {
     }
 }
 
-private fun cardName(r: MonthReview.Review) = "drxwnify-${r.month}.png"
+private fun cardName(r: MonthReview.Review) =
+    "drxwnify-" + (r.service?.let { it.filter(Char::isLetterOrDigit).lowercase() + "-" } ?: "") + "${r.month}.png"
 
 /** The card as a PNG in the cache (for sharing). */
 private fun saveCard(context: android.content.Context, bitmap: android.graphics.Bitmap, r: MonthReview.Review): File? = runCatching {
