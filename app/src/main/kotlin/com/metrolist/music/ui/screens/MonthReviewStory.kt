@@ -234,7 +234,7 @@ fun MonthReviewStory(review: MonthReview.Review, onDismiss: () -> Unit) {
                 ) { i ->
                     Box(
                         contentAlignment = if (pages[i].top) Alignment.TopCenter else Alignment.Center,
-                        modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, top = if (pages[i].top) 84.dp else 96.dp, bottom = if (pages[i].top) 40.dp else 24.dp),
+                        modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, top = if (pages[i].top) 68.dp else 96.dp, bottom = if (pages[i].top) 40.dp else 24.dp),
                     ) {
                         androidx.compose.runtime.CompositionLocalProvider(LocalStoryRestart provides { round++; go(0) }) { pages[i].content() }
                     }
@@ -644,7 +644,7 @@ private fun revealTimes(count: Int, top: Int): LongArray {
 private fun TopTracksPage(r: MonthReview.Review, items: List<MonthReview.Item>) {
     val at = remember(items.size) { revealTimes(items.size, 5) }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-        Appear(100, durationMs = 800) { Text(stringResource(R.string.story_top_tracks), fontSize = 26.sp, fontWeight = FontWeight.Black) }
+        Appear(100, durationMs = 800) { Text(if (r.service != null) stringResource(R.string.story_service_tracks, r.period.orEmpty()) else stringResource(R.string.story_top_tracks), fontSize = 26.sp, fontWeight = FontWeight.Black) }
         items.take(5).forEachIndexed { i, item ->
             Appear(at[i], fromRight = true, durationMs = 900 + i * 60) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -653,7 +653,7 @@ private fun TopTracksPage(r: MonthReview.Review, items: List<MonthReview.Item>) 
                         model = item.image,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                        modifier = Modifier.size(54.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
                     )
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -674,7 +674,7 @@ private fun TopTracksPage(r: MonthReview.Review, items: List<MonthReview.Item>) 
             val half = (rest.size + 1) / 2
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 listOf(0 until half, half until rest.size).forEach { range ->
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         range.forEach { k ->
                             val item = rest[k]
                             Appear(at.getOrElse(5 + k) { 600L }, fromRight = true, durationMs = 700) {
@@ -684,7 +684,7 @@ private fun TopTracksPage(r: MonthReview.Review, items: List<MonthReview.Item>) 
                                         model = item.image,
                                         contentDescription = null,
                                         contentScale = ContentScale.Crop,
-                                        modifier = Modifier.size(40.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Column(Modifier.weight(1f)) {
@@ -712,7 +712,7 @@ private fun TopArtistsPage(r: MonthReview.Review, items: List<MonthReview.Item>)
     val image = listOf(96, 84, 74, 66, 66)
     val name = listOf(25, 22, 20, 18, 18)
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-        Appear(100, durationMs = 800) { Text(stringResource(R.string.story_top_artists), fontSize = 28.sp, fontWeight = FontWeight.Black) }
+        Appear(100, durationMs = 800) { Text(if (r.service != null) stringResource(R.string.story_service_artists, r.period.orEmpty()) else stringResource(R.string.story_top_artists), fontSize = 28.sp, fontWeight = FontWeight.Black) }
         items.take(5).forEachIndexed { i, item ->
             Appear(at[i], fromRight = true, durationMs = 900 + i * 60) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

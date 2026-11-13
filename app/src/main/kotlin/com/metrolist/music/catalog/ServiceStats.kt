@@ -11,6 +11,7 @@ import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.models.SpotifyArtist
 import com.metrolist.spotify.models.SpotifyTrack
 import com.metrolist.yandex.YandexMusic
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -42,8 +43,10 @@ object ServiceStats {
     data class ArtistCount(
         val name: String,
         val count: Int,
-        /** A liked track of the artist: its cover stands in for a picture, and it plays in the story. */
+        /** A liked track of the artist: it plays in the story. */
         val track: SpotifyTrack? = null,
+        /** The artist's picture from Yandex. */
+        val image: String? = null,
     )
 
     @Serializable
@@ -83,7 +86,8 @@ object ServiceStats {
 
     /** Yandex Music: likes by month (the last 12) and the most liked artists. */
     suspend fun yandexStats(force: Boolean = false): Result<YandexStats> {
-        val saved = read<YandexStats>("yandex")
+        // "yandex2": the copies before it had no artist pictures.
+        val saved = read<YandexStats>("yandex2")
         if (!force && saved != null && System.currentTimeMillis() - saved.at < DAY_MS) return Result.success(saved)
         return runCatching {
             val refs = YandexMusic.likedTrackRefs().getOrThrow()
@@ -98,9 +102,18 @@ object ServiceStats {
             }
             val tracks = YandexMusic.allLikedSongs().getOrDefault(emptyList())
             val byArtist = tracks.groupBy { it.track.artists.firstOrNull()?.name }.filterKeys { it != null }
-            val artists = byArtist.entries.sortedByDescending { it.value.size }.take(15)
-                .map { (name, liked) -> ArtistCount(name!!, liked.size, liked.first().track) }
-            YandexStats(refs.size, byMonth, artists, System.currentTimeMillis()).also { write("yandex", it) }
+            val artists = kotlinx.coroutines.coroutineScope {
+                byArtist.entries.sortedByDescending { it.value.size }.take(15).map { (name, liked) ->
+                    val track = liked.first().track
+                    async {
+                        // The artist's own picture (the liked track names the artist by id).
+                        val picture = track.artists.firstOrNull()?.id?.takeIf { it.isNotBlank() }
+                            ?.let { YandexMusic.artist(it).getOrNull()?.images?.maxByOrNull { img -> img.width ?: 0 }?.url }
+                        ArtistCount(name!!, liked.size, track, picture ?: track.album?.images?.firstOrNull()?.url)
+                    }
+                }.map { it.await() }
+            }
+            YandexStats(refs.size, byMonth, artists, System.currentTimeMillis()).also { write("yandex2", it) }
         }.recoverCatching { e -> saved ?: throw e }
     }
 

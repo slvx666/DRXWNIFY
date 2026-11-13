@@ -174,7 +174,7 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
                 PreferenceGroupTitle(title = stringResource(R.string.stats_likes_by_month))
                 MonthBars(y.byMonth)
                 PreferenceGroupTitle(title = stringResource(R.string.stats_liked_artists))
-                y.artists.forEachIndexed { i, a -> RankRow(i + 1, a.name, a.count.toString(), null, round = true) {} }
+                y.artists.forEachIndexed { i, a -> RankRow(i + 1, a.name, a.count.toString(), a.image, round = true) {} }
             }
         }
         Spacer(Modifier.height(24.dp))
@@ -239,7 +239,7 @@ private fun yandexStory(
     database: com.metrolist.music.db.MusicDatabase,
 ): MonthReview.Review {
     val artists = y.artists.take(11).map { a ->
-        MonthReview.Item(title = a.name, subtitle = null, count = a.count, image = biggest(a.track?.album?.images), songId = a.track?.id)
+        MonthReview.Item(title = a.name, subtitle = null, count = a.count, image = a.image ?: biggest(a.track?.album?.images), songId = a.track?.id)
     }
     val byId = y.artists.mapNotNull { it.track }.associateBy { it.id }
     val best = y.byMonth.maxByOrNull { it.count }?.takeIf { it.count > 0 }
