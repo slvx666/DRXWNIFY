@@ -31,6 +31,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import com.metrolist.music.ui.screens.Screens
+import com.metrolist.music.ui.theme.shell.pulse.pulseEdge
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 
@@ -164,8 +165,34 @@ fun AppNavigationBar(
         return
     }
 
+    // An experimental theme with a bar of its own (same box, same handlers, same tabs).
+    val shell = com.metrolist.music.ui.theme.shell.LocalShell.current
+    if (shell != null && com.metrolist.music.ui.theme.shell.hasOwnNavBar(shell)) {
+        com.metrolist.music.ui.theme.shell.ShellNavBar(
+            shell = shell,
+            tabs = navigationItems.map { screen ->
+                val selected = isRouteSelected(currentRoute, screen.route, navigationItems)
+                com.metrolist.music.ui.theme.shell.ShellTab(
+                    label = stringResource(screen.titleId),
+                    iconActive = screen.iconIdActive,
+                    iconInactive = screen.iconIdInactive,
+                    selected = selected,
+                    onClick = { onItemClick(screen, selected) },
+                    onLongClick = onSearchLongClick?.takeIf { screen == Screens.Search },
+                )
+            },
+            pureBlack = pureBlack,
+            slim = slimNav,
+            modifier = modifier,
+        )
+        return
+    }
+
     NavigationBar(
-        modifier = modifier,
+        modifier = modifier.then(
+            // Pulse: a thin line of the accent on the bar's top edge follows the music.
+            if (shell == com.metrolist.music.ui.theme.shell.ShellTheme.PULSE) Modifier.pulseEdge() else Modifier,
+        ),
         containerColor = containerColor,
         contentColor = contentColor
     ) {

@@ -5283,6 +5283,8 @@ class MusicService :
                         eqProcessor,
                         silenceProcessor,
                         com.metrolist.music.playback.audio.BalanceAudioProcessor(),
+                        // The Pulse theme listens here (passes the sound through untouched).
+                        com.metrolist.music.ui.theme.shell.pulse.PulseTap(),
                     ),
                     SilenceSkippingAudioProcessor(2_000_000, 20_000, 256),
                     SonicAudioProcessor(),

@@ -79,6 +79,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import com.metrolist.music.ui.theme.shell.islandBreath
+import com.metrolist.music.ui.theme.shell.pulse.pulseEdge
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -304,9 +306,28 @@ private fun NewMiniPlayer(
         MiniPlayerBackgroundStyle.GRADIENT   -> MaterialTheme.colorScheme.surfaceContainer
         MiniPlayerBackgroundStyle.PURE_BLACK -> Color.Black
     }
-    val forceLightColors = !useDarkTheme && (miniPlayerBackground == MiniPlayerBackgroundStyle.PURE_BLACK ||
+    // An experimental theme shapes the default mini player its own way (the other styles stay as picked):
+    // Monolith of the frame's colour, Island a dark capsule, Glass frosted, Paper a ruled card.
+    val shell = com.metrolist.music.ui.theme.shell.LocalShell.current
+    val themed = shell != null && miniPlayerBackground == MiniPlayerBackgroundStyle.DEFAULT
+    val islandLook = themed && shell == com.metrolist.music.ui.theme.shell.ShellTheme.ISLAND
+    val glassLook = themed && shell == com.metrolist.music.ui.theme.shell.ShellTheme.GLASS
+    val shellBackground: Color? = if (!themed) null else when (shell) {
+        com.metrolist.music.ui.theme.shell.ShellTheme.MONOLITH -> MaterialTheme.colorScheme.surfaceContainer
+        com.metrolist.music.ui.theme.shell.ShellTheme.ISLAND -> com.metrolist.music.ui.theme.shell.islandColor()
+        com.metrolist.music.ui.theme.shell.ShellTheme.GLASS -> Color.Transparent
+        com.metrolist.music.ui.theme.shell.ShellTheme.PAPER -> MaterialTheme.colorScheme.surface
+        else -> null
+    }
+    val shellShape: androidx.compose.ui.graphics.Shape = when {
+        !themed -> RoundedCornerShape(32.dp).tui()
+        shell == com.metrolist.music.ui.theme.shell.ShellTheme.MONOLITH -> RoundedCornerShape(22.dp)
+        shell == com.metrolist.music.ui.theme.shell.ShellTheme.PAPER -> RoundedCornerShape(4.dp)
+        else -> RoundedCornerShape(32.dp)
+    }
+    val forceLightColors = (!useDarkTheme && (miniPlayerBackground == MiniPlayerBackgroundStyle.PURE_BLACK ||
             miniPlayerBackground == MiniPlayerBackgroundStyle.BLUR ||
-            miniPlayerBackground == MiniPlayerBackgroundStyle.GRADIENT)
+            miniPlayerBackground == MiniPlayerBackgroundStyle.GRADIENT)) || (islandLook && !useDarkTheme)
 
     val primaryColor = if (forceLightColors) Color.White else MaterialTheme.colorScheme.primary
     val outlineColor = if (forceLightColors) Color.White else MaterialTheme.colorScheme.outline
@@ -389,10 +410,22 @@ private fun NewMiniPlayer(
                     .then(if (isTabletLandscape) Modifier.width(500.dp).align(Alignment.Center) else Modifier.fillMaxWidth())
                     .height(64.dp)
                     .offset { IntOffset(offsetXAnimatable.value.roundToInt(), 0) }
-                    .clip(RoundedCornerShape(32.dp).tui())
-                    .background(color = backgroundColor)
-                    .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(32.dp).tui()),
+                    .then(if (islandLook) Modifier.islandBreath() else Modifier)
+                    .clip(shellShape)
+                    .background(color = shellBackground ?: backgroundColor)
+                    .then(
+                        when {
+                            !themed -> Modifier.border(1.dp, outlineColor.copy(alpha = 0.3f), shellShape)
+                            shell == com.metrolist.music.ui.theme.shell.ShellTheme.PAPER ->
+                                Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant, shellShape)
+                            islandLook -> Modifier.border(1.dp, Color.White.copy(alpha = 0.08f), shellShape)
+                            else -> Modifier
+                        },
+                    )
+                    // Pulse: the top edge follows the music.
+                    .then(if (shell == com.metrolist.music.ui.theme.shell.ShellTheme.PULSE) Modifier.pulseEdge() else Modifier),
         ) {
+            if (glassLook) com.metrolist.music.ui.theme.shell.GlassFill(Modifier.matchParentSize())
             when (miniPlayerBackground) {
                 MiniPlayerBackgroundStyle.BLUR -> {
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
@@ -505,6 +538,8 @@ private fun NewMiniPlayer(
                 )
                 }
             }
+            // Island: a like or an unlike shows in the capsule for a moment.
+            if (islandLook) com.metrolist.music.ui.theme.shell.IslandNotes(playerConnection, Modifier.matchParentSize())
         }
     }
 }

@@ -234,6 +234,9 @@ fun PortraitThemeLayout(
             onSelectedThemeColorChange = onSelectedThemeColorChange
         )
 
+        // At the very bottom: the experimental themes.
+        ExperimentalThemesSection(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp))
+
         Spacer(modifier = Modifier.height(120.dp))
     }
 }
@@ -290,6 +293,8 @@ fun LandscapeThemeLayout(
                 selectedThemeColor = selectedThemeColor,
                 onSelectedThemeColorChange = onSelectedThemeColorChange
             )
+
+            ExperimentalThemesSection(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp))
 
             Spacer(modifier = Modifier.height(80.dp))
         }

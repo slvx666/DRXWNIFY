@@ -184,6 +184,7 @@ import com.metrolist.music.ui.theme.ColorSaver
 import com.metrolist.music.ui.theme.DefaultThemeColor
 import com.metrolist.music.ui.theme.MetrolistTheme
 import com.metrolist.music.ui.theme.extractThemeColor
+import com.metrolist.music.ui.theme.shell.backdropSource
 import com.metrolist.music.ui.utils.appBarScrollBehavior
 import com.metrolist.music.ui.utils.resetHeightOffset
 import com.metrolist.music.utils.SyncUtils
@@ -387,6 +388,8 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // An experimental theme that crashes the app is switched off for the next start.
+        com.metrolist.music.ui.theme.shell.ShellGuard.install(this)
         // Debug builds only: `--ez drxw_render_previews true` draws the widget picker previews.
         if (BuildConfig.DEBUG && intent?.getBooleanExtra("drxw_render_previews", false) == true) {
             lifecycleScope.launch(Dispatchers.Default) {
@@ -564,6 +567,17 @@ class MainActivity : ComponentActivity() {
             defaultValue = com.metrolist.music.ui.theme.AppThemePreset.STANDARD,
         )
         val themeAnimations by rememberPreference(com.metrolist.music.constants.ThemeAnimationsKey, defaultValue = true)
+        // An experimental theme takes over the palette (the standard one; Paper its own) — unless it
+        // crashed the app last time (ShellGuard), then the standard look until it is picked again.
+        val pickedShell by rememberEnumPreference(
+            com.metrolist.music.constants.ExperimentalThemeKey,
+            defaultValue = com.metrolist.music.ui.theme.shell.ShellTheme.NONE,
+        )
+        val shellTheme = remember(pickedShell) {
+            com.metrolist.music.ui.theme.shell.ShellGuard.effective(pickedShell)
+                .takeIf { it != com.metrolist.music.ui.theme.shell.ShellTheme.NONE }
+        }
+        val effectivePreset = if (shellTheme != null) com.metrolist.music.ui.theme.AppThemePreset.STANDARD else appThemePreset
         val selectedThemeColor = Color(selectedThemeColorInt)
 
         val showChangelog = rememberSaveable { mutableStateOf(false) }
@@ -620,13 +634,17 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        com.metrolist.music.ui.theme.ThemeRuntime.preset = appThemePreset
+        com.metrolist.music.ui.theme.ThemeRuntime.preset = effectivePreset
+        com.metrolist.music.ui.theme.shell.ShellRuntime.theme = shellTheme
+        com.metrolist.music.ui.theme.shell.ShellRuntime.calm =
+            !themeAnimations || com.metrolist.music.ui.theme.shell.systemReducesMotion(this)
         MetrolistTheme(
             darkTheme = useDarkTheme,
             pureBlack = pureBlack,
             themeColor = themeColor,
-            preset = appThemePreset,
+            preset = effectivePreset,
             animations = themeAnimations,
+            shell = shellTheme,
         ) {
             BoxWithConstraints(
                 modifier =
@@ -1199,6 +1217,9 @@ class MainActivity : ComponentActivity() {
 
                             // Pre-calculate values for graphicsLayer to avoid reading state during composition
                             val navBarTotalHeight = bottomInset + NavigationBarHeight
+                            // Glass, Island and Orbit float their bar over the pages: no opaque band behind it.
+                            val floatingNav = com.metrolist.music.ui.theme.shell.LocalShell.current
+                                .let { com.metrolist.music.ui.theme.shell.isFloatingNav(it) }
 
                             if (!showRail && currentRoute != "wrapped") {
                                 Box {
@@ -1222,7 +1243,7 @@ class MainActivity : ComponentActivity() {
                                                         },
                                                     )
                                                     .graphicsLayer {
-                                                        alpha = (1f - playerBottomSheetState.progress * 4f).coerceIn(0f, 1f)
+                                                        alpha = if (floatingNav) 0f else (1f - playerBottomSheetState.progress * 4f).coerceIn(0f, 1f)
                                                         // Goes down with the mini player (a chat's sticker panel).
                                                         translationY = miniPlayerHide.toPx()
                                                     }.background(baseBg),
@@ -1280,7 +1301,7 @@ class MainActivity : ComponentActivity() {
                                                 .graphicsLayer {
                                                     val progress = playerBottomSheetState.progress
                                                     alpha =
-                                                        if (progress > 0f ||
+                                                        if (floatingNav || progress > 0f ||
                                                             (useNewMiniPlayerDesign && !shouldShowNavigationBar)
                                                         ) {
                                                             0f
@@ -1371,13 +1392,18 @@ class MainActivity : ComponentActivity() {
                                     onSearchLongClick = onRailSearchLongClick,
                                 )
                             }
-                            Box(Modifier.weight(1f)) {
+                            // Glass theme: the pages are recorded for the frosted panels over them.
+                            Box(Modifier.weight(1f).backdropSource()) {
                                 // Under the pages: the theme's background art (sakura petals, drifting code)
                                 // shows only where a page is see-through, never over covers or text.
                                 com.metrolist.music.ui.theme.ThemeContentBackground(
                                     visible = (currentRoute == "home" || currentRoute == "library") &&
                                         !playerBottomSheetState.isExpanded,
                                 )
+                                // An experimental theme brings its own page transitions (ShellTransitions);
+                                // without one, or for Pulse, the standard ones below.
+                                val shellNow = com.metrolist.music.ui.theme.shell.LocalShell.current
+                                val tabRoutes = remember(navigationItems) { navigationItems.map { it.route } }
                                 // NavHost with animations (Material 3 Expressive style)
                                 NavHost(
                                     navController = navController,
@@ -1389,6 +1415,7 @@ class MainActivity : ComponentActivity() {
                                         }.route,
                                     // Enter Transition - smoother with smaller offset and longer duration
                                     enterTransition = {
+                                        com.metrolist.music.ui.theme.shell.ShellTransitions.enter(shellNow, this, tabRoutes) ?: run {
                                         val currentRouteIndex =
                                             navigationItems.indexOfFirst {
                                                 it.route == targetState.destination.route
@@ -1403,9 +1430,11 @@ class MainActivity : ComponentActivity() {
                                         } else {
                                             slideInHorizontally(tween(200)) { -it / 8 } + fadeIn(tween(200))
                                         }
+                                        }
                                     },
                                     // Exit Transition - smoother with smaller offset and longer duration
                                     exitTransition = {
+                                        com.metrolist.music.ui.theme.shell.ShellTransitions.exit(shellNow, this, tabRoutes) ?: run {
                                         val currentRouteIndex =
                                             navigationItems.indexOfFirst {
                                                 it.route == initialState.destination.route
@@ -1420,9 +1449,11 @@ class MainActivity : ComponentActivity() {
                                         } else {
                                             slideOutHorizontally(tween(200)) { it / 8 } + fadeOut(tween(200))
                                         }
+                                        }
                                     },
                                     // Pop Enter Transition - smoother with smaller offset and longer duration
                                     popEnterTransition = {
+                                        com.metrolist.music.ui.theme.shell.ShellTransitions.popEnter(shellNow, this, tabRoutes) ?: run {
                                         val currentRouteIndex =
                                             navigationItems.indexOfFirst {
                                                 it.route == targetState.destination.route
@@ -1437,9 +1468,11 @@ class MainActivity : ComponentActivity() {
                                         } else {
                                             slideInHorizontally(tween(200)) { -it / 8 } + fadeIn(tween(200))
                                         }
+                                        }
                                     },
                                     // Pop Exit Transition - smoother with smaller offset and longer duration
                                     popExitTransition = {
+                                        com.metrolist.music.ui.theme.shell.ShellTransitions.popExit(shellNow, this, tabRoutes) ?: run {
                                         val currentRouteIndex =
                                             navigationItems.indexOfFirst {
                                                 it.route == initialState.destination.route
@@ -1454,8 +1487,20 @@ class MainActivity : ComponentActivity() {
                                         } else {
                                             slideOutHorizontally(tween(200)) { it / 8 } + fadeOut(tween(200))
                                         }
+                                        }
                                     },
-                                    modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
+                                    modifier = Modifier
+                                        .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)
+                                        // Stack: the page follows the finger pulling its handle down.
+                                        .graphicsLayer {
+                                            val pull = com.metrolist.music.ui.theme.shell.StackDrag.offset
+                                            if (pull != 0f) {
+                                                translationY = pull
+                                                val s = 1f - 0.04f * (pull / size.height).coerceIn(0f, 1f)
+                                                scaleX = s
+                                                scaleY = s
+                                            }
+                                        },
                                 ) {
                                     navigationBuilder(
                                         navController = navController,
@@ -1465,6 +1510,8 @@ class MainActivity : ComponentActivity() {
                                         snackbarHostState = snackbarHostState,
                                     )
                                 }
+                                // Monolith: the frame the pages are cut into (nothing in other themes).
+                                com.metrolist.music.ui.theme.shell.ShellPageFrame(navController, tabRoutes)
                                 // Share buttons: as a file, as a link, or to a chat.
                                 com.metrolist.music.ui.component.ShareSheetHost(navController)
                                 // "Back" while a screen is still opening was lost: settings takes over half
