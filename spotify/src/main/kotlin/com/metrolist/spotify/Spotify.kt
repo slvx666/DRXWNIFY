@@ -998,6 +998,7 @@ object Spotify {
                     albumType = data.str("type")?.lowercase(),
                     pinned = pinned, addedAt = addedAt,
                     year = gqlReleaseDate(data.obj("date"))?.take(4)?.toIntOrNull(),
+                    releaseDate = gqlReleaseDate(data.obj("date")),
                 )
             }
             typeName.contains("Artist", true) -> {

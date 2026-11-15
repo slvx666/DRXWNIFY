@@ -30,4 +30,11 @@ object Listening {
     }
 
     fun counts(playedMs: Long, durationMs: Long): Boolean = playedMs >= neededMs(durationMs)
+
+    /**
+     * A listen in the history, looked at again later: the player already saved it by [counts], but
+     * the track's length in the database can differ from the one it had then (unknown, or found out
+     * later), and the floor may have been changed since. Any listen past the floor stays a listen.
+     */
+    fun kept(playedMs: Long, durationMs: Long): Boolean = playedMs >= minOf(neededMs(durationMs), floorMs)
 }

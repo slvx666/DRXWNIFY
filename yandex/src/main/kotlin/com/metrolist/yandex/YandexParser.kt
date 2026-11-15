@@ -262,6 +262,8 @@ object YandexParser {
         addedAt = addedAt,
         totalCount = totalCount,
         year = a.releaseDate?.take(4)?.toIntOrNull(),
+        // Yandex gives the date with a time ("2023-05-12T00:00:00+03:00"): the day is enough.
+        releaseDate = a.releaseDate?.take(10)?.takeIf { it.isNotBlank() },
     )
 
     fun artistEntry(a: SpotifyArtist, addedAt: String? = null) = SpotifyLibraryEntry(

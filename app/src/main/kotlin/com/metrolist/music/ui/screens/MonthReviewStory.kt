@@ -332,10 +332,10 @@ private fun dayText(d: java.time.LocalDate): String =
     "${d.dayOfMonth} " + d.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
 
 private fun storyPages(r: MonthReview.Review, round: Int = 0): List<StoryPage> =
-    if (r.service != null) servicePages(r) else appPages(r, round)
+    if (r.service != null) servicePages(r, round) else appPages(r, round)
 
-/** A service's wrap-up: its tops (and Yandex's likes), no minutes, days or genres. */
-private fun servicePages(r: MonthReview.Review): List<StoryPage> = buildList {
+/** A service's wrap-up: its tops (and Yandex's likes) and the genres they make, no minutes or days. */
+private fun servicePages(r: MonthReview.Review, round: Int): List<StoryPage> = buildList {
     add(StoryPage("hello", 4_700) { HelloPage(r) })
     if (r.likesTotal > 0) add(StoryPage("likes", 8_000) { LikesPage(r) })
     val topTrack = r.topTracks.firstOrNull()
@@ -348,8 +348,14 @@ private fun servicePages(r: MonthReview.Review): List<StoryPage> = buildList {
         add(StoryPage("topArtist", 11_000, topArtist.songId, fullVolumeAtMs = 2_900) { TopArtistPage(r, topArtist) })
         if (r.topArtists.size > 1) add(StoryPage("topArtists", 12_000, topArtist.songId, top = true) { TopArtistsPage(r, r.topArtists) })
     }
+    // Second to last, as in the app's own review: the genres the tops make.
+    if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000, genreSong(r, round), fullVolumeAtMs = 2_700) { GenresPage(r) })
     add(StoryPage("card", 0, lastOrNull()?.songId) { CardPage(r) })
 }
+
+/** A song of the top genre for its page, another one each round. */
+private fun genreSong(r: MonthReview.Review, round: Int): String? =
+    r.genreSongs.takeIf { it.isNotEmpty() }?.let { it[kotlin.random.Random(r.month.hashCode() + round * 7919).nextInt(it.size)] }
 
 private fun appPages(r: MonthReview.Review, round: Int): List<StoryPage> = buildList {
     // The text is all there after ~2.1 s; the wait after it is a third shorter than before.
@@ -367,8 +373,7 @@ private fun appPages(r: MonthReview.Review, round: Int): List<StoryPage> = build
         if (r.topArtists.size > 1) add(StoryPage("topArtists", 12_000, topArtist.songId, top = true) { TopArtistsPage(r, r.topArtists) })
     }
     // The top genre's page plays one of its songs, another one each round.
-    val genreSong = r.genreSongs.takeIf { it.isNotEmpty() }?.let { it[kotlin.random.Random(r.month.hashCode() + round * 7919).nextInt(it.size)] }
-    if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000, genreSong, fullVolumeAtMs = 2_700) { GenresPage(r) })
+    if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000, genreSong(r, round), fullVolumeAtMs = 2_700) { GenresPage(r) })
     // The last page keeps the song before it playing to its end.
     add(StoryPage("card", 0, lastOrNull()?.songId) { CardPage(r) })
 }
@@ -767,7 +772,8 @@ private fun GenresPage(r: MonthReview.Review) {
     val max = r.genres.maxOf { it.second }.coerceAtLeast(1)
     fun label(g: String) = com.metrolist.music.portrait.Genres.displayName(g) ?: g
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Preface(stringResource(R.string.story_change_pre), 100)
+        // A service's tops have no months to compare: what the taste is made of instead.
+        Preface(stringResource(if (r.service != null) R.string.story_service_genres_pre else R.string.story_change_pre), 100)
         // How the taste moved over the month, when it did.
         val early = r.genreEarly
         val late = r.genreLate

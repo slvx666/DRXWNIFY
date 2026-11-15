@@ -123,7 +123,7 @@ object ServiceStats {
 /**
  * The month in review: minutes, listens, top tracks and artists of the last calendar month, from
  * the listening history in the app. Shown once when the app is first opened in a new month (when
- * the month had any listening).
+ * the month had at least [MIN_TRACKS] tracks by [MIN_ARTISTS] artists).
  */
 object MonthReview {
     /** A track or an artist of the month, with how many listens and its picture. */
@@ -203,8 +203,10 @@ object MonthReview {
         val end = month.plusMonths(1).atDay(1).atStartOfDay()
         val all = database.events().first()
         val inMonth = all.filter { it.event.timestamp >= start && it.event.timestamp < end }
-            .filter { com.metrolist.music.portrait.Listening.counts(it.event.playTime, it.song.song.duration * 1000L) }
-        if (inMonth.size < MIN_LISTENS) return null
+            .filter { com.metrolist.music.portrait.Listening.kept(it.event.playTime, it.song.song.duration * 1000L) }
+        // Anything to make pages of: two tracks and two artists are enough (a page without data is left out).
+        if (inMonth.map { it.song.id }.toSet().size < MIN_TRACKS) return null
+        if (inMonth.mapNotNull { it.song.artists.firstOrNull()?.name }.toSet().size < MIN_ARTISTS) return null
         val minutes = inMonth.sumOf { it.event.playTime } / 60_000L
         val topTracks = inMonth.groupBy { it.song.id }.entries.sortedByDescending { it.value.size }.take(21).map { (_, events) ->
             val e = events.first()
@@ -288,7 +290,38 @@ object MonthReview {
         )
     }
 
-    private const val MIN_LISTENS = 10
+    /** The least a review is made of — the app's, Spotify's and Yandex's alike. */
+    const val MIN_TRACKS = 2
+    const val MIN_ARTISTS = 2
+
+    /**
+     * A month can be looked at from its second day: the current one too (as far as it went), not
+     * only the months before.
+     */
+    fun months(back: Int, today: java.time.LocalDate = java.time.LocalDate.now()): List<YearMonth> {
+        val now = YearMonth.from(today)
+        val first = if (today.dayOfMonth >= 2) 0 else 1
+        return (first..back).map { now.minusMonths(it.toLong()) }
+    }
+
+    /**
+     * A genre portrait from a service's tops: each artist's genres (Last.fm, else MusicBrainz) count
+     * by the artist's [weights], the biggest five first. The lookups go on in the background past
+     * [waitMs] (the next look has them); what is known by then is used.
+     */
+    suspend fun genrePortrait(weights: Map<String, Int>, waitMs: Long = 12_000): List<Pair<String, Int>> {
+        val names = weights.entries.filter { it.key.isNotBlank() }.sortedByDescending { it.value }.take(25).map { it.key }
+        if (names.isEmpty()) return emptyList()
+        val lookup = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).async {
+            runCatching { com.metrolist.music.portrait.Genres.ensure(names) }
+        }
+        kotlinx.coroutines.withTimeoutOrNull(waitMs) { lookup.await() }
+        val counts = HashMap<String, Int>()
+        names.forEach { name ->
+            com.metrolist.music.portrait.Genres.cached(name).take(2).forEach { g -> counts.merge(g, weights[name] ?: 0, Int::plus) }
+        }
+        return counts.entries.sortedByDescending { it.value }.take(5).map { it.key to it.value }
+    }
 
     /** The longest run of consecutive days in [days]. */
     private fun longestRun(days: Set<java.time.LocalDate>): Int {

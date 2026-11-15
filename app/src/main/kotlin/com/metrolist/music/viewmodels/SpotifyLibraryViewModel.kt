@@ -57,10 +57,11 @@ class SpotifyLibraryViewModel @Inject constructor(
     val yearFilter: StateFlow<Int?> = _yearFilter.asStateFlow()
 
     /**
-     * Release years read album by album, for libraries that don't tell them with the list (Spotify's
-     * may not): album id → year. Asked only while the Year order is on, a few at a time.
+     * Release dates read album by album, for libraries that don't tell them with the list (Spotify's
+     * may not): album id → "2025-03-14" (or just the year). Asked only while the Year order is on,
+     * a few at a time.
      */
-    private val fetchedYears = MutableStateFlow<Map<String, Int>>(emptyMap())
+    private val fetchedYears = MutableStateFlow<Map<String, String>>(emptyMap())
     private var yearJob: Job? = null
 
     /**
@@ -256,7 +257,11 @@ class SpotifyLibraryViewModel @Inject constructor(
                 if (e.kind == SpotifyLibraryEntry.Kind.ALBUM) "album:" + e.name.trim().lowercase() + "|" + e.creator.orEmpty().trim().lowercase() else e.kind.name + e.id
             }
             val withYears = merged.map { e ->
-                if (e.kind == SpotifyLibraryEntry.Kind.ALBUM && e.year == null) years[e.id]?.let { e.copy(year = it) } ?: e else e
+                if (e.kind == SpotifyLibraryEntry.Kind.ALBUM && e.releaseDate == null) {
+                    years[e.id]?.let { date -> e.copy(year = e.year ?: date.take(4).toIntOrNull(), releaseDate = date) } ?: e
+                } else {
+                    e
+                }
             }
             // The Year order belongs to Albums; elsewhere the list keeps the usual recents order.
             val effective = if (s == Sort.YEAR && f != Filter.ALBUMS) Sort.RECENTS else s
@@ -288,7 +293,9 @@ class SpotifyLibraryViewModel @Inject constructor(
         if (yearJob?.isActive == true) return
         yearJob = viewModelScope.launch(Dispatchers.IO) {
             val missing = unfilteredEntries.value
-                .filter { it.kind == SpotifyLibraryEntry.Kind.ALBUM && it.year == null && it.id.isNotBlank() }
+                // Albums without a year, and those with only a year from a source that has dates.
+                .filter { it.kind == SpotifyLibraryEntry.Kind.ALBUM && it.releaseDate == null && it.id.isNotBlank() }
+                .filterNot { it.year != null && it.uri.startsWith("vk:") }
                 .filterNot { it.uri.startsWith(APP_ALBUM_URI_PREFIX) || it.id in fetchedYears.value }
                 .map { it.id }
                 .distinct()
@@ -300,7 +307,7 @@ class SpotifyLibraryViewModel @Inject constructor(
                         async {
                             gate.acquire()
                             try {
-                                id to Catalog.album(id).getOrNull()?.releaseDate?.take(4)?.toIntOrNull()
+                                id to Catalog.album(id).getOrNull()?.releaseDate?.take(10)?.takeIf { it.take(4).toIntOrNull() != null }
                             } finally {
                                 gate.release()
                             }
@@ -496,11 +503,13 @@ class SpotifyLibraryViewModel @Inject constructor(
                 compareBy<SpotifyLibraryEntry, String>(collator) { it.creator ?: it.name }
                     .thenBy(collator) { it.name },
             )
-            // Newest release first; within a year by artist, then title. Unknown years go last.
+            // Newest release first, by the day where it is known (a release known only by its year
+            // goes after that year's dated ones); then by artist and title. Unknown years go last.
             Sort.YEAR -> {
                 val (known, unknown) = (own + rest).partition { it.year != null }
                 val byYear = known.sortedWith(
                     compareByDescending<SpotifyLibraryEntry> { it.year }
+                        .thenByDescending { it.releaseDate?.takeIf { d -> d.startsWith(it.year.toString()) }.orEmpty() }
                         .thenBy(collator) { it.creator ?: it.name }
                         .thenBy(collator) { it.name },
                 )

@@ -2224,4 +2224,5 @@
     <string name="story_watch">Смотреть итоги</string>
     <string name="story_service_tracks">Твои треки %1$s</string>
     <string name="story_service_artists">Твои исполнители %1$s</string>
+    <string name="story_service_genres_pre">Из чего складывается твой вкус</string>
 </resources>

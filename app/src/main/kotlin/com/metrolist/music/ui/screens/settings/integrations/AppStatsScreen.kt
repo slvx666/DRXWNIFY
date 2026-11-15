@@ -75,7 +75,7 @@ fun AppStatsScreen(navController: NavController) {
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             val events = database.events().first()
-            val counted = events.filter { com.metrolist.music.portrait.Listening.counts(it.event.playTime, it.song.song.duration * 1000L) }
+            val counted = events.filter { com.metrolist.music.portrait.Listening.kept(it.event.playTime, it.song.song.duration * 1000L) }
             val thisMonth = YearMonth.now()
             val (written, received) = com.metrolist.music.friends.ChatHub.messageCounts()
             numbers = Numbers(
@@ -89,10 +89,17 @@ fun AppStatsScreen(navController: NavController) {
                 written = written,
                 received = received,
             ).also { StatsCache.numbers = it }
-            if (!monthsLoading) return@withContext
-            // The months with enough listening, newest first (the last six).
-            months = (1..6).mapNotNull { back ->
-                runCatching { MonthReview.build(database, thisMonth.minusMonths(back.toLong())) }.getOrNull()
+            if (!monthsLoading) {
+                // Past months don't change; the current one goes on growing: only it is read again.
+                val current = MonthReview.months(0).firstOrNull() ?: return@withContext
+                val fresh = runCatching { MonthReview.build(database, current) }.getOrNull()
+                months = listOfNotNull(fresh) + months.filter { it.month != current }
+                StatsCache.months = thisMonth to months
+                return@withContext
+            }
+            // The months with something to show, newest first: this one from its second day, and six before it.
+            months = MonthReview.months(6).mapNotNull { month ->
+                runCatching { MonthReview.build(database, month) }.getOrNull()
             }
             StatsCache.months = thisMonth to months
             monthsLoading = false
