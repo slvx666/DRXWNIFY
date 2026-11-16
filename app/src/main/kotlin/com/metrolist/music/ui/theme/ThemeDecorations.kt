@@ -122,6 +122,8 @@ fun ThemeTopBarBackground(
                 )
             }
             AppThemePreset.STANDARD -> Unit
+            AppThemePreset.MONOCHROME, AppThemePreset.SATANIC, AppThemePreset.GOTHIC,
+            AppThemePreset.STREET, AppThemePreset.BREAKCORE -> MonoTopBar(preset, containerColor)
         }
         content()
     }
@@ -162,6 +164,7 @@ fun ThemeTitle(text: String, style: TextStyle, modifier: Modifier = Modifier) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            AppThemePreset.BREAKCORE -> BreakcoreTitle(text, style)
             else -> {
                 Text(text = text, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 ThemeTitleAccent()
@@ -237,7 +240,7 @@ fun ThemeTitleAccent() {
             style = TextStyle(fontSize = 18.sp, platformStyle = PlatformTextStyle(includeFontPadding = false)),
             modifier = Modifier.padding(start = 10.dp).offset(y = (-2).dp),
         )
-        else -> Unit
+        else -> MonoTitleAccent(LocalAppThemePreset.current)
     }
 }
 
@@ -259,7 +262,11 @@ fun ThemeContentBackground(visible: Boolean, modifier: Modifier = Modifier) {
 /** Drawn over the pages (touches pass through): only the Linux tiling-window border. */
 @Composable
 fun ThemeContentOverlay(modifier: Modifier = Modifier) {
-    if (LocalAppThemePreset.current != AppThemePreset.LINUX) return
+    if (LocalAppThemePreset.current != AppThemePreset.LINUX) {
+        // Monochrome's paper (light), Breakcore's scanlines; nothing in the others.
+        MonoOverlay(LocalAppThemePreset.current, modifier)
+        return
+    }
     val colors = MaterialTheme.colorScheme
     val frame = colors.primary.copy(alpha = if (colors.surface.isDark()) 0.75f else 0.65f)
     Canvas(modifier.fillMaxSize()) {

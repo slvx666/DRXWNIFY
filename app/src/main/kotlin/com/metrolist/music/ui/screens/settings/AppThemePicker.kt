@@ -77,7 +77,7 @@ fun AppThemePicker() {
             color = MaterialTheme.colorScheme.onSurface,
         )
         // A grid, not a sideways row: in a row the themes past the screen edge went unnoticed.
-        AppThemePreset.entries.chunked(3).forEach { row ->
+        AppThemePreset.entries.filter { it.group == AppThemePreset.Group.MAIN }.chunked(3).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 row.forEach { item ->
                     ThemePresetCard(
@@ -91,11 +91,14 @@ fun AppThemePicker() {
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
-        Text(
-            text = stringResource(preset.descriptionRes),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // An experimental theme's description is shown in its own section below.
+        if (preset.group != AppThemePreset.Group.EXPERIMENTAL) {
+            Text(
+                text = stringResource(preset.descriptionRes),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         if (preset != AppThemePreset.STANDARD) {
             ThemeSwitchRow(
                 title = stringResource(R.string.theme_animations),
@@ -137,6 +140,57 @@ fun AppThemePicker() {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * The bottom of Settings → Theme and colours: the experimental themes. Like the others they bring
+ * colours and drawings only — the layout stays the standard one.
+ */
+@Composable
+fun ExperimentalThemePicker(modifier: Modifier = Modifier) {
+    val (preset, onPresetChange) = rememberEnumPreference(AppThemePresetKey, AppThemePreset.STANDARD)
+    val darkMode by rememberEnumPreference(DarkModeKey, DarkMode.AUTO)
+    val dark = when (darkMode) {
+        DarkMode.AUTO -> isSystemInDarkTheme()
+        DarkMode.ON -> true
+        DarkMode.OFF -> false
+    }
+    androidx.compose.material3.Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        elevation = androidx.compose.material3.CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                text = stringResource(R.string.experimental_themes_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            AppThemePreset.entries.filter { it.group == AppThemePreset.Group.EXPERIMENTAL }.chunked(2).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    row.forEach { item ->
+                        ThemePresetCard(
+                            preset = item,
+                            dark = dark,
+                            selected = item == preset,
+                            // Tapped again: back to the standard theme.
+                            onClick = { onPresetChange(if (item == preset) AppThemePreset.STANDARD else item) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+            if (preset.group == AppThemePreset.Group.EXPERIMENTAL) {
+                Text(
+                    text = stringResource(preset.descriptionRes),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

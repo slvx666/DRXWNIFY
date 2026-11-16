@@ -2274,4 +2274,15 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="slider_ring_desc">No bar: the cover is round and the progress runs around it — drag along the ring to seek</string>
     <string name="ring_cover_spin">Spin the cover</string>
     <string name="ring_cover_spin_desc">The round cover turns slowly while the track plays</string>
+    <string name="app_theme_monochrome">Monochrome</string>
+    <string name="app_theme_monochrome_desc">Black and white as far as it goes. The light version is soft grey paper with barely visible grain and scratches</string>
+    <string name="app_theme_satanic">Satanic</string>
+    <string name="app_theme_satanic_desc">Black metal black and white: pure black, ash grey, a thin inverted pentagram and cross. No red</string>
+    <string name="app_theme_gothic">Gothic</string>
+    <string name="app_theme_gothic_desc">Night stone with a hint of dusk violet, serif headings, a quiet row of pointed arches</string>
+    <string name="app_theme_street">Street art</string>
+    <string name="app_theme_street_desc">Asphalt and concrete with one marker colour: drips on the top bar, a scribble after titles</string>
+    <string name="app_theme_breakcore">Breakcore</string>
+    <string name="app_theme_breakcore_desc">A worn tape cover: cold black and grey, dusty lilac, scanlines, a slipped ghost of the titles, crossed-out marks</string>
+    <string name="experimental_themes_title">Experimental themes</string>
 </resources>

@@ -18,14 +18,26 @@ import com.metrolist.music.R
  * look picked with the colour palette. [LINUX] goes furthest: monospace everywhere, square corners,
  * a tiling-window frame, a tmux status bar and a fetch block on the home page.
  */
-enum class AppThemePreset(val nameRes: Int, val descriptionRes: Int) {
+enum class AppThemePreset(val nameRes: Int, val descriptionRes: Int, val group: Group = Group.MAIN) {
     STANDARD(R.string.app_theme_standard, R.string.app_theme_standard_desc),
     GRUVBOX(R.string.app_theme_gruvbox, R.string.app_theme_gruvbox_desc),
     LINUX(R.string.app_theme_linux, R.string.app_theme_linux_desc),
     SAKURA(R.string.app_theme_sakura, R.string.app_theme_sakura_desc),
-    SYNTHWAVE(R.string.app_theme_synthwave, R.string.app_theme_synthwave_desc),
+    MONOCHROME(R.string.app_theme_monochrome, R.string.app_theme_monochrome_desc),
     CATPPUCCIN(R.string.app_theme_catppuccin, R.string.app_theme_catppuccin_desc),
+
+    // Synthwave is kept but no longer offered (Monochrome took its place); someone who has it keeps it.
+    SYNTHWAVE(R.string.app_theme_synthwave, R.string.app_theme_synthwave_desc, Group.HIDDEN),
+
+    // Experimental: colours and drawings only — the layout and shapes are the standard ones.
+    SATANIC(R.string.app_theme_satanic, R.string.app_theme_satanic_desc, Group.EXPERIMENTAL),
+    GOTHIC(R.string.app_theme_gothic, R.string.app_theme_gothic_desc, Group.EXPERIMENTAL),
+    STREET(R.string.app_theme_street, R.string.app_theme_street_desc, Group.EXPERIMENTAL),
+    BREAKCORE(R.string.app_theme_breakcore, R.string.app_theme_breakcore_desc, Group.EXPERIMENTAL),
     ;
+
+    /** Where the theme is offered: the main grid, "Experimental themes", or nowhere. */
+    enum class Group { MAIN, EXPERIMENTAL, HIDDEN }
 
     fun colorScheme(dark: Boolean): ColorScheme? = when (this) {
         STANDARD -> null
@@ -34,6 +46,11 @@ enum class AppThemePreset(val nameRes: Int, val descriptionRes: Int) {
         SAKURA -> if (dark) SakuraDark else SakuraLight
         SYNTHWAVE -> if (dark) SynthwaveDark else SynthwaveLight
         CATPPUCCIN -> if (dark) CatppuccinMocha else CatppuccinLatte
+        MONOCHROME -> (if (dark) MonoNight else MonoDay).scheme(dark)
+        SATANIC -> (if (dark) SatanicNight else SatanicDay).scheme(dark)
+        GOTHIC -> (if (dark) GothicNight else GothicDay).scheme(dark)
+        STREET -> (if (dark) StreetNight else StreetDay).scheme(dark)
+        BREAKCORE -> (if (dark) BreakcoreNight else BreakcoreDay).scheme(dark)
     }
 
     fun typography(): Typography = when (this) {
@@ -41,6 +58,18 @@ enum class AppThemePreset(val nameRes: Int, val descriptionRes: Int) {
         GRUVBOX -> AppTypography.withFamily(FontFamily.Monospace)
         // Linux: everything is a terminal.
         LINUX -> AppTypography.withFamily(FontFamily.Monospace, body = true)
+        // Satanic and Gothic: headings in a serif; Breakcore's typed like a tape label.
+        SATANIC, GOTHIC -> AppTypography.headings(FontFamily.Serif)
+        BREAKCORE -> AppTypography.headings(FontFamily.Monospace)
+        // Street art: heavy headings, like a tag.
+        STREET -> AppTypography.let { t ->
+            t.copy(
+                headlineLarge = t.headlineLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black),
+                headlineMedium = t.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black),
+                headlineSmall = t.headlineSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black),
+                titleLarge = t.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black),
+            )
+        }
         else -> AppTypography
     }
 
@@ -62,6 +91,17 @@ val LocalAppThemePreset = staticCompositionLocalOf { AppThemePreset.STANDARD }
 
 /** Whether a theme's decorations may move (falling petals, drifting code, the blinking cursor). */
 val LocalThemeAnimations = staticCompositionLocalOf { true }
+
+/** Only the headings (display, headline, title large) in [family]; the rest as it is. */
+private fun Typography.headings(family: FontFamily) = copy(
+    displayLarge = displayLarge.copy(fontFamily = family),
+    displayMedium = displayMedium.copy(fontFamily = family),
+    displaySmall = displaySmall.copy(fontFamily = family),
+    headlineLarge = headlineLarge.copy(fontFamily = family),
+    headlineMedium = headlineMedium.copy(fontFamily = family),
+    headlineSmall = headlineSmall.copy(fontFamily = family),
+    titleLarge = titleLarge.copy(fontFamily = family),
+)
 
 private fun Typography.withFamily(family: FontFamily, body: Boolean = false) = copy(
     displayLarge = displayLarge.copy(fontFamily = family),

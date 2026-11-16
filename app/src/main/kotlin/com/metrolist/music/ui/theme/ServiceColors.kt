@@ -51,6 +51,10 @@ object ServiceColors {
             MetadataSource.YANDEX -> if (dark) Color(0xFFE8C77A) else Color(0xFFA67C1F)
             MetadataSource.VK -> if (dark) Color(0xFF9DB8E0) else Color(0xFF4A6FA5)
         }
+        // The near-colourless themes: the services' colours greyed down to fit.
+        AppThemePreset.MONOCHROME, AppThemePreset.SATANIC, AppThemePreset.GOTHIC,
+        AppThemePreset.STREET, AppThemePreset.BREAKCORE ->
+            androidx.compose.ui.graphics.lerp(brand(source), if (dark) Color(0xFFBDBDBD) else Color(0xFF3A3A3A), 0.62f)
         AppThemePreset.LINUX -> when (source) {
             MetadataSource.SPOTIFY -> if (dark) Color(0xFF8AE234) else Color(0xFF4E9A06)
             MetadataSource.YANDEX -> if (dark) Color(0xFFFCE94F) else Color(0xFFC4A000)
