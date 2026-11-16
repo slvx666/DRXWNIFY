@@ -60,12 +60,6 @@ import com.metrolist.music.utils.rememberPreference
 fun AppThemePicker() {
     val context = LocalContext.current
     val (preset, onPresetChange) = rememberEnumPreference(AppThemePresetKey, AppThemePreset.STANDARD)
-    // A palette picked here switches an experimental theme off (they don't mix).
-    val (shell, onShellChange) = rememberEnumPreference(
-        com.metrolist.music.constants.ExperimentalThemeKey,
-        com.metrolist.music.ui.theme.shell.ShellTheme.NONE,
-    )
-    val shellOn = shell != com.metrolist.music.ui.theme.shell.ShellTheme.NONE
     val (animations, onAnimationsChange) = rememberPreference(ThemeAnimationsKey, defaultValue = true)
     val (appIcon, onAppIconChange) = rememberEnumPreference(AppIconKey, AppIcon.CLASSIC)
     val dynamicIcon by rememberPreference(EnableDynamicIconKey, defaultValue = true)
@@ -89,31 +83,20 @@ fun AppThemePicker() {
                     ThemePresetCard(
                         preset = item,
                         dark = dark,
-                        selected = item == preset && !shellOn,
-                        onClick = {
-                            if (item != preset) onPresetChange(item)
-                            if (shellOn) onShellChange(com.metrolist.music.ui.theme.shell.ShellTheme.NONE)
-                        },
+                        selected = item == preset,
+                        onClick = { if (item != preset) onPresetChange(item) },
                         modifier = Modifier.weight(1f),
                     )
                 }
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
-        if (shellOn) {
-            Text(
-                text = stringResource(R.string.shell_palette_note, stringResource(shell.nameRes)),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
         Text(
             text = stringResource(preset.descriptionRes),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        // The switch also calms the experimental themes (Pulse holds still, springs become fades).
-        if (preset != AppThemePreset.STANDARD || shellOn) {
+        if (preset != AppThemePreset.STANDARD) {
             ThemeSwitchRow(
                 title = stringResource(R.string.theme_animations),
                 description = stringResource(R.string.theme_animations_desc),

@@ -24,9 +24,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import com.metrolist.music.ui.theme.shell.orbitSpin
-import com.metrolist.music.ui.theme.shell.pulse.pulseGlow
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.layout.layout
@@ -690,51 +687,30 @@ private fun ThumbnailItem(
             },
         contentAlignment = Alignment.Center
     ) {
-        // Orbit: a round cover inside a ring of progress, turning while it plays. Pulse: a halo
-        // following the bass. Both only change how the cover is drawn; touches stay the same.
-        val shell = com.metrolist.music.ui.theme.shell.LocalShell.current
-        val orbit = shell == com.metrolist.music.ui.theme.shell.ShellTheme.ORBIT && !hidePlayerThumbnail
-        Box(Modifier.size(dimensions.thumbnailSize), contentAlignment = Alignment.Center) {
-            Box(
-                modifier = Modifier
-                    .size(if (orbit) dimensions.thumbnailSize * com.metrolist.music.ui.theme.shell.ORBIT_COVER_SHARE else dimensions.thumbnailSize)
-                    .pulseGlow()
-                    .coverSource(coverViewer)
-                    .then(if (orbit) Modifier.orbitSpin(playerConnection, active = isCurrent || item.mediaId == currentMediaId) else Modifier)
-                    .clip(if (orbit) CircleShape else RoundedCornerShape(dimensions.cornerRadius).tui())
-            ) {
-                if (hidePlayerThumbnail) {
-                    HiddenThumbnailPlaceholder(textBackgroundColor = textBackgroundColor)
-                } else {
-                    val artworkUriToUse = itemCover
+        Box(
+            modifier = Modifier
+                .size(dimensions.thumbnailSize)
+                .coverSource(coverViewer)
+                .clip(RoundedCornerShape(dimensions.cornerRadius).tui())
+        ) {
+            if (hidePlayerThumbnail) {
+                HiddenThumbnailPlaceholder(textBackgroundColor = textBackgroundColor)
+            } else {
+                val artworkUriToUse = itemCover
 
-                    ThumbnailImage(
-                        artworkUri = artworkUriToUse,
-                        cropArtwork = cropAlbumArt
-                    )
-                }
-
-                // Cast button at top-right corner of thumbnail (outside the circle in Orbit)
-                if (!orbit) {
-                    CastButton(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp),
-                        tintColor = textBackgroundColor
-                    )
-                }
-            }
-            if (orbit) {
-                if (isCurrent || item.mediaId == currentMediaId) {
-                    com.metrolist.music.ui.theme.shell.OrbitRing(playerConnection, Modifier.matchParentSize())
-                }
-                CastButton(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(4.dp),
-                    tintColor = textBackgroundColor
+                ThumbnailImage(
+                    artworkUri = artworkUriToUse,
+                    cropArtwork = cropAlbumArt
                 )
             }
+            
+            // Cast button at top-right corner of thumbnail
+            CastButton(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+                tintColor = textBackgroundColor
+            )
         }
     }
 }

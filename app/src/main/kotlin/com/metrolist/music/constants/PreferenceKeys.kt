@@ -22,12 +22,6 @@ val DarkModeKey = stringPreferencesKey("darkMode")
 /** Whole-app theme (ui.theme.AppThemePreset name). */
 val AppThemePresetKey = stringPreferencesKey("appThemePreset")
 val ThemeAnimationsKey = booleanPreferencesKey("themeAnimations")
-/** Experimental theme (ui.theme.shell.ShellTheme name; NONE = off). Overrides the palette preset. */
-val ExperimentalThemeKey = stringPreferencesKey("experimentalTheme")
-/** Pulse theme: how strongly the interface follows the music (0 weak, 1 medium, 2 strong). */
-val PulseStrengthKey = intPreferencesKey("pulseStrength")
-/** Island theme: the capsule keeps the tabs open (off: only the mini player until tapped). */
-val IslandTabsOpenKey = booleanPreferencesKey("islandTabsOpen")
 /** Picked app icon (utils.AppIcon name). */
 val AppIconKey = stringPreferencesKey("appIcon")
 val PureBlackKey = booleanPreferencesKey("pureBlack")

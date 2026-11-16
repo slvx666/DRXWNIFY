@@ -36,12 +36,10 @@ fun MetrolistTheme(
     themeColor: Color = DefaultThemeColor,
     preset: AppThemePreset = AppThemePreset.STANDARD,
     animations: Boolean = true,
-    /** An experimental theme (null = none): it brings its shapes and motion, and Paper its palette. */
-    shell: com.metrolist.music.ui.theme.shell.ShellTheme? = null,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val presetScheme = com.metrolist.music.ui.theme.shell.shellColorScheme(shell, darkTheme) ?: preset.colorScheme(darkTheme)
+    val presetScheme = preset.colorScheme(darkTheme)
     // Determine if system dynamic colors should be used (Android S+ and default theme color)
     val useSystemDynamicColor = (themeColor == DefaultThemeColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
 
@@ -75,14 +73,11 @@ fun MetrolistTheme(
     CompositionLocalProvider(
         LocalAppThemePreset provides preset,
         LocalThemeAnimations provides animations,
-        com.metrolist.music.ui.theme.shell.LocalShell provides shell,
     ) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = remember(preset, shell) { com.metrolist.music.ui.theme.shell.shellTypography(shell) ?: preset.typography() },
-            shapes = remember(preset, shell) {
-                com.metrolist.music.ui.theme.shell.shellShapes(shell) ?: preset.shapes() ?: androidx.compose.material3.Shapes()
-            },
+            typography = remember(preset) { preset.typography() },
+            shapes = remember(preset) { preset.shapes() ?: androidx.compose.material3.Shapes() },
             content = content
         )
     }
