@@ -39,7 +39,7 @@
     <p class="by" id="by"></p>
     <a class="btn primary" id="open" href="#">Открыть в Drxwnify</a>
     <a class="btn ghost" href="/">Скачать Drxwnify</a>
-    <p class="hint">Приложение уже стоит? Ссылка откроется прямо в нём.</p>
+    <p class="hint" id="hint">Приложение уже стоит? Ссылка откроется прямо в нём.</p>
   </main>
   <script>
     (function () {
@@ -84,6 +84,12 @@
       open.href = /android/i.test(navigator.userAgent)
         ? "intent://" + tail + "#Intent;scheme=drxwnify;package=com.drxwnify.app;S.browser_fallback_url=" + fallback + ";end"
         : "drxwnify://" + tail;
+      // A computer: the link opens the PC app at once, as the phone does (the browser asks once; «always» makes
+      // later links from Telegram open straight in the app). The button stays for a second try.
+      if (!/android|iphone|ipad|ipod/i.test(navigator.userAgent)) {
+        document.getElementById("hint").textContent = "Открываю Drxwnify на компьютере… Если браузер спросит — разрешите и отметьте «Всегда открывать».";
+        setTimeout(function () { location.href = "drxwnify://" + tail; }, 300);
+      }
     })();
   </script>
 </body>
