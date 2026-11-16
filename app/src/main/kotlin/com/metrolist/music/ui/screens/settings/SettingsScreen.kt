@@ -334,6 +334,21 @@ fun SettingsScreen(
                         onClick = { showChangelog.value = true }
                     )
                 )
+                // Crashes, skips, sources: one place to send them from.
+                add(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.bug_report),
+                        title = { Text(stringResource(R.string.audio_search_log)) },
+                        description = {
+                            Text(
+                                text = stringResource(R.string.app_logs_settings_desc),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        onClick = { navController.navigate("settings/integrations/sources/log") },
+                    ),
+                )
                 add(
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.info),

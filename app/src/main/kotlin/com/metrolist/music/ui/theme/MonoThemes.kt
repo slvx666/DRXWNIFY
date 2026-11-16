@@ -149,12 +149,12 @@ internal val GothicDay = Tone(
     error = c(0xFF6B3A48),
 )
 
-// ── Street art: asphalt and concrete, one marker colour (a muted yellow) for the tags. ──
+// ── Street art: black wall and concrete, one spray colour (a dusty pink) for the tags. ──
 
 object Street {
-    /** The marker: tags, drips and the scribble under titles. */
-    val marker = Color(0xFFE2D150)
-    val markerDeep = Color(0xFF7D6C00)
+    /** The spray paint: tags, drips, splatter, halos. */
+    val marker = Color(0xFFE38BD2)
+    val markerDeep = Color(0xFF9A3C88)
 }
 
 internal val StreetNight = Tone(
@@ -162,7 +162,7 @@ internal val StreetNight = Tone(
     steps = listOf(c(0xFF0D0D0D), c(0xFF191919), c(0xFF1F1F1F), c(0xFF282828), c(0xFF323232)),
     ink = c(0xFFEDEDED), inkSoft = c(0xFFA3A3A3),
     accent = Street.marker, onAccent = c(0xFF141414),
-    accentContainer = c(0xFF38351E), onAccentContainer = c(0xFFF4EBA8),
+    accentContainer = c(0xFF3A2236), onAccentContainer = c(0xFFF7D3EE),
     outline = c(0xFF6A6A6A), outlineSoft = c(0xFF333333),
     error = c(0xFFE6B3A3),
 )
@@ -171,8 +171,8 @@ internal val StreetDay = Tone(
     page = c(0xFFD7D6D2),
     steps = listOf(c(0xFFDEDDD9), c(0xFFD1D0CC), c(0xFFCAC9C5), c(0xFFC2C1BD), c(0xFFB9B8B4)),
     ink = c(0xFF141414), inkSoft = c(0xFF464543),
-    accent = Street.markerDeep, onAccent = c(0xFFF2EFDF),
-    accentContainer = c(0xFFE0D684), onAccentContainer = c(0xFF2C2600),
+    accent = Street.markerDeep, onAccent = c(0xFFF7E9F4),
+    accentContainer = c(0xFFE7C3DF), onAccentContainer = c(0xFF34102D),
     outline = c(0xFF73726E), outlineSoft = c(0xFFAEADA9),
     error = c(0xFF7A3423),
 )

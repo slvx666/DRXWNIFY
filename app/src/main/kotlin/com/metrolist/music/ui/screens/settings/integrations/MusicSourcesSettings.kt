@@ -530,24 +530,14 @@ fun AudioSearchLogScreen(navController: NavController) {
                 }
             },
             actions = {
-                TextButton(onClick = { AudioDiagnostics.clear() }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.audio_search_log_clear)) }
                 TextButton(onClick = {
-                    // As a .txt file: a long log pasted as a message gets cut or split by messengers.
-                    runCatching {
-                        val stamp = java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.US).format(java.util.Date())
-                        val dir = java.io.File(context.cacheDir, "logs").apply { mkdirs() }
-                        dir.listFiles()?.forEach { it.delete() }
-                        val file = java.io.File(dir, "drxwnify-log-$stamp.txt")
-                        file.writeText(AudioDiagnostics.environment(context) + "\n" + AudioDiagnostics.asText())
-                        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", file)
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        context.startActivity(Intent.createChooser(send, null))
-                    }
-                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.audio_search_log_share)) }
+                    AudioDiagnostics.clear()
+                    com.metrolist.music.utils.AppLogs.clearCrashes(context)
+                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(R.string.audio_search_log_clear)) }
+                // One .txt: the phone, the last crashes, this journal and the run's system log.
+                TextButton(onClick = { com.metrolist.music.utils.AppLogs.share(context) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
+                    Text(stringResource(R.string.audio_search_log_share))
+                }
             },
         )
         if (lines.isEmpty()) {

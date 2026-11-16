@@ -95,6 +95,8 @@ object MeasuredAudio {
         val sampleRate: Int,
         /** The first frame's 4-byte header with the padding bit cleared (for silent filler frames). */
         val header: ByteArray,
+        /** Where the frames start in the data it was read from (an ID3 tag, with its cover, comes first). */
+        val start: Int = 0,
     ) {
         val frameLength: Int get() = 144 * bitrate / sampleRate
 
@@ -125,7 +127,7 @@ object MeasuredAudio {
         val rate = MPEG1_RATES[(b2 shr 2) and 3]
         // Protection bit set (no CRC follows), padding bit cleared.
         val header = byteArrayOf(data[anchor], (data[anchor + 1].toInt() or 0x01).toByte(), (b2 and 0xFD).toByte(), data[anchor + 3])
-        return ConstantMp3(kbps * 1000, rate, header)
+        return ConstantMp3(kbps * 1000, rate, header, anchor)
     }
 
     private const val CBR_PROBE_FRAMES = 10

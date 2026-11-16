@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui.component
 
+import com.metrolist.music.ui.theme.themeSectionTitle
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -78,12 +79,14 @@ fun NavigationTitle(
 
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
+                style = com.metrolist.music.ui.theme.themeSectionStyle(MaterialTheme.typography.titleLarge),
+                fontWeight = if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.STREET) FontWeight.Black else FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
                 overflow = TextOverflow.Ellipsis,
                 // Spotify's long section names ("Friday new releases for you") need the room.
                 maxLines = if (plain) 2 else 1,
+                // An experimental theme draws around the words (crosses, drips, a pen); nothing moves.
+                modifier = Modifier.themeSectionTitle(title),
             )
         }
 

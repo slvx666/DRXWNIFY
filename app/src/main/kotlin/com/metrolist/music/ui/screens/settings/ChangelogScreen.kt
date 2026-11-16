@@ -223,6 +223,13 @@ fun MigrationNoticeSheet(onOpenBackup: () -> Unit, onDismiss: () -> Unit) {
 /** Release notes bundled with the app, newest first. */
 private fun localReleases(context: android.content.Context): List<ReleaseInfo> = listOf(
     ReleaseInfo(
+        tagName = "2.3.1",
+        versionName = "2.3.1",
+        description = context.getString(com.metrolist.music.R.string.changelog_2_3_1),
+        releaseDate = "2026-11-16",
+        assets = emptyList(),
+    ),
+    ReleaseInfo(
         tagName = "2.3.0",
         versionName = "2.3.0",
         description = context.getString(com.metrolist.music.R.string.changelog_2_3_0),

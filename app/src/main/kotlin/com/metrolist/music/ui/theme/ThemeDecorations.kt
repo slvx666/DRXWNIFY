@@ -165,6 +165,8 @@ fun ThemeTitle(text: String, style: TextStyle, modifier: Modifier = Modifier) {
                 overflow = TextOverflow.Ellipsis,
             )
             AppThemePreset.BREAKCORE -> BreakcoreTitle(text, style)
+            AppThemePreset.SATANIC -> SatanicTitle(text, style)
+            AppThemePreset.STREET -> StreetTitle(text, style)
             else -> {
                 Text(text = text, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 ThemeTitleAccent()
@@ -253,8 +255,11 @@ fun ThemeContentBackground(visible: Boolean, modifier: Modifier = Modifier) {
     // Only where it can be seen: under an opaque page (search, settings, the player) the petals
     // redrew the whole window 30 times a second for nothing — the search screen dropped frames.
     if (!visible) return
-    when (LocalAppThemePreset.current) {
+    when (val preset = LocalAppThemePreset.current) {
         AppThemePreset.SAKURA -> if (LocalThemeAnimations.current) SakuraPetals(modifier)
+        // The experimental themes' art: under the pages, so never over a cover or a photo.
+        AppThemePreset.SATANIC, AppThemePreset.GOTHIC, AppThemePreset.STREET, AppThemePreset.BREAKCORE ->
+            ExperimentalBackground(preset, modifier)
         else -> Unit
     }
 }
@@ -263,9 +268,8 @@ fun ThemeContentBackground(visible: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun ThemeContentOverlay(modifier: Modifier = Modifier) {
     if (LocalAppThemePreset.current != AppThemePreset.LINUX) {
-        // Monochrome's paper (light), Breakcore's scanlines; the experimental themes' moving layer.
+        // Monochrome's paper (light). The experimental themes draw under the pages instead.
         MonoOverlay(LocalAppThemePreset.current, modifier)
-        ExperimentalFx(LocalAppThemePreset.current, modifier)
         return
     }
     val colors = MaterialTheme.colorScheme

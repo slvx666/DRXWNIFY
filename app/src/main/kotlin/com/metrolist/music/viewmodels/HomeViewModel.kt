@@ -695,7 +695,11 @@ class HomeViewModel @Inject constructor(
         val spotifyUseForHome = prefs[UseSpotifyHomeKey] ?: false
         val spotifyHomeOnlyPref = prefs[SpotifyHomeOnlyKey] ?: false
         val spotifyHasToken = (prefs[SpotifyAccessTokenKey] ?: "").isNotEmpty()
-        val isSpotifyHome = spotifyEnabled && spotifyUseForHome && spotifyHasToken
+        // The home follows the main account: with VK as the main one, VK's own recommendations lead
+        // it instead of Spotify's feed (the personal rows and "For you" stay either way).
+        val vkMain = (prefs[com.metrolist.music.constants.PrimaryMetadataSourceKey]
+            ?: com.metrolist.music.catalog.Catalog.source?.name) == com.metrolist.music.constants.MetadataSource.VK.name
+        val isSpotifyHome = spotifyEnabled && spotifyUseForHome && spotifyHasToken && !vkMain
         val isSpotifyOnly = isSpotifyHome && spotifyHomeOnlyPref
         // The history-based YouTube rows stay unless the home is set to Spotify only (as before);
         // YouTube's own feed and its chips only when the home isn't Spotify's.
@@ -732,12 +736,16 @@ class HomeViewModel @Inject constructor(
                     if (SpotifyTokenManager.ensureAuthenticated()) loadSpotifyHome(hideExplicit) else false
                 } ?: false
             }
+            var vkLoaded = false
             if (!isSpotifyHome) {
-                spotifyHomeSections.value = null
                 spotifyMixes.value = null
+                vkLoaded = vkMain && section("vkHome", false) {
+                    withTimeoutOrNull(SECTION_TIMEOUT_MS) { loadVkHome() } ?: false
+                }
+                if (!vkLoaded) spotifyHomeSections.value = null
             }
-            // YouTube's feed: the home's own when it isn't Spotify's, or standing in when Spotify failed.
-            if (!spotifyLoaded && !isSpotifyOnly) {
+            // YouTube's feed: the home's own when it isn't Spotify's or VK's, or standing in when they failed.
+            if (!spotifyLoaded && !vkLoaded && !isSpotifyOnly) {
                 section("youtubeHome", Unit) {
                     withTimeoutOrNull(SECTION_TIMEOUT_MS) {
                         YouTube.home().onSuccess { page ->
@@ -901,6 +909,16 @@ class HomeViewModel @Inject constructor(
      * better itself (see [com.metrolist.music.home.SpotifyHomeFilter]). Spotify's own playlists are
      * kept only when they are the listener's mixes; those go into one row, "Your mixes".
      */
+    /** VK as the main account: its "For you" recommendations, as the first row of the home page. */
+    private suspend fun loadVkHome(): Boolean {
+        val tracks = com.metrolist.music.catalog.VkCatalog.recommendations()
+        if (tracks.isEmpty()) return false
+        spotifyHomeSections.value = listOf(
+            SpotifyHomeSection(title = "vk_recommendations", type = SectionType.TRACKS, tracks = tracks.take(60)),
+        )
+        return true
+    }
+
     private suspend fun loadSpotifyHome(hideExplicit: Boolean): Boolean = coroutineScope {
         val language = context.resources.configuration.locales.get(0)?.language
         // The followed artists' releases: two pages, so the row has plenty to scroll through.
@@ -1207,6 +1225,8 @@ class HomeViewModel @Inject constructor(
                         (prefs[SpotifyHomeOnlyKey] ?: false).toString(),
                         (prefs[SpotifyAccessTokenKey] ?: "").isNotEmpty().toString(),
                         (prefs[YandexAccessTokenKey] ?: "").isNotEmpty().toString(),
+                        // Another main account: the page is built anew for it.
+                        prefs[com.metrolist.music.constants.PrimaryMetadataSourceKey].orEmpty(),
                     ).joinToString("|")
                 }
                 .distinctUntilChanged()

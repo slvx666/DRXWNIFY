@@ -34,9 +34,11 @@ object Stickers {
     private const val END = ''
     private val TOKEN = Regex("$START([a-z0-9_]{1,40})$END")
 
+    /** The stickers one can pick (the panel, suggestions, reactions); retired ones are left out. */
     @Volatile
     var all: List<Sticker> = emptyList()
         private set
+    /** Every sticker, retired ones too ("hidden" in the json), so old messages still show them. */
     private var byId: Map<String, Sticker> = emptyMap()
 
     fun init(context: Context) {
@@ -44,11 +46,12 @@ object Stickers {
         runCatching {
             val text = context.assets.open("stickers/stickers.json").bufferedReader().use { it.readText() }
             val list = JSONObject(text).getJSONArray("stickers")
-            all = (0 until list.length()).map { i ->
+            val every = (0 until list.length()).map { i ->
                 val o = list.getJSONObject(i)
-                Sticker(o.getString("id"), o.getString("code"), o.optInt("w"), o.optInt("h"), o.optBoolean("anim"))
+                Sticker(o.getString("id"), o.getString("code"), o.optInt("w"), o.optInt("h"), o.optBoolean("anim")) to o.optBoolean("hidden")
             }
-            byId = all.associateBy { it.id }
+            byId = every.associate { it.first.id to it.first }
+            all = every.filterNot { it.second }.map { it.first }
         }
     }
 

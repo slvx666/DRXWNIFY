@@ -163,8 +163,10 @@ class VkAudioProvider(
         val thumb: String?,
         val artists: List<VkArtistRef> = emptyList(),
         val album: VkAlbumRef? = null,
+        /** Unix seconds; in the user's own list, when the track was added to it (0 = unknown). */
+        val date: Long = 0L,
     ) {
-        fun toTrack() = VkTrack(fullId, title, artists.ifEmpty { listOf(VkArtistRef(null, artist)) }, durationSec, thumb ?: album?.cover, album)
+        fun toTrack() = VkTrack(fullId, title, artists.ifEmpty { listOf(VkArtistRef(null, artist)) }, durationSec, thumb ?: album?.cover, album, date)
     }
 
     private fun parse(o: JSONObject): VkAudio? {
@@ -210,6 +212,7 @@ class VkAudioProvider(
             thumb = albumObj?.optJSONObject("thumb")?.optString("photo_300")?.takeIf { it.isNotBlank() },
             artists = artistRefs,
             album = albumRef,
+            date = o.optLong("date", 0L),
         ).also { VkTrackStore.put(it.toTrack()) }
     }
 
@@ -979,6 +982,8 @@ data class VkTrack(
     val durationSec: Int,
     val thumb: String?,
     val album: VkAlbumRef?,
+    /** Unix seconds: in "My music", when it was added there (VK's own stats are closed; the wrap-up counts these). */
+    val addedAt: Long = 0L,
 ) {
     /** "owner_audio", the same track whatever access key came with it. */
     val baseId: String get() = fullId.split('_').take(2).joinToString("_")

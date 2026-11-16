@@ -468,6 +468,9 @@ class MusicService :
     // Enhanced error tracking for strict retry management
     private var currentMediaIdRetryCount = mutableMapOf<String, Int>()
     private val MAX_RETRY_PER_SONG = 3
+
+    /** Reads again of audio that broke off ([isMalformedContainerError]) before the track is skipped. */
+    private val MALFORMED_RETRIES = 2
     private val RETRY_DELAY_MS = 1000L
 
     // Track failed songs to prevent infinite retry loops
@@ -3477,6 +3480,11 @@ class MusicService :
         Timber
             .tag(TAG)
             .w(error, "Player error occurred for $mediaId: errorCode=${error.errorCode}, message=${error.message}")
+        // Every playback error in the journal the user can send (a skip used to leave no trace there).
+        AudioDiagnostics.warn(
+            "player error in '${player.currentMediaItem?.mediaMetadata?.title}' at ${clock(player.currentPosition)} of ${clock(player.duration)} " +
+                "(${mediaId?.let(::audioOrigin) ?: "?"}): ${error.errorCodeName} — ${AudioDiagnostics.explain(error)}",
+        )
 
         /*
          * error.message is always "Source error" and the code is often a re-classification, so
@@ -3601,9 +3609,20 @@ class MusicService :
             }
 
             isMalformedContainerError(error) -> {
-                Timber.tag(TAG).w("Malformed container detected (upstream Media3 bug), auto-skipping $mediaId")
-                if (mediaId != null) markSongAsFailed(mediaId)
-                skipOnError()
+                // Mostly not a broken file but audio that broke off (an EOF in the extractor: a dropped
+                // connection, a cut cache piece) — usually near the end, where it skipped the rest of
+                // the track; played again from there it was fine. So it is read again from that spot
+                // (the cache of it was cleared above), and only skipped when that keeps failing.
+                val tries = mediaId?.let { currentMediaIdRetryCount[it] } ?: 0
+                if (mediaId != null && tries < MALFORMED_RETRIES) {
+                    AudioDiagnostics.warn("audio broke off at ${clock(player.currentPosition)} — reading it again from there (${tries + 1}/$MALFORMED_RETRIES)")
+                    handleGenericIOError(mediaId)
+                } else {
+                    Timber.tag(TAG).w("Malformed container detected (upstream Media3 bug), auto-skipping $mediaId")
+                    AudioDiagnostics.warn("audio still broken after $MALFORMED_RETRIES tries — skipping the track")
+                    if (mediaId != null) markSongAsFailed(mediaId)
+                    skipOnError()
+                }
                 return
             }
 
@@ -6152,6 +6171,13 @@ class MusicService :
         val declaredMs = old.positionMs
         val catalogMs = (item.metadata?.duration ?: 0) * 1000L
         val fullMs = maxOf(declaredMs, catalogMs)
+        // Any end more than a few seconds early goes in the journal, also the ones left alone below:
+        // "it skipped near the end" can then be told apart from a track that really is that long.
+        if (fullMs - endedAt > 4_000L && !mediaId.startsWith("local:")) {
+            AudioDiagnostics.info(
+                "'${item.mediaMetadata.title}' ended at ${clock(endedAt)} — player length ${clock(declaredMs)}, catalog ${clock(catalogMs)} (${audioOrigin(mediaId)})",
+            )
+        }
         if (fullMs < 60_000L || fullMs - endedAt < 15_000L || endedAt > fullMs * 0.93) return
         if (mediaId.startsWith("local:")) return
         val title = item.mediaMetadata.title?.toString().orEmpty()

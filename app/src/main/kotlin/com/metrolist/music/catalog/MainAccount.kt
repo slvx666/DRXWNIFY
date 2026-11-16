@@ -94,9 +94,10 @@ object MainAccount {
         val store = dataStore ?: return
         if (Catalog.state.value.source == source && Catalog.state.value.preferred == source) return
         scope.launch {
+            // Stale before the switch is saved: the home page reloads on that save and must rebuild.
+            com.metrolist.music.home.HomeFeed.markStale()
             store.edit { it[PrimaryMetadataSourceKey] = source.name }
             Catalog.invalidateCaches()
-            com.metrolist.music.home.HomeFeed.markStale()
             runCatching { com.metrolist.music.playback.SpotifyProfileCache.invalidate() }
             // Friends see the likes and the profile of the new main account.
             runCatching { com.metrolist.music.friends.FriendsHub.mainAccountChanged() }

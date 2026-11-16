@@ -22,7 +22,7 @@ object ThemeIcons {
         if (!home && !library) return fallback
         return when (ThemeRuntime.preset) {
             AppThemePreset.SATANIC -> if (home) {
-                if (selected) R.drawable.theme_pentagram_filled else R.drawable.theme_pentagram_outline
+                if (selected) R.drawable.theme_pentagram_active else R.drawable.theme_pentagram_outline
             } else {
                 if (selected) R.drawable.theme_cross_inverted_filled else R.drawable.theme_cross_inverted_outline
             }
@@ -47,7 +47,7 @@ object ThemeIcons {
 
     /** The like icon (the usual heart, synced to the account) under the current theme; null keeps the heart. */
     fun like(liked: Boolean): Int? = when (ThemeRuntime.preset) {
-        AppThemePreset.SATANIC -> if (liked) R.drawable.theme_pentagram_filled else R.drawable.theme_pentagram_outline
+        AppThemePreset.SATANIC -> if (liked) R.drawable.theme_pentagram_active else R.drawable.theme_pentagram_outline
         AppThemePreset.GOTHIC -> if (liked) R.drawable.theme_cross_filled else R.drawable.theme_cross_outline
         AppThemePreset.STREET -> if (liked) R.drawable.theme_crown_filled else R.drawable.theme_crown_outline
         AppThemePreset.BREAKCORE -> if (liked) R.drawable.theme_heart_broken_filled else R.drawable.theme_heart_broken_outline

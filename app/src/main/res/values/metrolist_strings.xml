@@ -1190,11 +1190,11 @@
     <string name="vk_login_hint">Uses a Kate Mobile token (the audio API is closed to other apps). You can also paste a token from vkhost.github.io.</string>
     <string name="move_up">Move up</string>
     <string name="move_down">Move down</string>
-    <string name="audio_search_log">Audio search log</string>
-    <string name="audio_search_log_description">What every source answered for each track, and why playback or a download failed. Share it when reporting a problem.</string>
+    <string name="audio_search_log">App logs</string>
+    <string name="audio_search_log_description">Crashes, playback errors, tracks that ended early, and what every source answered. Share the file when something went wrong.</string>
     <string name="audio_search_log_clear">Clear</string>
     <string name="audio_search_log_share">Share</string>
-    <string name="audio_search_log_empty">Nothing yet — play or download a track.</string>
+    <string name="audio_search_log_empty">Nothing yet: play or download a track.</string>
     <string name="audio_source_bandcamp">Bandcamp</string>
     <string name="audio_source_bandcamp_description">Independent and underground artists publish here directly; most releases stream in full for free. Few major-label releases; some are preview-only.</string>
     <string name="audio_source_audius">Audius</string>
@@ -2094,6 +2094,7 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="selection_unblock">Allow</string>
     <string name="playlist_already_has">Already there</string>
     <string name="playlist_already_has_some">%1$d of %2$d there</string>
+    <string name="changelog_2_3_1">### New\n* **App logs** in Settings: crashes, playback errors and tracks that ended early, in one file to share\n* **VK wrap-up** from your whole My music: tracks added by month and top artists, as a list and as a story\n* Stickers «забыл» and «мужик спрашивает»\n### Changed\n• Home follows the main account: switch to VK and the home shows VK recommendations\n• A sticker sent as a reply is full size, with the quote above it\n• Tracks no longer skip near the end: audio that broke off is read again from the same spot\n• Experimental themes: Satanic with a metal face, thorns and an upright ritual circle, ash only with animations; Gothic without bats; Street art redone in pink spray, still; Breakcore drawn with a shaky pen instead of floating words\n• Theme art no longer covers album art or photos\n• The deal sticker is gone</string>
     <string name="changelog_2_3_0">### New\n* __**VK on a par with Spotify and Yandex**__: albums, artists, playlists and My music in the library; \"Go to album\" and \"Go to artist\" work for every VK track\n* **Main account**: Spotify, Yandex or VK — it gives the library, home page, recommendations and the library\'s colour\n* **Month in review** — a story with sound, like Spotify\'s: minutes, the busiest day, top tracks and artists, genres and a card to share\n* **Transfer from another account**: pick playlists, albums and tracks and bring them into the main one; what the main account already has is ticked; playlists are created in the account little by little, in the background\n* **Spotify and Yandex wrap-ups**: Spotify\'s top tracks and artists for 4 weeks, 6 months and all time, Yandex likes — as a list and as a full-screen story\n* Other accounts as tabs of their own in the library (switched on on the account\'s page)\n* Where a like goes: the main account only, the main one and where the track is from, or every account\n* Imported playlists can be created in the main account\n* Statistics in Integrations: past months in review, minutes, listens, artists, friends and messages — from listening in the app\n* Albums: sort by release year and filter by year\n### Changed\n• Import from Yandex Music links; a playlist imported by link keeps its own name\n• The import button lights up at once, and a missing name is shown in red\n• Together: friends ordered by activity, and \"listening now\" goes out when someone hasn\'t been in the app for a while\n• When a VK list ends, similar tracks play on\n• The Integrations screen scrolls</string>
     <string name="changelog_2_2_5">### New\n* Blocking tracks: \"Block\" in the selection bar\n* Animated stickers, which can also be used as reactions\n* \"Send\" in the selection bar: to a chat, as files, to a playlist or as a link\n### Changed\n• Artist \"Shuffle\": all their tracks without repeats, then recommendations\n• \"Shuffle\" in the player: an album or playlist shuffles itself without going on to a radio; recommendations shuffle their own pool\n• A track started from a chat goes on with the next tracks of the chat\n• Reactions are a little larger\n• Downloaded albums open at once offline and on a bad connection\n• Playlists show that a track is already there; a repeat is caught for the same track from another source too</string>
     <plurals name="tracks_blocked">
@@ -2277,12 +2278,15 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="app_theme_monochrome">Monochrome</string>
     <string name="app_theme_monochrome_desc">Black and white as far as it goes. The light version is soft grey paper with barely visible grain and scratches</string>
     <string name="app_theme_satanic">Satanic</string>
-    <string name="app_theme_satanic_desc">Black metal black and white, no red: ash rising, a slowly turning inverted pentagram, inverted crosses; Home, Library and the like become a pentagram and a cross</string>
+    <string name="app_theme_satanic_desc">Black metal black and white, no red: titles in a metal face, inverted crosses and thorns, an upright ritual circle under the pages, ash rising (with animations on)</string>
     <string name="app_theme_gothic">Gothic</string>
-    <string name="app_theme_gothic_desc">Night stone with a hint of violet: pointed arches and a rose window, dust drifting, bats crossing, shadowed corners; a lancet window and a cross for Home, Library and the like</string>
+    <string name="app_theme_gothic_desc">Night stone with a hint of violet: pointed arches, lancet windows down the sides, shadowed corners, dust settling</string>
     <string name="app_theme_street">Street art</string>
-    <string name="app_theme_street_desc">Asphalt and concrete with one marker colour: drips running down, spray dust, a big tag on the wall; a crown and a spray can for the tabs and the like</string>
+    <string name="app_theme_street_desc">Black wall and one pink spray: tags with drips for the titles, splatter and halos in the empty corners, nothing moves</string>
     <string name="app_theme_breakcore">Breakcore</string>
-    <string name="app_theme_breakcore_desc">A worn tape cover: scanlines, flickering grain, glitch bands, crossed-out words floating up, a slipped ghost of the titles; a broken heart for the like</string>
+    <string name="app_theme_breakcore_desc">A worn tape cover gone over with a shaky pen: scanlines, grain, doodles in the margins, titles slipped and underlined; a broken heart for the like</string>
     <string name="experimental_themes_title">Experimental themes</string>
+    <string name="app_logs_settings_desc">Crashed or a track skipped? Share the logs</string>
+    <string name="service_stats_desc_vk">From your whole VK library: tracks added by month, top artists</string>
+    <string name="stats_vk_total">%1$d tracks in My music</string>
 </resources>

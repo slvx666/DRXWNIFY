@@ -676,7 +676,10 @@ class HlsConcatDataSource(
         private const val FIRST_SEGMENT_WAIT_MS = 10_000L
 
         /** Declared length = estimate × this, so the real audio is never cut (the rest is silence). */
-        private const val LENGTH_MARGIN = 1.002
+        private const val LENGTH_MARGIN = 1.004
+
+        /** Seconds added on top of [LENGTH_MARGIN]. */
+        private const val HEADROOM_S = 1.0
 
         /**
          * [whole]: fetch, decrypt and demux the complete track before playing it — for playlists
@@ -732,7 +735,12 @@ class HlsConcatDataSource(
                         "hls: first segment after ${System.currentTimeMillis() - started} ms (${audio.size / 1024} KB)",
                     )
                     val cbr = if (seconds > 0.0) MeasuredAudio.constantMp3(audio) else null
-                    declared = cbr?.let { (it.bitrate / 8.0 * seconds * LENGTH_MARGIN).toLong() + it.frameLength } ?: 0L
+                    // The tag before the frames counts too (a cover in it is easily 100 KB = seconds of
+                    // audio), plus a second of headroom for rounded segment lengths: whatever the real
+                    // audio has past the declared length is cut off, and the track ended early.
+                    declared = cbr?.let {
+                        it.start + (it.bitrate / 8.0 * (seconds * LENGTH_MARGIN + HEADROOM_S)).toLong() + it.frameLength
+                    } ?: 0L
                     silentFrame = cbr?.silentFrame()
                     if (cbr == null) {
                         val head = audio.take(4).joinToString(" ") { "%02x".format(it) }
@@ -766,6 +774,11 @@ class HlsConcatDataSource(
             wholeCache.put(playlistUrl, joined)
             MeasuredAudio.analyze(joined)?.let { MeasuredAudio.record(playlistUrl, it) }
             if (declared > 0) {
+                if (total > declared) {
+                    com.metrolist.music.resolver.AudioDiagnostics.warn(
+                        "hls: the audio is ${(total - declared) / 1024} KB longer than the player was told — its end is cut off",
+                    )
+                }
                 val filled = ByteArray(declared.toInt())
                 joined.copyInto(filled, 0, 0, minOf(joined.size, filled.size))
                 fillSilence(filled, joined.size)

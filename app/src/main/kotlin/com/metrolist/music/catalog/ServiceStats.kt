@@ -117,6 +117,42 @@ object ServiceStats {
         }.recoverCatching { e -> saved ?: throw e }
     }
 
+    /**
+     * VK Music: VK shows nobody its statistics, but the whole of "My music" is here — the likes by
+     * month (each track's date in the list) and the artists with the most tracks in it. A big
+     * library takes a few seconds to read; kept a day like the others.
+     */
+    suspend fun vkStats(force: Boolean = false): Result<YandexStats> {
+        val saved = read<YandexStats>("vk1")
+        if (!force && saved != null && System.currentTimeMillis() - saved.at < DAY_MS) return Result.success(saved)
+        return runCatching {
+            val tracks = VkCatalog.myTracks(force = force)
+            check(tracks.isNotEmpty()) { "VK library is empty" }
+            val zone = ZoneId.systemDefault()
+            val months = tracks.filter { it.addedAt > 0 }
+                .map { YearMonth.from(java.time.Instant.ofEpochSecond(it.addedAt).atZone(zone)) }
+                .groupingBy { it }.eachCount()
+            val now = YearMonth.now()
+            val byMonth = (11 downTo 0).map { back ->
+                val m = now.minusMonths(back.toLong())
+                MonthCount(m.toString(), months[m] ?: 0)
+            }
+            val byArtist = tracks.groupBy { it.artists.firstOrNull()?.name?.trim().orEmpty() }.filterKeys { it.isNotBlank() }
+            val artists = kotlinx.coroutines.coroutineScope {
+                byArtist.entries.sortedByDescending { it.value.size }.take(15).map { (name, liked) ->
+                    val track = VkCatalog.trackOf(liked.first())
+                    async {
+                        // The artist's own photo when VK knows the artist (official releases), else a cover.
+                        val photo = track.artists.firstOrNull()?.id?.takeIf { it.isNotBlank() }
+                            ?.let { VkCatalog.artist(it).getOrNull()?.images?.maxByOrNull { img -> img.width ?: 0 }?.url }
+                        ArtistCount(name, liked.size, track, photo ?: liked.firstNotNullOfOrNull { it.album?.cover ?: it.thumb })
+                    }
+                }.map { it.await() }
+            }
+            YandexStats(tracks.size, byMonth, artists, System.currentTimeMillis()).also { write("vk1", it) }
+        }.recoverCatching { e -> saved ?: throw e }
+    }
+
     private const val DAY_MS = 24 * 60 * 60_000L
 }
 

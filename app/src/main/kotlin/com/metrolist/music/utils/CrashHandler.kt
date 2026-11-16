@@ -44,6 +44,8 @@ class CrashHandler private constructor(
 
             val crashLog = buildCrashLog(throwable)
             Timber.e(throwable, "App crashed")
+            // Kept for "App logs → Share": the crash screen was the only place it lived.
+            AppLogs.saveCrash(applicationContext, crashLog)
 
             // Best-effort upload to the project's Issues tracker. Bounded by an internal
             // timeout so a slow network never delays the crash dialog.

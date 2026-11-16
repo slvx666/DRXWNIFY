@@ -813,7 +813,8 @@ private fun MessageItem(
     val first = batch.first()
     val music = remember(m.music) { ChatMusic.fromJson(m.music) }
     val tracks = remember(batch) { if (batch.size > 1) batch.mapNotNull { b -> ChatMusic.fromJson(b.music)?.let { b.id to it } } else emptyList() }
-    val stickersOnly = remember(m.text, music) { if (music == null && m.replyTo == null) Stickers.stickerOnly(m.text) else null }
+    // Stickers alone stay large even as a reply (the quote goes in a small bubble above), as in Telegram.
+    val stickersOnly = remember(m.text, music) { if (music == null) Stickers.stickerOnly(m.text) else null }
     // A batch shows its worst: a failure, else a wait, else unread, else read.
     val shown = remember(batch) {
         batch.firstOrNull { it.state == ChatMessage.STATE_FAILED }
@@ -914,6 +915,18 @@ private fun MessageItem(
             val place = Modifier.onGloballyPositioned(bubble::place)
             if (stickersOnly != null) {
                 Column(horizontalAlignment = if (m.mine) Alignment.End else Alignment.Start, modifier = place.then(clickable)) {
+                    if (first.replyTo != null) {
+                        Box(
+                            Modifier
+                                .padding(bottom = 4.dp)
+                                .widthIn(max = 240.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(bubbleColor)
+                                .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 2.dp),
+                        ) {
+                            Quote(reply, peerName, m.mine) { if (selecting) onSelect() else onQuoteClick(first.replyTo) }
+                        }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         stickersOnly.forEach { part ->
                             if (stickersOnly.size == 1) BigSticker(part.sticker, 150.dp, 200.dp) else BigSticker(part.sticker, 110.dp, 120.dp)

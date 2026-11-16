@@ -206,11 +206,18 @@ fun AccountCommonSettings(navController: NavController, service: MetadataSource,
         }
     }
     // Spotify's tops come over the web player's own query (the public API is rate limited for everyone).
-    if (service == MetadataSource.YANDEX || service == MetadataSource.SPOTIFY) {
+    // VK gives no statistics: its wrap-up is worked out from the whole "My music".
+    if (service == MetadataSource.YANDEX || service == MetadataSource.SPOTIFY || service == MetadataSource.VK) {
         PreferenceGroupTitle(title = stringResource(R.string.account_section_stats))
         PreferenceEntry(
             title = { Text(stringResource(R.string.service_stats_title)) },
-            description = stringResource(if (service == MetadataSource.SPOTIFY) R.string.service_stats_desc_spotify else R.string.service_stats_desc_yandex),
+            description = stringResource(
+                when (service) {
+                    MetadataSource.SPOTIFY -> R.string.service_stats_desc_spotify
+                    MetadataSource.VK -> R.string.service_stats_desc_vk
+                    else -> R.string.service_stats_desc_yandex
+                },
+            ),
             icon = { Icon(painterResource(R.drawable.stats), null) },
             onClick = { navController.navigate("account_stats/${service.name}") },
         )

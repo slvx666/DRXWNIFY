@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui.component
 
+import com.metrolist.music.ui.theme.themeNavBar
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Spacer
@@ -167,7 +168,8 @@ fun AppNavigationBar(
     }
 
     NavigationBar(
-        modifier = modifier,
+        // An experimental theme's edge along its top (thorns, spray, a pen line).
+        modifier = modifier.themeNavBar(),
         containerColor = containerColor,
         contentColor = contentColor
     ) {

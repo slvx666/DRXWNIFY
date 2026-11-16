@@ -107,7 +107,9 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
                     .onSuccess { spotify = it }.onFailure { error = it.message }
                 MetadataSource.YANDEX -> ServiceStats.yandexStats()
                     .onSuccess { yandex = it }.onFailure { error = it.message }
-                MetadataSource.VK -> Unit
+                // Read from the whole VK library: the spinner shows meanwhile.
+                MetadataSource.VK -> ServiceStats.vkStats()
+                    .onSuccess { yandex = it }.onFailure { error = it.message }
             }
         }
         loading = false
@@ -173,15 +175,16 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
                 }
             }
         }
-        if (service == MetadataSource.YANDEX && !loading) {
+        // VK's wrap-up is built the same way as Yandex Music's: likes by month and liked artists.
+        if ((service == MetadataSource.YANDEX || service == MetadataSource.VK) && !loading) {
             yandex?.let { y ->
                 val period = stringResource(R.string.story_period_likes)
-                val name = stringResource(serviceNameRes(MetadataSource.YANDEX))
+                val name = stringResource(serviceNameRes(service))
                 if (y.artists.size >= MonthReview.MIN_ARTISTS && y.total >= MonthReview.MIN_TRACKS) {
                     WatchButton(building) { open { yandexStory(y, name, period, database) } }
                 }
                 Text(
-                    stringResource(R.string.stats_yandex_total, y.total),
+                    stringResource(if (service == MetadataSource.VK) R.string.stats_vk_total else R.string.stats_yandex_total, y.total),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(16.dp),
                 )
