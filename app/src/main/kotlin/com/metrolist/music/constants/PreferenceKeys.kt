@@ -60,6 +60,8 @@ val DefaultOpenTabKey = stringPreferencesKey("defaultOpenTab")
 val SlimNavBarKey = booleanPreferencesKey("slimNavBar")
 val GridItemsSizeKey = stringPreferencesKey("gridItemSize")
 val SliderStyleKey = stringPreferencesKey("sliderStyle")
+/** The ring slider style: the round cover turns while the track plays. */
+val RingCoverSpinKey = booleanPreferencesKey("ringCoverSpin")
 val SquigglySliderKey = booleanPreferencesKey("squigglySlider")
 val SwipeToSongKey = booleanPreferencesKey("SwipeToSong")
 val SwipeToRemoveSongKey = booleanPreferencesKey("SwipeToRemoveSong")
@@ -87,6 +89,9 @@ enum class SliderStyle {
 
     /** Loudness bars along the track, like AIMP's. */
     WAVEFORM,
+
+    /** No bar: the cover is round and the progress runs around it (dragged round to seek). */
+    RING,
 }
 
 const val SYSTEM_DEFAULT = "SYSTEM_DEFAULT"

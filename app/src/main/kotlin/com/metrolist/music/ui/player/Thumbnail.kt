@@ -687,30 +687,66 @@ private fun ThumbnailItem(
             },
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(dimensions.thumbnailSize)
-                .coverSource(coverViewer)
-                .clip(RoundedCornerShape(dimensions.cornerRadius).tui())
-        ) {
-            if (hidePlayerThumbnail) {
-                HiddenThumbnailPlaceholder(textBackgroundColor = textBackgroundColor)
-            } else {
-                val artworkUriToUse = itemCover
+        // The "ring" slider style: a round cover inside a ring of progress (the bar under it is gone),
+        // turning while it plays when chosen. Touches on the cover stay the same.
+        val sliderStyle by rememberEnumPreference(
+            com.metrolist.music.constants.SliderStyleKey,
+            com.metrolist.music.constants.SliderStyle.DEFAULT,
+        )
+        val ringSpinOn by rememberPreference(com.metrolist.music.constants.RingCoverSpinKey, defaultValue = true)
+        val ring = sliderStyle == com.metrolist.music.constants.SliderStyle.RING && !hidePlayerThumbnail
+        val playing = isCurrent || item.mediaId == currentMediaId
+        Box(Modifier.size(dimensions.thumbnailSize), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .size(if (ring) dimensions.thumbnailSize * RING_COVER_SHARE else dimensions.thumbnailSize)
+                    .coverSource(coverViewer)
+                    .then(if (ring) Modifier.ringSpin(playerConnection, active = ringSpinOn && playing) else Modifier)
+                    .clip(if (ring) androidx.compose.foundation.shape.CircleShape else RoundedCornerShape(dimensions.cornerRadius).tui())
+            ) {
+                if (hidePlayerThumbnail) {
+                    HiddenThumbnailPlaceholder(textBackgroundColor = textBackgroundColor)
+                } else {
+                    val artworkUriToUse = itemCover
 
-                ThumbnailImage(
-                    artworkUri = artworkUriToUse,
-                    cropArtwork = cropAlbumArt
+                    ThumbnailImage(
+                        artworkUri = artworkUriToUse,
+                        cropArtwork = cropAlbumArt
+                    )
+                }
+
+                // Cast button at top-right corner of thumbnail (outside the circle with the ring)
+                if (!ring) {
+                    CastButton(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp),
+                        tintColor = textBackgroundColor
+                    )
+                }
+            }
+            if (ring) {
+                if (playing) {
+                    RingProgress(
+                        playerConnection = playerConnection,
+                        activeColor = textBackgroundColor,
+                        trackColor = textBackgroundColor.copy(alpha = 0.22f),
+                        enabled = !isListenTogetherGuest,
+                        onSeek = { to ->
+                            // The cast device when casting, as the bar does.
+                            val cast = runCatching { playerConnection.service.castConnectionHandler }.getOrNull()
+                            if (cast?.isCasting?.value == true) cast.seekTo(to) else playerConnection.player.seekTo(to)
+                        },
+                        modifier = Modifier.matchParentSize(),
+                    )
+                }
+                CastButton(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(2.dp),
+                    tintColor = textBackgroundColor
                 )
             }
-            
-            // Cast button at top-right corner of thumbnail
-            CastButton(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp),
-                tintColor = textBackgroundColor
-            )
         }
     }
 }

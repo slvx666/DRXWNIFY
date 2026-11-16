@@ -277,6 +277,11 @@ fun AppearanceSettings(
             SquigglySliderKey,
             defaultValue = false,
         )
+    val (ringCoverSpin, onRingCoverSpinChange) =
+        rememberPreference(
+            com.metrolist.music.constants.RingCoverSpinKey,
+            defaultValue = true,
+        )
     val (swipeThumbnail, onSwipeThumbnailChange) =
         rememberPreference(
             SwipeThumbnailKey,
@@ -1017,6 +1022,57 @@ fun AppearanceSettings(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                // No bar: a round cover with the progress around it.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .border(
+                                1.dp,
+                                if (sliderStyle == SliderStyle.RING) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outlineVariant
+                                },
+                                RoundedCornerShape(16.dp),
+                            ).clickable {
+                                onSliderStyleChange(SliderStyle.RING)
+                                onSquigglySliderChange(false)
+                                showSliderOptionDialog = false
+                            }.padding(12.dp),
+                ) {
+                    val ringActive = MaterialTheme.colorScheme.primary
+                    val ringTrack = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                    val ringCover = MaterialTheme.colorScheme.surfaceContainerHighest
+                    androidx.compose.foundation.Canvas(Modifier.size(56.dp)) {
+                        val r = size.minDimension / 2f - 3.dp.toPx()
+                        drawCircle(ringCover, r * 0.8f)
+                        drawCircle(ringTrack, r, style = androidx.compose.ui.graphics.drawscope.Stroke(3.dp.toPx()))
+                        drawArc(
+                            ringActive,
+                            startAngle = -90f,
+                            sweepAngle = 230f,
+                            useCenter = false,
+                            topLeft = androidx.compose.ui.geometry.Offset(center.x - r, center.y - r),
+                            size = androidx.compose.ui.geometry.Size(r * 2, r * 2),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round),
+                        )
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.slider_ring),
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        Text(
+                            text = stringResource(R.string.slider_ring_desc),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }
@@ -1200,7 +1256,7 @@ fun AppearanceSettings(
         Material3SettingsGroup(
             title = stringResource(R.string.player),
             items =
-                listOf(
+                listOfNotNull(
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.palette),
                         title = { Text(stringResource(R.string.new_player_design)) },
@@ -1321,11 +1377,32 @@ fun AppearanceSettings(
                                     SliderStyle.WAVEFORM -> {
                                         stringResource(R.string.slider_waveform)
                                     }
+
+                                    SliderStyle.RING -> {
+                                        stringResource(R.string.slider_ring)
+                                    }
                                 },
                             )
                         },
                         onClick = { showSliderOptionDialog = true },
                     ),
+                    // The ring style: the round cover can turn while the track plays.
+                    if (sliderStyle == SliderStyle.RING) {
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.sync),
+                            title = { Text(stringResource(R.string.ring_cover_spin)) },
+                            description = { Text(stringResource(R.string.ring_cover_spin_desc)) },
+                            trailingContent = {
+                                com.metrolist.music.ui.theme.ThemedSwitch(
+                                    checked = ringCoverSpin,
+                                    onCheckedChange = onRingCoverSpinChange,
+                                )
+                            },
+                            onClick = { onRingCoverSpinChange(!ringCoverSpin) },
+                        )
+                    } else {
+                        null
+                    },
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.swipe),
                         title = { Text(stringResource(R.string.enable_swipe_thumbnail)) },

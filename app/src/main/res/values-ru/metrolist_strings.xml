@@ -2225,4 +2225,8 @@
     <string name="story_service_tracks">Твои треки %1$s</string>
     <string name="story_service_artists">Твои исполнители %1$s</string>
     <string name="story_service_genres_pre">Из чего складывается твой вкус</string>
+    <string name="slider_ring">Кольцо вокруг обложки</string>
+    <string name="slider_ring_desc">Без полоски: обложка круглая, прогресс идёт вокруг неё — веди пальцем по кольцу, чтобы перемотать</string>
+    <string name="ring_cover_spin">Вращать обложку</string>
+    <string name="ring_cover_spin_desc">Круглая обложка медленно крутится, пока играет трек</string>
 </resources>

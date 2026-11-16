@@ -1600,6 +1600,9 @@ fun BottomSheetPlayer(
                     )
                 }
 
+                // The ring style has no bar: the progress runs around the round cover.
+                SliderStyle.RING -> Unit
+
                 SliderStyle.SLIM -> {
                     Slider(
                         value = (sliderPosition ?: effectivePosition).toFloat(),

@@ -2270,4 +2270,8 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="story_service_tracks">Your tracks %1$s</string>
     <string name="story_service_artists">Your artists %1$s</string>
     <string name="story_service_genres_pre">What your taste is made of</string>
+    <string name="slider_ring">Ring around the cover</string>
+    <string name="slider_ring_desc">No bar: the cover is round and the progress runs around it — drag along the ring to seek</string>
+    <string name="ring_cover_spin">Spin the cover</string>
+    <string name="ring_cover_spin_desc">The round cover turns slowly while the track plays</string>
 </resources>
