@@ -83,8 +83,8 @@ object LikeTarget {
         mediaId.length == 11 && mediaId.all { it.isLetterOrDigit() || it == '_' || it == '-' }
 
     fun icon(liked: Boolean, syncs: Boolean): Int = when {
-        syncs && liked -> R.drawable.favorite
-        syncs -> R.drawable.favorite_border
+        // An experimental theme draws the heart its own way (a pentagram, a cross, a crown...).
+        syncs -> com.metrolist.music.ui.theme.ThemeIcons.like(liked) ?: if (liked) R.drawable.favorite else R.drawable.favorite_border
         liked -> R.drawable.favorite_local
         else -> R.drawable.favorite_local_border
     }

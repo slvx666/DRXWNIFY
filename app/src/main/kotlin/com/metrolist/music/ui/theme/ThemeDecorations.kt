@@ -263,8 +263,9 @@ fun ThemeContentBackground(visible: Boolean, modifier: Modifier = Modifier) {
 @Composable
 fun ThemeContentOverlay(modifier: Modifier = Modifier) {
     if (LocalAppThemePreset.current != AppThemePreset.LINUX) {
-        // Monochrome's paper (light), Breakcore's scanlines; nothing in the others.
+        // Monochrome's paper (light), Breakcore's scanlines; the experimental themes' moving layer.
         MonoOverlay(LocalAppThemePreset.current, modifier)
+        ExperimentalFx(LocalAppThemePreset.current, modifier)
         return
     }
     val colors = MaterialTheme.colorScheme

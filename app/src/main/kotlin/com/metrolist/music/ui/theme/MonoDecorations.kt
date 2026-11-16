@@ -55,12 +55,31 @@ internal fun androidx.compose.foundation.layout.BoxScope.MonoTopBar(preset: AppT
     when (preset) {
         AppThemePreset.MONOCHROME -> Canvas(Modifier.matchParentSize()) { hairline(ink.copy(alpha = 0.35f)) }
         AppThemePreset.SATANIC -> Canvas(Modifier.matchParentSize()) {
-            hairline(ink.copy(alpha = 0.3f))
-            val r = size.height * 0.3f
-            invertedPentagram(Offset(size.width - r - 14.dp.toPx(), size.height * 0.5f), r, ink.copy(alpha = if (dark) 0.16f else 0.2f))
+            // A row of small inverted crosses along the bottom, a double rule, the pentagram in the corner.
+            val cross = ink.copy(alpha = if (dark) 0.22f else 0.28f)
+            val step = 26.dp.toPx()
+            var x = step / 2
+            val w = 1.2.dp.toPx()
+            val h = 9.dp.toPx()
+            val base = size.height - 5.dp.toPx()
+            while (x < size.width) {
+                drawLine(cross, Offset(x, base - h), Offset(x, base), w)
+                drawLine(cross, Offset(x - h * 0.3f, base - h * 0.3f), Offset(x + h * 0.3f, base - h * 0.3f), w)
+                x += step
+            }
+            hairline(ink.copy(alpha = 0.4f))
+            drawRect(ink.copy(alpha = 0.25f), topLeft = Offset(0f, size.height - 3.dp.toPx()), size = Size(size.width, 1.dp.toPx()))
+            val r = size.height * 0.36f
+            invertedPentagram(Offset(size.width - r - 12.dp.toPx(), size.height * 0.46f), r, ink.copy(alpha = if (dark) 0.34f else 0.4f))
         }
-        AppThemePreset.GOTHIC -> Canvas(Modifier.matchParentSize()) { arches(ink.copy(alpha = if (dark) 0.18f else 0.22f)) }
-        AppThemePreset.STREET -> Canvas(Modifier.matchParentSize()) { drips(accent.copy(alpha = if (dark) 0.42f else 0.5f)) }
+        AppThemePreset.GOTHIC -> Canvas(Modifier.matchParentSize()) {
+            arches(ink.copy(alpha = if (dark) 0.3f else 0.34f))
+            roseWindow(Offset(size.width - size.height * 0.42f - 10.dp.toPx(), size.height * 0.44f), size.height * 0.36f, ink.copy(alpha = if (dark) 0.3f else 0.36f))
+        }
+        AppThemePreset.STREET -> Canvas(Modifier.matchParentSize()) {
+            drips(accent.copy(alpha = if (dark) 0.6f else 0.65f))
+            sprayDust(accent.copy(alpha = if (dark) 0.35f else 0.4f))
+        }
         AppThemePreset.BREAKCORE -> Canvas(Modifier.matchParentSize()) { glitchBar(ink, accent, dark) }
         else -> return false
     }
@@ -112,6 +131,30 @@ private fun DrawScope.arches(color: Color) {
     drawLine(color, Offset(0f, base), Offset(size.width, base), 1.dp.toPx())
 }
 
+/** A rose window: a circle of eight petals around a small circle, in thin tracery. */
+private fun DrawScope.roseWindow(c: Offset, r: Float, color: Color) {
+    val stroke = Stroke(1.dp.toPx())
+    drawCircle(color, r, c, style = stroke)
+    drawCircle(color, r * 0.28f, c, style = stroke)
+    for (k in 0 until 8) {
+        val a = k * PI / 4
+        val p = Offset(c.x + (r * 0.62f * cos(a)).toFloat(), c.y + (r * 0.62f * sin(a)).toFloat())
+        drawCircle(color, r * 0.3f, p, style = stroke)
+        drawLine(color, Offset(c.x + (r * 0.28f * cos(a)).toFloat(), c.y + (r * 0.28f * sin(a)).toFloat()),
+            Offset(c.x + (r * cos(a)).toFloat(), c.y + (r * sin(a)).toFloat()), 0.8.dp.toPx())
+    }
+}
+
+/** The fine dust a spray can leaves around its line. */
+private fun DrawScope.sprayDust(color: Color) {
+    val r = Random(21)
+    repeat(160) {
+        val x = r.nextFloat() * size.width
+        val y = (r.nextFloat() * r.nextFloat()) * size.height * 0.5f
+        drawCircle(color.copy(alpha = color.alpha * (0.3f + r.nextFloat() * 0.7f)), (0.5f + r.nextFloat()).dp.toPx(), Offset(x, y))
+    }
+}
+
 /** Marker drips running down from the top edge, a few, uneven. */
 private fun DrawScope.drips(color: Color) {
     val r = Random(7)
@@ -128,20 +171,20 @@ private fun DrawScope.drips(color: Color) {
 
 /** Scanlines, a couple of displaced slices and a crossed-out mark — a worn tape cover. */
 private fun DrawScope.glitchBar(ink: Color, accent: Color, dark: Boolean) {
-    val line = ink.copy(alpha = if (dark) 0.05f else 0.07f)
+    val line = ink.copy(alpha = if (dark) 0.1f else 0.08f)
     val step = 3.dp.toPx()
     var y = 0f
     while (y < size.height) {
         drawRect(line, topLeft = Offset(0f, y), size = Size(size.width, 1f))
         y += step
     }
-    val slice = accent.copy(alpha = if (dark) 0.14f else 0.18f)
+    val slice = accent.copy(alpha = if (dark) 0.4f else 0.3f)
     drawRect(slice, topLeft = Offset(size.width * 0.55f, size.height * 0.28f), size = Size(size.width * 0.3f, 2.dp.toPx()))
     drawRect(slice, topLeft = Offset(size.width * 0.62f, size.height * 0.66f), size = Size(size.width * 0.18f, 3.dp.toPx()))
     // The crossed-out mark in the corner.
     val c = Offset(size.width - 26.dp.toPx(), size.height * 0.5f)
     val s = 7.dp.toPx()
-    val cross = ink.copy(alpha = if (dark) 0.22f else 0.28f)
+    val cross = ink.copy(alpha = if (dark) 0.45f else 0.4f)
     drawLine(cross, Offset(c.x - s, c.y - s), Offset(c.x + s, c.y + s), 1.dp.toPx())
     drawLine(cross, Offset(c.x - s, c.y + s), Offset(c.x + s, c.y - s), 1.dp.toPx())
     drawLine(ink.copy(alpha = if (dark) 0.2f else 0.25f), Offset(0f, size.height - 1f), Offset(size.width, size.height - 1f), 1f)
@@ -200,10 +243,10 @@ internal fun BreakcoreTitle(text: String, style: TextStyle, modifier: Modifier =
         Text(
             text = text,
             style = style,
-            color = accent.copy(alpha = 0.35f),
+            color = accent.copy(alpha = 0.55f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.offset(x = 2.dp, y = (-1).dp),
+            modifier = Modifier.offset(x = 3.dp, y = (-2).dp),
         )
         Text(text = text, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }

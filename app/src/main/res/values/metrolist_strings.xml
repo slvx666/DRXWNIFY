@@ -2277,12 +2277,12 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="app_theme_monochrome">Monochrome</string>
     <string name="app_theme_monochrome_desc">Black and white as far as it goes. The light version is soft grey paper with barely visible grain and scratches</string>
     <string name="app_theme_satanic">Satanic</string>
-    <string name="app_theme_satanic_desc">Black metal black and white: pure black, ash grey, a thin inverted pentagram and cross. No red</string>
+    <string name="app_theme_satanic_desc">Black metal black and white, no red: ash rising, a slowly turning inverted pentagram, inverted crosses; Home, Library and the like become a pentagram and a cross</string>
     <string name="app_theme_gothic">Gothic</string>
-    <string name="app_theme_gothic_desc">Night stone with a hint of dusk violet, serif headings, a quiet row of pointed arches</string>
+    <string name="app_theme_gothic_desc">Night stone with a hint of violet: pointed arches and a rose window, dust drifting, bats crossing, shadowed corners; a lancet window and a cross for Home, Library and the like</string>
     <string name="app_theme_street">Street art</string>
-    <string name="app_theme_street_desc">Asphalt and concrete with one marker colour: drips on the top bar, a scribble after titles</string>
+    <string name="app_theme_street_desc">Asphalt and concrete with one marker colour: drips running down, spray dust, a big tag on the wall; a crown and a spray can for the tabs and the like</string>
     <string name="app_theme_breakcore">Breakcore</string>
-    <string name="app_theme_breakcore_desc">A worn tape cover: cold black and grey, dusty lilac, scanlines, a slipped ghost of the titles, crossed-out marks</string>
+    <string name="app_theme_breakcore_desc">A worn tape cover: scanlines, flickering grain, glitch bands, crossed-out words floating up, a slipped ghost of the titles; a broken heart for the like</string>
     <string name="experimental_themes_title">Experimental themes</string>
 </resources>

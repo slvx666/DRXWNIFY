@@ -78,8 +78,10 @@ fun AppNavigationRail(
                 isRouteSelected(currentRoute, screen.route, navigationItems)
             }
             val currentIsSelected by rememberUpdatedState(isSelected)
-            val iconRes = remember(isSelected, screen) {
-                if (isSelected) screen.iconIdActive else screen.iconIdInactive
+            // An experimental theme may draw this tab its own way (ThemeIcons).
+            val themePreset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
+            val iconRes = remember(isSelected, screen, themePreset) {
+                com.metrolist.music.ui.theme.ThemeIcons.nav(screen, isSelected, if (isSelected) screen.iconIdActive else screen.iconIdInactive)
             }
 
             val isSearchItem = screen == Screens.Search && onSearchLongClick != null
@@ -174,8 +176,10 @@ fun AppNavigationBar(
                 isRouteSelected(currentRoute, screen.route, navigationItems)
             }
             val currentIsSelected by rememberUpdatedState(isSelected)
-            val iconRes = remember(isSelected, screen) {
-                if (isSelected) screen.iconIdActive else screen.iconIdInactive
+            // An experimental theme may draw this tab its own way (ThemeIcons).
+            val themePreset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
+            val iconRes = remember(isSelected, screen, themePreset) {
+                com.metrolist.music.ui.theme.ThemeIcons.nav(screen, isSelected, if (isSelected) screen.iconIdActive else screen.iconIdInactive)
             }
 
             val isSearchItem = screen == Screens.Search && onSearchLongClick != null
