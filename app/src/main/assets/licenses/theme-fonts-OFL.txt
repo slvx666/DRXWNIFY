@@ -1,7 +1,6 @@
 Fonts of the experimental themes (res/font/theme_*.ttf), cut down to Latin and Cyrillic.
 All under the SIL Open Font License 1.1 (text below).
 
-theme_satanic.ttf: Rubik Distressed. Copyright 2020 The Rubik Filtered Project Authors (https://github.com/NaN-xyz/Rubik-Filtered)
 theme_gothic.ttf: Ruslan Display. Copyright 2011 Oleg Snarsky, Denis Masharov, Vladimir Rabdu.
 theme_street.ttf: Rubik Wet Paint. Copyright 2020 The Rubik Filtered Project Authors (https://github.com/NaN-xyz/Rubik-Filtered)
 theme_glitch.ttf: Rubik Glitch. Copyright 2020 The Rubik Filtered Project Authors (https://github.com/NaN-xyz/Rubik-Filtered)

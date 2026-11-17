@@ -230,10 +230,11 @@ internal fun SatanicTitle(text: String, style: TextStyle) {
 /*
  * The experimental themes' faces (Google Fonts, OFL; cut down to Latin and Cyrillic so the Russian
  * words get them too — the metal face before had no Cyrillic and fell back to the system one):
- * Satanic Rubik Distressed, Gothic Ruslan Display, Street art Rubik Wet Paint, Glitch Rubik Glitch.
+ * Gothic Ruslan Display, Street art Rubik Wet Paint, Glitch Rubik Glitch.
  * One weight each: never asked to be bold (that would be faked).
  */
-internal val MetalFace = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.metrolist.music.R.font.theme_satanic))
+// Satanic keeps the metal face (Metal Mania) the owner chose; it has Latin only, Cyrillic falls back.
+internal val MetalFace = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.metrolist.music.R.font.metal_mania))
 internal val GothicFace = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.metrolist.music.R.font.theme_gothic))
 internal val StreetFace = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.metrolist.music.R.font.theme_street))
 internal val GlitchFace = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.metrolist.music.R.font.theme_glitch))
