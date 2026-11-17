@@ -334,6 +334,21 @@ fun SettingsScreen(
                         onClick = { showChangelog.value = true }
                     )
                 )
+                // Tips for the author (CloudTips); nothing in the app depends on it.
+                add(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.favorite),
+                        title = { Text(stringResource(R.string.donate_title)) },
+                        description = {
+                            Text(
+                                text = stringResource(R.string.donate_settings_desc),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        onClick = { navController.navigate("settings/donate") },
+                    ),
+                )
                 // Crashes, skips, sources: one place to send them from.
                 add(
                     Material3SettingsItem(

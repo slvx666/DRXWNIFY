@@ -688,6 +688,10 @@ fun NavGraphBuilder.navigationBuilder(
         AboutScreen(navController, scrollBehavior)
     }
 
+    composable("settings/donate") {
+        com.metrolist.music.ui.screens.settings.DonateScreen(navController)
+    }
+
     composable("login") {
         LoginScreen(navController)
     }
