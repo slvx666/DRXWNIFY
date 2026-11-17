@@ -576,12 +576,12 @@ async function setupPcDownload() {
   const a = document.getElementById("pc-download");
   if (!a || !/Windows/i.test(navigator.userAgent)) return;
   try {
-    const res = await fetch("https://api.github.com/repos/slvx666/drxwnify_pc/releases?per_page=10");
+    const res = await fetch("https://api.github.com/repos/slvx666/drxwnifyRustPC/releases?per_page=10");
     if (!res.ok) return;
     for (const rel of await res.json()) {
-      const msi = (rel.assets || []).find((x) => /\.msi$/i.test(x.name));
-      if (msi) {
-        a.href = msi.browser_download_url;
+      const setup = (rel.assets || []).find((x) => /setup.*\.exe$/i.test(x.name));
+      if (setup) {
+        a.href = setup.browser_download_url;
         a.removeAttribute("target");
         a.setAttribute("download", "");
         return;
