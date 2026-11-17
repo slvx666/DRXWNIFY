@@ -61,17 +61,10 @@ enum class AppThemePreset(val nameRes: Int, val descriptionRes: Int, val group: 
         // Satanic and Gothic: headings in a serif; Breakcore's typed like a tape label.
         // Satanic: the screen and section headings in the metal face; Gothic: a serif.
         SATANIC -> AppTypography.headings(MetalFace)
-        GOTHIC -> AppTypography.headings(FontFamily.Serif)
-        BREAKCORE -> AppTypography.headings(FontFamily.Monospace)
+        GOTHIC -> AppTypography.headings(GothicFace)
+        BREAKCORE -> AppTypography.headings(GlitchFace)
         // Street art: heavy headings, like a tag.
-        STREET -> AppTypography.let { t ->
-            t.copy(
-                headlineLarge = t.headlineLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black),
-                headlineMedium = t.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black),
-                headlineSmall = t.headlineSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black),
-                titleLarge = t.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Black),
-            )
-        }
+        STREET -> AppTypography.headings(StreetFace)
         else -> AppTypography
     }
 

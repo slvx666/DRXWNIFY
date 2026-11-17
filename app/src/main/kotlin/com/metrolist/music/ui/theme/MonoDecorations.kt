@@ -193,13 +193,13 @@ internal fun BreakcoreTitle(text: String, style: TextStyle, modifier: Modifier =
     ) {
         Text(
             text = text,
-            style = style,
+            style = style.copy(fontFamily = GlitchFace, fontWeight = FontWeight.Normal),
             color = accent.copy(alpha = 0.55f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.offset(x = 3.dp, y = (-2).dp),
         )
-        Text(text = text, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text = text, style = style.copy(fontFamily = GlitchFace, fontWeight = FontWeight.Normal), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -208,7 +208,7 @@ internal fun BreakcoreTitle(text: String, style: TextStyle, modifier: Modifier =
 internal fun GothicTitle(text: String, style: TextStyle) {
     Text(
         text = text,
-        style = style.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Serif, fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp),
+        style = style.copy(fontFamily = GothicFace, fontWeight = FontWeight.Normal, letterSpacing = 0.5.sp),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
     )
@@ -227,7 +227,16 @@ internal fun SatanicTitle(text: String, style: TextStyle) {
     MonoTitleAccent(AppThemePreset.SATANIC)
 }
 
-internal val MetalFace =  androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.metrolist.music.R.font.metal_mania))
+/*
+ * The experimental themes' faces (Google Fonts, OFL; cut down to Latin and Cyrillic so the Russian
+ * words get them too — the metal face before had no Cyrillic and fell back to the system one):
+ * Satanic Rubik Distressed, Gothic Ruslan Display, Street art Rubik Wet Paint, Glitch Rubik Glitch.
+ * One weight each: never asked to be bold (that would be faked).
+ */
+internal val MetalFace = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.metrolist.music.R.font.theme_satanic))
+internal val GothicFace = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.metrolist.music.R.font.theme_gothic))
+internal val StreetFace = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.metrolist.music.R.font.theme_street))
+internal val GlitchFace = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.metrolist.music.R.font.theme_glitch))
 
 /**
  * Street art's title as a tag: heavy slanted letters in the paint colour with a hard shadow,
@@ -240,20 +249,14 @@ internal fun StreetTitle(text: String, style: TextStyle) {
     Text(
         text = text,
         style = style.copy(
-            fontWeight = FontWeight.Black,
-            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-            letterSpacing = (-0.5).sp,
+            fontFamily = StreetFace,
+            fontWeight = FontWeight.Normal,
             shadow = androidx.compose.ui.graphics.Shadow(color = Color.Black.copy(alpha = if (shadow.dark()) 0.9f else 0.35f), offset = Offset(3f, 3f), blurRadius = 0f),
         ),
         color = paint,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
-        modifier = Modifier
-            .graphicsLayer { rotationZ = -2f }
-            .drawWithContent {
-                drawContent()
-                streetDrips(text, paint)
-            },
+        modifier = Modifier.graphicsLayer { rotationZ = -2f },
     )
     MonoTitleAccent(AppThemePreset.STREET)
 }
@@ -292,10 +295,7 @@ fun Modifier.themeSectionTitle(title: String): Modifier {
             drawLine(color, Offset(c.x, c.y - h / 2), Offset(c.x, c.y + h / 2), 1.3.dp.toPx())
             drawLine(color, Offset(c.x - h * 0.26f, c.y - h * 0.2f), Offset(c.x + h * 0.26f, c.y - h * 0.2f), 1.3.dp.toPx())
         }
-        AppThemePreset.STREET -> graphicsLayer { rotationZ = -1.5f }.drawWithContent {
-            drawContent()
-            streetDrips(title, accent)
-        }
+        AppThemePreset.STREET -> graphicsLayer { rotationZ = -1.5f }
         AppThemePreset.BREAKCORE -> drawWithContent {
             drawContent()
             val r = Random(title.hashCode())
@@ -319,8 +319,9 @@ fun Modifier.themeSectionTitle(title: String): Modifier {
 @Composable
 fun themeSectionStyle(style: TextStyle): TextStyle = when (LocalAppThemePreset.current) {
     AppThemePreset.SATANIC -> style.copy(fontFamily = MetalFace, fontWeight = FontWeight.Normal)
-    AppThemePreset.GOTHIC -> style.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Serif, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
-    AppThemePreset.STREET -> style.copy(fontWeight = FontWeight.Black, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+    AppThemePreset.GOTHIC -> style.copy(fontFamily = GothicFace, fontWeight = FontWeight.Normal)
+    AppThemePreset.STREET -> style.copy(fontFamily = StreetFace, fontWeight = FontWeight.Normal)
+    AppThemePreset.BREAKCORE -> style.copy(fontFamily = GlitchFace, fontWeight = FontWeight.Normal)
     else -> style
 }
 
@@ -330,19 +331,17 @@ fun themeSectionStyle(style: TextStyle): TextStyle = when (LocalAppThemePreset.c
  */
 @Composable
 fun themeAccentStyle(style: TextStyle): TextStyle = when (LocalAppThemePreset.current) {
-    AppThemePreset.SATANIC -> style.copy(fontFamily = MetalFace, fontWeight = FontWeight.Normal, letterSpacing = 0.5.sp)
-    AppThemePreset.GOTHIC -> style.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Serif, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
-    AppThemePreset.STREET -> style.copy(fontWeight = FontWeight.Black, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
-    AppThemePreset.BREAKCORE -> style.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+    AppThemePreset.SATANIC -> style.copy(fontFamily = MetalFace, fontWeight = FontWeight.Normal)
+    AppThemePreset.GOTHIC -> style.copy(fontFamily = GothicFace, fontWeight = FontWeight.Normal)
+    AppThemePreset.STREET -> style.copy(fontFamily = StreetFace, fontWeight = FontWeight.Normal)
+    AppThemePreset.BREAKCORE -> style.copy(fontFamily = GlitchFace, fontWeight = FontWeight.Normal)
     else -> style
 }
 
 /** The weight a section title is set in (the metal face has only its regular one). */
 @Composable
 fun themeSectionWeight(): FontWeight = when (LocalAppThemePreset.current) {
-    AppThemePreset.SATANIC -> FontWeight.Normal
-    AppThemePreset.GOTHIC -> FontWeight.SemiBold
-    AppThemePreset.STREET -> FontWeight.Black
+    AppThemePreset.SATANIC, AppThemePreset.GOTHIC, AppThemePreset.STREET, AppThemePreset.BREAKCORE -> FontWeight.Normal
     else -> FontWeight.Bold
 }
 
