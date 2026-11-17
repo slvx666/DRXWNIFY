@@ -150,7 +150,8 @@ fun AppThemePicker() {
 @Composable
 fun ExperimentalThemePicker(modifier: Modifier = Modifier) {
     val (preset, onPresetChange) = rememberEnumPreference(AppThemePresetKey, AppThemePreset.STANDARD)
-    val darkMode by rememberEnumPreference(DarkModeKey, DarkMode.AUTO)
+    val (darkMode, onDarkModeChange) = rememberEnumPreference(DarkModeKey, DarkMode.AUTO)
+    val (_, onPureBlackChange) = rememberPreference(com.metrolist.music.constants.PureBlackKey, false)
     val dark = when (darkMode) {
         DarkMode.AUTO -> isSystemInDarkTheme()
         DarkMode.ON -> true
@@ -176,7 +177,15 @@ fun ExperimentalThemePicker(modifier: Modifier = Modifier) {
                             dark = dark,
                             selected = item == preset,
                             // Tapped again: back to the standard theme.
-                            onClick = { onPresetChange(if (item == preset) AppThemePreset.STANDARD else item) },
+                            onClick = {
+                                val next = if (item == preset) AppThemePreset.STANDARD else item
+                                onPresetChange(next)
+                                // Satanic is meant to be black: dark mode on, pure black.
+                                if (next == AppThemePreset.SATANIC) {
+                                    onDarkModeChange(DarkMode.ON)
+                                    onPureBlackChange(true)
+                                }
+                            },
                             modifier = Modifier.weight(1f),
                         )
                     }

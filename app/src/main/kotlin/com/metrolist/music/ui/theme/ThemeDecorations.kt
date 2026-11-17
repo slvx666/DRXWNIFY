@@ -166,6 +166,7 @@ fun ThemeTitle(text: String, style: TextStyle, modifier: Modifier = Modifier) {
             )
             AppThemePreset.BREAKCORE -> BreakcoreTitle(text, style)
             AppThemePreset.SATANIC -> SatanicTitle(text, style)
+            AppThemePreset.GOTHIC -> GothicTitle(text, style)
             AppThemePreset.STREET -> StreetTitle(text, style)
             else -> {
                 Text(text = text, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis)

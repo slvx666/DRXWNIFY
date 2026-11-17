@@ -1374,8 +1374,14 @@ class MainActivity : ComponentActivity() {
                             Box(Modifier.weight(1f)) {
                                 // Under the pages: the theme's background art (sakura petals, drifting code)
                                 // shows only where a page is see-through, never over covers or text.
+                                val experimentalTheme = com.metrolist.music.ui.theme.LocalAppThemePreset.current.group ==
+                                    com.metrolist.music.ui.theme.AppThemePreset.Group.EXPERIMENTAL
                                 com.metrolist.music.ui.theme.ThemeContentBackground(
-                                    visible = (currentRoute == "home" || currentRoute == "library") &&
+                                    visible = (
+                                        currentRoute == "home" || currentRoute == "library" ||
+                                            // The experimental themes dress every tab, not only these two.
+                                            (experimentalTheme && (currentRoute == "search_input" || currentRoute == "listen_together"))
+                                        ) &&
                                         !playerBottomSheetState.isExpanded,
                                 )
                                 // NavHost with animations (Material 3 Expressive style)

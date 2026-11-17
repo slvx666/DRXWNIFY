@@ -63,7 +63,9 @@ fun TogetherScreen(
     }
     androidx.activity.compose.BackHandler(enabled = forwarding != null) { cancelForward() }
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    // See-through with an experimental theme: its art (under the pages) shows between the rows.
+    val themed = com.metrolist.music.ui.theme.LocalAppThemePreset.current.group == com.metrolist.music.ui.theme.AppThemePreset.Group.EXPERIMENTAL
+    Column(Modifier.fillMaxSize().background(if (themed) androidx.compose.ui.graphics.Color.Transparent else MaterialTheme.colorScheme.background)) {
         TopAppBar(
             title = {
                 androidx.compose.animation.AnimatedContent(forwarding != null, label = "title") { f ->

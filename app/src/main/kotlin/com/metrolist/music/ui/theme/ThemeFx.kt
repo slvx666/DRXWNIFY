@@ -93,12 +93,6 @@ private fun SatanicBackground(modifier: Modifier) {
             // The circle upright, a little below the middle.
             val r = size.minDimension * 0.33f
             ritualCircle(Offset(size.width * 0.5f, size.height * 0.56f), r, ink.copy(alpha = if (dark) 0.075f else 0.09f), 1.4f * density)
-            // Small inverted crosses scattered low on the walls.
-            val rnd = Random(13)
-            repeat(9) {
-                val c = Offset(rnd.nextFloat() * size.width, size.height * (0.12f + rnd.nextFloat() * 0.8f))
-                invertedCross(c, (10f + rnd.nextFloat() * 14f) * density, ink.copy(alpha = if (dark) 0.06f else 0.07f), 1.2f * density)
-            }
         }
         // Ash rising only while the animations are on; off, there is none at all.
         if (animate) SatanicAsh(ink)
@@ -109,7 +103,8 @@ private fun SatanicBackground(modifier: Modifier) {
 private fun SatanicAsh(ink: Color) {
     val ash = remember {
         val r = Random(666)
-        List(64) { Ash(r.nextFloat(), 0.035f + r.nextFloat() * 0.06f, 0.8f + r.nextFloat() * 2f, r.nextFloat(), 6f + r.nextFloat() * 16f, 0.25f + r.nextFloat() * 0.45f) }
+        // Slow: it drifts up rather than flies.
+        List(64) { Ash(r.nextFloat(), 0.018f + r.nextFloat() * 0.032f, 0.8f + r.nextFloat() * 2f, r.nextFloat(), 6f + r.nextFloat() * 16f, 0.25f + r.nextFloat() * 0.45f) }
     }
     val clock = rememberFxClock(true)
     Canvas(Modifier.fillMaxSize().graphicsLayer()) {
@@ -144,12 +139,6 @@ private fun GothicBackground(modifier: Modifier) {
                     radius = size.maxDimension * 0.75f,
                 ),
             )
-            // Tall lancet windows down both sides, in thin tracery.
-            val color = ink.copy(alpha = if (dark) 0.06f else 0.07f)
-            val w = size.width * 0.16f
-            listOf(-w * 0.35f, size.width - w * 0.65f).forEach { x ->
-                lancet(Rect(x, size.height * 0.1f, x + w, size.height * 0.9f), color, 1.2f * density)
-            }
         }
         if (animate) GothicDust(ink)
     }
@@ -202,7 +191,6 @@ private fun StreetBackground(modifier: Modifier) {
     val paint = MaterialTheme.colorScheme.primary
     val ink = MaterialTheme.colorScheme.onSurface
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
-    val tag = remember { tagStrokes(Random(93)) }
     Canvas(modifier.fillMaxSize().graphicsLayer()) {
         val r = Random(404)
         // Concrete: specks and a few scuffs.
@@ -212,16 +200,6 @@ private fun StreetBackground(modifier: Modifier) {
         repeat(18) {
             val a = Offset(r.nextFloat() * size.width, r.nextFloat() * size.height)
             drawLine(ink.copy(alpha = 0.035f), a, Offset(a.x + (r.nextFloat() - 0.5f) * 120f * density, a.y + (r.nextFloat() - 0.5f) * 30f * density), 0.8f * density)
-        }
-        // The big tag, faint, low on the wall.
-        val w = size.width * 0.8f
-        translate(size.width * 0.08f, size.height * 0.66f) {
-            tag.forEach { stroke ->
-                val path = Path().apply {
-                    stroke.forEachIndexed { k, (x, y) -> if (k == 0) moveTo(x * w, y * w * 0.45f) else lineTo(x * w, y * w * 0.45f) }
-                }
-                drawPath(path, ink.copy(alpha = if (dark) 0.05f else 0.06f), style = Stroke(10f * density, cap = StrokeCap.Round, join = StrokeJoin.Round))
-            }
         }
         val color = paint.copy(alpha = if (dark) 0.5f else 0.55f)
         // Splatter in the corners, where nothing else is.
@@ -286,7 +264,6 @@ private fun BreakcoreBackground(modifier: Modifier) {
             Rect(size.width * 0.72f, size.height * 0.18f, size.width, size.height * 0.3f),
             Rect(0f, size.height * 0.44f, size.width * 0.16f, size.height * 0.6f),
             Rect(size.width * 0.84f, size.height * 0.55f, size.width, size.height * 0.72f),
-            Rect(size.width * 0.05f, size.height * 0.82f, size.width * 0.4f, size.height * 0.95f),
             Rect(size.width * 0.6f, size.height * 0.86f, size.width * 0.98f, size.height * 0.98f),
         )
         places.forEachIndexed { i, rect ->

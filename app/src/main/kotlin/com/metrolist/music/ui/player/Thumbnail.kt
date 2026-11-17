@@ -697,6 +697,10 @@ private fun ThumbnailItem(
         val ring = sliderStyle == com.metrolist.music.constants.SliderStyle.RING && !hidePlayerThumbnail
         val playing = isCurrent || item.mediaId == currentMediaId
         Box(Modifier.size(dimensions.thumbnailSize), contentAlignment = Alignment.Center) {
+            // An experimental theme's marks around the cover or the ring (outside them, never over).
+            if (!hidePlayerThumbnail) {
+                com.metrolist.music.ui.theme.ThemePlayerDecor(ring = ring, color = textBackgroundColor, modifier = Modifier.matchParentSize())
+            }
             Box(
                 modifier = Modifier
                     .size(if (ring) dimensions.thumbnailSize * RING_COVER_SHARE else dimensions.thumbnailSize)

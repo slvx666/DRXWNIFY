@@ -80,7 +80,7 @@ fun NavigationTitle(
             Text(
                 text = title,
                 style = com.metrolist.music.ui.theme.themeSectionStyle(MaterialTheme.typography.titleLarge),
-                fontWeight = if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.STREET) FontWeight.Black else FontWeight.Bold,
+                fontWeight = com.metrolist.music.ui.theme.themeSectionWeight(),
                 color = MaterialTheme.colorScheme.primary,
                 overflow = TextOverflow.Ellipsis,
                 // Spotify's long section names ("Friday new releases for you") need the room.

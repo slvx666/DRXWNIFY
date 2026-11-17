@@ -914,16 +914,17 @@ private fun MessageItem(
             val footer: @Composable () -> Unit = { TimeAndTicks(shown, textColor, m.edited) }
             val place = Modifier.onGloballyPositioned(bubble::place)
             if (stickersOnly != null) {
-                Column(horizontalAlignment = if (m.mine) Alignment.End else Alignment.Start, modifier = place.then(clickable)) {
-                    if (first.replyTo != null) {
-                        Box(
-                            Modifier
-                                .padding(bottom = 4.dp)
-                                .widthIn(max = 240.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(bubbleColor)
-                                .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 2.dp),
-                        ) {
+                // A sticker answering a message sits in one bubble with the quote, so it reads as the
+                // answer (alone, it looked like just the next message); a sticker alone has none.
+                val replyShell = first.replyTo != null
+                Column(
+                    horizontalAlignment = if (m.mine) Alignment.End else Alignment.Start,
+                    modifier = place
+                        .then(if (replyShell) Modifier.widthIn(max = 260.dp).clip(shape).background(bubbleColor).padding(6.dp) else Modifier)
+                        .then(clickable),
+                ) {
+                    if (replyShell) {
+                        Box(Modifier.widthIn(max = 240.dp)) {
                             Quote(reply, peerName, m.mine) { if (selecting) onSelect() else onQuoteClick(first.replyTo) }
                         }
                     }

@@ -5,6 +5,8 @@
 
 package com.metrolist.music.ui.component
 
+import com.metrolist.music.ui.theme.themeTabUnderline
+import com.metrolist.music.ui.theme.underlinesTabs
 import com.metrolist.music.ui.theme.themeNavBar
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
@@ -114,7 +116,16 @@ fun AppNavigationRail(
                 }
             }
 
+            val underline = themePreset.underlinesTabs()
             NavigationRailItem(
+                colors = if (underline) {
+                    androidx.compose.material3.NavigationRailItemDefaults.colors(
+                        indicatorColor = Color.Transparent,
+                        selectedIconColor = MaterialTheme.colorScheme.onSurface,
+                    )
+                } else {
+                    androidx.compose.material3.NavigationRailItemDefaults.colors()
+                },
                 selected = isSelected,
                 onClick = {
                     if (!isSearchItem) {
@@ -126,7 +137,8 @@ fun AppNavigationRail(
                 icon = {
                     Icon(
                         painter = painterResource(id = iconRes),
-                        contentDescription = stringResource(screen.titleId)
+                        contentDescription = stringResource(screen.titleId),
+                        modifier = if (underline) Modifier.themeTabUnderline(isSelected) else Modifier,
                     )
                 }
             )
@@ -213,7 +225,18 @@ fun AppNavigationBar(
                 }
             }
 
+            // Some themes underline the open tab instead of the pill behind its icon.
+            val underline = themePreset.underlinesTabs()
             NavigationBarItem(
+                colors = if (underline) {
+                    androidx.compose.material3.NavigationBarItemDefaults.colors(
+                        indicatorColor = Color.Transparent,
+                        selectedIconColor = MaterialTheme.colorScheme.onSurface,
+                        selectedTextColor = MaterialTheme.colorScheme.onSurface,
+                    )
+                } else {
+                    androidx.compose.material3.NavigationBarItemDefaults.colors()
+                },
                 selected = isSelected,
                 onClick = {
                     if (!isSearchItem) {
@@ -225,7 +248,8 @@ fun AppNavigationBar(
                 icon = {
                     Icon(
                         painter = painterResource(id = iconRes),
-                        contentDescription = stringResource(screen.titleId)
+                        contentDescription = stringResource(screen.titleId),
+                        modifier = if (underline && slimNav) Modifier.themeTabUnderline(isSelected) else Modifier,
                     )
                 },
                 label = if (!slimNav) {
@@ -233,7 +257,8 @@ fun AppNavigationBar(
                         Text(
                             text = stringResource(screen.titleId),
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = if (underline) Modifier.themeTabUnderline(isSelected) else Modifier,
                         )
                     }
                 } else null

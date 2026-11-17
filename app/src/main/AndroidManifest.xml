@@ -293,12 +293,12 @@
         </activity-alias>
 
         <activity-alias
-            android:name=".MainActivitySynthwave"
+            android:name=".MainActivityGraffiti"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/ic_launcher_synthwave"
+            android:icon="@mipmap/ic_launcher_graffiti"
             android:label="@string/app_name"
-            android:roundIcon="@mipmap/ic_launcher_synthwave_round"
+            android:roundIcon="@mipmap/ic_launcher_graffiti_round"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
