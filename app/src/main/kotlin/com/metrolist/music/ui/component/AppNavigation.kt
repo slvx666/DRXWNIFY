@@ -258,6 +258,8 @@ fun AppNavigationBar(
                             text = stringResource(screen.titleId),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            // The experimental themes write the tab names in their own face.
+                            style = com.metrolist.music.ui.theme.themeAccentStyle(MaterialTheme.typography.labelMedium),
                             modifier = if (underline) Modifier.themeTabUnderline(isSelected) else Modifier,
                         )
                     }

@@ -214,6 +214,13 @@ private fun StreetBackground(modifier: Modifier) {
         sparkle(Offset(size.width * 0.9f, size.height * 0.07f), 9f * density, color)
         sparkle(Offset(size.width * 0.12f, size.height * 0.5f), 7f * density, color)
         sparkle(Offset(size.width * 0.88f, size.height * 0.86f), 8f * density, color)
+        // Fine spray flecks scattered over the wall, a few small bursts in the gaps.
+        repeat(140) {
+            drawCircle(color.copy(alpha = color.alpha * (0.25f + r.nextFloat() * 0.5f)), (0.6f + r.nextFloat() * 1.6f) * density, Offset(r.nextFloat() * size.width, r.nextFloat() * size.height))
+        }
+        listOf(0.55f to 0.25f, 0.3f to 0.62f, 0.75f to 0.7f).forEach { (fx, fy) ->
+            splatter(Offset(size.width * fx, size.height * fy), 9f * density, color.copy(alpha = color.alpha * 0.7f), r)
+        }
     }
 }
 

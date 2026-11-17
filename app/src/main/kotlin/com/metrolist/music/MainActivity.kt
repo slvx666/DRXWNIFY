@@ -1380,7 +1380,7 @@ class MainActivity : ComponentActivity() {
                                     visible = (
                                         currentRoute == "home" || currentRoute == "library" ||
                                             // The experimental themes dress every tab, not only these two.
-                                            (experimentalTheme && (currentRoute == "search_input" || currentRoute == "listen_together"))
+                                            (experimentalTheme && (currentRoute == "search_input" || currentRoute == "listen_together" || currentRoute == "settings"))
                                         ) &&
                                         !playerBottomSheetState.isExpanded,
                                 )

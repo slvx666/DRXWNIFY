@@ -36,7 +36,7 @@ fun PreferenceGroupTitle(
 ) {
     Text(
         text = if (com.metrolist.music.ui.theme.ThemeRuntime.tui) "── ${title.lowercase()} ──" else title.uppercase(),
-        style = MaterialTheme.typography.labelLarge,
+        style = com.metrolist.music.ui.theme.themeAccentStyle(MaterialTheme.typography.labelLarge),
         color = MaterialTheme.colorScheme.primary,
         modifier = modifier.padding(16.dp),
     )

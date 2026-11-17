@@ -180,8 +180,8 @@ fun ExperimentalThemePicker(modifier: Modifier = Modifier) {
                             onClick = {
                                 val next = if (item == preset) AppThemePreset.STANDARD else item
                                 onPresetChange(next)
-                                // Satanic is meant to be black: dark mode on, pure black.
-                                if (next == AppThemePreset.SATANIC) {
+                                // Satanic and Street art are meant to be black: dark mode on, pure black.
+                                if (next == AppThemePreset.SATANIC || next == AppThemePreset.STREET) {
                                     onDarkModeChange(DarkMode.ON)
                                     onPureBlackChange(true)
                                 }
@@ -191,13 +191,6 @@ fun ExperimentalThemePicker(modifier: Modifier = Modifier) {
                     }
                     repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
-            }
-            if (preset.group == AppThemePreset.Group.EXPERIMENTAL) {
-                Text(
-                    text = stringResource(preset.descriptionRes),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }

@@ -75,7 +75,7 @@ fun Material3SettingsGroup(
         title?.let {
             Text(
                 text = if (preset == AppThemePreset.GRUVBOX) "# $it" else it,
-                style = MaterialTheme.typography.labelLarge,
+                style = com.metrolist.music.ui.theme.themeAccentStyle(MaterialTheme.typography.labelLarge),
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(bottom = 8.dp, top = 8.dp)
             )

@@ -58,20 +58,23 @@ internal fun androidx.compose.foundation.layout.BoxScope.MonoTopBar(preset: AppT
     when (preset) {
         AppThemePreset.MONOCHROME -> Canvas(Modifier.matchParentSize()) { hairline(ink.copy(alpha = 0.35f)) }
         AppThemePreset.SATANIC -> Canvas(Modifier.matchParentSize()) {
-            // A row of small inverted crosses along the bottom and a double rule (no pentagram).
-            val cross = ink.copy(alpha = if (dark) 0.22f else 0.28f)
+            // The bottom edge as the bottom bar's top edge: a rule with thorns, here pointing up.
+            thornLine(size.height - 1.dp.toPx(), ink.copy(alpha = if (dark) 0.42f else 0.5f), down = false, seed = 9)
+        }
+        AppThemePreset.GOTHIC -> Canvas(Modifier.matchParentSize()) {
+            // A row of small upright crosses along the bottom, on a thin rule.
+            val cross = ink.copy(alpha = if (dark) 0.3f else 0.36f)
             val step = 26.dp.toPx()
             var x = step / 2
             val h = 9.dp.toPx()
             val base = size.height - 5.dp.toPx()
             while (x < size.width) {
-                invertedCross(Offset(x, base - h / 2), h, cross, 1.2.dp.toPx())
+                drawLine(cross, Offset(x, base - h), Offset(x, base), 1.2.dp.toPx())
+                drawLine(cross, Offset(x - h * 0.28f, base - h * 0.7f), Offset(x + h * 0.28f, base - h * 0.7f), 1.2.dp.toPx())
                 x += step
             }
-            hairline(ink.copy(alpha = 0.4f))
-            drawRect(ink.copy(alpha = 0.25f), topLeft = Offset(0f, size.height - 3.dp.toPx()), size = Size(size.width, 1.dp.toPx()))
+            hairline(ink.copy(alpha = 0.35f))
         }
-        AppThemePreset.GOTHIC -> Canvas(Modifier.matchParentSize()) { arches(ink.copy(alpha = if (dark) 0.3f else 0.34f)) }
         AppThemePreset.STREET -> Canvas(Modifier.matchParentSize()) { streetBar(accent, ink, dark) }
         AppThemePreset.BREAKCORE -> Canvas(Modifier.matchParentSize()) { glitchBar(ink, dark) }
         else -> return false
@@ -149,23 +152,16 @@ internal fun MonoTitleAccent(preset: AppThemePreset): Boolean {
     val ink = MaterialTheme.colorScheme.onSurface
     val accent = MaterialTheme.colorScheme.primary
     when (preset) {
-        AppThemePreset.SATANIC -> Canvas(Modifier.padding(start = 10.dp).offset(y = (-2).dp).size(width = 30.dp, height = 18.dp)) {
-            // Three inverted crosses, the middle one taller.
-            val color = ink.copy(alpha = 0.75f)
-            val w = 1.6.dp.toPx()
-            invertedCross(Offset(size.width * 0.17f, size.height * 0.58f), size.height * 0.7f, color.copy(alpha = 0.5f), w * 0.8f)
-            invertedCross(Offset(size.width * 0.5f, size.height * 0.5f), size.height, color, w)
-            invertedCross(Offset(size.width * 0.83f, size.height * 0.58f), size.height * 0.7f, color.copy(alpha = 0.5f), w * 0.8f)
+        AppThemePreset.SATANIC -> Canvas(Modifier.padding(start = 10.dp).offset(y = (-2).dp).size(width = 12.dp, height = 18.dp)) {
+            // One inverted cross.
+            invertedCross(Offset(size.width / 2, size.height / 2), size.height, ink.copy(alpha = 0.75f), 1.6.dp.toPx())
         }
-        AppThemePreset.GOTHIC -> Canvas(Modifier.padding(start = 10.dp).offset(y = 2.dp).size(14.dp)) {
-            // A quatrefoil: four small circles around a point.
-            val color = ink.copy(alpha = 0.55f)
-            val r = size.minDimension * 0.22f
-            val c = center
-            val stroke = Stroke(1.2.dp.toPx())
-            listOf(Offset(0f, -r), Offset(r, 0f), Offset(0f, r), Offset(-r, 0f)).forEach {
-                drawCircle(color, r, c + it, style = stroke)
-            }
+        AppThemePreset.GOTHIC -> Canvas(Modifier.padding(start = 10.dp).offset(y = (-1).dp).size(width = 12.dp, height = 18.dp)) {
+            // An upright cross, its arms a little flared.
+            val color = ink.copy(alpha = 0.7f)
+            val w = 1.6.dp.toPx()
+            drawLine(color, Offset(size.width / 2, 0f), Offset(size.width / 2, size.height), w)
+            drawLine(color, Offset(0f, size.height * 0.3f), Offset(size.width, size.height * 0.3f), w)
         }
         AppThemePreset.STREET -> Canvas(Modifier.padding(start = 8.dp).offset(y = (-4).dp).size(width = 22.dp, height = 22.dp)) {
             // A sprayed sparkle beside the tag.
@@ -328,6 +324,19 @@ fun themeSectionStyle(style: TextStyle): TextStyle = when (LocalAppThemePreset.c
     else -> style
 }
 
+/**
+ * The face of the words that stand out (settings section titles, the bottom bar's labels, the
+ * words already in the accent colour): each experimental theme's own.
+ */
+@Composable
+fun themeAccentStyle(style: TextStyle): TextStyle = when (LocalAppThemePreset.current) {
+    AppThemePreset.SATANIC -> style.copy(fontFamily = MetalFace, fontWeight = FontWeight.Normal, letterSpacing = 0.5.sp)
+    AppThemePreset.GOTHIC -> style.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Serif, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
+    AppThemePreset.STREET -> style.copy(fontWeight = FontWeight.Black, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+    AppThemePreset.BREAKCORE -> style.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+    else -> style
+}
+
 /** The weight a section title is set in (the metal face has only its regular one). */
 @Composable
 fun themeSectionWeight(): FontWeight = when (LocalAppThemePreset.current) {
@@ -367,79 +376,6 @@ fun Modifier.themeTabUnderline(selected: Boolean): Modifier {
                 invertedCross(Offset(size.width / 2, y + 6.dp.toPx()), 7.dp.toPx(), ink, 1.dp.toPx())
             }
             else -> drawLine(ink, Offset(x0, y), Offset(x0 + w, y), 2.dp.toPx(), cap = StrokeCap.Round)
-        }
-    }
-}
-
-/**
- * Around the cover in the full-screen player, never over it: with the ring slider, marks around
- * the ring; with the usual bar, at the cover's edges (the cover fills the whole box then, so only
- * what lies outside it shows). Kept small.
- */
-@Composable
-fun ThemePlayerDecor(ring: Boolean, color: Color, modifier: Modifier = Modifier) {
-    val preset = LocalAppThemePreset.current
-    if (preset.group != AppThemePreset.Group.EXPERIMENTAL) return
-    Canvas(modifier) {
-        val c = center
-        val r = size.minDimension / 2
-        val ink = color.copy(alpha = 0.55f)
-        val w = 1.3.dp.toPx()
-        if (ring) {
-            when (preset) {
-                AppThemePreset.SATANIC -> for (k in 0 until 5) {
-                    // At the points of an inverted star, just outside the ring.
-                    val a = Math.PI / 2 + k * 2 * Math.PI / 5
-                    val d = r + 12.dp.toPx()
-                    invertedCross(Offset(c.x + (d * cos(a)).toFloat(), c.y + (d * sin(a)).toFloat()), 12.dp.toPx(), ink, w)
-                }
-                AppThemePreset.GOTHIC -> for (k in 0 until 4) {
-                    val a = Math.PI / 4 + k * Math.PI / 2
-                    val d = r + 4.dp.toPx()
-                    val p = Offset(c.x + (d * cos(a)).toFloat(), c.y + (d * sin(a)).toFloat())
-                    val q = 3.dp.toPx()
-                    listOf(Offset(0f, -q), Offset(q, 0f), Offset(0f, q), Offset(-q, 0f)).forEach { drawCircle(ink, q, p + it, style = Stroke(w)) }
-                }
-                AppThemePreset.STREET -> {
-                    val rnd = Random(3)
-                    splatter(Offset(c.x - r * 0.85f, c.y + r * 0.85f), 12.dp.toPx(), color.copy(alpha = 0.6f), rnd)
-                    sparkle(Offset(c.x - r * 0.9f, c.y - r * 0.9f), 7.dp.toPx(), color.copy(alpha = 0.8f))
-                    drip(Offset(c.x + r * 0.25f, c.y + r * 0.97f), 12.dp.toPx(), 2.5.dp.toPx(), color.copy(alpha = 0.7f))
-                    drip(Offset(c.x - r * 0.15f, c.y + r * 0.99f), 7.dp.toPx(), 2.dp.toPx(), color.copy(alpha = 0.7f))
-                }
-                AppThemePreset.BREAKCORE -> scribbleLoops(c, r + 7.dp.toPx(), r + 5.dp.toPx(), 1.4f, ink, w, Random(8))
-                else -> Unit
-            }
-        } else {
-            val gap = 8.dp.toPx()
-            when (preset) {
-                AppThemePreset.SATANIC -> {
-                    val h = 11.dp.toPx()
-                    listOf(Offset(-gap, -gap), Offset(size.width + gap, -gap), Offset(-gap, size.height + gap), Offset(size.width + gap, size.height + gap))
-                        .forEach { invertedCross(it, h, ink, w) }
-                }
-                AppThemePreset.GOTHIC -> {
-                    // A pointed arch over the cover.
-                    val path = Path().apply {
-                        moveTo(0f, -gap * 0.5f)
-                        quadraticTo(size.width * 0.18f, -gap * 2.6f, size.width / 2, -gap * 3f)
-                        quadraticTo(size.width * 0.82f, -gap * 2.6f, size.width, -gap * 0.5f)
-                    }
-                    drawPath(path, ink, style = Stroke(w))
-                }
-                AppThemePreset.STREET -> {
-                    val rnd = Random(4)
-                    listOf(0.18f, 0.55f, 0.82f).forEach { f ->
-                        drip(Offset(size.width * f, size.height - 2.dp.toPx()), (6f + rnd.nextFloat() * 10f).dp.toPx(), 2.5.dp.toPx(), color.copy(alpha = 0.7f))
-                    }
-                    splatter(Offset(size.width + gap * 0.5f, -gap * 0.5f), 10.dp.toPx(), color.copy(alpha = 0.6f), rnd)
-                }
-                AppThemePreset.BREAKCORE -> {
-                    shakyLine(Offset(0f, size.height + gap), Offset(size.width * 0.7f, size.height + gap * 0.8f), ink, w, Random(6))
-                    stitches(Offset(-gap * 0.2f, -gap), 3, 9.dp.toPx(), ink, w, Random(7))
-                }
-                else -> Unit
-            }
         }
     }
 }
