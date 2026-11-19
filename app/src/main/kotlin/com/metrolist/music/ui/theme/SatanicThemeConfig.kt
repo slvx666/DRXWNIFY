@@ -5,6 +5,8 @@ import android.graphics.BitmapFactory
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
@@ -41,6 +43,9 @@ object SatanicThemeConfig {
     val LightMutedText = Color(0xFF6E6C69)
     val LightBorder = Color(0xFF6E6C69)
     val LightAccent = Color(0xFF0A0A0A)
+
+    @Composable
+    fun isDarkTheme(): Boolean = MaterialTheme.colorScheme.surface.luminance() < 0.4f
 
     fun getBackground(isDark: Boolean) = if (isDark) Background else LightBackground
     fun getSurface(isDark: Boolean) = if (isDark) Surface else LightSurface

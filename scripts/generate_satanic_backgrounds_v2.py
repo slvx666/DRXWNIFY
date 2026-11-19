@@ -15,44 +15,11 @@ ROOT_ASSETS = 'assets/satanic/backgrounds'
 os.makedirs(APP_ASSETS, exist_ok=True)
 os.makedirs(ROOT_ASSETS, exist_ok=True)
 
-def make_light_variant(dark_arr, dark_bg_val=8.0, light_bg_val=212.0, min_ink_val=158.0):
-    """
-    Creates an authentic light mode (parchment/ash stone) engraving.
-    Background is light_bg_val (212).
-    Engraving ink lines etch down to min_ink_val (~158), preserving crisp contrast
-    for #0A0A0A text and UI controls.
-    """
-    diff = np.maximum(0.0, dark_arr - dark_bg_val)
-    max_d = np.max(diff)
-    if max_d < 1e-4:
-        return np.full_like(dark_arr, light_bg_val, dtype=np.uint8)
-    
-    s = diff / max_d
-    # Elegant tone curve for ink
-    ink_curve = s ** 0.90
-    light_arr = light_bg_val - ink_curve * (light_bg_val - min_ink_val)
-    return np.clip(light_arr, 0, 255).astype(np.uint8)
+def save_webp_pair(dark_arr, light_arr, name):
+    dark_clipped = np.clip(dark_arr, 0, 255).astype(np.uint8)
+    light_clipped = np.clip(light_arr, 0, 255).astype(np.uint8)
 
-def save_both(dark_arr, name, dark_max_target=68.0, min_ink_val=158.0):
-    """
-    Saves both Dark mode and Light mode WebP assets at exactly 1080x2436.
-    Ensures dark mode highlights never exceed dark_max_target (~68),
-    guaranteeing 100% contrast for white/silver UI controls and text.
-    """
-    # Scale dark array so that highest art highlight is dark_max_target
-    diff = np.maximum(0.0, dark_arr - DARK_BG)
-    max_d = np.max(diff)
-    if max_d > 0:
-        scaled_diff = diff * ((dark_max_target - DARK_BG) / max_d)
-        final_dark = DARK_BG + scaled_diff
-    else:
-        final_dark = dark_arr
-
-    dark_clipped = np.clip(final_dark, 0, 255).astype(np.uint8)
     dark_img = Image.fromarray(dark_clipped, mode='L')
-    
-    # Generate light mode variant
-    light_clipped = make_light_variant(final_dark, DARK_BG, LIGHT_BG, min_ink_val)
     light_img = Image.fromarray(light_clipped, mode='L')
 
     for folder in [APP_ASSETS, ROOT_ASSETS]:
@@ -63,163 +30,198 @@ def save_both(dark_arr, name, dark_max_target=68.0, min_ink_val=158.0):
         print(f'Saved: {dark_p} and {light_p}')
 
 def process_home():
-    src_p = os.path.join(BRAIN_DIR, 'fallen_angel_gothic_engraving_1795065134653.jpg')
-    src = Image.open(src_p).convert('L')
-    
-    # Scale width to W
-    scale = W / src.width
-    scaled_h = int(src.height * scale)
-    scaled = src.resize((W, scaled_h), Image.Resampling.LANCZOS)
-    scaled_arr = np.array(scaled, dtype=np.float32)
+    # ── Dark Mode Home ──
+    # Monumental angel statue scaled to full height so artwork and gothic stone
+    # cover the entire screen from top to bottom.
+    src_dark_p = os.path.join(BRAIN_DIR, 'fallen_angel_gothic_engraving_1795065134653.jpg')
+    src_dark = Image.open(src_dark_p).convert('L')
+    scale_dark = H / src_dark.height
+    scaled_w_dark = int(src_dark.width * scale_dark)
+    scaled_dark = src_dark.resize((scaled_w_dark, H), Image.Resampling.LANCZOS)
+    x0_dark = (scaled_w_dark - W) // 2
+    dark_full = np.array(scaled_dark.crop((x0_dark, 0, x0_dark + W, H)), dtype=np.float32)
 
-    canvas_arr = np.full((H, W), DARK_BG, dtype=np.float32)
-    use_h = min(H, scaled_h)
-    
-    # Position angel in top region:
-    # Status bar + top bar (y: 0 to 280px = ~11.5% of H) gets a smooth scrim
-    # Angel wings & torso are between y = 10% and y = 35%
-    # Smooth fade out from y = 30% to y = 42% of H
-    fade_start = int(H * 0.30)
-    fade_end = min(use_h, int(H * 0.42))
-    fade_len = fade_end - fade_start
+    # Dimming curve:
+    # Top scrim under status bar (y: 0 to 10% H) drops to 65%
+    # Angel chest and wings (y: 10% to 32% H) stay at 100%
+    # Lower half (y: 32% to 48% H): smooth transition to 50% dimming (NOT 0%!)
+    # Below 48%: 50% opacity remains everywhere, giving living gothic texture across all cards & lists
+    y_mult_dark = np.ones((H, 1), dtype=np.float32)
+    top_h = int(H * 0.10)
+    y_mult_dark[:top_h, :] = np.linspace(0.65, 1.0, top_h)[:, None]
 
-    y_fade = np.ones((use_h, 1), dtype=np.float32)
-    if fade_len > 0:
-        t = np.linspace(0, 1, fade_len)[:, None]
-        curve = 0.5 * (1.0 + np.cos(np.pi * t))
-        y_fade[fade_start:fade_end, :] = curve
-        y_fade[fade_end:, :] = 0.0
+    fade_start = int(H * 0.32)
+    fade_end = int(H * 0.48)
+    t = np.linspace(0, 1, fade_end - fade_start)[:, None]
+    curve = 1.0 - 0.50 * 0.5 * (1.0 - np.cos(np.pi * t))
+    y_mult_dark[fade_start:fade_end, :] = curve
+    y_mult_dark[fade_end:, :] = 0.50
 
-    # Top scrim under status bar and top title (y: 0 to 280px)
-    top_h = int(H * 0.115)
-    top_t = (np.linspace(0.15, 1.0, top_h)[:, None]) ** 1.5
-    y_fade[:top_h, :] *= top_t
+    dark_home = DARK_BG + (dark_full - DARK_BG).clip(min=0) * (88.0 / 240.0) * y_mult_dark
 
-    angel_art = scaled_arr[:use_h, :]
-    canvas_arr[:use_h, :] = DARK_BG * (1.0 - y_fade) + angel_art * y_fade
+    # ── Light Mode Home ──
+    # Genuine antique architectural stone lithograph (NOT inverted negative!)
+    src_light_p = os.path.join(BRAIN_DIR, 'gothic_stone_angel_lithograph_1795092574629.jpg')
+    src_light = Image.open(src_light_p).convert('L')
+    scale_light = H / src_light.height
+    scaled_w_light = int(src_light.width * scale_light)
+    scaled_light = src_light.resize((scaled_w_light, H), Image.Resampling.LANCZOS)
+    x0_light = (scaled_w_light - W) // 2
+    light_full = np.array(scaled_light.crop((x0_light, 0, x0_light + W, H)), dtype=np.float32)
 
-    # Dark target max ~68 (matches Reference 02 p90 ~44-55)
-    save_both(canvas_arr, 'home_background', dark_max_target=68.0, min_ink_val=162.0)
+    y_mult_light = np.ones((H, 1), dtype=np.float32)
+    y_mult_light[:top_h, :] = np.linspace(0.65, 1.0, top_h)[:, None]
+    curve_light = 1.0 - 0.45 * 0.5 * (1.0 - np.cos(np.pi * t))
+    y_mult_light[fade_start:fade_end, :] = curve_light
+    y_mult_light[fade_end:, :] = 0.55
+
+    diff_light = LIGHT_BG - light_full
+    light_home = LIGHT_BG - diff_light * y_mult_light * 0.85
+
+    save_webp_pair(dark_home, light_home, 'home_background')
 
 def process_library():
+    # ── Dark Mode Library ──
+    # Hooded shrouded figure on right + gothic cathedral background
     src_p = os.path.join(BRAIN_DIR, 'gothic_hooded_figure_pure_monochrome_1795065078406.jpg')
     src = Image.open(src_p).convert('L')
-
-    # Scale vertically to H
     scale = H / src.height
     scaled_w = int(src.width * scale)
     scaled = src.resize((scaled_w, H), Image.Resampling.LANCZOS)
     scaled_arr = np.array(scaled, dtype=np.float32)
 
-    # Place hooded figure on the right
     statue_x = W - scaled_w
+    statue_canvas = np.full((H, W), DARK_BG, dtype=np.float32)
     if statue_x < 0:
         start_crop = -statue_x
-        statue_part = scaled_arr[:, start_crop:start_crop + W]
-        statue_w = W
-        statue_left = 0
+        statue_canvas[:, :] = scaled_arr[:, start_crop:start_crop + W]
     else:
-        statue_part = scaled_arr
-        statue_w = scaled_w
-        statue_left = statue_x
+        statue_canvas[:, statue_x:] = scaled_arr[:, :W - statue_x]
 
-    # Left 55% of the screen is solid dark (no statue)
-    # Smooth blend between x = 55% and x = 75%
-    mask = np.zeros((H, W), dtype=np.float32)
-    x_start = int(W * 0.55)
-    x_end = int(W * 0.78)
-    fade_len = x_end - x_start
+    cath_p = os.path.join(BRAIN_DIR, 'dark_metal_player_background_1795041273794.jpg')
+    cath_src = Image.open(cath_p).convert('L')
+    cath_scale = max(W / cath_src.width, H / cath_src.height)
+    cath_w = int(cath_src.width * cath_scale)
+    cath_h = int(cath_src.height * cath_scale)
+    cath_scaled = cath_src.resize((cath_w, cath_h), Image.Resampling.LANCZOS)
+    x0 = (cath_w - W) // 2
+    y0 = (cath_h - H) // 2
+    cath_arr = np.array(cath_scaled.crop((x0, y0, x0 + W, y0 + H)), dtype=np.float32)
 
-    t = np.linspace(0, 1, fade_len)[None, :]
-    curve = 0.5 * (1.0 - np.cos(np.pi * t))
-    mask[:, x_start:x_end] = curve
-    mask[:, x_end:] = 1.0
+    comp_dark = np.maximum(cath_arr * 0.45, statue_canvas)
 
-    # Top fade (status bar + title) and bottom fade (mini player + bottom bar)
-    top_len = int(H * 0.10)
-    mask[:top_len, :] *= np.linspace(0.1, 1.0, top_len)[:, None]
-    bot_len = int(H * 0.16)
-    mask[-bot_len:, :] *= np.linspace(1.0, 0.0, bot_len)[:, None]
+    # Horizontal dimming mask:
+    # Right side (statue, x: 0.65 to 1.0): 100%
+    # Left side (x: 0.0 to 0.40): 50% dimming (NOT 0%!)
+    x_mask = np.ones((1, W), dtype=np.float32)
+    x_start = int(W * 0.40)
+    x_end = int(W * 0.68)
+    t_x = np.linspace(0, 1, x_end - x_start)[None, :]
+    curve_x = 0.50 + 0.50 * 0.5 * (1.0 - np.cos(np.pi * t_x))
+    x_mask[:, :x_start] = 0.50
+    x_mask[:, x_start:x_end] = curve_x
+    x_mask[:, x_end:] = 1.0
 
-    statue_canvas = np.full((H, W), DARK_BG, dtype=np.float32)
-    statue_canvas[:, statue_left:statue_left + statue_w] = statue_part[:, :W - statue_left]
-    
-    canvas_arr = DARK_BG * (1.0 - mask) + statue_canvas * mask
+    dark_lib = DARK_BG + (comp_dark - DARK_BG).clip(min=0) * (84.0 / 250.0) * x_mask
 
-    # Dark target max ~62 (matches Reference 02 right column p90 ~32)
-    save_both(canvas_arr, 'library_background', dark_max_target=62.0, min_ink_val=165.0)
+    # ── Light Mode Library ──
+    # True stone lithograph: linework & shading on pale parchment
+    comp_img = Image.fromarray(np.clip(comp_dark, 0, 255).astype(np.uint8))
+    edges = np.array(comp_img.filter(ImageFilter.FIND_EDGES), dtype=np.float32)
+    edge_norm = np.clip(edges / 90.0, 0.0, 1.0)
+    shade_norm = np.clip((comp_dark - DARK_BG) / 240.0, 0.0, 1.0)
+
+    x_mask_light = np.ones((1, W), dtype=np.float32)
+    x_mask_light[:, :x_start] = 0.55
+    x_mask_light[:, x_start:x_end] = 0.55 + 0.45 * 0.5 * (1.0 - np.cos(np.pi * t_x))
+    x_mask_light[:, x_end:] = 1.0
+
+    ink = (edge_norm * 55.0 + shade_norm * 20.0) * x_mask_light
+    light_lib = LIGHT_BG - ink
+
+    save_webp_pair(dark_lib, light_lib, 'library_background')
 
 def process_player():
-    src_p = os.path.join(BRAIN_DIR, 'dark_metal_player_background_1795041273794.jpg')
-    src = Image.open(src_p).convert('L')
-    
-    # Scale to cover full screen
+    # ── Dark Mode Player ──
+    cath_p = os.path.join(BRAIN_DIR, 'dark_metal_player_background_1795041273794.jpg')
+    src = Image.open(cath_p).convert('L')
     scale = max(W / src.width, H / src.height)
     new_w = int(src.width * scale)
     new_h = int(src.height * scale)
     scaled = src.resize((new_w, new_h), Image.Resampling.LANCZOS)
-    
-    # Center crop to W, H
     x0 = (new_w - W) // 2
     y0 = (new_h - H) // 2
-    cropped = scaled.crop((x0, y0, x0 + W, y0 + H))
-    p_arr = np.array(cropped, dtype=np.float32)
+    p_arr = np.array(scaled.crop((x0, y0, x0 + W, y0 + H)), dtype=np.float32)
 
-    # Circular mask for album art + controls
+    # Radial cutout for circular cover
     cx, cy = W // 2, int(H * 0.36)
     yy, xx = np.ogrid[:H, :W]
     dist = np.sqrt((xx - cx)**2 + ((yy - cy) * 0.82)**2)
-
     r_inner = 380
     r_outer = 660
     radial_mask = np.clip((dist - r_inner) / (r_outer - r_inner), 0.0, 1.0)
     radial_curve = 0.5 * (1.0 - np.cos(np.pi * radial_mask))
 
-    # Bottom controls fade out completely below y = 0.62 * H
-    bot_start = int(H * 0.60)
+    # Bottom controls: smoothly dim to 50% (NOT 0%!)
+    bot_start = int(H * 0.58)
     bot_fade = np.ones((H, 1), dtype=np.float32)
     bot_len = H - bot_start
     t_bot = np.linspace(0, 1, bot_len)[:, None]
-    bot_fade[bot_start:, :] = 0.5 * (1.0 + np.cos(np.pi * t_bot))
+    bot_fade[bot_start:, :] = 1.0 - 0.50 * 0.5 * (1.0 - np.cos(np.pi * t_bot))
 
-    final_mask = radial_curve * bot_fade
+    final_mask_dark = radial_curve * bot_fade
+    dark_player = DARK_BG + (p_arr - DARK_BG).clip(min=0) * (78.0 / 255.0) * final_mask_dark
 
-    canvas_arr = DARK_BG * (1.0 - final_mask) + p_arr * final_mask
+    # ── Light Mode Player ──
+    p_img = Image.fromarray(np.clip(p_arr, 0, 255).astype(np.uint8))
+    edges = np.array(p_img.filter(ImageFilter.FIND_EDGES), dtype=np.float32)
+    edge_norm = np.clip(edges / 95.0, 0.0, 1.0)
+    shade_norm = np.clip((p_arr - DARK_BG) / 240.0, 0.0, 1.0)
+    ink = (edge_norm * 52.0 + shade_norm * 18.0) * final_mask_dark
+    light_player = LIGHT_BG - ink
 
-    save_both(canvas_arr, 'player_background', dark_max_target=65.0, min_ink_val=165.0)
+    save_webp_pair(dark_player, light_player, 'player_background')
 
 def process_chat():
-    src_p = os.path.join(BRAIN_DIR, 'dark_metal_player_background_1795041273794.jpg')
-    src = Image.open(src_p).convert('L')
+    # ── Dark Mode Chat ──
+    cath_p = os.path.join(BRAIN_DIR, 'dark_metal_player_background_1795041273794.jpg')
+    src = Image.open(cath_p).convert('L')
     scale = max(W / src.width, H / src.height)
     new_w = int(src.width * scale)
     new_h = int(src.height * scale)
     scaled = src.resize((new_w, new_h), Image.Resampling.LANCZOS)
     x0 = (new_w - W) // 2
     y0 = (new_h - H) // 2
-    cropped = scaled.crop((x0, y0, x0 + W, y0 + H))
-    c_arr = np.array(cropped, dtype=np.float32)
+    c_arr = np.array(scaled.crop((x0, y0, x0 + W, y0 + H)), dtype=np.float32)
 
-    # Fade from y = 0.10 * H to y = 0.32 * H to solid DARK_BG
-    fade_start = int(H * 0.10)
-    fade_end = int(H * 0.32)
+    # Fade from top (arches) to 50% dimming throughout the rest of the chat (NOT 0%!)
+    fade_start = int(H * 0.12)
+    fade_end = int(H * 0.38)
     fade_len = fade_end - fade_start
     y_fade = np.ones((H, 1), dtype=np.float32)
     t = np.linspace(0, 1, fade_len)[:, None]
-    y_fade[fade_start:fade_end, :] = 0.5 * (1.0 + np.cos(np.pi * t))
-    y_fade[fade_end:, :] = 0.0
+    y_fade[fade_start:fade_end, :] = 1.0 - 0.50 * 0.5 * (1.0 - np.cos(np.pi * t))
+    y_fade[fade_end:, :] = 0.50
 
-    canvas_arr = DARK_BG * (1.0 - y_fade) + c_arr * y_fade
+    dark_chat = DARK_BG + (c_arr - DARK_BG).clip(min=0) * (68.0 / 255.0) * y_fade
 
-    save_both(canvas_arr, 'chat_background', dark_max_target=55.0, min_ink_val=170.0)
+    # ── Light Mode Chat ──
+    c_img = Image.fromarray(np.clip(c_arr, 0, 255).astype(np.uint8))
+    edges = np.array(c_img.filter(ImageFilter.FIND_EDGES), dtype=np.float32)
+    edge_norm = np.clip(edges / 95.0, 0.0, 1.0)
+    shade_norm = np.clip((c_arr - DARK_BG) / 240.0, 0.0, 1.0)
+    ink = (edge_norm * 48.0 + shade_norm * 16.0) * y_fade
+    light_chat = LIGHT_BG - ink
+
+    save_webp_pair(dark_chat, light_chat, 'chat_background')
 
 if __name__ == '__main__':
-    print('Generating Home backgrounds...')
+    print('Generating Home backgrounds with 50% continuous atmospheric dimming...')
     process_home()
-    print('Generating Library backgrounds...')
+    print('Generating Library backgrounds with 50% continuous atmospheric dimming...')
     process_library()
-    print('Generating Player backgrounds...')
+    print('Generating Player backgrounds with 50% continuous atmospheric dimming...')
     process_player()
-    print('Generating Chat backgrounds...')
+    print('Generating Chat backgrounds with 50% continuous atmospheric dimming...')
     process_chat()
     print('ALL BACKGROUNDS SUCCESSFULLY GENERATED!')

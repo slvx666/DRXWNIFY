@@ -2264,6 +2264,9 @@ fun BottomSheetPlayer(
                                         state.collapseSoft()
                                         navController.backToMain()
                                     },
+                                    onCollapse = {
+                                        state.collapseSoft()
+                                    },
                                 )
                             }
                         }
@@ -2273,7 +2276,7 @@ fun BottomSheetPlayer(
                         controlsContent(it)
                     }
 
-                    Spacer(Modifier.height(30.dp))
+                    Spacer(Modifier.height(if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) 4.dp else 30.dp))
                 }
             }
         }

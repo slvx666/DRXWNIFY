@@ -84,6 +84,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -513,9 +515,18 @@ fun ChatScreen(navController: NavController, peer: String) {
             .background(if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) Color.Transparent else MaterialTheme.colorScheme.background)
             .then(if (blur > 0.dp) Modifier.blur(blur) else Modifier),
     ) {
+        val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+        val isDark = com.metrolist.music.ui.theme.SatanicThemeConfig.isDarkTheme()
+
         if (selecting) {
             val picked = messages.filter { it.id in selected }
             TopAppBar(
+                colors = if (isSatanic) TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                    navigationIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                    actionIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                ) else TopAppBarDefaults.topAppBarColors(),
                 navigationIcon = {
                     IconButton(onClick = { selected.clear() }) { Icon(painterResource(R.drawable.close), null) }
                 },
@@ -537,6 +548,12 @@ fun ChatScreen(navController: NavController, peer: String) {
                 },
             )
         } else TopAppBar(
+            colors = if (isSatanic) TopAppBarDefaults.topAppBarColors(
+                containerColor = Color.Transparent,
+                titleContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                navigationIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                actionIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+            ) else TopAppBarDefaults.topAppBarColors(),
             navigationIcon = {
                 IconButton(onClick = navController::navigateUp) { Icon(painterResource(R.drawable.arrow_back), null) }
             },
@@ -548,7 +565,7 @@ fun ChatScreen(navController: NavController, peer: String) {
                     PeerAvatar(peer, name, 40.dp)
                     Column(Modifier.padding(start = 12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false), color = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark) else Color.Unspecified)
                             AppVersion(peer, Modifier.padding(start = 6.dp))
                         }
                         // Read here, so its once-a-second tick redraws only this line.
@@ -564,7 +581,7 @@ fun ChatScreen(navController: NavController, peer: String) {
                                 Text(
                                     s,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.getMutedText(isDark) else MaterialTheme.colorScheme.primary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -843,8 +860,20 @@ private fun MessageItem(
         }
     }
 
-    val bubbleColor = if (m.mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
-    val textColor = if (m.mine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val isDark = com.metrolist.music.ui.theme.SatanicThemeConfig.isDarkTheme()
+
+    val bubbleColor = if (isSatanic) {
+        if (m.mine) com.metrolist.music.ui.theme.SatanicThemeConfig.getElevated(isDark)
+        else com.metrolist.music.ui.theme.SatanicThemeConfig.getSurface(isDark)
+    } else {
+        if (m.mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+    val textColor = if (isSatanic) {
+        com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark)
+    } else {
+        if (m.mine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    }
     val shape = RoundedCornerShape(
         topStart = if (!m.mine && firstOfGroup) 4.dp else 18.dp,
         topEnd = if (m.mine && firstOfGroup) 4.dp else 18.dp,
@@ -951,6 +980,7 @@ private fun MessageItem(
                         .widthIn(max = 300.dp)
                         .clip(shape)
                         .background(bubbleColor)
+                        .then(if (isSatanic) Modifier.border(1.dp, com.metrolist.music.ui.theme.SatanicThemeConfig.getBorder(isDark), shape) else Modifier)
                         .then(clickable)
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                 ) {
@@ -1439,8 +1469,19 @@ private fun Composer(
     val beforeCursor = field.text.substring(0, field.selection.min.coerceIn(0, field.text.length))
     val suggestions = remember(beforeCursor) { Stickers.suggest(beforeCursor).takeIf { it.isNotEmpty() } }
     val suggestionsShown = lastNonNull(suggestions).orEmpty()
+
+    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val isDark = com.metrolist.music.ui.theme.SatanicThemeConfig.isDarkTheme()
+    val primaryText = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark)
+    val mutedText = com.metrolist.music.ui.theme.SatanicThemeConfig.getMutedText(isDark)
+
     Box {
-        Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        Surface(
+            color = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.getSurface(isDark) else MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth().then(
+                if (isSatanic) Modifier.border(1.dp, com.metrolist.music.ui.theme.SatanicThemeConfig.getBorder(isDark)) else Modifier
+            ),
+        ) {
             Column {
                 // Each strip keeps what it showed while it slides away (else it would go blank first and
                 // look like it vanished at once).
@@ -1488,10 +1529,14 @@ private fun Composer(
                     val stickersShown = panel && !toKeyboard
                     IconButton(onClick = { if (stickersShown) showKeyboard() else showPanel() }) {
                         androidx.compose.animation.Crossfade(stickersShown, label = "stickerIcon") { shown ->
-                            Icon(painterResource(if (shown) R.drawable.chat_keyboard else R.drawable.chat_mood), stringResource(R.string.chat_stickers))
+                            Icon(
+                                painterResource(if (shown) R.drawable.chat_keyboard else R.drawable.chat_mood),
+                                stringResource(R.string.chat_stickers),
+                                tint = if (isSatanic) primaryText else LocalContentColor.current,
+                            )
                         }
                     }
-                    val codeColor = MaterialTheme.colorScheme.primary
+                    val codeColor = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.getAccent(isDark) else MaterialTheme.colorScheme.primary
                     val showCodes = remember(codeColor) { StickerCodes(codeColor) }
                     TextField(
                         value = field,
@@ -1509,6 +1554,10 @@ private fun Composer(
                             unfocusedContainerColor = Color.Transparent,
                             focusedIndicatorColor = Color.Transparent,
                             unfocusedIndicatorColor = Color.Transparent,
+                            focusedTextColor = if (isSatanic) primaryText else Color.Unspecified,
+                            unfocusedTextColor = if (isSatanic) primaryText else Color.Unspecified,
+                            focusedPlaceholderColor = if (isSatanic) mutedText else Color.Unspecified,
+                            unfocusedPlaceholderColor = if (isSatanic) mutedText else Color.Unspecified,
                         ),
                         modifier = Modifier
                             .weight(1f)
@@ -1532,7 +1581,11 @@ private fun Composer(
                     ) { showSend ->
                         if (showSend) {
                             IconButton(onClick = ::send, enabled = canSend) {
-                                Icon(painterResource(R.drawable.chat_send), stringResource(R.string.chat_send), tint = MaterialTheme.colorScheme.primary)
+                                Icon(
+                                    painterResource(R.drawable.chat_send),
+                                    stringResource(R.string.chat_send),
+                                    tint = if (isSatanic) primaryText else MaterialTheme.colorScheme.primary,
+                                )
                             }
                         } else {
                             // Nothing typed: the music panel (recent, library, search).
@@ -1545,7 +1598,11 @@ private fun Composer(
                                 }
                                 onOpenMusic()
                             }) {
-                                Icon(painterResource(R.drawable.music_note), stringResource(R.string.chat_send_music), tint = MaterialTheme.colorScheme.primary)
+                                Icon(
+                                    painterResource(R.drawable.music_note),
+                                    stringResource(R.string.chat_send_music),
+                                    tint = if (isSatanic) primaryText else MaterialTheme.colorScheme.primary,
+                                )
                             }
                         }
                     }

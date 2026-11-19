@@ -57,6 +57,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -221,8 +222,17 @@ private fun NameLine(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FriendsScreen(navController: NavController) {
+    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val isDark = com.metrolist.music.ui.theme.SatanicThemeConfig.isDarkTheme()
+
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
+            colors = if (isSatanic) TopAppBarDefaults.topAppBarColors(
+                containerColor = Color.Transparent,
+                titleContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                navigationIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                actionIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+            ) else TopAppBarDefaults.topAppBarColors(),
             title = { Text(stringResource(R.string.friends_title)) },
             navigationIcon = {
                 IconButton(onClick = navController::navigateUp) { Icon(painterResource(R.drawable.arrow_back), null) }
@@ -995,8 +1005,17 @@ fun FriendScreen(navController: NavController, pubkey: String) {
         }
     }
 
+    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val isDark = com.metrolist.music.ui.theme.SatanicThemeConfig.isDarkTheme()
+
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
+            colors = if (isSatanic) TopAppBarDefaults.topAppBarColors(
+                containerColor = Color.Transparent,
+                titleContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                navigationIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                actionIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+            ) else TopAppBarDefaults.topAppBarColors(),
             title = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onClick = navController::navigateUp) { Icon(painterResource(R.drawable.arrow_back), null) } },
             actions = {
@@ -1263,8 +1282,17 @@ private fun TrackRow(track: FriendsHub.TrackRef, onClick: () -> Unit, onLongClic
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FriendsPrivacyScreen(navController: NavController) {
+    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val isDark = com.metrolist.music.ui.theme.SatanicThemeConfig.isDarkTheme()
+
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
+            colors = if (isSatanic) TopAppBarDefaults.topAppBarColors(
+                containerColor = Color.Transparent,
+                titleContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                navigationIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                actionIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+            ) else TopAppBarDefaults.topAppBarColors(),
             title = { Text(stringResource(R.string.friends_privacy)) },
             navigationIcon = { IconButton(onClick = navController::navigateUp) { Icon(painterResource(R.drawable.arrow_back), null) } },
         )

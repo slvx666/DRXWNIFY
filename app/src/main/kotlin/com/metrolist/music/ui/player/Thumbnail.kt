@@ -138,7 +138,7 @@ private fun calculateThumbnailDimensions(
     val effectiveSize = if (isLandscape) {
         minOf(containerWidth, containerHeight) - (horizontalPadding * 2)
     } else {
-        containerWidth - (horizontalPadding * 2)
+        minOf(containerWidth - (horizontalPadding * 2), containerHeight * 0.80f)
     }
     return ThumbnailDimensions(
         itemWidth = containerWidth,
@@ -218,6 +218,7 @@ fun Thumbnail(
     onNavigate: ((String) -> Unit)? = null,
     /** Back to the home screen (the house at the top right); null hides it. */
     onHome: (() -> Unit)? = null,
+    onCollapse: (() -> Unit)? = null,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val context = LocalContext.current
@@ -402,6 +403,7 @@ fun Thumbnail(
                         textColor = textBackgroundColor,
                         mediaId = mediaMetadata?.id,
                         onHome = onHome,
+                        onCollapse = onCollapse,
                     )
                 }
                 
@@ -505,68 +507,84 @@ private fun ThumbnailHeader(
     textColor: Color,
     mediaId: String?,
     onHome: (() -> Unit)?,
+    onCollapse: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
     val listenTogetherManager = LocalListenTogetherManager.current
     val listenTogetherRoleState = listenTogetherManager?.role?.collectAsState(initial = RoomRole.NONE)
     val isListenTogetherGuest = listenTogetherRoleState?.value == RoomRole.GUEST
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = if (isSatanic) 2.dp else 8.dp)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .padding(horizontal = 48.dp)
-        ) {
-            // Listen Together indicator
-            if (listenTogetherRoleState?.value != RoomRole.NONE) {
-                Text(
-                    text = if (listenTogetherRoleState?.value == RoomRole.HOST) "Hosting Listen Together" else "Listening Together",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = textColor
-                )
-            } else {
-                Text(
-                    text = stringResource(R.string.now_playing),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = textColor
+        if (onCollapse != null) {
+            androidx.compose.material3.IconButton(
+                onClick = onCollapse,
+                modifier = Modifier.align(Alignment.CenterStart),
+            ) {
+                androidx.compose.material3.Icon(
+                    painter = androidx.compose.ui.res.painterResource(R.drawable.expand_more),
+                    contentDescription = null,
+                    tint = textColor.copy(alpha = 0.8f),
                 )
             }
-            val playingFrom = queueTitle ?: albumTitle
-            if (!playingFrom.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = playingFrom,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = textColor.copy(alpha = 0.8f),
-                    maxLines = 1,
-                    modifier = Modifier.basicMarquee()
+        }
+        if (!isSatanic) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 48.dp)
+            ) {
+                // Listen Together indicator
+                if (listenTogetherRoleState?.value != RoomRole.NONE) {
+                    Text(
+                        text = if (listenTogetherRoleState?.value == RoomRole.HOST) "Hosting Listen Together" else "Listening Together",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textColor
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.now_playing),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textColor
+                    )
+                }
+                val playingFrom = queueTitle ?: albumTitle
+                if (!playingFrom.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = playingFrom,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = textColor.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        modifier = Modifier.basicMarquee()
+                    )
+                }
+                // Bitrate · codec · sample rate · source of what is playing.
+                com.metrolist.music.ui.component.PlayerQualityLine(
+                    mediaId = mediaId,
+                    color = textColor,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
-            }
-            // Bitrate · codec · sample rate · source of what is playing.
-            com.metrolist.music.ui.component.PlayerQualityLine(
-                mediaId = mediaId,
-                color = textColor,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            // Spotify's stream count, under the quality line.
-            com.metrolist.music.playback.rememberPlayCount(mediaId)?.takeIf { it > 0 }?.let { plays ->
-                Text(
-                    text = stringResource(R.string.spotify_plays, com.metrolist.music.playback.SpotifyPlays.format(plays)),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = textColor.copy(alpha = 0.75f),
-                    maxLines = 1,
-                    // Takes no height of its own: the cover stays where it was and the line sits in the gap above it.
-                    modifier = Modifier
-                        .padding(top = 2.dp)
-                        .layout { measurable, constraints ->
-                            val placeable = measurable.measure(constraints)
-                            layout(placeable.width, 0) { placeable.place(0, 0) }
-                        },
-                )
+                // Spotify's stream count, under the quality line.
+                com.metrolist.music.playback.rememberPlayCount(mediaId)?.takeIf { it > 0 }?.let { plays ->
+                    Text(
+                        text = stringResource(R.string.spotify_plays, com.metrolist.music.playback.SpotifyPlays.format(plays)),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = textColor.copy(alpha = 0.75f),
+                        maxLines = 1,
+                        // Takes no height of its own: the cover stays where it was and the line sits in the gap above it.
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .layout { measurable, constraints ->
+                                val placeable = measurable.measure(constraints)
+                                layout(placeable.width, 0) { placeable.place(0, 0) }
+                            },
+                    )
+                }
             }
         }
         if (onHome != null) {

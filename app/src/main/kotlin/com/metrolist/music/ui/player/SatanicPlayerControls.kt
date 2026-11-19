@@ -41,8 +41,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
+import com.metrolist.music.LocalDatabase
 import com.metrolist.music.R
 import com.metrolist.music.models.MediaMetadata
+import com.metrolist.music.LocalPlayerConnection
+import com.metrolist.music.playback.rememberTrackLiked
+import com.metrolist.music.playback.rememberLikeSyncs
 import com.metrolist.music.ui.theme.SatanicThemeConfig
 import com.metrolist.music.utils.makeTimeString
 
@@ -88,58 +92,93 @@ fun SatanicPlayerControls(
     val controlButtonFrame = SatanicThemeConfig.rememberAsset(SatanicThemeConfig.PATH_CONTROL_BUTTON_FRAME)
     val progressDeco = SatanicThemeConfig.rememberAsset(SatanicThemeConfig.PATH_PROGRESS_DECORATION)
 
+    val database = LocalDatabase.current
+    val playerConnection = LocalPlayerConnection.current
+    val isLiked = rememberTrackLiked(database, mediaMetadata.id)
+    val likeSyncs = rememberLikeSyncs(database, mediaMetadata.id)
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp),
     ) {
-        // ── 1. Centered Track Title in Blackletter ──────────────────────────────────
-        Text(
-            text = mediaMetadata.title,
-            style = TextStyle(
-                fontFamily = SatanicThemeConfig.GothicAccentFont,
-                fontSize = 28.sp,
-                color = primaryText,
-                textAlign = TextAlign.Center,
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .fillMaxWidth()
-                .basicMarquee(iterations = 1, initialDelayMillis = 3000, velocity = 30.dp)
-                .combinedClickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    onClick = onTitleClick,
-                    onLongClick = onTitleLongClick,
-                ),
-        )
+        // ── 1. Track Title in Blackletter & Artist in Serif with Pentagram Like Button ──
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 44.dp),
+            ) {
+                Text(
+                    text = mediaMetadata.title,
+                    style = TextStyle(
+                        fontFamily = SatanicThemeConfig.GothicAccentFont,
+                        fontSize = 28.sp,
+                        color = primaryText,
+                        textAlign = TextAlign.Center,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .basicMarquee(iterations = 1, initialDelayMillis = 3000, velocity = 30.dp)
+                        .combinedClickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                            onClick = onTitleClick,
+                            onLongClick = onTitleLongClick,
+                        ),
+                )
 
-        Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(4.dp))
 
-        // ── 2. Centered Artist in Serif ─────────────────────────────────────────────
-        Text(
-            text = mediaMetadata.artists.joinToString { it.name }.ifEmpty { "—" },
-            style = TextStyle(
-                fontFamily = SatanicThemeConfig.SerifFont,
-                fontSize = 16.sp,
-                color = secondaryText,
-                textAlign = TextAlign.Center,
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .fillMaxWidth()
-                .combinedClickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    onClick = onArtistClick,
-                    onLongClick = onArtistLongClick,
-                ),
-        )
+                Text(
+                    text = mediaMetadata.artists.joinToString { it.name }.ifEmpty { "—" },
+                    style = TextStyle(
+                        fontFamily = SatanicThemeConfig.SerifFont,
+                        fontSize = 16.sp,
+                        color = secondaryText,
+                        textAlign = TextAlign.Center,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .combinedClickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                            onClick = onArtistClick,
+                            onLongClick = onArtistLongClick,
+                        ),
+                )
+            }
 
-        Spacer(Modifier.height(20.dp))
+            // Pentagram Like Button on the right of track title
+            if (playerConnection != null) {
+                IconButton(
+                    onClick = { playerConnection.service.setCurrentFavorite(!isLiked) },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .size(44.dp),
+                ) {
+                    val pentagramIcon = if (isLiked) R.drawable.theme_pentagram_active else R.drawable.theme_pentagram_outline
+                    val pentagramTint = if (isLiked) (if (isDark) Color.White else primaryText) else mutedText
+                    Icon(
+                        painter = androidx.compose.ui.res.painterResource(pentagramIcon),
+                        contentDescription = "Favorite",
+                        tint = pentagramTint,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
 
         // ── 3. Progress Bar with Decorative Element ─────────────────────────────────
         var dragFrac by remember { mutableFloatStateOf(-1f) }
@@ -248,7 +287,7 @@ fun SatanicPlayerControls(
             )
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(14.dp))
 
         // ── 4. Main Controls Row: Shuffle | Prev | Play/Pause | Next | Repeat ────────
         Row(
