@@ -9,6 +9,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.luminance
 import com.metrolist.music.ui.theme.AppThemePreset
 import com.metrolist.music.ui.theme.LocalAppThemePreset
 import com.metrolist.music.ui.theme.SatanicThemeConfig
@@ -438,6 +439,7 @@ fun LibraryChips(
 private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
     val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
     if (isSatanic) {
+        val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
         val context = LocalContext.current
         val activeFramePainter =
             SatanicThemeConfig.loadBitmapAsset(
@@ -448,10 +450,10 @@ private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
             modifier =
                 Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(if (selected) SatanicThemeConfig.Elevated else SatanicThemeConfig.Surface)
+                    .background(if (selected) SatanicThemeConfig.getElevated(isDark) else SatanicThemeConfig.getSurface(isDark))
                     .then(
                         if (!selected) {
-                            Modifier.border(1.dp, SatanicThemeConfig.Border, RoundedCornerShape(50))
+                            Modifier.border(1.dp, SatanicThemeConfig.getBorder(isDark), RoundedCornerShape(50))
                         } else {
                             Modifier
                         },
@@ -471,7 +473,7 @@ private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
             }
             Text(
                 text = text,
-                color = if (selected) SatanicThemeConfig.PrimaryText else SatanicThemeConfig.SecondaryText,
+                color = if (selected) SatanicThemeConfig.getPrimaryText(isDark) else SatanicThemeConfig.getSecondaryText(isDark),
                 fontFamily = SatanicThemeConfig.SerifFont,
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -496,21 +498,22 @@ private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun CloseChip(onClick: () -> Unit) {
     val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
     Surface(
         shape = CircleShape,
-        color = if (isSatanic) SatanicThemeConfig.Surface else MaterialTheme.colorScheme.surfaceContainerHighest,
+        color = if (isSatanic) SatanicThemeConfig.getSurface(isDark) else MaterialTheme.colorScheme.surfaceContainerHighest,
         modifier =
             Modifier
                 .size(36.dp)
                 .clip(CircleShape)
-                .then(if (isSatanic) Modifier.border(1.dp, SatanicThemeConfig.Border, CircleShape) else Modifier)
+                .then(if (isSatanic) Modifier.border(1.dp, SatanicThemeConfig.getBorder(isDark), CircleShape) else Modifier)
                 .clickable(onClick = onClick),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 painter = painterResource(R.drawable.close),
                 contentDescription = null,
-                tint = if (isSatanic) SatanicThemeConfig.PrimaryText else MaterialTheme.colorScheme.onSurface,
+                tint = if (isSatanic) SatanicThemeConfig.getPrimaryText(isDark) else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(18.dp),
             )
         }

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +38,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -120,6 +122,9 @@ fun RingProgress(
         }
     }
     val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val satanicAccent = com.metrolist.music.ui.theme.SatanicThemeConfig.getAccent(isDark)
+    val satanicDot = if (isDark) Color.White else com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark)
     Box(modifier) {
         Canvas(
             Modifier
@@ -173,7 +178,7 @@ fun RingProgress(
             }
             val f = dragFraction ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
             drawArc(
-                if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.Accent else activeColor,
+                if (isSatanic) satanicAccent else activeColor,
                 startAngle = -90f,
                 sweepAngle = 360f * f,
                 useCenter = false,
@@ -183,7 +188,7 @@ fun RingProgress(
             )
             val a = Math.toRadians((360.0 * f) - 90.0)
             val dot = if (isSatanic) (if (dragFraction != null) 6.dp.toPx() else 4.5.dp.toPx()) else (if (dragFraction != null) 9.dp.toPx() else 6.dp.toPx())
-            drawCircle(if (isSatanic) Color.White else activeColor, dot, Offset(c.x + r * cos(a).toFloat(), c.y + r * sin(a).toFloat()))
+            drawCircle(if (isSatanic) satanicDot else activeColor, dot, Offset(c.x + r * cos(a).toFloat(), c.y + r * sin(a).toFloat()))
         }
         AnimatedVisibility(
             visible = dragFraction != null,

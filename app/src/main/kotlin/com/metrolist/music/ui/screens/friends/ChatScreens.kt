@@ -510,7 +510,7 @@ fun ChatScreen(navController: NavController, peer: String) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) Color.Transparent else MaterialTheme.colorScheme.background)
             .then(if (blur > 0.dp) Modifier.blur(blur) else Modifier),
     ) {
         if (selecting) {

@@ -301,10 +301,11 @@ private fun NewMiniPlayer(
     }
 
     val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
 
     // Memoize colors
     val backgroundColor = when {
-        isSatanic -> SatanicThemeConfig.Surface
+        isSatanic -> SatanicThemeConfig.getSurface(isDark)
         miniPlayerBackground == MiniPlayerBackgroundStyle.DEFAULT    -> MaterialTheme.colorScheme.surfaceContainer
         miniPlayerBackground == MiniPlayerBackgroundStyle.TRANSPARENT -> Color.Black.copy(alpha = 0.25f)
         miniPlayerBackground == MiniPlayerBackgroundStyle.BLUR       -> MaterialTheme.colorScheme.surfaceContainer
@@ -317,22 +318,22 @@ private fun NewMiniPlayer(
             miniPlayerBackground == MiniPlayerBackgroundStyle.GRADIENT)
 
     val primaryColor = when {
-        isSatanic -> SatanicThemeConfig.PrimaryText
+        isSatanic -> SatanicThemeConfig.getPrimaryText(isDark)
         forceLightColors -> Color.White
         else -> MaterialTheme.colorScheme.primary
     }
     val outlineColor = when {
-        isSatanic -> SatanicThemeConfig.Border
+        isSatanic -> SatanicThemeConfig.getBorder(isDark)
         forceLightColors -> Color.White
         else -> MaterialTheme.colorScheme.outline
     }
     val onSurfaceColor = when {
-        isSatanic -> SatanicThemeConfig.PrimaryText
+        isSatanic -> SatanicThemeConfig.getPrimaryText(isDark)
         forceLightColors -> Color.White
         else -> MaterialTheme.colorScheme.onSurface
     }
     val errorColor = when {
-        isSatanic -> SatanicThemeConfig.Accent
+        isSatanic -> SatanicThemeConfig.getAccent(isDark)
         forceLightColors -> Color(0xFFFF6B6B)
         else -> MaterialTheme.colorScheme.error
     }
@@ -407,32 +408,45 @@ private fun NewMiniPlayer(
                     }
                 },
     ) {
+        val miniPlayerShape = RoundedCornerShape(32.dp)
+        val satanicBorder = if (isDark) SatanicThemeConfig.Border else SatanicThemeConfig.LightBorder
+        val satanicBg = if (isDark) SatanicThemeConfig.Surface else SatanicThemeConfig.LightSurface
+
         Box(
             modifier =
                 Modifier
                     .then(if (isTabletLandscape) Modifier.width(500.dp).align(Alignment.Center) else Modifier.fillMaxWidth())
                     .height(64.dp)
                     .offset { IntOffset(offsetXAnimatable.value.roundToInt(), 0) }
-                    .clip(RoundedCornerShape(32.dp).tui())
-                    .background(color = backgroundColor)
-                    .border(1.dp, if (isSatanic) SatanicThemeConfig.Border else outlineColor.copy(alpha = 0.3f), RoundedCornerShape(32.dp).tui()),
+                    .clip(miniPlayerShape)
+                    .background(color = if (isSatanic) satanicBg else backgroundColor)
+                    .border(
+                        width = 1.dp,
+                        color = if (isSatanic) satanicBorder else outlineColor.copy(alpha = 0.3f),
+                        shape = miniPlayerShape,
+                    )
+                    .then(
+                        if (isSatanic) {
+                            Modifier.drawWithContent {
+                                drawContent()
+                                val inset = 3.dp.toPx()
+                                val innerW = size.width - inset * 2
+                                val innerH = size.height - inset * 2
+                                val innerR = (size.height / 2) - inset
+                                drawRoundRect(
+                                    color = satanicBorder.copy(alpha = 0.40f),
+                                    topLeft = Offset(inset, inset),
+                                    size = Size(innerW, innerH),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(innerR, innerR),
+                                    style = Stroke(width = 0.8.dp.toPx()),
+                                )
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ),
         ) {
-            if (isSatanic) {
-                val framePainter =
-                    SatanicThemeConfig.loadBitmapAsset(
-                        context = context,
-                        path = SatanicThemeConfig.PATH_MINI_PLAYER_FRAME,
-                    )
-                framePainter?.let {
-                    Image(
-                        painter = it,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.FillBounds,
-                    )
-                }
-            } else {
-                when (miniPlayerBackground) {
+            when (miniPlayerBackground) {
                     MiniPlayerBackgroundStyle.BLUR -> {
                         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                             mediaMetadata?.thumbnailUrl?.let { url ->
@@ -469,7 +483,6 @@ private fun NewMiniPlayer(
                     }
                     else -> {}
                 }
-            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 8.dp),
@@ -573,9 +586,10 @@ private fun NewMiniPlayerPlayButton(
     val isMuted by playerConnection.isMuted.collectAsState()
 
     val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
-    val trackColor = if (isSatanic) SatanicThemeConfig.Border.copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.2f)
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val trackColor = if (isSatanic) SatanicThemeConfig.getBorder(isDark).copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.2f)
     val strokeWidth = if (isSatanic) 2.dp else 3.dp
-    val activeProgressColor = if (isSatanic) SatanicThemeConfig.Accent else primaryColor
+    val activeProgressColor = if (isSatanic) SatanicThemeConfig.getAccent(isDark) else primaryColor
 
     Box(
         contentAlignment = Alignment.Center,
@@ -621,7 +635,7 @@ private fun NewMiniPlayerPlayButton(
                 Modifier
                     .size(40.dp)
                     .clip(CircleShape.tui())
-                    .border(1.dp, if (isSatanic) SatanicThemeConfig.Border else outlineColor.copy(alpha = 0.3f), CircleShape.tui())
+                    .border(1.dp, if (isSatanic) SatanicThemeConfig.getBorder(isDark) else outlineColor.copy(alpha = 0.3f), CircleShape.tui())
                     .clickable {
                         if (isListenTogetherGuest) {
                             playerConnection.toggleMute()
@@ -699,9 +713,10 @@ private fun NewMiniPlayerSongInfo(
     ) {
         mediaMetadata?.let { metadata ->
             val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+            val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
             Text(
                 text = metadata.title,
-                color = if (isSatanic) SatanicThemeConfig.PrimaryText else onSurfaceColor,
+                color = if (isSatanic) SatanicThemeConfig.getPrimaryText(isDark) else onSurfaceColor,
                 fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
@@ -717,7 +732,7 @@ private fun NewMiniPlayerSongInfo(
                 if (metadata.artists.any { it.name.isNotBlank() }) {
                     Text(
                         text = metadata.artists.joinToString { it.name },
-                        color = if (isSatanic) SatanicThemeConfig.SecondaryText else onSurfaceColor.copy(alpha = 0.7f),
+                        color = if (isSatanic) SatanicThemeConfig.getSecondaryText(isDark) else onSurfaceColor.copy(alpha = 0.7f),
                         fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null,
                         fontSize = 12.sp,
                         maxLines = 1,
@@ -1104,21 +1119,30 @@ private fun SubscribeButton(
     val artistEntity by artistFlow.collectAsState(initial = null)
     val isSubscribed = artistEntity?.bookmarkedAt != null
 
+    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val buttonModifier = if (isSatanic) {
+        Modifier
+            .size(36.dp)
+            .clip(CircleShape.tui())
+    } else {
+        Modifier
+            .size(40.dp)
+            .clip(CircleShape.tui())
+            .border(
+                width = 1.dp,
+                color = if (isSubscribed) primaryColor.copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.3f),
+                shape = CircleShape.tui(),
+            ).background(
+                color = if (isSubscribed) primaryColor.copy(alpha = 0.1f) else Color.Transparent,
+                shape = CircleShape.tui(),
+            )
+    }
 
     Box(
         contentAlignment = Alignment.Center,
         modifier =
-            Modifier
-                .size(40.dp)
-                .clip(CircleShape.tui())
-                .border(
-                    width = 1.dp,
-                    color = if (isSubscribed) primaryColor.copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.3f),
-                    shape = CircleShape.tui(),
-                ).background(
-                    color = if (isSubscribed) primaryColor.copy(alpha = 0.1f) else Color.Transparent,
-                    shape = CircleShape.tui(),
-                ).clickable {
+            buttonModifier.clickable {
                     database.transaction {
                         val artist = artistEntity
                         if (artist != null) {
@@ -1141,10 +1165,15 @@ private fun SubscribeButton(
                     }
                 },
     ) {
+        val subscribeTint = if (isSatanic) {
+            if (isSubscribed) SatanicThemeConfig.getPrimaryText(isDark) else SatanicThemeConfig.getSecondaryText(isDark)
+        } else {
+            if (isSubscribed) primaryColor else onSurfaceColor.copy(alpha = 0.7f)
+        }
         Icon(
             painter = painterResource(if (isSubscribed) R.drawable.subscribed else R.drawable.subscribe),
             contentDescription = null,
-            tint = if (isSubscribed) primaryColor else onSurfaceColor.copy(alpha = 0.7f),
+            tint = subscribeTint,
             modifier = Modifier.size(20.dp),
         )
     }
@@ -1172,9 +1201,14 @@ private fun DownloadButton(
     val isDownloaded = state == Download.STATE_COMPLETED && !isExporting
     val isInProgress = state == Download.STATE_QUEUED || state == Download.STATE_DOWNLOADING || isExporting
 
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
+    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val buttonModifier = if (isSatanic) {
+        Modifier
+            .size(36.dp)
+            .clip(CircleShape.tui())
+    } else {
+        Modifier
             .size(40.dp)
             .clip(CircleShape.tui())
             .border(
@@ -1186,6 +1220,11 @@ private fun DownloadButton(
                 color = if (isDownloaded) primaryColor.copy(alpha = 0.1f) else Color.Transparent,
                 shape = CircleShape.tui(),
             )
+    }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = buttonModifier
             .clickable {
                 when {
                     isDownloaded || isInProgress -> {
@@ -1216,14 +1255,19 @@ private fun DownloadButton(
         if (isInProgress) {
             CircularProgressIndicator(
                 strokeWidth = 2.dp,
-                color = onSurfaceColor.copy(alpha = 0.7f),
+                color = if (isSatanic) SatanicThemeConfig.getSecondaryText(isDark) else onSurfaceColor.copy(alpha = 0.7f),
                 modifier = Modifier.size(18.dp),
             )
         } else {
+            val downloadTint = if (isSatanic) {
+                if (isDownloaded) SatanicThemeConfig.getPrimaryText(isDark) else SatanicThemeConfig.getSecondaryText(isDark)
+            } else {
+                if (isDownloaded) primaryColor else onSurfaceColor.copy(alpha = 0.7f)
+            }
             Icon(
                 painter = painterResource(if (isDownloaded) R.drawable.offline else R.drawable.download),
                 contentDescription = stringResource(R.string.action_download),
-                tint = if (isDownloaded) primaryColor else onSurfaceColor.copy(alpha = 0.7f),
+                tint = downloadTint,
                 modifier = Modifier.size(20.dp),
             )
         }
@@ -1246,25 +1290,40 @@ private fun FavoriteButton(
     val isLiked = com.metrolist.music.playback.rememberTrackLiked(database, songId)
     val likeSyncs = com.metrolist.music.playback.rememberLikeSyncs(database, songId)
 
+    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val buttonModifier = if (isSatanic) {
+        Modifier
+            .size(36.dp)
+            .clip(CircleShape.tui())
+    } else {
+        Modifier
+            .size(40.dp)
+            .clip(CircleShape.tui())
+            .border(
+                width = 1.dp,
+                color = if (isLiked) errorColor.copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.3f),
+                shape = CircleShape.tui(),
+            ).background(
+                color = if (isLiked) errorColor.copy(alpha = 0.1f) else Color.Transparent,
+                shape = CircleShape.tui(),
+            )
+    }
+
     Box(
         contentAlignment = Alignment.Center,
-        modifier =
-            Modifier
-                .size(40.dp)
-                .clip(CircleShape.tui())
-                .border(
-                    width = 1.dp,
-                    color = if (isLiked) errorColor.copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.3f),
-                    shape = CircleShape.tui(),
-                ).background(
-                    color = if (isLiked) errorColor.copy(alpha = 0.1f) else Color.Transparent,
-                    shape = CircleShape.tui(),
-                ).clickable { playerConnection.service.setCurrentFavorite(!isLiked) },
+        modifier = buttonModifier
+            .clickable { playerConnection.service.setCurrentFavorite(!isLiked) },
     ) {
+        val favTint = if (isSatanic) {
+            if (isLiked) SatanicThemeConfig.getPrimaryText(isDark) else SatanicThemeConfig.getSecondaryText(isDark)
+        } else {
+            if (isLiked) errorColor else onSurfaceColor.copy(alpha = 0.7f)
+        }
         Icon(
             painter = painterResource(com.metrolist.music.playback.LikeTarget.icon(isLiked, likeSyncs || isEpisode)),
             contentDescription = null,
-            tint = if (isLiked) errorColor else onSurfaceColor.copy(alpha = 0.7f),
+            tint = favTint,
             modifier = Modifier.size(20.dp),
         )
     }

@@ -31,6 +31,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
@@ -76,6 +78,12 @@ fun SatanicPlayerControls(
     onArtistLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val primaryText = SatanicThemeConfig.getPrimaryText(isDark)
+    val secondaryText = SatanicThemeConfig.getSecondaryText(isDark)
+    val mutedText = SatanicThemeConfig.getMutedText(isDark)
+    val accent = SatanicThemeConfig.getAccent(isDark)
+
     val playButtonFrame = SatanicThemeConfig.rememberAsset(SatanicThemeConfig.PATH_PLAY_BUTTON_FRAME)
     val controlButtonFrame = SatanicThemeConfig.rememberAsset(SatanicThemeConfig.PATH_CONTROL_BUTTON_FRAME)
     val progressDeco = SatanicThemeConfig.rememberAsset(SatanicThemeConfig.PATH_PROGRESS_DECORATION)
@@ -92,7 +100,7 @@ fun SatanicPlayerControls(
             style = TextStyle(
                 fontFamily = SatanicThemeConfig.GothicAccentFont,
                 fontSize = 28.sp,
-                color = SatanicThemeConfig.PrimaryText,
+                color = primaryText,
                 textAlign = TextAlign.Center,
             ),
             maxLines = 1,
@@ -116,7 +124,7 @@ fun SatanicPlayerControls(
             style = TextStyle(
                 fontFamily = SatanicThemeConfig.SerifFont,
                 fontSize = 16.sp,
-                color = SatanicThemeConfig.SecondaryText,
+                color = secondaryText,
                 textAlign = TextAlign.Center,
             ),
             maxLines = 1,
@@ -150,7 +158,7 @@ fun SatanicPlayerControls(
                 text = makeTimeString(effectivePos).ifEmpty { "0:00" },
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = SatanicThemeConfig.SerifFont,
-                    color = SatanicThemeConfig.SecondaryText,
+                    color = secondaryText,
                     fontSize = 13.sp,
                 ),
                 modifier = Modifier.width(42.dp),
@@ -197,6 +205,7 @@ fun SatanicPlayerControls(
                         bitmap = progressDeco,
                         contentDescription = null,
                         contentScale = ContentScale.FillWidth,
+                        colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(14.dp)
@@ -211,7 +220,7 @@ fun SatanicPlayerControls(
                     // Active progress line
                     if (w > 0f) {
                         drawLine(
-                            color = SatanicThemeConfig.Accent,
+                            color = accent,
                             start = androidx.compose.ui.geometry.Offset(0f, cy),
                             end = androidx.compose.ui.geometry.Offset(w, cy),
                             strokeWidth = 1.8.dp.toPx(),
@@ -219,7 +228,7 @@ fun SatanicPlayerControls(
                     }
                     // Small progress dot thumb
                     drawCircle(
-                        color = Color.White,
+                        color = if (isDark) Color.White else primaryText,
                         radius = if (dragFrac in 0f..1f) 4.5.dp.toPx() else 3.dp.toPx(),
                         center = androidx.compose.ui.geometry.Offset(w, cy),
                     )
@@ -231,7 +240,7 @@ fun SatanicPlayerControls(
                 text = if (duration > 0) makeTimeString(duration) else "0:00",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = SatanicThemeConfig.SerifFont,
-                    color = SatanicThemeConfig.SecondaryText,
+                    color = secondaryText,
                     fontSize = 13.sp,
                     textAlign = TextAlign.End,
                 ),
@@ -258,7 +267,7 @@ fun SatanicPlayerControls(
                 Icon(
                     painter = androidx.compose.ui.res.painterResource(R.drawable.shuffle),
                     contentDescription = null,
-                    tint = if (shuffleModeEnabled) SatanicThemeConfig.PrimaryText else SatanicThemeConfig.MutedText,
+                    tint = if (shuffleModeEnabled) primaryText else mutedText,
                     modifier = Modifier.size(24.dp),
                 )
             }
@@ -273,6 +282,7 @@ fun SatanicPlayerControls(
                         bitmap = controlButtonFrame,
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
+                        colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
                         modifier = Modifier.size(54.dp),
                     )
                 }
@@ -284,7 +294,7 @@ fun SatanicPlayerControls(
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(R.drawable.skip_previous),
                         contentDescription = null,
-                        tint = if (canSkipPrevious) SatanicThemeConfig.PrimaryText else SatanicThemeConfig.MutedText,
+                        tint = if (canSkipPrevious) primaryText else mutedText,
                         modifier = Modifier.size(28.dp),
                     )
                 }
@@ -300,6 +310,7 @@ fun SatanicPlayerControls(
                         bitmap = playButtonFrame,
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
+                        colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
                         modifier = Modifier.size(78.dp),
                     )
                 }
@@ -312,7 +323,7 @@ fun SatanicPlayerControls(
                             if (isPlaying) R.drawable.pause else R.drawable.play
                         ),
                         contentDescription = null,
-                        tint = SatanicThemeConfig.PrimaryText,
+                        tint = primaryText,
                         modifier = Modifier.size(34.dp),
                     )
                 }
@@ -328,6 +339,7 @@ fun SatanicPlayerControls(
                         bitmap = controlButtonFrame,
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
+                        colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
                         modifier = Modifier.size(54.dp),
                     )
                 }
@@ -339,7 +351,7 @@ fun SatanicPlayerControls(
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(R.drawable.skip_next),
                         contentDescription = null,
-                        tint = if (canSkipNext) SatanicThemeConfig.PrimaryText else SatanicThemeConfig.MutedText,
+                        tint = if (canSkipNext) primaryText else mutedText,
                         modifier = Modifier.size(28.dp),
                     )
                 }
@@ -356,7 +368,7 @@ fun SatanicPlayerControls(
                         if (repeatMode == Player.REPEAT_MODE_ONE) R.drawable.repeat_one else R.drawable.repeat
                     ),
                     contentDescription = null,
-                    tint = if (repeatMode != Player.REPEAT_MODE_OFF) SatanicThemeConfig.PrimaryText else SatanicThemeConfig.MutedText,
+                    tint = if (repeatMode != Player.REPEAT_MODE_OFF) primaryText else mutedText,
                     modifier = Modifier.size(24.dp),
                 )
             }

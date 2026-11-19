@@ -53,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -68,6 +69,7 @@ fun <E> ChipsRow(
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
 ) {
     val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
     Row(
         modifier =
         modifier
@@ -90,10 +92,10 @@ fun <E> ChipsRow(
                 colors =
                     if (isSatanic) {
                         FilterChipDefaults.filterChipColors(
-                            containerColor = SatanicThemeConfig.Surface,
-                            selectedContainerColor = SatanicThemeConfig.Elevated,
-                            labelColor = SatanicThemeConfig.SecondaryText,
-                            selectedLabelColor = SatanicThemeConfig.PrimaryText,
+                            containerColor = SatanicThemeConfig.getSurface(isDark),
+                            selectedContainerColor = SatanicThemeConfig.getElevated(isDark),
+                            labelColor = SatanicThemeConfig.getSecondaryText(isDark),
+                            selectedLabelColor = SatanicThemeConfig.getPrimaryText(isDark),
                         )
                     } else {
                         FilterChipDefaults.filterChipColors(
@@ -104,7 +106,7 @@ fun <E> ChipsRow(
                 shape = RoundedCornerShape(16.dp),
                 border =
                     if (isSatanic && !isSelected) {
-                        BorderStroke(1.dp, SatanicThemeConfig.Border)
+                        BorderStroke(1.dp, SatanicThemeConfig.getBorder(isDark))
                     } else {
                         null
                     },
@@ -134,6 +136,9 @@ fun <Int> ChoiceChipsRow(
         label = "",
     )
 
+    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+
     Row(
         modifier =
         modifier
@@ -158,6 +163,7 @@ fun <Int> ChoiceChipsRow(
                             OptionStats.YEARS -> stringResource(id = R.string.years)
                             OptionStats.CONTINUOUS -> stringResource(id = R.string.continuous)
                         },
+                        fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null,
                     )
                 },
                 trailingIcon = {
@@ -165,14 +171,22 @@ fun <Int> ChoiceChipsRow(
                         painter = painterResource(R.drawable.expand_more),
                         contentDescription = null,
                         modifier = Modifier.graphicsLayer(rotationZ = rotationAnimation),
+                        tint = if (isSatanic) SatanicThemeConfig.getPrimaryText(isDark) else MaterialTheme.colorScheme.onSurface,
                     )
                 },
                 shape = RoundedCornerShape(16.dp),
-                border = null,
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = containerColor,
-                    labelColor = MaterialTheme.colorScheme.onSurface
-                )
+                border = if (isSatanic) BorderStroke(1.dp, SatanicThemeConfig.getBorder(isDark)) else null,
+                colors = if (isSatanic) {
+                    AssistChipDefaults.assistChipColors(
+                        containerColor = SatanicThemeConfig.getSurface(isDark),
+                        labelColor = SatanicThemeConfig.getPrimaryText(isDark),
+                    )
+                } else {
+                    AssistChipDefaults.assistChipColors(
+                        containerColor = containerColor,
+                        labelColor = MaterialTheme.colorScheme.onSurface
+                    )
+                }
             )
 
             AnimatedVisibility(
@@ -190,7 +204,7 @@ fun <Int> ChoiceChipsRow(
                 ) {
                     options.forEach { option ->
                         DropdownMenuItem(
-                            text = { Text(text = option.second) },
+                            text = { Text(text = option.second, fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null) },
                             onClick = {
                                 onSelectionChange(option.first)
                                 expandIconDegree -= 180
@@ -215,17 +229,31 @@ fun <Int> ChoiceChipsRow(
                     .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal)),
             ) {
                 chips.forEach { (value, label) ->
+                    val isSelected = currentValue == value
                     Spacer(Modifier.width(8.dp))
 
                     FilterChip(
-                        label = { Text(label) },
-                        selected = currentValue == value,
-                        colors = FilterChipDefaults.filterChipColors(
-                            containerColor = containerColor,
-                        ),
+                        label = { Text(label, fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null) },
+                        selected = isSelected,
+                        colors = if (isSatanic) {
+                            FilterChipDefaults.filterChipColors(
+                                containerColor = SatanicThemeConfig.getSurface(isDark),
+                                selectedContainerColor = SatanicThemeConfig.getElevated(isDark),
+                                labelColor = SatanicThemeConfig.getSecondaryText(isDark),
+                                selectedLabelColor = SatanicThemeConfig.getPrimaryText(isDark),
+                            )
+                        } else {
+                            FilterChipDefaults.filterChipColors(
+                                containerColor = containerColor,
+                            )
+                        },
                         onClick = { onValueUpdate(value) },
                         shape = RoundedCornerShape(16.dp),
-                        border = null
+                        border = if (isSatanic && !isSelected) {
+                            BorderStroke(1.dp, SatanicThemeConfig.getBorder(isDark))
+                        } else {
+                            null
+                        },
                     )
                 }
             }

@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -59,6 +60,7 @@ fun NavigationTitle(
 ) {
     val plain = LocalPlainSectionTitles.current
     val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
     val context = LocalContext.current
     val dividerPainter =
         if (isSatanic) {
@@ -104,7 +106,7 @@ fun NavigationTitle(
                         text = label,
                         style = MaterialTheme.typography.labelLarge,
                         fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null,
-                        color = if (isSatanic) SatanicThemeConfig.SecondaryText else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (isSatanic) SatanicThemeConfig.getSecondaryText(isDark) else MaterialTheme.colorScheme.onSurfaceVariant,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -114,7 +116,7 @@ fun NavigationTitle(
                     style = com.metrolist.music.ui.theme.themeSectionStyle(MaterialTheme.typography.titleLarge),
                     fontWeight = com.metrolist.music.ui.theme.themeSectionWeight(),
                     fontFamily = if (isSatanic) SatanicThemeConfig.TitleFont else null,
-                    color = if (isSatanic) SatanicThemeConfig.PrimaryText else MaterialTheme.colorScheme.primary,
+                    color = if (isSatanic) SatanicThemeConfig.getPrimaryText(isDark) else MaterialTheme.colorScheme.primary,
                     overflow = TextOverflow.Ellipsis,
                     // Spotify's long section names ("Friday new releases for you") need the room.
                     maxLines = if (plain) 2 else 1,
@@ -127,9 +129,9 @@ fun NavigationTitle(
             OutlinedButton(
                 onClick = playAllClick,
                 shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                border = BorderStroke(1.dp, if (isSatanic) SatanicThemeConfig.getBorder(isDark) else MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
                 colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.primary
+                    contentColor = if (isSatanic) SatanicThemeConfig.getPrimaryText(isDark) else MaterialTheme.colorScheme.primary
                 ),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
                 modifier = Modifier
@@ -137,7 +139,8 @@ fun NavigationTitle(
             ) {
                 Text(
                     text = stringResource(R.string.play_all),
-                    style = MaterialTheme.typography.labelSmall
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null,
                 )
             }
         }
@@ -146,7 +149,7 @@ fun NavigationTitle(
             Icon(
                 painter = painterResource(R.drawable.arrow_forward),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
+                tint = if (isSatanic) SatanicThemeConfig.getPrimaryText(isDark) else MaterialTheme.colorScheme.primary
             )
         }
     }
