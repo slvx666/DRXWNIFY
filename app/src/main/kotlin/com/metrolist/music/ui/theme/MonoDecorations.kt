@@ -215,12 +215,12 @@ internal fun GothicTitle(text: String, style: TextStyle) {
     MonoTitleAccent(AppThemePreset.GOTHIC)
 }
 
-/** Satanic's title in a metal face (Metal Mania), with its crosses after it. */
+/** Satanic's title in a metal face (with Cyrillic serif fallback), with its crosses after it. */
 @Composable
 internal fun SatanicTitle(text: String, style: TextStyle) {
     Text(
         text = text,
-        style = style.copy(fontFamily = MetalFace, fontWeight = FontWeight.Normal, letterSpacing = style.letterSpacing),
+        style = style.copy(fontFamily = SatanicThemeConfig.TitleFont, fontWeight = FontWeight.Normal, letterSpacing = style.letterSpacing),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
     )
@@ -319,7 +319,7 @@ fun Modifier.themeSectionTitle(title: String): Modifier {
  */
 @Composable
 fun themeSectionStyle(style: TextStyle): TextStyle = when (LocalAppThemePreset.current) {
-    AppThemePreset.SATANIC -> style.copy(fontFamily = MetalFace, fontWeight = FontWeight.Normal)
+    AppThemePreset.SATANIC -> style.copy(fontFamily = SatanicThemeConfig.TitleFont, fontWeight = FontWeight.Normal)
     AppThemePreset.GOTHIC -> style.copy(fontFamily = GothicFace, fontWeight = FontWeight.Normal)
     AppThemePreset.STREET -> style.copy(fontFamily = StreetFace, fontWeight = FontWeight.Normal)
     AppThemePreset.BREAKCORE -> style.copy(fontFamily = GlitchFace, fontWeight = FontWeight.Normal)
@@ -332,7 +332,7 @@ fun themeSectionStyle(style: TextStyle): TextStyle = when (LocalAppThemePreset.c
  */
 @Composable
 fun themeAccentStyle(style: TextStyle): TextStyle = when (LocalAppThemePreset.current) {
-    AppThemePreset.SATANIC -> style.copy(fontFamily = MetalFace, fontWeight = FontWeight.Normal)
+    AppThemePreset.SATANIC -> style.copy(fontFamily = SatanicThemeConfig.TitleFont, fontWeight = FontWeight.Normal)
     AppThemePreset.GOTHIC -> style.copy(fontFamily = GothicFace, fontWeight = FontWeight.Normal)
     AppThemePreset.STREET -> style.copy(fontFamily = StreetFace, fontWeight = FontWeight.Normal)
     AppThemePreset.BREAKCORE -> style.copy(fontFamily = GlitchFace, fontWeight = FontWeight.Normal)
@@ -372,8 +372,18 @@ fun Modifier.themeTabUnderline(selected: Boolean): Modifier {
                 drawLine(ink.copy(alpha = 0.6f), Offset(x0 + 4.dp.toPx(), y + 3.dp.toPx()), Offset(x0 + w - 4.dp.toPx(), y + 3.dp.toPx()), 1.dp.toPx())
             }
             AppThemePreset.SATANIC -> {
-                drawLine(ink, Offset(x0, y), Offset(x0 + w, y), 1.6.dp.toPx())
-                invertedCross(Offset(size.width / 2, y + 6.dp.toPx()), 7.dp.toPx(), ink, 1.dp.toPx())
+                drawLine(ink.copy(alpha = 0.85f), Offset(x0, y), Offset(x0 + w, y), 1.2.dp.toPx())
+                val cx = size.width / 2
+                val dSize = 2.5.dp.toPx()
+                val path =
+                    Path().apply {
+                        moveTo(cx, y - dSize)
+                        lineTo(cx + dSize, y)
+                        lineTo(cx, y + dSize)
+                        lineTo(cx - dSize, y)
+                        close()
+                    }
+                drawPath(path, ink.copy(alpha = 0.9f))
             }
             else -> drawLine(ink, Offset(x0, y), Offset(x0 + w, y), 2.dp.toPx(), cap = StrokeCap.Round)
         }
@@ -393,7 +403,12 @@ fun Modifier.themeNavBar(): Modifier {
     return when (preset) {
         AppThemePreset.SATANIC -> drawWithContent {
             drawContent()
-            thornLine(0.5.dp.toPx(), ink.copy(alpha = if (dark) 0.35f else 0.45f), down = true, seed = 9)
+            drawLine(
+                color = SatanicThemeConfig.Border,
+                start = Offset(0f, 0f),
+                end = Offset(size.width, 0f),
+                strokeWidth = 1.dp.toPx(),
+            )
         }
         AppThemePreset.GOTHIC -> drawWithContent {
             drawContent()

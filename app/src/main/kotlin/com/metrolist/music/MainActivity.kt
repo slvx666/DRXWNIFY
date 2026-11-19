@@ -1383,6 +1383,7 @@ class MainActivity : ComponentActivity() {
                                             (experimentalTheme && (currentRoute == "search_input" || currentRoute == "listen_together" || currentRoute == "settings"))
                                         ) &&
                                         !playerBottomSheetState.isExpanded,
+                                    route = currentRoute,
                                 )
                                 // NavHost with animations (Material 3 Expressive style)
                                 NavHost(

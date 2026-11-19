@@ -8,6 +8,10 @@
 package com.metrolist.music.ui.player
 
 import android.content.res.Configuration
+import androidx.compose.foundation.Image
+import com.metrolist.music.ui.theme.AppThemePreset
+import com.metrolist.music.ui.theme.LocalAppThemePreset
+import com.metrolist.music.ui.theme.SatanicThemeConfig
 import com.metrolist.music.ui.theme.tui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -296,22 +300,42 @@ private fun NewMiniPlayer(
         }
     }
 
+    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+
     // Memoize colors
-    val backgroundColor = when (miniPlayerBackground) {
-        MiniPlayerBackgroundStyle.DEFAULT    -> MaterialTheme.colorScheme.surfaceContainer
-        MiniPlayerBackgroundStyle.TRANSPARENT -> Color.Black.copy(alpha = 0.25f)
-        MiniPlayerBackgroundStyle.BLUR       -> MaterialTheme.colorScheme.surfaceContainer
-        MiniPlayerBackgroundStyle.GRADIENT   -> MaterialTheme.colorScheme.surfaceContainer
-        MiniPlayerBackgroundStyle.PURE_BLACK -> Color.Black
+    val backgroundColor = when {
+        isSatanic -> SatanicThemeConfig.Surface
+        miniPlayerBackground == MiniPlayerBackgroundStyle.DEFAULT    -> MaterialTheme.colorScheme.surfaceContainer
+        miniPlayerBackground == MiniPlayerBackgroundStyle.TRANSPARENT -> Color.Black.copy(alpha = 0.25f)
+        miniPlayerBackground == MiniPlayerBackgroundStyle.BLUR       -> MaterialTheme.colorScheme.surfaceContainer
+        miniPlayerBackground == MiniPlayerBackgroundStyle.GRADIENT   -> MaterialTheme.colorScheme.surfaceContainer
+        miniPlayerBackground == MiniPlayerBackgroundStyle.PURE_BLACK -> Color.Black
+        else -> MaterialTheme.colorScheme.surfaceContainer
     }
-    val forceLightColors = !useDarkTheme && (miniPlayerBackground == MiniPlayerBackgroundStyle.PURE_BLACK ||
+    val forceLightColors = !isSatanic && !useDarkTheme && (miniPlayerBackground == MiniPlayerBackgroundStyle.PURE_BLACK ||
             miniPlayerBackground == MiniPlayerBackgroundStyle.BLUR ||
             miniPlayerBackground == MiniPlayerBackgroundStyle.GRADIENT)
 
-    val primaryColor = if (forceLightColors) Color.White else MaterialTheme.colorScheme.primary
-    val outlineColor = if (forceLightColors) Color.White else MaterialTheme.colorScheme.outline
-    val onSurfaceColor = if (forceLightColors) Color.White else MaterialTheme.colorScheme.onSurface
-    val errorColor = if (forceLightColors) Color(0xFFFF6B6B) else MaterialTheme.colorScheme.error
+    val primaryColor = when {
+        isSatanic -> SatanicThemeConfig.PrimaryText
+        forceLightColors -> Color.White
+        else -> MaterialTheme.colorScheme.primary
+    }
+    val outlineColor = when {
+        isSatanic -> SatanicThemeConfig.Border
+        forceLightColors -> Color.White
+        else -> MaterialTheme.colorScheme.outline
+    }
+    val onSurfaceColor = when {
+        isSatanic -> SatanicThemeConfig.PrimaryText
+        forceLightColors -> Color.White
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    val errorColor = when {
+        isSatanic -> SatanicThemeConfig.Accent
+        forceLightColors -> Color(0xFFFF6B6B)
+        else -> MaterialTheme.colorScheme.error
+    }
 
     Box(
         modifier =
@@ -391,44 +415,60 @@ private fun NewMiniPlayer(
                     .offset { IntOffset(offsetXAnimatable.value.roundToInt(), 0) }
                     .clip(RoundedCornerShape(32.dp).tui())
                     .background(color = backgroundColor)
-                    .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(32.dp).tui()),
+                    .border(1.dp, if (isSatanic) SatanicThemeConfig.Border else outlineColor.copy(alpha = 0.3f), RoundedCornerShape(32.dp).tui()),
         ) {
-            when (miniPlayerBackground) {
-                MiniPlayerBackgroundStyle.BLUR -> {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                        mediaMetadata?.thumbnailUrl?.let { url ->
-                            AsyncImage(
-                                model = url,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .blur(60.dp),
-                            )
-                            Box(
-                                Modifier
-                                    .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.45f)),
-                            )
+            if (isSatanic) {
+                val framePainter =
+                    SatanicThemeConfig.loadBitmapAsset(
+                        context = context,
+                        path = SatanicThemeConfig.PATH_MINI_PLAYER_FRAME,
+                    )
+                framePainter?.let {
+                    Image(
+                        painter = it,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.FillBounds,
+                    )
+                }
+            } else {
+                when (miniPlayerBackground) {
+                    MiniPlayerBackgroundStyle.BLUR -> {
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                            mediaMetadata?.thumbnailUrl?.let { url ->
+                                AsyncImage(
+                                    model = url,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .blur(60.dp),
+                                )
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black.copy(alpha = 0.45f)),
+                                )
+                            }
                         }
                     }
+                    MiniPlayerBackgroundStyle.GRADIENT -> {
+                        val colors = if (gradientColors.isNotEmpty()) gradientColors
+                        else listOf(
+                            MaterialTheme.colorScheme.surfaceContainer,
+                            MaterialTheme.colorScheme.surfaceContainer,
+                        )
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.horizontalGradient(colors)
+                                )
+                                .background(Color.Black.copy(alpha = 0.15f)),
+                        )
+                    }
+                    else -> {}
                 }
-                MiniPlayerBackgroundStyle.GRADIENT -> {
-                    val colors = if (gradientColors.isNotEmpty()) gradientColors
-                    else listOf(
-                        MaterialTheme.colorScheme.surfaceContainer,
-                        MaterialTheme.colorScheme.surfaceContainer,
-                    )
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.horizontalGradient(colors)
-                            )
-                            .background(Color.Black.copy(alpha = 0.15f)),
-                    )
-                }
-                else -> {}
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -532,8 +572,10 @@ private fun NewMiniPlayerPlayButton(
     val isListenTogetherGuest = listenTogetherManager?.let { it.isInRoom && !it.isHost } ?: false
     val isMuted by playerConnection.isMuted.collectAsState()
 
-    val trackColor = outlineColor.copy(alpha = 0.2f)
-    val strokeWidth = 3.dp
+    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val trackColor = if (isSatanic) SatanicThemeConfig.Border.copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.2f)
+    val strokeWidth = if (isSatanic) 2.dp else 3.dp
+    val activeProgressColor = if (isSatanic) SatanicThemeConfig.Accent else primaryColor
 
     Box(
         contentAlignment = Alignment.Center,
@@ -562,7 +604,7 @@ private fun NewMiniPlayerPlayButton(
                     )
                     // Draw progress
                     drawArc(
-                        color = primaryColor,
+                        color = activeProgressColor,
                         startAngle = startAngle,
                         sweepAngle = sweepAngle,
                         useCenter = false,
@@ -579,7 +621,7 @@ private fun NewMiniPlayerPlayButton(
                 Modifier
                     .size(40.dp)
                     .clip(CircleShape.tui())
-                    .border(1.dp, outlineColor.copy(alpha = 0.3f), CircleShape.tui())
+                    .border(1.dp, if (isSatanic) SatanicThemeConfig.Border else outlineColor.copy(alpha = 0.3f), CircleShape.tui())
                     .clickable {
                         if (isListenTogetherGuest) {
                             playerConnection.toggleMute()
@@ -656,9 +698,11 @@ private fun NewMiniPlayerSongInfo(
         verticalArrangement = Arrangement.Center,
     ) {
         mediaMetadata?.let { metadata ->
+            val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
             Text(
                 text = metadata.title,
-                color = onSurfaceColor,
+                color = if (isSatanic) SatanicThemeConfig.PrimaryText else onSurfaceColor,
+                fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
@@ -673,7 +717,8 @@ private fun NewMiniPlayerSongInfo(
                 if (metadata.artists.any { it.name.isNotBlank() }) {
                     Text(
                         text = metadata.artists.joinToString { it.name },
-                        color = onSurfaceColor.copy(alpha = 0.7f),
+                        color = if (isSatanic) SatanicThemeConfig.SecondaryText else onSurfaceColor.copy(alpha = 0.7f),
+                        fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null,
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Clip,

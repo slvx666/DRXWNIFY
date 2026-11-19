@@ -833,7 +833,9 @@ fun BottomSheetPlayer(
                         .fillMaxSize()
                         .background(bottomSheetBackgroundColor),
             ) {
-                when (playerBackground) {
+                if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) {
+                    com.metrolist.music.ui.theme.SatanicPlayerBackground(modifier = backgroundAlphaModifier)
+                } else when (playerBackground) {
                     PlayerBackgroundStyle.BLUR -> {
                         AnimatedContent(
                             targetState = mediaMetadata?.thumbnailUrl,
@@ -927,7 +929,74 @@ fun BottomSheetPlayer(
             )
         },
     ) {
-        val controlsContent: @Composable ColumnScope.(MediaMetadata) -> Unit = { mediaMetadata ->
+        val controlsContent: @Composable ColumnScope.(MediaMetadata) -> Unit = controlsContent@{ mediaMetadata ->
+            if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) {
+                val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
+                SatanicPlayerControls(
+                    mediaMetadata = mediaMetadata,
+                    position = sliderPosition ?: effectivePosition,
+                    duration = if (duration == C.TIME_UNSET) 0L else duration,
+                    isPlaying = effectiveIsPlaying,
+                    playbackState = playbackState,
+                    canSkipPrevious = canSkipPrevious,
+                    canSkipNext = canSkipNext,
+                    shuffleModeEnabled = shuffleModeEnabled,
+                    repeatMode = repeatMode,
+                    isListenTogetherGuest = isListenTogetherGuest,
+                    onSeek = { seekPos ->
+                        if (isCasting) {
+                            castHandler?.seekTo(seekPos)
+                            lastManualSeekTime = System.currentTimeMillis()
+                        } else {
+                            playerConnection.player.seekTo(seekPos)
+                        }
+                        position = seekPos
+                    },
+                    onTogglePlayPause = {
+                        if (isListenTogetherGuest) {
+                            playerConnection.toggleMute()
+                        } else if (isCasting) {
+                            if (castIsPlaying) castHandler?.pause() else castHandler?.play()
+                        } else if (playbackState == STATE_ENDED) {
+                            playerConnection.player.seekTo(0, 0)
+                            playerConnection.player.playWhenReady = true
+                        } else {
+                            playerConnection.player.togglePlayPause()
+                        }
+                    },
+                    onSeekPrevious = playerConnection::seekToPrevious,
+                    onSeekNext = playerConnection::seekToNext,
+                    onToggleShuffle = { playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled },
+                    onToggleRepeat = { playerConnection.player.toggleRepeatMode() },
+                    onTitleClick = {
+                        val albumId = mediaMetadata.album?.id
+                        if (albumId != null) {
+                            state.collapseSoft()
+                            navController.navigate("album/$albumId")
+                        }
+                    },
+                    onArtistClick = {
+                        val artistId = mediaMetadata.artists.firstOrNull()?.id
+                        if (!artistId.isNullOrBlank()) {
+                            state.collapseSoft()
+                            navController.navigate("artist/$artistId")
+                        }
+                    },
+                    onTitleLongClick = {
+                        val clip = ClipData.newPlainText(copiedTitleStr, mediaMetadata.title)
+                        clipboardManager.setPrimaryClip(clip)
+                        Toast.makeText(context, copiedTitleStr, Toast.LENGTH_SHORT).show()
+                    },
+                    onArtistLongClick = {
+                        val artistText = mediaMetadata.artists.joinToString { it.name }
+                        val clip = ClipData.newPlainText(copiedArtistStr, artistText)
+                        clipboardManager.setPrimaryClip(clip)
+                        Toast.makeText(context, copiedArtistStr, Toast.LENGTH_SHORT).show()
+                    },
+                )
+                return@controlsContent
+            }
+
             val playPauseRoundness by animateDpAsState(
                 targetValue = if (isPlaying) 24.dp else 36.dp,
                 animationSpec = tween(durationMillis = 90, easing = LinearEasing),

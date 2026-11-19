@@ -6,6 +6,10 @@
 package com.metrolist.music.ui.component
 
 import android.annotation.SuppressLint
+import androidx.compose.foundation.BorderStroke
+import com.metrolist.music.ui.theme.AppThemePreset
+import com.metrolist.music.ui.theme.LocalAppThemePreset
+import com.metrolist.music.ui.theme.SatanicThemeConfig
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -63,6 +67,7 @@ fun <E> ChipsRow(
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
 ) {
+    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
     Row(
         modifier =
         modifier
@@ -73,15 +78,36 @@ fun <E> ChipsRow(
         Spacer(Modifier.width(12.dp))
 
         chips.forEach { (value, label) ->
+            val isSelected = currentValue == value
             FilterChip(
-                label = { Text(label) },
-                selected = currentValue == value,
-                colors = FilterChipDefaults.filterChipColors(
-                    containerColor = containerColor,
-                ),
+                label = {
+                    Text(
+                        text = label,
+                        fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null,
+                    )
+                },
+                selected = isSelected,
+                colors =
+                    if (isSatanic) {
+                        FilterChipDefaults.filterChipColors(
+                            containerColor = SatanicThemeConfig.Surface,
+                            selectedContainerColor = SatanicThemeConfig.Elevated,
+                            labelColor = SatanicThemeConfig.SecondaryText,
+                            selectedLabelColor = SatanicThemeConfig.PrimaryText,
+                        )
+                    } else {
+                        FilterChipDefaults.filterChipColors(
+                            containerColor = containerColor,
+                        )
+                    },
                 onClick = { onValueUpdate(value) },
                 shape = RoundedCornerShape(16.dp),
-                border = null
+                border =
+                    if (isSatanic && !isSelected) {
+                        BorderStroke(1.dp, SatanicThemeConfig.Border)
+                    } else {
+                        null
+                    },
             )
 
             Spacer(Modifier.width(8.dp))

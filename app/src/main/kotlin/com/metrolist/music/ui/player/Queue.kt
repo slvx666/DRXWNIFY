@@ -7,6 +7,13 @@ package com.metrolist.music.ui.player
 
 import android.annotation.SuppressLint
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import com.metrolist.music.ui.theme.AppThemePreset
+import com.metrolist.music.ui.theme.LocalAppThemePreset
+import com.metrolist.music.ui.theme.SatanicThemeConfig
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -266,7 +273,198 @@ fun Queue(
             Box(Modifier.fillMaxSize().background(Color.Unspecified))
         },
         collapsedContent = {
-            if (useNewPlayerDesign) {
+            if (LocalAppThemePreset.current == AppThemePreset.SATANIC) {
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 12.dp)
+                            .windowInsetsPadding(
+                                WindowInsets.systemBars.only(
+                                    WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
+                                ),
+                            ),
+                ) {
+                    val buttonSize = 44.dp
+                    val iconSize = 22.dp
+                    val framePainter =
+                        SatanicThemeConfig.loadBitmapAsset(
+                            context = LocalContext.current,
+                            path = SatanicThemeConfig.PATH_CONTROL_BUTTON_FRAME,
+                        )
+
+                    // 1. Queue button
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(buttonSize)
+                                .clip(CircleShape)
+                                .background(SatanicThemeConfig.Surface)
+                                .border(1.dp, SatanicThemeConfig.Border, CircleShape)
+                                .clickable { state.expandSoft() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        framePainter?.let {
+                            Image(
+                                painter = it,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                        Icon(
+                            painter = painterResource(id = R.drawable.queue_music),
+                            contentDescription = null,
+                            modifier = Modifier.size(iconSize),
+                            tint = SatanicThemeConfig.PrimaryText,
+                        )
+                    }
+
+                    // 2. Sleep timer
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(buttonSize)
+                                .clip(CircleShape)
+                                .background(SatanicThemeConfig.Surface)
+                                .border(1.dp, SatanicThemeConfig.Border, CircleShape)
+                                .clickable(enabled = !isListenTogetherGuest) {
+                                    if (sleepTimerEnabled) {
+                                        playerConnection.service.sleepTimer.clear()
+                                    } else {
+                                        showSleepTimerDialog = true
+                                    }
+                                },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        framePainter?.let {
+                            Image(
+                                painter = it,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                        Icon(
+                            painter = painterResource(id = R.drawable.bedtime),
+                            contentDescription = null,
+                            modifier = Modifier.size(iconSize),
+                            tint = if (sleepTimerEnabled) SatanicThemeConfig.Accent else SatanicThemeConfig.PrimaryText,
+                        )
+                    }
+
+                    // 3. Equalizer
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(buttonSize)
+                                .clip(CircleShape)
+                                .background(SatanicThemeConfig.Surface)
+                                .border(1.dp, SatanicThemeConfig.Border, CircleShape)
+                                .clickable {
+                                    navController.navigate("equalizer")
+                                },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        framePainter?.let {
+                            Image(
+                                painter = it,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                        Icon(
+                            painter = painterResource(id = R.drawable.equalizer),
+                            contentDescription = null,
+                            modifier = Modifier.size(iconSize),
+                            tint = SatanicThemeConfig.PrimaryText,
+                        )
+                    }
+
+                    // 4. Repeat mode
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(buttonSize)
+                                .clip(CircleShape)
+                                .background(SatanicThemeConfig.Surface)
+                                .border(1.dp, SatanicThemeConfig.Border, CircleShape)
+                                .clickable(enabled = !isListenTogetherGuest) {
+                                    playerConnection.player.toggleRepeatMode()
+                                },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        framePainter?.let {
+                            Image(
+                                painter = it,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                        Icon(
+                            painter =
+                                painterResource(
+                                    id =
+                                        when (repeatMode) {
+                                            Player.REPEAT_MODE_ALL -> R.drawable.repeat
+                                            Player.REPEAT_MODE_ONE -> R.drawable.repeat_one
+                                            else -> R.drawable.repeat
+                                        },
+                                ),
+                            contentDescription = null,
+                            modifier = Modifier.size(iconSize),
+                            tint = if (repeatMode != Player.REPEAT_MODE_OFF) SatanicThemeConfig.Accent else SatanicThemeConfig.PrimaryText,
+                        )
+                    }
+
+                    // 5. More menu
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(buttonSize)
+                                .clip(CircleShape)
+                                .background(SatanicThemeConfig.Surface)
+                                .border(1.dp, SatanicThemeConfig.Border, CircleShape)
+                                .clickable {
+                                    menuState.show {
+                                        PlayerMenu(
+                                            mediaMetadata = mediaMetadata,
+                                            navController = navController,
+                                            playerBottomSheetState = playerBottomSheetState,
+                                            onShowDetailsDialog = {
+                                                mediaMetadata?.id?.let {
+                                                    bottomSheetPageState.show {
+                                                        ShowMediaInfo(it)
+                                                    }
+                                                }
+                                            },
+                                            onDismiss = menuState::dismiss,
+                                        )
+                                    }
+                                },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        framePainter?.let {
+                            Image(
+                                painter = it,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                        Icon(
+                            painter = painterResource(id = R.drawable.more_vert),
+                            contentDescription = null,
+                            modifier = Modifier.size(iconSize),
+                            tint = SatanicThemeConfig.PrimaryText,
+                        )
+                    }
+                }
+            } else if (useNewPlayerDesign) {
                 // New design
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

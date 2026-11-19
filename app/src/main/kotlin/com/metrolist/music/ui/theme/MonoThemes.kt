@@ -108,13 +108,13 @@ internal val MonoDay = Tone(
 // ── Satanic: black metal's black and white — pure black nights, ash-grey days, no red at all. ──
 
 internal val SatanicNight = Tone(
-    page = c(0xFF000000),
-    steps = listOf(c(0xFF000000), c(0xFF0C0C0C), c(0xFF121212), c(0xFF1A1A1A), c(0xFF242424)),
-    ink = c(0xFFE6E6E6), inkSoft = c(0xFF9C9C9C),
-    accent = c(0xFFEDEDED), onAccent = c(0xFF000000),
-    accentContainer = c(0xFF262626), onAccentContainer = c(0xFFF5F5F5),
-    outline = c(0xFF5E5E5E), outlineSoft = c(0xFF2A2A2A),
-    error = c(0xFFD9D9D9),
+    page = c(0xFF080808),
+    steps = listOf(c(0xFF080808), c(0xFF111111), c(0xFF171717), c(0xFF222222), c(0xFF2C2C2C)),
+    ink = c(0xFFE5E5E5), inkSoft = c(0xFFA0A0A0),
+    accent = c(0xFFD0D0D0), onAccent = c(0xFF080808),
+    accentContainer = c(0xFF171717), onAccentContainer = c(0xFFE5E5E5),
+    outline = c(0xFF4A4A4A), outlineSoft = c(0xFF282828),
+    error = c(0xFFE5E5E5),
 )
 
 internal val SatanicDay = Tone(

@@ -252,7 +252,7 @@ fun ThemeTitleAccent() {
  * sakura petals drifting down.
  */
 @Composable
-fun ThemeContentBackground(visible: Boolean, modifier: Modifier = Modifier) {
+fun ThemeContentBackground(visible: Boolean, route: String? = null, modifier: Modifier = Modifier) {
     // Only where it can be seen: under an opaque page (search, settings, the player) the petals
     // redrew the whole window 30 times a second for nothing — the search screen dropped frames.
     if (!visible) return
@@ -260,7 +260,7 @@ fun ThemeContentBackground(visible: Boolean, modifier: Modifier = Modifier) {
         AppThemePreset.SAKURA -> if (LocalThemeAnimations.current) SakuraPetals(modifier)
         // The experimental themes' art: under the pages, so never over a cover or a photo.
         AppThemePreset.SATANIC, AppThemePreset.GOTHIC, AppThemePreset.STREET, AppThemePreset.BREAKCORE ->
-            ExperimentalBackground(preset, modifier)
+            ExperimentalBackground(preset, route, modifier)
         else -> Unit
     }
 }

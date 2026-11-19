@@ -119,6 +119,7 @@ fun RingProgress(
             delay(200)
         }
     }
+    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
     Box(modifier) {
         Canvas(
             Modifier
@@ -165,12 +166,14 @@ fun RingProgress(
                 },
         ) {
             val c = Offset(size.width / 2f, size.height / 2f)
-            val r = size.width / 2f - 8.dp.toPx()
-            val stroke = 4.dp.toPx()
-            drawCircle(trackColor, r, c, style = Stroke(stroke))
+            val r = if (isSatanic) size.width * (530f / 1200f) else size.width / 2f - 8.dp.toPx()
+            val stroke = if (isSatanic) 1.8.dp.toPx() else 4.dp.toPx()
+            if (!isSatanic) {
+                drawCircle(trackColor, r, c, style = Stroke(stroke))
+            }
             val f = dragFraction ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
             drawArc(
-                activeColor,
+                if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.Accent else activeColor,
                 startAngle = -90f,
                 sweepAngle = 360f * f,
                 useCenter = false,
@@ -179,8 +182,8 @@ fun RingProgress(
                 style = Stroke(stroke, cap = StrokeCap.Round),
             )
             val a = Math.toRadians((360.0 * f) - 90.0)
-            val dot = if (dragFraction != null) 9.dp.toPx() else 6.dp.toPx()
-            drawCircle(activeColor, dot, Offset(c.x + r * cos(a).toFloat(), c.y + r * sin(a).toFloat()))
+            val dot = if (isSatanic) (if (dragFraction != null) 6.dp.toPx() else 4.5.dp.toPx()) else (if (dragFraction != null) 9.dp.toPx() else 6.dp.toPx())
+            drawCircle(if (isSatanic) Color.White else activeColor, dot, Offset(c.x + r * cos(a).toFloat(), c.y + r * sin(a).toFloat()))
         }
         AnimatedVisibility(
             visible = dragFraction != null,

@@ -6,6 +6,12 @@
 package com.metrolist.music.ui.screens.library
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.ui.platform.LocalContext
+import com.metrolist.music.ui.theme.AppThemePreset
+import com.metrolist.music.ui.theme.LocalAppThemePreset
+import com.metrolist.music.ui.theme.SatanicThemeConfig
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -430,29 +436,83 @@ fun LibraryChips(
 
 @Composable
 private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = if (selected) libraryAccent().color else MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onClick),
-    ) {
-        Text(
-            text = text,
-            color = if (selected) libraryAccent().onColor else MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    if (isSatanic) {
+        val context = LocalContext.current
+        val activeFramePainter =
+            SatanicThemeConfig.loadBitmapAsset(
+                context = context,
+                path = SatanicThemeConfig.PATH_ACTIVE_TAB_DECORATION,
+            )
+        Box(
+            modifier =
+                Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(if (selected) SatanicThemeConfig.Elevated else SatanicThemeConfig.Surface)
+                    .then(
+                        if (!selected) {
+                            Modifier.border(1.dp, SatanicThemeConfig.Border, RoundedCornerShape(50))
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                activeFramePainter?.let {
+                    Image(
+                        painter = it,
+                        contentDescription = null,
+                        modifier = Modifier.matchParentSize(),
+                        contentScale = ContentScale.FillBounds,
+                    )
+                }
+            }
+            Text(
+                text = text,
+                color = if (selected) SatanicThemeConfig.PrimaryText else SatanicThemeConfig.SecondaryText,
+                fontFamily = SatanicThemeConfig.SerifFont,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+    } else {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = if (selected) libraryAccent().color else MaterialTheme.colorScheme.surfaceContainerHighest,
+            modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onClick),
+        ) {
+            Text(
+                text = text,
+                color = if (selected) libraryAccent().onColor else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
     }
 }
 
 @Composable
 private fun CloseChip(onClick: () -> Unit) {
+    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
     Surface(
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        modifier = Modifier.size(36.dp).clip(CircleShape).clickable(onClick = onClick),
+        color = if (isSatanic) SatanicThemeConfig.Surface else MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier =
+            Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .then(if (isSatanic) Modifier.border(1.dp, SatanicThemeConfig.Border, CircleShape) else Modifier)
+                .clickable(onClick = onClick),
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(painterResource(R.drawable.close), null, Modifier.size(18.dp))
+            Icon(
+                painter = painterResource(R.drawable.close),
+                contentDescription = null,
+                tint = if (isSatanic) SatanicThemeConfig.PrimaryText else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }

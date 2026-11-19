@@ -694,7 +694,7 @@ private fun ThumbnailItem(
             com.metrolist.music.constants.SliderStyle.DEFAULT,
         )
         val ringSpinOn by rememberPreference(com.metrolist.music.constants.RingCoverSpinKey, defaultValue = true)
-        val ring = sliderStyle == com.metrolist.music.constants.SliderStyle.RING && !hidePlayerThumbnail
+        val ring = (sliderStyle == com.metrolist.music.constants.SliderStyle.RING || com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) && !hidePlayerThumbnail
         val playing = isCurrent || item.mediaId == currentMediaId
         Box(Modifier.size(dimensions.thumbnailSize), contentAlignment = Alignment.Center) {
             Box(
