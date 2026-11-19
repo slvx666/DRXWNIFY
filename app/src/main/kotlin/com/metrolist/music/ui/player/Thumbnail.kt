@@ -388,11 +388,12 @@ fun Thumbnail(
             visible = error == null,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = (if (isSatanic) Modifier.fillMaxWidth().wrapContentHeight() else Modifier.fillMaxSize())
+            modifier = Modifier
+                .fillMaxSize()
                 .then(if (!isLandscape) Modifier.statusBarsPadding() else Modifier),
         ) {
             Column(
-                modifier = if (isSatanic) Modifier.fillMaxWidth().wrapContentHeight() else Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = if (isLandscape) Arrangement.Center else Arrangement.Top
             ) {
@@ -413,18 +414,15 @@ fun Thumbnail(
                     contentAlignment = Alignment.Center,
                     modifier = if (isLandscape) {
                         Modifier.weight(1f, false)
-                    } else if (isSatanic) {
-                        Modifier.fillMaxWidth().wrapContentHeight()
                     } else {
                         Modifier.fillMaxSize()
                     }
                 ) {
                     // Calculate dimensions once per size change, considering landscape mode
                     val dimensions = remember(maxWidth, maxHeight, isLandscape) {
-                        val safeHeight = if (isSatanic && (!maxHeight.value.isFinite() || maxHeight == androidx.compose.ui.unit.Dp.Unspecified)) maxWidth else maxHeight
                         calculateThumbnailDimensions(
                             containerWidth = maxWidth,
-                            containerHeight = safeHeight,
+                            containerHeight = maxHeight,
                             isLandscape = isLandscape
                         )
                     }
@@ -449,8 +447,6 @@ fun Thumbnail(
                         userScrollEnabled = isScrollEnabled,
                         modifier = if (isLandscape) {
                             Modifier.size(dimensions.thumbnailSize + (PlayerHorizontalPadding * 2))
-                        } else if (isSatanic) {
-                            Modifier.fillMaxWidth().height(dimensions.thumbnailSize)
                         } else {
                             Modifier.fillMaxSize()
                         }
@@ -726,7 +722,7 @@ private fun ThumbnailItem(
             com.metrolist.music.constants.SliderStyle.DEFAULT,
         )
         val ringSpinOn by rememberPreference(com.metrolist.music.constants.RingCoverSpinKey, defaultValue = true)
-        val ring = sliderStyle == com.metrolist.music.constants.SliderStyle.RING && !hidePlayerThumbnail
+        val ring = (sliderStyle == com.metrolist.music.constants.SliderStyle.RING || com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) && !hidePlayerThumbnail
         val playing = isCurrent || item.mediaId == currentMediaId
         Box(Modifier.size(dimensions.thumbnailSize), contentAlignment = Alignment.Center) {
             Box(

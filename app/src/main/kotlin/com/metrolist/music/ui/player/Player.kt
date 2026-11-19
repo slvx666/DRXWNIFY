@@ -2233,7 +2233,7 @@ fun BottomSheetPlayer(
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
-                        modifier = if (isSatanic && !showInlineLyrics) Modifier.fillMaxWidth().wrapContentHeight() else Modifier.weight(1f),
+                        modifier = Modifier.weight(1f),
                     ) {
                         // Remember lambdas to prevent unnecessary recomposition
                         val currentSliderPosition by rememberUpdatedState(sliderPosition)
@@ -2274,16 +2274,12 @@ fun BottomSheetPlayer(
                         }
                     }
 
-                    if (isSatanic && !showInlineLyrics) {
-                        Spacer(Modifier.height(8.dp))
-                    }
-
                     mediaMetadata?.let {
                         controlsContent(it)
                     }
 
                     if (isSatanic && !showInlineLyrics) {
-                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.weight(0.30f))
                     } else {
                         Spacer(Modifier.height(30.dp))
                     }
