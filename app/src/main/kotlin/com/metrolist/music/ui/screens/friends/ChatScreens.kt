@@ -46,6 +46,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.layout.aspectRatio
@@ -1477,10 +1479,8 @@ private fun Composer(
 
     Box {
         Surface(
-            color = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.getSurface(isDark) else MaterialTheme.colorScheme.surfaceContainer,
-            modifier = Modifier.fillMaxWidth().then(
-                if (isSatanic) Modifier.border(1.dp, com.metrolist.music.ui.theme.SatanicThemeConfig.getBorder(isDark)) else Modifier
-            ),
+            color = if (isSatanic) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Column {
                 // Each strip keeps what it showed while it slides away (else it would go blank first and
@@ -1525,54 +1525,83 @@ private fun Composer(
                         }
                     }
                 }
-                Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
-                    val stickersShown = panel && !toKeyboard
-                    IconButton(onClick = { if (stickersShown) showKeyboard() else showPanel() }) {
-                        androidx.compose.animation.Crossfade(stickersShown, label = "stickerIcon") { shown ->
-                            Icon(
-                                painterResource(if (shown) R.drawable.chat_keyboard else R.drawable.chat_mood),
-                                stringResource(R.string.chat_stickers),
-                                tint = if (isSatanic) primaryText else LocalContentColor.current,
-                            )
-                        }
-                    }
-                    val codeColor = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.getAccent(isDark) else MaterialTheme.colorScheme.primary
-                    val showCodes = remember(codeColor) { StickerCodes(codeColor) }
-                    TextField(
-                        value = field,
-                        onValueChange = {
-                            field = keepStickersWhole(field, it)
-                            if (it.text.isNotBlank() && editing == null) ChatHub.typingNow(peer)
-                        },
-                        visualTransformation = showCodes,
-                        // The keyboard is brought by the focus handler above, at the app's own pace.
-                        keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
-                        placeholder = { Text(stringResource(R.string.chat_message_hint)) },
-                        maxLines = 6,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedTextColor = if (isSatanic) primaryText else Color.Unspecified,
-                            unfocusedTextColor = if (isSatanic) primaryText else Color.Unspecified,
-                            focusedPlaceholderColor = if (isSatanic) mutedText else Color.Unspecified,
-                            unfocusedPlaceholderColor = if (isSatanic) mutedText else Color.Unspecified,
-                        ),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .weight(1f)
-                            .focusRequester(focus)
-                            // A tap on the field while the panel is open: the keyboard comes up over it.
-                            .onFocusChanged {
-                                val gained = it.isFocused && !focused
-                                focused = it.isFocused
-                                if (gained) {
-                                    // A tap on the field while the panel is open: the keyboard comes up over it.
-                                    if (panel) toKeyboard = true
-                                    ImeMotion.show(view) { keyboard?.show() }
-                                }
+                            .then(
+                                if (isSatanic) {
+                                    Modifier
+                                        .background(
+                                            color = com.metrolist.music.ui.theme.SatanicThemeConfig.getElevated(isDark),
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = com.metrolist.music.ui.theme.SatanicThemeConfig.getBorder(isDark),
+                                            shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                                        )
+                                        .padding(horizontal = 4.dp)
+                                } else Modifier
+                            ),
+                    ) {
+                        val stickersShown = panel && !toKeyboard
+                        IconButton(onClick = { if (stickersShown) showKeyboard() else showPanel() }) {
+                            androidx.compose.animation.Crossfade(stickersShown, label = "stickerIcon") { shown ->
+                                Icon(
+                                    painterResource(if (shown) R.drawable.chat_keyboard else R.drawable.chat_mood),
+                                    stringResource(R.string.chat_stickers),
+                                    tint = if (isSatanic) primaryText else LocalContentColor.current,
+                                )
+                            }
+                        }
+                        val codeColor = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.getAccent(isDark) else MaterialTheme.colorScheme.primary
+                        val showCodes = remember(codeColor) { StickerCodes(codeColor) }
+                        TextField(
+                            value = field,
+                            onValueChange = {
+                                field = keepStickersWhole(field, it)
+                                if (it.text.isNotBlank() && editing == null) ChatHub.typingNow(peer)
                             },
-                    )
+                            visualTransformation = showCodes,
+                            // The keyboard is brought by the focus handler above, at the app's own pace.
+                            keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
+                            placeholder = { Text(stringResource(R.string.chat_message_hint)) },
+                            maxLines = 6,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                focusedTextColor = if (isSatanic) primaryText else Color.Unspecified,
+                                unfocusedTextColor = if (isSatanic) primaryText else Color.Unspecified,
+                                focusedPlaceholderColor = if (isSatanic) mutedText else Color.Unspecified,
+                                unfocusedPlaceholderColor = if (isSatanic) mutedText else Color.Unspecified,
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(focus)
+                                // A tap on the field while the panel is open: the keyboard comes up over it.
+                                .onFocusChanged {
+                                    val gained = it.isFocused && !focused
+                                    focused = it.isFocused
+                                    if (gained) {
+                                        // A tap on the field while the panel is open: the keyboard comes up over it.
+                                        if (panel) toKeyboard = true
+                                        ImeMotion.show(view) { keyboard?.show() }
+                                    }
+                                },
+                        )
+                    }
+
+                    if (isSatanic) {
+                        Spacer(Modifier.width(6.dp))
+                    }
+
                     val canSend = field.text.isNotBlank() || (forward != null && editing == null)
                     androidx.compose.animation.AnimatedContent(
                         canSend || editing != null,
@@ -1580,7 +1609,22 @@ private fun Composer(
                         label = "action",
                     ) { showSend ->
                         if (showSend) {
-                            IconButton(onClick = ::send, enabled = canSend) {
+                            IconButton(
+                                onClick = ::send,
+                                enabled = canSend,
+                                modifier = if (isSatanic) {
+                                    Modifier
+                                        .background(
+                                            color = com.metrolist.music.ui.theme.SatanicThemeConfig.getElevated(isDark),
+                                            shape = androidx.compose.foundation.shape.CircleShape,
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = com.metrolist.music.ui.theme.SatanicThemeConfig.getBorder(isDark),
+                                            shape = androidx.compose.foundation.shape.CircleShape,
+                                        )
+                                } else Modifier,
+                            ) {
                                 Icon(
                                     painterResource(R.drawable.chat_send),
                                     stringResource(R.string.chat_send),
@@ -1590,14 +1634,28 @@ private fun Composer(
                         } else {
                             // Nothing typed: the music panel (recent, library, search).
                             // The keyboard slides away and the panel takes the screen's lower part.
-                            IconButton(onClick = {
-                                if (imePx > navPx) {
-                                    ImeMotion.hide(view, onDone = { focusManager.clearFocus() }) { keyboard?.hide() }
-                                } else {
-                                    focusManager.clearFocus()
-                                }
-                                onOpenMusic()
-                            }) {
+                            IconButton(
+                                onClick = {
+                                    if (imePx > navPx) {
+                                        ImeMotion.hide(view, onDone = { focusManager.clearFocus() }) { keyboard?.hide() }
+                                    } else {
+                                        focusManager.clearFocus()
+                                    }
+                                    onOpenMusic()
+                                },
+                                modifier = if (isSatanic) {
+                                    Modifier
+                                        .background(
+                                            color = com.metrolist.music.ui.theme.SatanicThemeConfig.getElevated(isDark),
+                                            shape = androidx.compose.foundation.shape.CircleShape,
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = com.metrolist.music.ui.theme.SatanicThemeConfig.getBorder(isDark),
+                                            shape = androidx.compose.foundation.shape.CircleShape,
+                                        )
+                                } else Modifier,
+                            ) {
                                 Icon(
                                     painterResource(R.drawable.music_note),
                                     stringResource(R.string.chat_send_music),

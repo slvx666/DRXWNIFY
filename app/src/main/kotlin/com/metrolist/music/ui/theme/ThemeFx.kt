@@ -95,8 +95,6 @@ fun SatanicHomeBackground(modifier: Modifier = Modifier) {
     val bgPath = SatanicThemeConfig.getHomeBg(isDark)
     val bgColor = SatanicThemeConfig.getBackground(isDark)
     val bitmap = remember(bgPath) { SatanicThemeConfig.getAssetBitmap(context, bgPath) }
-    val grain = remember { SatanicThemeConfig.getAssetBitmap(context, SatanicThemeConfig.PATH_BLACK_GRAIN) }
-    val animate = LocalThemeAnimations.current
 
     Box(modifier.fillMaxSize().background(bgColor)) {
         if (bitmap != null) {
@@ -108,15 +106,6 @@ fun SatanicHomeBackground(modifier: Modifier = Modifier) {
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        if (isDark && grain != null) {
-            Image(
-                bitmap = grain,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.08f },
-            )
-        }
-        if (animate) SatanicAsh(if (isDark) SatanicThemeConfig.PrimaryText else SatanicThemeConfig.LightPrimaryText)
     }
 }
 
@@ -127,8 +116,6 @@ fun SatanicLibraryBackground(modifier: Modifier = Modifier) {
     val bgPath = SatanicThemeConfig.getLibraryBg(isDark)
     val bgColor = SatanicThemeConfig.getBackground(isDark)
     val bitmap = remember(bgPath) { SatanicThemeConfig.getAssetBitmap(context, bgPath) }
-    val grain = remember { SatanicThemeConfig.getAssetBitmap(context, SatanicThemeConfig.PATH_BLACK_GRAIN) }
-    val animate = LocalThemeAnimations.current
 
     Box(modifier.fillMaxSize().background(bgColor)) {
         if (bitmap != null) {
@@ -140,15 +127,6 @@ fun SatanicLibraryBackground(modifier: Modifier = Modifier) {
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        if (isDark && grain != null) {
-            Image(
-                bitmap = grain,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.08f },
-            )
-        }
-        if (animate) SatanicAsh(if (isDark) SatanicThemeConfig.PrimaryText else SatanicThemeConfig.LightPrimaryText)
     }
 }
 
@@ -159,7 +137,6 @@ fun SatanicPlayerBackground(modifier: Modifier = Modifier) {
     val bgPath = SatanicThemeConfig.getPlayerBg(isDark)
     val bgColor = SatanicThemeConfig.getBackground(isDark)
     val bitmap = remember(bgPath) { SatanicThemeConfig.getAssetBitmap(context, bgPath) }
-    val grain = remember { SatanicThemeConfig.getAssetBitmap(context, SatanicThemeConfig.PATH_BLACK_GRAIN) }
 
     Box(modifier.fillMaxSize().background(bgColor)) {
         if (bitmap != null) {
@@ -169,14 +146,6 @@ fun SatanicPlayerBackground(modifier: Modifier = Modifier) {
                 contentScale = ContentScale.Crop,
                 alignment = Alignment.Center,
                 modifier = Modifier.fillMaxSize(),
-            )
-        }
-        if (isDark && grain != null) {
-            Image(
-                bitmap = grain,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.08f },
             )
         }
     }
@@ -189,8 +158,6 @@ fun SatanicChatBackground(modifier: Modifier = Modifier) {
     val bgPath = SatanicThemeConfig.getChatBg(isDark)
     val bgColor = SatanicThemeConfig.getBackground(isDark)
     val bitmap = remember(bgPath) { SatanicThemeConfig.getAssetBitmap(context, bgPath) }
-    val grain = remember { SatanicThemeConfig.getAssetBitmap(context, SatanicThemeConfig.PATH_BLACK_GRAIN) }
-    val animate = LocalThemeAnimations.current
 
     Box(modifier.fillMaxSize().background(bgColor)) {
         if (bitmap != null) {
@@ -201,38 +168,6 @@ fun SatanicChatBackground(modifier: Modifier = Modifier) {
                 alignment = Alignment.TopCenter,
                 modifier = Modifier.fillMaxSize(),
             )
-        }
-        if (isDark && grain != null) {
-            Image(
-                bitmap = grain,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.08f },
-            )
-        }
-        if (animate) SatanicAsh(if (isDark) SatanicThemeConfig.PrimaryText else SatanicThemeConfig.LightPrimaryText)
-    }
-}
-
-private class Ash(val x: Float, val speed: Float, val size: Float, val phase: Float, val sway: Float, val alpha: Float)
-
-@Composable
-private fun SatanicAsh(ink: Color) {
-    val ash = remember {
-        val r = Random(666)
-        // Slow: it drifts up rather than flies.
-        List(64) { Ash(r.nextFloat(), 0.018f + r.nextFloat() * 0.032f, 0.8f + r.nextFloat() * 2f, r.nextFloat(), 6f + r.nextFloat() * 16f, 0.25f + r.nextFloat() * 0.45f) }
-    }
-    val clock = rememberFxClock(true)
-    Canvas(Modifier.fillMaxSize().graphicsLayer()) {
-        val t = clock.floatValue
-        ash.forEach { a ->
-            val p = frac(a.phase + t * a.speed)
-            val y = size.height * (1.05f - p * 1.1f)
-            val x = a.x * size.width + sin((t * 0.7f + a.phase * 10f).toDouble()).toFloat() * a.sway * density
-            val fade = (minOf(p, 1f - p) * 4f).coerceIn(0f, 1f)
-            val flicker = 0.75f + 0.25f * sin((t * 5f + a.phase * 30f).toDouble()).toFloat()
-            drawCircle(ink.copy(alpha = a.alpha * fade * flicker), a.size * density, Offset(x, y))
         }
     }
 }
