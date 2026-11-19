@@ -30,14 +30,16 @@ fun ThemePlayerDecor(ring: Boolean, color: Color, modifier: Modifier = Modifier)
     val preset = LocalAppThemePreset.current
     if (preset.group != AppThemePreset.Group.EXPERIMENTAL) return
     if (preset == AppThemePreset.SATANIC) {
-        val frame = SatanicThemeConfig.rememberAsset(SatanicThemeConfig.PATH_ALBUM_FRAME)
-        if (frame != null) {
-            androidx.compose.foundation.Image(
-                bitmap = frame,
-                contentDescription = null,
-                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                modifier = modifier,
-            )
+        if (ring) {
+            val frame = SatanicThemeConfig.rememberAsset(SatanicThemeConfig.PATH_ALBUM_FRAME)
+            if (frame != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = frame,
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    modifier = modifier,
+                )
+            }
         }
         return
     }

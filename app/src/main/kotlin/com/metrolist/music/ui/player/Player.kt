@@ -60,6 +60,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ContainedLoadingIndicator
@@ -2221,6 +2222,7 @@ fun BottomSheetPlayer(
                     targetValue = if (isFullScreen) 0.dp else queueSheetState.collapsedBound,
                     label = "bottomPadding",
                 )
+                val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier =
@@ -2231,7 +2233,7 @@ fun BottomSheetPlayer(
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
-                        modifier = Modifier.weight(1f),
+                        modifier = if (isSatanic && !showInlineLyrics) Modifier.fillMaxWidth().wrapContentHeight() else Modifier.weight(1f),
                     ) {
                         // Remember lambdas to prevent unnecessary recomposition
                         val currentSliderPosition by rememberUpdatedState(sliderPosition)
@@ -2272,11 +2274,19 @@ fun BottomSheetPlayer(
                         }
                     }
 
+                    if (isSatanic && !showInlineLyrics) {
+                        Spacer(Modifier.height(8.dp))
+                    }
+
                     mediaMetadata?.let {
                         controlsContent(it)
                     }
 
-                    Spacer(Modifier.height(if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) 4.dp else 30.dp))
+                    if (isSatanic && !showInlineLyrics) {
+                        Spacer(Modifier.weight(1f))
+                    } else {
+                        Spacer(Modifier.height(30.dp))
+                    }
                 }
             }
         }

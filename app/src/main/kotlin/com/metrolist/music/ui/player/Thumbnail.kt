@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
@@ -250,6 +251,7 @@ fun Thumbnail(
     
     // Pre-calculate text color based on background style
     val textBackgroundColor = getTextColor(playerBackground)
+    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
     
     // Grid state
     val thumbnailLazyGridState = rememberLazyGridState()
@@ -386,12 +388,11 @@ fun Thumbnail(
             visible = error == null,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier
-                .fillMaxSize()
+            modifier = (if (isSatanic) Modifier.fillMaxWidth().wrapContentHeight() else Modifier.fillMaxSize())
                 .then(if (!isLandscape) Modifier.statusBarsPadding() else Modifier),
         ) {
             Column(
-                modifier = Modifier.fillMaxSize(),
+                modifier = if (isSatanic) Modifier.fillMaxWidth().wrapContentHeight() else Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = if (isLandscape) Arrangement.Center else Arrangement.Top
             ) {
@@ -412,15 +413,18 @@ fun Thumbnail(
                     contentAlignment = Alignment.Center,
                     modifier = if (isLandscape) {
                         Modifier.weight(1f, false)
+                    } else if (isSatanic) {
+                        Modifier.fillMaxWidth().wrapContentHeight()
                     } else {
                         Modifier.fillMaxSize()
                     }
                 ) {
                     // Calculate dimensions once per size change, considering landscape mode
                     val dimensions = remember(maxWidth, maxHeight, isLandscape) {
+                        val safeHeight = if (isSatanic && (!maxHeight.value.isFinite() || maxHeight == androidx.compose.ui.unit.Dp.Unspecified)) maxWidth else maxHeight
                         calculateThumbnailDimensions(
                             containerWidth = maxWidth,
-                            containerHeight = maxHeight,
+                            containerHeight = safeHeight,
                             isLandscape = isLandscape
                         )
                     }
@@ -445,6 +449,8 @@ fun Thumbnail(
                         userScrollEnabled = isScrollEnabled,
                         modifier = if (isLandscape) {
                             Modifier.size(dimensions.thumbnailSize + (PlayerHorizontalPadding * 2))
+                        } else if (isSatanic) {
+                            Modifier.fillMaxWidth().height(dimensions.thumbnailSize)
                         } else {
                             Modifier.fillMaxSize()
                         }
@@ -531,60 +537,68 @@ private fun ThumbnailHeader(
                 )
             }
         }
-        if (!isSatanic) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 48.dp)
-            ) {
-                // Listen Together indicator
-                if (listenTogetherRoleState?.value != RoomRole.NONE) {
-                    Text(
-                        text = if (listenTogetherRoleState?.value == RoomRole.HOST) "Hosting Listen Together" else "Listening Together",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = textColor
-                    )
-                } else {
-                    Text(
-                        text = stringResource(R.string.now_playing),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = textColor
-                    )
-                }
-                val playingFrom = queueTitle ?: albumTitle
-                if (!playingFrom.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = playingFrom,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = textColor.copy(alpha = 0.8f),
-                        maxLines = 1,
-                        modifier = Modifier.basicMarquee()
-                    )
-                }
-                // Bitrate · codec · sample rate · source of what is playing.
-                com.metrolist.music.ui.component.PlayerQualityLine(
-                    mediaId = mediaId,
-                    color = textColor,
-                    modifier = Modifier.padding(top = 4.dp),
+        val titleStyle = if (isSatanic) {
+            MaterialTheme.typography.titleMedium.copy(
+                fontFamily = com.metrolist.music.ui.theme.SatanicThemeConfig.SerifFont,
+                fontSize = 14.sp
+            )
+        } else {
+            MaterialTheme.typography.titleMedium
+        }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 48.dp)
+        ) {
+            // Listen Together indicator
+            if (listenTogetherRoleState?.value != RoomRole.NONE) {
+                Text(
+                    text = if (listenTogetherRoleState?.value == RoomRole.HOST) "Hosting Listen Together" else "Listening Together",
+                    style = titleStyle,
+                    color = textColor
                 )
-                // Spotify's stream count, under the quality line.
-                com.metrolist.music.playback.rememberPlayCount(mediaId)?.takeIf { it > 0 }?.let { plays ->
-                    Text(
-                        text = stringResource(R.string.spotify_plays, com.metrolist.music.playback.SpotifyPlays.format(plays)),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = textColor.copy(alpha = 0.75f),
-                        maxLines = 1,
-                        // Takes no height of its own: the cover stays where it was and the line sits in the gap above it.
-                        modifier = Modifier
-                            .padding(top = 2.dp)
-                            .layout { measurable, constraints ->
-                                val placeable = measurable.measure(constraints)
-                                layout(placeable.width, 0) { placeable.place(0, 0) }
-                            },
-                    )
-                }
+            } else {
+                Text(
+                    text = stringResource(R.string.now_playing),
+                    style = titleStyle,
+                    color = textColor
+                )
+            }
+            val playingFrom = queueTitle ?: albumTitle
+            if (!playingFrom.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = playingFrom,
+                    style = titleStyle,
+                    color = textColor.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    modifier = Modifier.basicMarquee()
+                )
+            }
+            // Bitrate · codec · sample rate · source of what is playing.
+            com.metrolist.music.ui.component.PlayerQualityLine(
+                mediaId = mediaId,
+                color = textColor,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            // Spotify's stream count, under the quality line.
+            com.metrolist.music.playback.rememberPlayCount(mediaId)?.takeIf { it > 0 }?.let { plays ->
+                Text(
+                    text = stringResource(R.string.spotify_plays, com.metrolist.music.playback.SpotifyPlays.format(plays)),
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontFamily = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.SerifFont else androidx.compose.ui.text.font.FontFamily.Default
+                    ),
+                    color = textColor.copy(alpha = 0.75f),
+                    maxLines = 1,
+                    // Takes no height of its own: the cover stays where it was and the line sits in the gap above it.
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            layout(placeable.width, 0) { placeable.place(0, 0) }
+                        },
+                )
             }
         }
         if (onHome != null) {
@@ -712,7 +726,7 @@ private fun ThumbnailItem(
             com.metrolist.music.constants.SliderStyle.DEFAULT,
         )
         val ringSpinOn by rememberPreference(com.metrolist.music.constants.RingCoverSpinKey, defaultValue = true)
-        val ring = (sliderStyle == com.metrolist.music.constants.SliderStyle.RING || com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) && !hidePlayerThumbnail
+        val ring = sliderStyle == com.metrolist.music.constants.SliderStyle.RING && !hidePlayerThumbnail
         val playing = isCurrent || item.mediaId == currentMediaId
         Box(Modifier.size(dimensions.thumbnailSize), contentAlignment = Alignment.Center) {
             Box(
