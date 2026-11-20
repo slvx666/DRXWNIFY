@@ -225,12 +225,9 @@ private fun DrawScope.cathedralSeal(c: Offset, r: Float, base: Color) {
         drawLine(ink, pIn, pOut, w, cap = StrokeCap.Round)
     }
 
-    // Top gap: Slender minimalist Gothic cross
-    val topBaseY = c.y - ringR + 2.dp.toPx()
-    val topTipY = c.y - ringR - 17.dp.toPx()
-    val crossY = c.y - ringR - 11.dp.toPx()
-    drawLine(ink, Offset(c.x, topBaseY), Offset(c.x, topTipY), w * 1.15f, cap = StrokeCap.Round)
-    drawLine(ink, Offset(c.x - 5.dp.toPx(), crossY), Offset(c.x + 5.dp.toPx(), crossY), w * 1.15f, cap = StrokeCap.Round)
+    // Top gap: Inverted Gothic cross seated directly above the album cover
+    val topCenterY = c.y - ringR - 8.dp.toPx()
+    invertedCross(Offset(c.x, topCenterY), 16.dp.toPx(), ink, w * 1.2f)
     smallDiamond(Offset(c.x, c.y - ringR), 2.dp.toPx(), 2.5.dp.toPx(), faint, w * 0.85f, filled = true)
 
     // Bottom gap: Small clean pointed diamond tip

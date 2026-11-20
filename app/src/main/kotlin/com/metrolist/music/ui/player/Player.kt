@@ -939,7 +939,7 @@ fun BottomSheetPlayer(
             if (preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) {
                 val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
                 SatanicPlayerControls(
-                    modifier = if (!isLandscape && !showInlineLyrics) Modifier.offset(y = (-48).dp) else Modifier,
+                    modifier = if (!isLandscape && !showInlineLyrics) Modifier.offset(y = (-36).dp) else Modifier,
                     mediaMetadata = mediaMetadata,
                     position = sliderPosition ?: effectivePosition,
                     duration = if (duration == C.TIME_UNSET) 0L else duration,
@@ -1005,7 +1005,7 @@ fun BottomSheetPlayer(
             } else if (preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC) {
                 val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
                 GothicPlayerControls(
-                    modifier = if (!isLandscape && !showInlineLyrics) Modifier.offset(y = (-48).dp) else Modifier,
+                    modifier = if (!isLandscape && !showInlineLyrics) Modifier.offset(y = (-36).dp) else Modifier,
                     mediaMetadata = mediaMetadata,
                     position = sliderPosition ?: effectivePosition,
                     duration = if (duration == C.TIME_UNSET) 0L else duration,
@@ -2339,9 +2339,9 @@ fun BottomSheetPlayer(
                                         state.collapseSoft()
                                         navController.backToMain()
                                     },
-                                    onCollapse = {
+                                    onCollapse = if (isSatanic || isGothic) ({
                                         state.collapseSoft()
-                                    },
+                                    }) else null,
                                 )
                             }
                         }

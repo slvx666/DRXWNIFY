@@ -179,7 +179,7 @@ fun GothicPlayerControls(
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(24.dp))
 
         // ── 2. Progress Bar ─────────────────────────────────────────────────────────
         var dragFrac by remember { mutableFloatStateOf(-1f) }
@@ -291,7 +291,7 @@ fun GothicPlayerControls(
         }
 
         // Lowered spacing between seekbar and control buttons
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(36.dp))
 
         // ── 3. Main Controls Row: Shuffle | Prev | Play/Pause | Next | Repeat ────────
         Row(
@@ -305,19 +305,19 @@ fun GothicPlayerControls(
             IconButton(
                 onClick = onToggleShuffle,
                 enabled = !isListenTogetherGuest,
-                modifier = Modifier.size(44.dp),
+                modifier = Modifier.size(48.dp),
             ) {
                 Icon(
                     painter = androidx.compose.ui.res.painterResource(R.drawable.shuffle),
                     contentDescription = null,
                     tint = if (shuffleModeEnabled) primaryText else mutedText,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(26.dp),
                 )
             }
 
             // Previous Button with Gothic lancet arch frame
             Box(
-                modifier = Modifier.size(54.dp),
+                modifier = Modifier.size(62.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Canvas(Modifier.matchParentSize()) {
@@ -326,20 +326,20 @@ fun GothicPlayerControls(
                 IconButton(
                     onClick = onSeekPrevious,
                     enabled = canSkipPrevious && !isListenTogetherGuest,
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(54.dp),
                 ) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(R.drawable.skip_previous),
                         contentDescription = null,
                         tint = if (canSkipPrevious) primaryText else mutedText,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(30.dp),
                     )
                 }
             }
 
             // Play/Pause Button with Gothic cathedral frame
             Box(
-                modifier = Modifier.size(78.dp),
+                modifier = Modifier.size(86.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Canvas(Modifier.matchParentSize()) {
@@ -347,7 +347,7 @@ fun GothicPlayerControls(
                 }
                 IconButton(
                     onClick = onTogglePlayPause,
-                    modifier = Modifier.size(68.dp),
+                    modifier = Modifier.size(76.dp),
                 ) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(
@@ -355,14 +355,14 @@ fun GothicPlayerControls(
                         ),
                         contentDescription = null,
                         tint = primaryText,
-                        modifier = Modifier.size(34.dp),
+                        modifier = Modifier.size(40.dp),
                     )
                 }
             }
 
             // Next Button with Gothic lancet arch frame
             Box(
-                modifier = Modifier.size(54.dp),
+                modifier = Modifier.size(62.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Canvas(Modifier.matchParentSize()) {
@@ -371,13 +371,13 @@ fun GothicPlayerControls(
                 IconButton(
                     onClick = onSeekNext,
                     enabled = canSkipNext && !isListenTogetherGuest,
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(54.dp),
                 ) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(R.drawable.skip_next),
                         contentDescription = null,
                         tint = if (canSkipNext) primaryText else mutedText,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(30.dp),
                     )
                 }
             }
@@ -386,7 +386,7 @@ fun GothicPlayerControls(
             IconButton(
                 onClick = onToggleRepeat,
                 enabled = !isListenTogetherGuest,
-                modifier = Modifier.size(44.dp),
+                modifier = Modifier.size(48.dp),
             ) {
                 Icon(
                     painter = androidx.compose.ui.res.painterResource(
@@ -394,7 +394,7 @@ fun GothicPlayerControls(
                     ),
                     contentDescription = null,
                     tint = if (repeatMode != Player.REPEAT_MODE_OFF) primaryText else mutedText,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(26.dp),
                 )
             }
         }

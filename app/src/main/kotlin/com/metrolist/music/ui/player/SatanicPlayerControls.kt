@@ -178,7 +178,7 @@ fun SatanicPlayerControls(
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(24.dp))
 
         // ── 3. Progress Bar with Decorative Element ─────────────────────────────────
         var dragFrac by remember { mutableFloatStateOf(-1f) }
@@ -287,7 +287,7 @@ fun SatanicPlayerControls(
             )
         }
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(36.dp))
 
         // ── 4. Main Controls Row: Shuffle | Prev | Play/Pause | Next | Repeat ────────
         Row(
@@ -301,19 +301,19 @@ fun SatanicPlayerControls(
             IconButton(
                 onClick = onToggleShuffle,
                 enabled = !isListenTogetherGuest,
-                modifier = Modifier.size(44.dp),
+                modifier = Modifier.size(48.dp),
             ) {
                 Icon(
                     painter = androidx.compose.ui.res.painterResource(R.drawable.shuffle),
                     contentDescription = null,
                     tint = if (shuffleModeEnabled) primaryText else mutedText,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(26.dp),
                 )
             }
 
             // Previous Button with control_button_frame.png
             Box(
-                modifier = Modifier.size(54.dp),
+                modifier = Modifier.size(62.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 if (controlButtonFrame != null) {
@@ -322,26 +322,26 @@ fun SatanicPlayerControls(
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
                         colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
-                        modifier = Modifier.size(54.dp),
+                        modifier = Modifier.size(62.dp),
                     )
                 }
                 IconButton(
                     onClick = onSeekPrevious,
                     enabled = canSkipPrevious && !isListenTogetherGuest,
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(54.dp),
                 ) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(R.drawable.skip_previous),
                         contentDescription = null,
                         tint = if (canSkipPrevious) primaryText else mutedText,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(30.dp),
                     )
                 }
             }
 
             // Play/Pause Button with play_button_frame.png
             Box(
-                modifier = Modifier.size(78.dp),
+                modifier = Modifier.size(86.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 if (playButtonFrame != null) {
@@ -350,12 +350,12 @@ fun SatanicPlayerControls(
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
                         colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
-                        modifier = Modifier.size(78.dp),
+                        modifier = Modifier.size(86.dp),
                     )
                 }
                 IconButton(
                     onClick = onTogglePlayPause,
-                    modifier = Modifier.size(68.dp),
+                    modifier = Modifier.size(76.dp),
                 ) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(
@@ -363,14 +363,14 @@ fun SatanicPlayerControls(
                         ),
                         contentDescription = null,
                         tint = primaryText,
-                        modifier = Modifier.size(34.dp),
+                        modifier = Modifier.size(40.dp),
                     )
                 }
             }
 
             // Next Button with control_button_frame.png
             Box(
-                modifier = Modifier.size(54.dp),
+                modifier = Modifier.size(62.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 if (controlButtonFrame != null) {
@@ -379,19 +379,19 @@ fun SatanicPlayerControls(
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
                         colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
-                        modifier = Modifier.size(54.dp),
+                        modifier = Modifier.size(62.dp),
                     )
                 }
                 IconButton(
                     onClick = onSeekNext,
                     enabled = canSkipNext && !isListenTogetherGuest,
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(54.dp),
                 ) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(R.drawable.skip_next),
                         contentDescription = null,
                         tint = if (canSkipNext) primaryText else mutedText,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier.size(30.dp),
                     )
                 }
             }
@@ -400,7 +400,7 @@ fun SatanicPlayerControls(
             IconButton(
                 onClick = onToggleRepeat,
                 enabled = !isListenTogetherGuest,
-                modifier = Modifier.size(44.dp),
+                modifier = Modifier.size(48.dp),
             ) {
                 Icon(
                     painter = androidx.compose.ui.res.painterResource(
@@ -408,7 +408,7 @@ fun SatanicPlayerControls(
                     ),
                     contentDescription = null,
                     tint = if (repeatMode != Player.REPEAT_MODE_OFF) primaryText else mutedText,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(26.dp),
                 )
             }
         }

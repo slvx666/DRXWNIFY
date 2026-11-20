@@ -342,25 +342,16 @@ fun Queue(
                         )
                     }
 
-                    // 4. Repeat mode
+                    // 4. Lyrics toggle button
                     IconButton(
-                        onClick = { playerConnection.player.toggleRepeatMode() },
-                        enabled = !isListenTogetherGuest,
+                        onClick = onToggleLyrics,
                         modifier = Modifier.size(40.dp),
                     ) {
                         Icon(
-                            painter =
-                                painterResource(
-                                    id =
-                                        when (repeatMode) {
-                                            Player.REPEAT_MODE_ALL -> R.drawable.repeat
-                                            Player.REPEAT_MODE_ONE -> R.drawable.repeat_one
-                                            else -> R.drawable.repeat
-                                        },
-                                ),
-                            contentDescription = null,
+                            painter = painterResource(id = R.drawable.lyrics),
+                            contentDescription = stringResource(R.string.lyrics),
                             modifier = Modifier.size(iconSize),
-                            tint = if (repeatMode != Player.REPEAT_MODE_OFF) accentColor else buttonColor,
+                            tint = if (showInlineLyrics) accentColor else buttonColor,
                         )
                     }
 
