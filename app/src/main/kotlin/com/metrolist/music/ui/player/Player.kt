@@ -54,6 +54,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -930,10 +931,12 @@ fun BottomSheetPlayer(
             )
         },
     ) {
+        val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
         val controlsContent: @Composable ColumnScope.(MediaMetadata) -> Unit = controlsContent@{ mediaMetadata ->
             if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) {
                 val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
                 SatanicPlayerControls(
+                    modifier = if (!isLandscape && !showInlineLyrics) Modifier.offset(y = (-72).dp) else Modifier,
                     mediaMetadata = mediaMetadata,
                     position = sliderPosition ?: effectivePosition,
                     duration = if (duration == C.TIME_UNSET) 0L else duration,
@@ -2278,11 +2281,7 @@ fun BottomSheetPlayer(
                         controlsContent(it)
                     }
 
-                    if (isSatanic && !showInlineLyrics) {
-                        Spacer(Modifier.weight(0.30f))
-                    } else {
-                        Spacer(Modifier.height(30.dp))
-                    }
+                    Spacer(Modifier.height(if (isSatanic) 4.dp else 30.dp))
                 }
             }
         }

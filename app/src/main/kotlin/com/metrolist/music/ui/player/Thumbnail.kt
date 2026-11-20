@@ -546,6 +546,20 @@ private fun ThumbnailHeader(
             modifier = Modifier
                 .align(Alignment.Center)
                 .padding(horizontal = 48.dp)
+                .then(
+                    if (isSatanic) {
+                        Modifier.layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            // Take 0 layout height in Satanic theme so ThumbnailHeader height stays exactly 48dp,
+                            // keeping the thumbnail bounding box and ring center/diameter at their exact original coordinates!
+                            layout(placeable.width, 0) {
+                                placeable.place(0, 0)
+                            }
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
         ) {
             // Listen Together indicator
             if (listenTogetherRoleState?.value != RoomRole.NONE) {
