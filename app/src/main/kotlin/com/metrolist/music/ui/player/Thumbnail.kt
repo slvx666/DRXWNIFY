@@ -133,13 +133,16 @@ private fun calculateThumbnailDimensions(
     containerHeight: Dp = containerWidth,
     horizontalPadding: Dp = PlayerHorizontalPadding,
     cornerRadius: Dp = ThumbnailCornerRadius,
-    isLandscape: Boolean = false
+    isLandscape: Boolean = false,
+    isCustomTheme: Boolean = false,
 ): ThumbnailDimensions {
     // In landscape, use height as the constraining dimension for a square thumbnail
     val effectiveSize = if (isLandscape) {
         minOf(containerWidth, containerHeight) - (horizontalPadding * 2)
-    } else {
+    } else if (isCustomTheme) {
         minOf(containerWidth - (horizontalPadding * 2), containerHeight * 0.80f)
+    } else {
+        containerWidth - (horizontalPadding * 2)
     }
     return ThumbnailDimensions(
         itemWidth = containerWidth,
@@ -251,7 +254,15 @@ fun Thumbnail(
     
     // Pre-calculate text color based on background style
     val textBackgroundColor = getTextColor(playerBackground)
-    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val preset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
+    val isSatanic = preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val isGothic = preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC
+    val isCustomTheme = preset in setOf(
+        com.metrolist.music.ui.theme.AppThemePreset.SATANIC,
+        com.metrolist.music.ui.theme.AppThemePreset.GOTHIC,
+        com.metrolist.music.ui.theme.AppThemePreset.STREET,
+        com.metrolist.music.ui.theme.AppThemePreset.BREAKCORE,
+    )
     
     // Grid state
     val thumbnailLazyGridState = rememberLazyGridState()
@@ -419,11 +430,12 @@ fun Thumbnail(
                     }
                 ) {
                     // Calculate dimensions once per size change, considering landscape mode
-                    val dimensions = remember(maxWidth, maxHeight, isLandscape) {
+                    val dimensions = remember(maxWidth, maxHeight, isLandscape, isCustomTheme) {
                         calculateThumbnailDimensions(
                             containerWidth = maxWidth,
                             containerHeight = maxHeight,
-                            isLandscape = isLandscape
+                            isLandscape = isLandscape,
+                            isCustomTheme = isCustomTheme,
                         )
                     }
 
@@ -512,14 +524,16 @@ private fun ThumbnailHeader(
     onCollapse: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val preset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
+    val isSatanic = preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val isGothic = preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC
     val listenTogetherManager = LocalListenTogetherManager.current
     val listenTogetherRoleState = listenTogetherManager?.role?.collectAsState(initial = RoomRole.NONE)
     val isListenTogetherGuest = listenTogetherRoleState?.value == RoomRole.GUEST
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = if (isSatanic) 2.dp else 8.dp)
+            .padding(horizontal = 16.dp, vertical = if (isSatanic || isGothic) 2.dp else 8.dp)
     ) {
         if (onCollapse != null) {
             androidx.compose.material3.IconButton(
@@ -533,9 +547,9 @@ private fun ThumbnailHeader(
                 )
             }
         }
-        val titleStyle = if (isSatanic) {
+        val titleStyle = if (isSatanic || isGothic) {
             MaterialTheme.typography.titleMedium.copy(
-                fontFamily = com.metrolist.music.ui.theme.SatanicThemeConfig.SerifFont,
+                fontFamily = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.SerifFont else com.metrolist.music.ui.theme.GothicFace,
                 fontSize = 14.sp
             )
         } else {
@@ -547,10 +561,10 @@ private fun ThumbnailHeader(
                 .align(Alignment.Center)
                 .padding(horizontal = 48.dp)
                 .then(
-                    if (isSatanic) {
+                    if (isSatanic || isGothic) {
                         Modifier.layout { measurable, constraints ->
                             val placeable = measurable.measure(constraints)
-                            // Take 0 layout height in Satanic theme so ThumbnailHeader height stays exactly 48dp,
+                            // Take 0 layout height in Satanic/Gothic theme so ThumbnailHeader height stays exactly 48dp,
                             // keeping the thumbnail bounding box and ring center/diameter at their exact original coordinates!
                             layout(placeable.width, 0) {
                                 placeable.place(0, 0)
@@ -577,7 +591,7 @@ private fun ThumbnailHeader(
             }
             val playingFrom = queueTitle ?: albumTitle
             if (!playingFrom.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(if (isSatanic || isGothic) 2.dp else 4.dp))
                 Text(
                     text = playingFrom,
                     style = titleStyle,
@@ -590,14 +604,14 @@ private fun ThumbnailHeader(
             com.metrolist.music.ui.component.PlayerQualityLine(
                 mediaId = mediaId,
                 color = textColor,
-                modifier = Modifier.padding(top = 2.dp),
+                modifier = Modifier.padding(top = if (isSatanic || isGothic) 2.dp else 4.dp),
             )
             // Spotify's stream count, under the quality line.
             com.metrolist.music.playback.rememberPlayCount(mediaId)?.takeIf { it > 0 }?.let { plays ->
                 Text(
                     text = stringResource(R.string.spotify_plays, com.metrolist.music.playback.SpotifyPlays.format(plays)),
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontFamily = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.SerifFont else androidx.compose.ui.text.font.FontFamily.Default
+                        fontFamily = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.SerifFont else if (isGothic) com.metrolist.music.ui.theme.GothicFace else androidx.compose.ui.text.font.FontFamily.Default
                     ),
                     color = textColor.copy(alpha = 0.75f),
                     maxLines = 1,
@@ -736,7 +750,8 @@ private fun ThumbnailItem(
             com.metrolist.music.constants.SliderStyle.DEFAULT,
         )
         val ringSpinOn by rememberPreference(com.metrolist.music.constants.RingCoverSpinKey, defaultValue = true)
-        val ring = (sliderStyle == com.metrolist.music.constants.SliderStyle.RING || com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) && !hidePlayerThumbnail
+        val preset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
+        val ring = (sliderStyle == com.metrolist.music.constants.SliderStyle.RING || preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC || preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC) && !hidePlayerThumbnail
         val playing = isCurrent || item.mediaId == currentMediaId
         Box(Modifier.size(dimensions.thumbnailSize), contentAlignment = Alignment.Center) {
             Box(

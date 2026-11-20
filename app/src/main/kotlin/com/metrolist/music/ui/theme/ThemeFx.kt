@@ -77,7 +77,13 @@ internal fun ExperimentalBackground(preset: AppThemePreset, route: String? = nul
                 else -> SatanicHomeBackground(modifier)
             }
         }
-        AppThemePreset.GOTHIC -> GothicBackground(modifier)
+        AppThemePreset.GOTHIC -> {
+            when {
+                route == "library" -> GothicLibraryBackground(modifier)
+                route?.startsWith("chat") == true || route == "chats" || route == "friends" -> GothicChatBackground(modifier)
+                else -> GothicHomeBackground(modifier)
+            }
+        }
         AppThemePreset.STREET -> StreetBackground(modifier)
         AppThemePreset.BREAKCORE -> BreakcoreBackground(modifier)
         else -> Unit
@@ -173,6 +179,94 @@ fun SatanicChatBackground(modifier: Modifier = Modifier) {
 }
 
 // ── Gothic ──────────────────────────────────────────────────────────────────────────────────────
+
+@Composable
+fun GothicHomeBackground(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val bgPath = GothicThemeConfig.getHomeBg(isDark)
+    val bgColor = GothicThemeConfig.getBackground(isDark)
+    val bitmap = remember(bgPath) { GothicThemeConfig.getAssetBitmap(context, bgPath) }
+    val animate = LocalThemeAnimations.current
+
+    Box(modifier.fillMaxSize().background(bgColor)) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        if (animate) GothicDust(MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+@Composable
+fun GothicLibraryBackground(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val bgPath = GothicThemeConfig.getLibraryBg(isDark)
+    val bgColor = GothicThemeConfig.getBackground(isDark)
+    val bitmap = remember(bgPath) { GothicThemeConfig.getAssetBitmap(context, bgPath) }
+    val animate = LocalThemeAnimations.current
+
+    Box(modifier.fillMaxSize().background(bgColor)) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.Center,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        if (animate) GothicDust(MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+@Composable
+fun GothicPlayerBackground(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val bgPath = GothicThemeConfig.getPlayerBg(isDark)
+    val bgColor = GothicThemeConfig.getBackground(isDark)
+    val bitmap = remember(bgPath) { GothicThemeConfig.getAssetBitmap(context, bgPath) }
+
+    Box(modifier.fillMaxSize().background(bgColor)) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.Center,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+@Composable
+fun GothicChatBackground(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val bgPath = GothicThemeConfig.getChatBg(isDark)
+    val bgColor = GothicThemeConfig.getBackground(isDark)
+    val bitmap = remember(bgPath) { GothicThemeConfig.getAssetBitmap(context, bgPath) }
+
+    Box(modifier.fillMaxSize().background(bgColor)) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
 
 private class Mote(val x: Float, val speed: Float, val size: Float, val phase: Float, val alpha: Float)
 

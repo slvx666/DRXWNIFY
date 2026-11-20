@@ -837,6 +837,8 @@ fun BottomSheetPlayer(
             ) {
                 if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) {
                     com.metrolist.music.ui.theme.SatanicPlayerBackground(modifier = backgroundAlphaModifier)
+                } else if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC) {
+                    com.metrolist.music.ui.theme.GothicPlayerBackground(modifier = backgroundAlphaModifier)
                 } else when (playerBackground) {
                     PlayerBackgroundStyle.BLUR -> {
                         AnimatedContent(
@@ -933,10 +935,77 @@ fun BottomSheetPlayer(
     ) {
         val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
         val controlsContent: @Composable ColumnScope.(MediaMetadata) -> Unit = controlsContent@{ mediaMetadata ->
-            if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) {
+            val preset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
+            if (preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) {
                 val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
                 SatanicPlayerControls(
-                    modifier = if (!isLandscape && !showInlineLyrics) Modifier.offset(y = (-72).dp) else Modifier,
+                    modifier = if (!isLandscape && !showInlineLyrics) Modifier.offset(y = (-48).dp) else Modifier,
+                    mediaMetadata = mediaMetadata,
+                    position = sliderPosition ?: effectivePosition,
+                    duration = if (duration == C.TIME_UNSET) 0L else duration,
+                    isPlaying = effectiveIsPlaying,
+                    playbackState = playbackState,
+                    canSkipPrevious = canSkipPrevious,
+                    canSkipNext = canSkipNext,
+                    shuffleModeEnabled = shuffleModeEnabled,
+                    repeatMode = repeatMode,
+                    isListenTogetherGuest = isListenTogetherGuest,
+                    onSeek = { seekPos ->
+                        if (isCasting) {
+                            castHandler?.seekTo(seekPos)
+                            lastManualSeekTime = System.currentTimeMillis()
+                        } else {
+                            playerConnection.player.seekTo(seekPos)
+                        }
+                        position = seekPos
+                    },
+                    onTogglePlayPause = {
+                        if (isListenTogetherGuest) {
+                            playerConnection.toggleMute()
+                        } else if (isCasting) {
+                            if (castIsPlaying) castHandler?.pause() else castHandler?.play()
+                        } else if (playbackState == STATE_ENDED) {
+                            playerConnection.player.seekTo(0, 0)
+                            playerConnection.player.playWhenReady = true
+                        } else {
+                            playerConnection.player.togglePlayPause()
+                        }
+                    },
+                    onSeekPrevious = playerConnection::seekToPrevious,
+                    onSeekNext = playerConnection::seekToNext,
+                    onToggleShuffle = { playerConnection.player.shuffleModeEnabled = !shuffleModeEnabled },
+                    onToggleRepeat = { playerConnection.player.toggleRepeatMode() },
+                    onTitleClick = {
+                        val albumId = mediaMetadata.album?.id
+                        if (albumId != null) {
+                            state.collapseSoft()
+                            navController.navigate("album/$albumId")
+                        }
+                    },
+                    onArtistClick = {
+                        val artistId = mediaMetadata.artists.firstOrNull()?.id
+                        if (!artistId.isNullOrBlank()) {
+                            state.collapseSoft()
+                            navController.navigate("artist/$artistId")
+                        }
+                    },
+                    onTitleLongClick = {
+                        val clip = ClipData.newPlainText(copiedTitleStr, mediaMetadata.title)
+                        clipboardManager.setPrimaryClip(clip)
+                        Toast.makeText(context, copiedTitleStr, Toast.LENGTH_SHORT).show()
+                    },
+                    onArtistLongClick = {
+                        val artistText = mediaMetadata.artists.joinToString { it.name }
+                        val clip = ClipData.newPlainText(copiedArtistStr, artistText)
+                        clipboardManager.setPrimaryClip(clip)
+                        Toast.makeText(context, copiedArtistStr, Toast.LENGTH_SHORT).show()
+                    },
+                )
+                return@controlsContent
+            } else if (preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC) {
+                val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
+                GothicPlayerControls(
+                    modifier = if (!isLandscape && !showInlineLyrics) Modifier.offset(y = (-48).dp) else Modifier,
                     mediaMetadata = mediaMetadata,
                     position = sliderPosition ?: effectivePosition,
                     duration = if (duration == C.TIME_UNSET) 0L else duration,
@@ -2226,6 +2295,7 @@ fun BottomSheetPlayer(
                     label = "bottomPadding",
                 )
                 val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+                val isGothic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier =
@@ -2281,7 +2351,7 @@ fun BottomSheetPlayer(
                         controlsContent(it)
                     }
 
-                    Spacer(Modifier.height(if (isSatanic) 4.dp else 30.dp))
+                    Spacer(Modifier.height(if (isSatanic || isGothic) 4.dp else 30.dp))
                 }
             }
         }

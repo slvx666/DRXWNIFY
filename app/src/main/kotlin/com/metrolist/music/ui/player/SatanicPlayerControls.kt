@@ -287,7 +287,7 @@ fun SatanicPlayerControls(
             )
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(28.dp))
 
         // ── 4. Main Controls Row: Shuffle | Prev | Play/Pause | Next | Repeat ────────
         Row(
