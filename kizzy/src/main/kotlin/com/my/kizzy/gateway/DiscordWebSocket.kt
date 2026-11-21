@@ -136,12 +136,20 @@ open class DiscordWebSocket(
         heartbeatJob?.cancel()
         connected = false
         val close = websocket?.closeReason?.await()
-        logger.warning("Gateway closed with code: ${close?.code}, reason: ${close?.message}, can_reconnect: ${close?.code?.toInt() == 4000}")
-        if (close?.code?.toInt() == 4000) {
+        val code = close?.code?.toInt()
+        val isFatal = code in listOf(4004, 4010, 4011, 4012, 4013, 4014)
+        logger.warning("Gateway closed with code: $code, reason: ${close?.message}, can_reconnect: ${!isFatal && code == 4000}")
+        if (isFatal) {
+            logger.severe("Gateway unrecoverable closure with code: $code (${close?.message}). Disabling automatic reconnection.")
+            reconnectionJob?.cancel()
+            return
+        }
+        if (code == 4000) {
             delay(200.milliseconds)
             connect()
-        } else
+        } else {
             scheduleReconnection()
+        }
     }
 
     private suspend fun onMessage(payload: Payload) {

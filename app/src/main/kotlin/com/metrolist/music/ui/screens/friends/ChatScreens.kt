@@ -1267,6 +1267,7 @@ private fun CollectionCard(music: ChatMusic, navController: NavController, textC
         when (music.kind) {
             AppLinks.Kind.ALBUM -> R.string.chat_album
             AppLinks.Kind.PLAYLIST -> R.string.chat_playlist
+            AppLinks.Kind.COLLAB -> R.string.collab_playlists_title
             else -> R.string.chat_artist
         },
     )
@@ -1325,6 +1326,12 @@ private suspend fun openMusic(music: ChatMusic, navController: NavController) {
         AppLinks.Kind.ALBUM -> if (fromYouTube) "album/$id" else "spotify_album/$id"
         AppLinks.Kind.PLAYLIST -> if (fromYouTube) "online_playlist/$id" else "spotify_playlist/$id"
         AppLinks.Kind.ARTIST -> if (fromYouTube) "artist/$id" else "spotify_artist/$id"
+        AppLinks.Kind.COLLAB -> {
+            val parts = music.id.split('/')
+            val pub = parts.getOrNull(0)
+            val pid = parts.getOrNull(1)
+            if (pub != null && pid != null) "collab_playlist/$pub/$pid" else return
+        }
         AppLinks.Kind.TRACK -> return
     }
     runCatching { navController.navigate(route) }

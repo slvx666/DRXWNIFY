@@ -69,6 +69,13 @@ import kotlinx.coroutines.withContext
 import java.time.format.TextStyle
 import java.util.Locale
 
+enum class ServiceStatsSource {
+    SPOTIFY,
+    YANDEX,
+    VK,
+    YOUTUBE,
+}
+
 /**
  * The service's own statistics on the account's page: Spotify's tops (4 weeks / 6 months / all
  * time), Yandex Music's likes by month and most liked artists — each also as a full-screen
@@ -77,7 +84,7 @@ import java.util.Locale
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
+fun ServiceStatsScreen(navController: NavController, service: ServiceStatsSource) {
     val database = LocalDatabase.current
     var range by rememberSaveable { mutableStateOf(ServiceStats.Range.SHORT) }
     var spotify by remember { mutableStateOf<ServiceStats.SpotifyTops?>(null) }
@@ -103,16 +110,25 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
         error = null
         withContext(Dispatchers.IO) {
             when (service) {
-                MetadataSource.SPOTIFY -> ServiceStats.spotifyTops(range)
+                ServiceStatsSource.SPOTIFY -> ServiceStats.spotifyTops(range)
                     .onSuccess { spotify = it }.onFailure { error = it.message }
-                MetadataSource.YANDEX -> ServiceStats.yandexStats()
+                ServiceStatsSource.YANDEX -> ServiceStats.yandexStats()
                     .onSuccess { yandex = it }.onFailure { error = it.message }
                 // Read from the whole VK library: the spinner shows meanwhile.
-                MetadataSource.VK -> ServiceStats.vkStats()
+                ServiceStatsSource.VK -> ServiceStats.vkStats()
+                    .onSuccess { yandex = it }.onFailure { error = it.message }
+                ServiceStatsSource.YOUTUBE -> ServiceStats.youtubeStats()
                     .onSuccess { yandex = it }.onFailure { error = it.message }
             }
         }
         loading = false
+    }
+
+    val serviceName = when (service) {
+        ServiceStatsSource.SPOTIFY -> stringResource(R.string.filter_spotify)
+        ServiceStatsSource.YANDEX -> stringResource(R.string.yandex_music)
+        ServiceStatsSource.VK -> stringResource(R.string.vk_music_name)
+        ServiceStatsSource.YOUTUBE -> stringResource(R.string.youtube_music)
     }
 
     Column(
@@ -122,7 +138,7 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
             .verticalScroll(rememberScrollState()),
     ) {
         Spacer(Modifier.windowInsetsPadding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Top)))
-        if (service == MetadataSource.SPOTIFY) {
+        if (service == ServiceStatsSource.SPOTIFY) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 ServiceStats.Range.entries.forEach { r ->
                     FilterChip(
@@ -151,7 +167,7 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
             val text = if (it.contains("rate limit", ignoreCase = true) || it.contains("429")) stringResource(R.string.stats_rate_limited) else stringResource(R.string.stats_failed, it)
             Text(text, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
         }
-        if (service == MetadataSource.SPOTIFY && !loading) {
+        if (service == ServiceStatsSource.SPOTIFY && !loading) {
             spotify?.let { tops ->
                 val period = stringResource(
                     when (range) {
@@ -161,7 +177,7 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
                     },
                 )
                 if (tops.tracks.size >= MonthReview.MIN_TRACKS && tops.artists.size >= MonthReview.MIN_ARTISTS) {
-                    WatchButton(building) { open { spotifyStory(tops, period, database) } }
+                    WatchButton(building) { open { spotifyStory(tops, period, database, range) } }
                 }
                 PreferenceGroupTitle(title = stringResource(R.string.stats_top_artists))
                 tops.artists.take(20).forEachIndexed { i, a ->
@@ -175,21 +191,29 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
                 }
             }
         }
-        // VK's wrap-up is built the same way as Yandex Music's: likes by month and liked artists.
-        if ((service == MetadataSource.YANDEX || service == MetadataSource.VK) && !loading) {
+        // VK's and YouTube's wrap-ups are built the same way as Yandex Music's: likes and liked artists.
+        if ((service == ServiceStatsSource.YANDEX || service == ServiceStatsSource.VK || service == ServiceStatsSource.YOUTUBE) && !loading) {
             yandex?.let { y ->
                 val period = stringResource(R.string.story_period_likes)
-                val name = stringResource(serviceNameRes(service))
                 if (y.artists.size >= MonthReview.MIN_ARTISTS && y.total >= MonthReview.MIN_TRACKS) {
-                    WatchButton(building) { open { yandexStory(y, name, period, database) } }
+                    WatchButton(building) { open { yandexStory(y, serviceName, period, database) } }
                 }
                 Text(
-                    stringResource(if (service == MetadataSource.VK) R.string.stats_vk_total else R.string.stats_yandex_total, y.total),
+                    stringResource(
+                        when (service) {
+                            ServiceStatsSource.VK -> R.string.stats_vk_total
+                            ServiceStatsSource.YOUTUBE -> R.string.stats_youtube_total
+                            else -> R.string.stats_yandex_total
+                        },
+                        y.total,
+                    ),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(16.dp),
                 )
-                PreferenceGroupTitle(title = stringResource(R.string.stats_likes_by_month))
-                MonthBars(y.byMonth)
+                if (service != ServiceStatsSource.YOUTUBE) {
+                    PreferenceGroupTitle(title = stringResource(R.string.stats_likes_by_month))
+                    MonthBars(y.byMonth, service)
+                }
                 PreferenceGroupTitle(title = stringResource(R.string.stats_liked_artists))
                 y.artists.forEachIndexed { i, a -> RankRow(i + 1, a.name, a.count.toString(), a.image, round = true) {} }
             }
@@ -198,7 +222,7 @@ fun ServiceStatsScreen(navController: NavController, service: MetadataSource) {
     }
     story?.let { r -> com.metrolist.music.ui.screens.MonthReviewStory(r) { story = null } }
     TopAppBar(
-        title = { Text(stringResource(R.string.service_stats_title) + " · " + stringResource(serviceNameRes(service))) },
+        title = { Text(stringResource(R.string.service_stats_title) + " · " + serviceName) },
         navigationIcon = {
             IconButton(onClick = navController::navigateUp, onLongClick = {}) {
                 Icon(painterResource(R.drawable.arrow_back), contentDescription = null)
@@ -237,6 +261,7 @@ private suspend fun spotifyStory(
     tops: ServiceStats.SpotifyTops,
     period: String,
     database: com.metrolist.music.db.MusicDatabase,
+    range: ServiceStats.Range = ServiceStats.Range.SHORT,
 ): MonthReview.Review {
     val tracks = tops.tracks.filter { it.id.isNotBlank() }.take(21)
     val items = tracks.map { t ->
@@ -255,8 +280,40 @@ private suspend fun spotifyStory(
     tops.tracks.forEachIndexed { i, t -> t.artists.firstOrNull()?.name?.let { weights.merge(it, tops.tracks.size - i, Int::plus) } }
     val genres = MonthReview.genrePortrait(weights)
     val songs = genreSongs(genres, tops.tracks.map { it.id to it.artists.firstOrNull()?.name })
+
+    val likedArtists = runCatching {
+        val paging = com.metrolist.spotify.Spotify.likedSongs(limit = 50).getOrNull()
+        val saved = paging?.items.orEmpty()
+        val cutoff = when (range) {
+            ServiceStats.Range.SHORT -> java.time.Instant.now().minus(java.time.Duration.ofDays(30))
+            ServiceStats.Range.MEDIUM -> java.time.Instant.now().minus(java.time.Duration.ofDays(180))
+            ServiceStats.Range.LONG -> java.time.Instant.EPOCH
+        }
+        val inRange = saved.filter { s ->
+            s.addedAt?.let { ts ->
+                runCatching { java.time.Instant.parse(ts).isAfter(cutoff) }.getOrDefault(true)
+            } ?: true
+        }
+        val target = if (inRange.isNotEmpty()) inRange else saved
+        target.groupBy { it.track.artists.firstOrNull()?.name?.trim().orEmpty() }
+            .filterKeys { it.isNotBlank() }
+            .entries
+            .sortedByDescending { it.value.size }
+            .take(10)
+            .map { (name, list) ->
+                val first = list.first().track
+                MonthReview.Item(
+                    title = name,
+                    subtitle = null,
+                    count = list.size,
+                    image = biggest(first.album?.images) ?: tops.artists.firstOrNull { it.name.equals(name, ignoreCase = true) }?.let { biggest(it.images) },
+                    songId = first.id,
+                )
+            }
+    }.getOrDefault(emptyList())
+
     return serviceReview("Spotify", period, items, artists) { id -> byId[id]?.let { mapper.resolveToMediaItem(it) } }
-        .copy(genres = genres, genreSongs = songs)
+        .copy(genres = genres, genreSongs = songs, likedArtists = likedArtists)
 }
 
 /** The tracks (by key) whose artist is of the top genre: one of them plays on the genres page. */
@@ -276,6 +333,9 @@ private suspend fun yandexStory(
     val artists = y.artists.take(11).map { a ->
         MonthReview.Item(title = a.name, subtitle = null, count = a.count, image = a.image ?: biggest(a.track?.album?.images), songId = a.track?.id)
     }
+    val likedArtists = y.artists.take(10).map { a ->
+        MonthReview.Item(title = a.name, subtitle = null, count = a.count, image = a.image ?: biggest(a.track?.album?.images), songId = a.track?.id)
+    }
     val byId = y.artists.mapNotNull { it.track }.associateBy { it.id }
     val best = y.byMonth.maxByOrNull { it.count }?.takeIf { it.count > 0 }
     val mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database)
@@ -288,6 +348,7 @@ private suspend fun yandexStory(
         likesTotal = y.total,
         likesBestMonth = best?.let { runCatching { java.time.YearMonth.parse(it.month) }.getOrNull() },
         likesBestCount = best?.count ?: 0,
+        likedArtists = likedArtists,
     )
 }
 
@@ -340,7 +401,7 @@ private fun RankRow(rank: Int, title: String, subtitle: String?, image: String?,
 
 /** Likes per month as bars, the newest month last. */
 @Composable
-private fun MonthBars(months: List<ServiceStats.MonthCount>) {
+private fun MonthBars(months: List<ServiceStats.MonthCount>, service: ServiceStatsSource) {
     val max = months.maxOfOrNull { it.count }?.coerceAtLeast(1) ?: 1
     Row(
         verticalAlignment = Alignment.Bottom,
@@ -355,7 +416,11 @@ private fun MonthBars(months: List<ServiceStats.MonthCount>) {
                         .fillMaxWidth()
                         .height((90f * m.count / max).coerceAtLeast(2f).dp)
                         .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                        .background(com.metrolist.music.ui.theme.serviceColor(MetadataSource.YANDEX)),
+                        .background(
+                            com.metrolist.music.ui.theme.ServiceColors.brand(
+                                if (service == ServiceStatsSource.VK) MetadataSource.VK else MetadataSource.YANDEX,
+                            ),
+                        ),
                 )
                 Text(
                     runCatching { java.time.YearMonth.parse(m.month).month.getDisplayName(TextStyle.NARROW_STANDALONE, Locale.getDefault()) }.getOrDefault(""),

@@ -70,6 +70,7 @@ object LinkSearch {
             AppLinks.Kind.ALBUM -> Catalog.album(id).getOrNull()?.let { page(context.getString(R.string.albums), it.toAlbumItem()) }
             AppLinks.Kind.ARTIST -> Catalog.artist(id).getOrNull()?.let { page(context.getString(R.string.artists), it.toArtistItem()) }
             AppLinks.Kind.PLAYLIST -> Catalog.playlist(id).getOrNull()?.let { page(context.getString(R.string.playlists), it.toPlaylistItem()) }
+            AppLinks.Kind.COLLAB -> null
         }
     }
 
@@ -85,7 +86,7 @@ object LinkSearch {
         }
         AppLinks.Kind.ARTIST -> com.metrolist.music.catalog.CrossCatalog.spotifyArtistFor(yandexId, null)
         // A user's playlist lives in Yandex only.
-        AppLinks.Kind.PLAYLIST -> null
+        AppLinks.Kind.PLAYLIST, AppLinks.Kind.COLLAB -> null
     }
 
     private fun page(title: String, item: YTItem) = SearchSummaryPage(summaries = listOf(SearchSummary(title = title, items = listOf(item))))

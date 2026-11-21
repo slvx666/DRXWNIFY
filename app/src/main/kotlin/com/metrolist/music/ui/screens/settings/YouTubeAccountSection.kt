@@ -344,5 +344,22 @@ fun YouTubeAccountSection(
             useLowContrast = true
         )
 
+        if (isLoggedIn) {
+            Spacer(Modifier.height(8.dp))
+            Material3SettingsGroup(
+                items = listOf(
+                    Material3SettingsItem(
+                        title = { Text(stringResource(R.string.service_stats_title)) },
+                        description = { Text(stringResource(R.string.service_stats_desc_youtube)) },
+                        icon = painterResource(R.drawable.stats),
+                        onClick = {
+                            navController.navigate("account_stats/YOUTUBE")
+                        }
+                    )
+                ),
+                useLowContrast = true
+            )
+        }
+
     }
 }

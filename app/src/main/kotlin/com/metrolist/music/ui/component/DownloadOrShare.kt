@@ -91,7 +91,10 @@ fun DownloadOrShare(
         val appContext = context.applicationContext
         scope.launch {
             val ids = downloadedIds()
-            if (ids.isEmpty()) return@launch
+            if (ids.isEmpty()) {
+                Toast.makeText(appContext, R.string.nothing_selected_downloaded, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
             if (ids.size < total) {
                 Toast.makeText(
                     appContext,

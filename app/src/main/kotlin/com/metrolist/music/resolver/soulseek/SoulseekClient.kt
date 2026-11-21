@@ -119,7 +119,15 @@ class SoulseekClient(
         AudioDiagnostics.info("soulseek: connecting to $SERVER_HOST:$SERVER_PORT as $user")
         val socket = Socket()
         try {
-            socket.connect(InetSocketAddress(SERVER_HOST, SERVER_PORT), CONNECT_TIMEOUT_MS)
+            val address = runCatching {
+                com.metrolist.music.utils.FallbackDns.lookup(SERVER_HOST).firstOrNull()
+            }.getOrNull()
+            val endpoint = if (address != null) {
+                InetSocketAddress(address, SERVER_PORT)
+            } else {
+                InetSocketAddress(SERVER_HOST, SERVER_PORT)
+            }
+            socket.connect(endpoint, CONNECT_TIMEOUT_MS)
         } catch (e: IOException) {
             fail("server unreachable: ${e.message}")
         }

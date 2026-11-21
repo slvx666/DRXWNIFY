@@ -348,6 +348,10 @@ private fun servicePages(r: MonthReview.Review, round: Int): List<StoryPage> = b
         add(StoryPage("topArtist", 11_000, topArtist.songId, fullVolumeAtMs = 2_900) { TopArtistPage(r, topArtist) })
         if (r.topArtists.size > 1) add(StoryPage("topArtists", 12_000, topArtist.songId, top = true) { TopArtistsPage(r, r.topArtists) })
     }
+    // Third to last: the top liked artists
+    if (r.likedArtists.isNotEmpty()) {
+        add(StoryPage("likedArtists", 13_000, r.likedArtists.firstOrNull()?.songId, top = true) { LikedArtistsPage(r, r.likedArtists) })
+    }
     // Second to last, as in the app's own review: the genres the tops make.
     if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000, genreSong(r, round), fullVolumeAtMs = 2_700) { GenresPage(r) })
     add(StoryPage("card", 0, lastOrNull()?.songId) { CardPage(r) })
@@ -371,6 +375,10 @@ private fun appPages(r: MonthReview.Review, round: Int): List<StoryPage> = build
     if (topArtist != null) {
         add(StoryPage("topArtist", 11_000, topArtist.songId, fullVolumeAtMs = 2_900) { TopArtistPage(r, topArtist) })
         if (r.topArtists.size > 1) add(StoryPage("topArtists", 12_000, topArtist.songId, top = true) { TopArtistsPage(r, r.topArtists) })
+    }
+    // Third to last: the top liked artists
+    if (r.likedArtists.isNotEmpty()) {
+        add(StoryPage("likedArtists", 13_000, r.likedArtists.firstOrNull()?.songId, top = true) { LikedArtistsPage(r, r.likedArtists) })
     }
     // The top genre's page plays one of its songs, another one each round.
     if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000, genreSong(r, round), fullVolumeAtMs = 2_700) { GenresPage(r) })
@@ -756,6 +764,97 @@ private fun TopArtistsPage(r: MonthReview.Review, items: List<MonthReview.Item>)
                                     Column(Modifier.weight(1f)) {
                                         Text(item.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         countText(r, item)?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Top 10 liked artists with their like count: top 5 prominent, places 6-10 in two columns below.
+ * Positioned 3rd from the end in the story (before Genres and Card).
+ */
+@Composable
+private fun LikedArtistsPage(r: MonthReview.Review, items: List<MonthReview.Item>) {
+    val at = remember(items.size) { revealTimes(items.size, 5) }
+    val image = listOf(96, 84, 74, 66, 66)
+    val name = listOf(25, 22, 20, 18, 18)
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+        Appear(100, durationMs = 800) {
+            Column {
+                Text(
+                    stringResource(R.string.story_liked_artists_title),
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Black,
+                )
+                if (r.service == null) {
+                    Text(
+                        stringResource(R.string.story_liked_disclaimer),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        items.take(5).forEachIndexed { i, item ->
+            Appear(at[i], fromRight = true, durationMs = 900 + i * 60) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${i + 1}",
+                        fontSize = (name[i] + 4).sp,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.width(34.dp),
+                    )
+                    AsyncImage(
+                        model = item.image,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(image[i].dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(item.title, fontSize = name[i].sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            stringResource(R.string.story_in_likes, item.count),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+        val rest = items.drop(5).take(5)
+        if (rest.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                val left = rest.take(3)
+                val right = rest.drop(3)
+                listOf(left, right).forEachIndexed { colIdx, column ->
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        column.forEachIndexed { itemIdx, item ->
+                            val place = 6 + (colIdx * 3) + itemIdx
+                            Appear(at.getOrElse(place - 1) { 600L }, fromRight = true, durationMs = 700) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("$place", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(24.dp))
+                                    AsyncImage(
+                                        model = item.image,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(item.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            stringResource(R.string.story_in_likes, item.count),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
                                     }
                                 }
                             }

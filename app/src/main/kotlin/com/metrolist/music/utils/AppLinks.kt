@@ -23,7 +23,7 @@ object AppLinks {
     const val SITE = "https://drxwnify.pages.dev"
     const val YOUTUBE_PREFIX = "yt:"
 
-    enum class Kind(val path: String) { ALBUM("album"), PLAYLIST("playlist"), TRACK("track"), ARTIST("artist") }
+    enum class Kind(val path: String) { ALBUM("album"), PLAYLIST("playlist"), TRACK("track"), ARTIST("artist"), COLLAB("collab") }
 
     data class Target(val kind: Kind, val id: String, val title: String?, val by: String?)
 
@@ -32,7 +32,7 @@ object AppLinks {
             title?.takeIf { it.isNotBlank() }?.let { "n=" + Uri.encode(it.take(80)) },
             by?.takeIf { it.isNotBlank() }?.let { "by=" + Uri.encode(it.take(60)) },
         )
-        return "$SITE/${kind.path}/" + Uri.encode(id) + if (query.isEmpty()) "" else "?" + query.joinToString("&")
+        return "$SITE/${kind.path}/" + (if (kind == Kind.COLLAB) id else Uri.encode(id)) + if (query.isEmpty()) "" else "?" + query.joinToString("&")
     }
 
     /** What goes into a share: "Artist — Title" and the link. */
@@ -56,10 +56,26 @@ object AppLinks {
     fun parse(uri: Uri): Target? {
         val segments = uri.pathSegments.orEmpty()
         val (kindName, id) = when {
-            (uri.scheme == "https" || uri.scheme == "http") && uri.host == "drxwnify.pages.dev" ->
-                (segments.getOrNull(0) ?: return null) to (segments.getOrNull(1) ?: return null)
-            uri.scheme == "drxwnify" ->
-                (uri.host ?: return null) to (segments.getOrNull(0) ?: return null)
+            (uri.scheme == "https" || uri.scheme == "http") && uri.host == "drxwnify.pages.dev" -> {
+                val kind = segments.getOrNull(0) ?: return null
+                if (kind == "collab") {
+                    val pub = segments.getOrNull(1) ?: return null
+                    val pid = segments.getOrNull(2) ?: return null
+                    "collab" to "$pub/$pid"
+                } else {
+                    kind to (segments.getOrNull(1) ?: return null)
+                }
+            }
+            uri.scheme == "drxwnify" -> {
+                val host = uri.host ?: return null
+                if (host == "collab") {
+                    val pub = segments.getOrNull(0) ?: return null
+                    val pid = segments.getOrNull(1) ?: return null
+                    "collab" to "$pub/$pid"
+                } else {
+                    host to (segments.getOrNull(0) ?: return null)
+                }
+            }
             uri.host == "open.spotify.com" -> {
                 // open.spotify.com/intl-de/album/<id>
                 val rest = segments.dropWhile { it.startsWith("intl-") }
@@ -109,6 +125,7 @@ object AppLinks {
             Kind.PLAYLIST -> Catalog.playlist(target.id).isSuccess
             Kind.TRACK -> Catalog.getTrack(target.id).isSuccess
             Kind.ARTIST -> Catalog.artist(target.id).isSuccess
+            Kind.COLLAB -> true
         }
         if (opens) return target.id
         val query = listOfNotNull(target.by, target.title).joinToString(" ").ifBlank { return target.id }
@@ -118,6 +135,7 @@ object AppLinks {
             Kind.PLAYLIST -> result.playlists?.items?.firstOrNull()?.id
             Kind.TRACK -> result.tracks?.items?.firstOrNull()?.id
             Kind.ARTIST -> result.artists?.items?.firstOrNull()?.id
+            Kind.COLLAB -> target.id
         } ?: target.id
     }
 }

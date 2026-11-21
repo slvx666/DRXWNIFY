@@ -37,7 +37,7 @@
         android:appCategory="audio"
         android:banner="@mipmap/tv_banner"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:enableOnBackInvokedCallback="false"
+        android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher_legacy"
         android:label="@string/app_name"
@@ -123,6 +123,7 @@
                 <data android:host="drxwnify.pages.dev" />
                 <data android:pathPrefix="/album/" />
                 <data android:pathPrefix="/playlist/" />
+                <data android:pathPrefix="/collab/" />
                 <data android:pathPrefix="/track/" />
                 <data android:pathPrefix="/artist/" />
             </intent-filter>
@@ -135,6 +136,7 @@
                 <data android:scheme="drxwnify" />
                 <data android:host="album" />
                 <data android:host="playlist" />
+                <data android:host="collab" />
                 <data android:host="track" />
                 <data android:host="artist" />
             </intent-filter>

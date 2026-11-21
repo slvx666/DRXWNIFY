@@ -775,10 +775,6 @@ fun HomeScreen(
     val youtubeSignedIn = innerTubeCookie.isNotEmpty()
     val (randomizeHomeOrder) = rememberPreference(RandomizeHomeOrderKey, true)
 
-    val shouldShowWrappedCard by viewModel.showWrappedCard.collectAsState()
-    val wrappedState by viewModel.wrappedManager.state.collectAsState()
-    val isWrappedDataReady = wrappedState.isDataReady
-
     val isLoggedIn =
         remember(innerTubeCookie) {
             "SAPISID" in parseCookieString(innerTubeCookie)
@@ -866,27 +862,11 @@ fun HomeScreen(
     val scrollToTop =
         backStackEntry?.savedStateHandle?.getStateFlow("scrollToTop", false)?.collectAsState()
 
-    val wrappedDismissed by backStackEntry
-        ?.savedStateHandle
-        ?.getStateFlow("wrapped_seen", false)
-        ?.collectAsState() ?: remember { mutableStateOf(false) }
-
     var randomSeed by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(isRefreshing) {
         if (isRefreshing) {
             randomSeed = System.currentTimeMillis()
-        }
-    }
-
-    val foundInSettings = stringResource(R.string.found_in_settings_content)
-    LaunchedEffect(wrappedDismissed) {
-        if (wrappedDismissed) {
-            viewModel.markWrappedAsSeen()
-            scope.launch {
-                snackbarHostState.showSnackbar(foundInSettings)
-            }
-            backStackEntry?.savedStateHandle?.set("wrapped_seen", false) // Reset the value
         }
     }
 
@@ -1518,69 +1498,6 @@ fun HomeScreen(
                                 ) {
                                     items(sectionData.items) { item ->
                                         ytGridItem(item)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (selectedChip == null) {
-                    item(key = "wrapped_card") {
-                        AnimatedVisibility(visible = shouldShowWrappedCard) {
-                            Card(
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                colors =
-                                    CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    ),
-                            ) {
-                                Box(
-                                    modifier =
-                                        Modifier
-                                            .fillMaxWidth(),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    if (isWrappedDataReady) {
-                                        val bbhFont =
-                                            try {
-                                                FontFamily(Font(R.font.bbh_bartle_regular))
-                                            } catch (e: Exception) {
-                                                FontFamily.Default
-                                            }
-                                        Column(
-                                            modifier = Modifier.padding(16.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-                                        ) {
-                                            Text(
-                                                text = stringResource(R.string.wrapped_ready_title),
-                                                style =
-                                                    MaterialTheme.typography.headlineLarge.copy(
-                                                        fontFamily = bbhFont,
-                                                        textAlign = TextAlign.Center,
-                                                    ),
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Text(
-                                                text = stringResource(R.string.wrapped_ready_subtitle),
-                                                style =
-                                                    MaterialTheme.typography.bodyLarge.copy(
-                                                        textAlign = TextAlign.Center,
-                                                    ),
-                                            )
-                                            Spacer(modifier = Modifier.height(16.dp))
-                                            Button(onClick = {
-                                                navController.navigate("wrapped")
-                                            }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
-                                                Text(stringResource(R.string.open))
-                                            }
-                                        }
-                                    } else {
-                                        ContainedLoadingIndicator()
                                     }
                                 }
                             }

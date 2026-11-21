@@ -412,7 +412,8 @@ fun AlbumScreen(
                                     val ids = albumWithSongs?.songs?.map { it.id }.orEmpty()
                                     if (ids.isNotEmpty()) {
                                         shareScope.launch {
-                                            com.metrolist.music.utils.shareDownloadedFiles(appContext, shareDownloadUtil.downloadExporter, ids)
+                                            val resolved = ids.mapNotNull { shareDownloadUtil.downloadedIdOf(it) }.distinct().ifEmpty { ids }
+                                            com.metrolist.music.utils.shareDownloadedFiles(appContext, shareDownloadUtil.downloadExporter, resolved)
                                         }
                                     }
                                 },

@@ -32,12 +32,10 @@ import com.metrolist.music.constants.HideYoutubeShortsKey
 import com.metrolist.music.constants.InnerTubeCookieKey
 import com.metrolist.music.constants.QuickPicks
 import com.metrolist.music.constants.QuickPicksKey
-import com.metrolist.music.constants.ShowWrappedCardKey
 import com.metrolist.music.constants.SpotifyAccessTokenKey
 import com.metrolist.music.utils.SpotifyTokenManager
 import com.metrolist.music.constants.SpotifyTokenExpiryKey
 import com.metrolist.music.constants.UseSpotifyHomeKey
-import com.metrolist.music.constants.WrappedSeenKey
 import com.metrolist.music.R
 import com.metrolist.music.constants.YandexAccessTokenKey
 import kotlinx.coroutines.joinAll
@@ -64,8 +62,6 @@ import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.models.SectionType
 import com.metrolist.music.models.SimilarRecommendation
 import com.metrolist.music.models.SpotifyHomeSection
-import com.metrolist.music.ui.screens.wrapped.WrappedAudioService
-import com.metrolist.music.ui.screens.wrapped.WrappedManager
 import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
@@ -108,8 +104,6 @@ class HomeViewModel @Inject constructor(
     @ApplicationContext val context: Context,
     val database: MusicDatabase,
     val syncUtils: SyncUtils,
-    val wrappedManager: WrappedManager,
-    private val wrappedAudioService: WrappedAudioService,
 ) : ViewModel() {
     val isRefreshing = MutableStateFlow(false)
     val isLoading = MutableStateFlow(false)
@@ -245,18 +239,6 @@ class HomeViewModel @Inject constructor(
         .map { list -> list.map { it.id }.toSet() }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptySet())
 
-	val showWrappedCard: StateFlow<Boolean> = context.dataStore.data.map { prefs ->
-        val showWrappedPref = prefs[ShowWrappedCardKey] ?: false
-        val seen = prefs[WrappedSeenKey] ?: false
-        val isBeforeDate = LocalDate.now().isBefore(LocalDate.of(2026, 2, 1))
-
-        isBeforeDate && (!seen || showWrappedPref)
-    }.stateIn(viewModelScope, SharingStarted.Lazily, false)
-
-    val wrappedSeen: StateFlow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[WrappedSeenKey] ?: false
-    }.stateIn(viewModelScope, SharingStarted.Lazily, false)
-
     fun togglePin(item: YTItem) {
         viewModelScope.launch(Dispatchers.IO) {
             val speedDialItem = SpeedDialItem.fromYTItem(item)
@@ -285,13 +267,6 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun markWrappedAsSeen() {
-        viewModelScope.launch(Dispatchers.IO) {
-            context.dataStore.edit {
-                it[WrappedSeenKey] = true
-            }
-        }
-    }
     // Track last processed cookie to avoid unnecessary updates
     private var lastProcessedCookie: String? = null
     // Track if we're currently processing account data
@@ -1239,25 +1214,6 @@ class HomeViewModel @Inject constructor(
         // Run sync in separate coroutine with cooldown to avoid blocking UI
         viewModelScope.launch(Dispatchers.IO) {
             syncUtils.tryAutoSync()
-        }
-
-        // Prepare wrapped data in background
-        viewModelScope.launch(Dispatchers.IO) {
-            showWrappedCard.collect { shouldShow ->
-                if (shouldShow && !wrappedManager.state.value.isDataReady) {
-                    try {
-                        wrappedManager.prepare()
-                        val state = wrappedManager.state.first { it.isDataReady }
-                        val trackMap = state.trackMap
-                        if (trackMap.isNotEmpty()) {
-                            val firstTrackId = trackMap.entries.first().value
-                            wrappedAudioService.prepareTrack(firstTrackId)
-                        }
-                    } catch (e: Exception) {
-                        reportException(e)
-                    }
-                }
-            }
         }
 
         // Listen for cookie changes and reload account data

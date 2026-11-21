@@ -7,9 +7,15 @@ package com.metrolist.music.playback
 
 import com.metrolist.music.catalog.Catalog
 import com.metrolist.spotify.models.SpotifyTrack
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
@@ -67,7 +73,9 @@ object SpotifyLikeCache {
      * before. Safe to call repeatedly (e.g. from a screen's LaunchedEffect); no-op when nothing new.
      */
     @Volatile private var libraryLoadedAt = 0L
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val loadMutex = Mutex()
+    @Volatile private var activeLoadJob: Job? = null
     private const val REFRESH_MS = 10 * 60 * 1000L
     private const val PAGE = 50
     private const val MAX_TRACKS = 10_000
@@ -76,35 +84,41 @@ object SpotifyLikeCache {
     private const val MAX_KEPT_TRACKS = 5_000
 
     suspend fun ensureLoaded(@Suppress("UNUSED_PARAMETER") spotifyIds: List<String>) {
-        // The per-id REST check (GET /me/tracks/contains) was called from every list and quickly hit
-        // Spotify's 429 rate limit — after which no hearts showed at all. Instead load the whole Liked
-        // Songs library once (GQL, paged) and answer every id from memory; refresh occasionally.
         if (!Catalog.isActive) return
         if (System.currentTimeMillis() - libraryLoadedAt < REFRESH_MS) return
-        loadMutex.withLock {
+        val job = synchronized(this) {
             if (System.currentTimeMillis() - libraryLoadedAt < REFRESH_MS) return
-            val all = HashSet<String>()
-            val tracks = mutableListOf<SpotifyTrack>()
-            var offset = 0
-            while (offset < MAX_TRACKS) {
-                val page = Catalog.likedSongs(limit = PAGE, offset = offset).getOrElse { e ->
-                    Timber.w(e, "SpotifyLikeCache: likedSongs page failed at offset=$offset")
-                    if (all.isEmpty()) return // keep previous state; retry on next call
-                    null
-                } ?: break
-                val ids = page.items.mapNotNull { it.track.id.takeIf { id -> id.isNotBlank() } }
-                all.addAll(ids)
-                if (tracks.size < MAX_KEPT_TRACKS) tracks += page.items.map { it.track }
-                offset += PAGE
-                if (page.items.size < PAGE || (page.total in 1..offset)) break
-            }
-            mutex.withLock { known.clear(); known.addAll(all) }
-            // Likes and unlikes just made in the app win over the (lagging) account list.
-            _liked.value = withRecentChoices(all)
-            _likedTracks.value = tracks
-            libraryLoadedAt = System.currentTimeMillis()
-            Timber.d("SpotifyLikeCache: loaded ${all.size} liked tracks")
+            activeLoadJob?.takeIf { it.isActive } ?: scope.launch {
+                loadInternal()
+            }.also { activeLoadJob = it }
         }
+        job.join()
+    }
+
+    private suspend fun loadInternal() = loadMutex.withLock {
+        if (System.currentTimeMillis() - libraryLoadedAt < REFRESH_MS) return
+        val all = HashSet<String>()
+        val tracks = mutableListOf<SpotifyTrack>()
+        var offset = 0
+        while (offset < MAX_TRACKS) {
+            val page = Catalog.likedSongs(limit = PAGE, offset = offset).getOrElse { e ->
+                if (e is CancellationException) throw e
+                Timber.w(e, "SpotifyLikeCache: likedSongs page failed at offset=$offset")
+                if (all.isEmpty()) return // keep previous state; retry on next call
+                null
+            } ?: break
+            val ids = page.items.mapNotNull { it.track.id.takeIf { id -> id.isNotBlank() } }
+            all.addAll(ids)
+            if (tracks.size < MAX_KEPT_TRACKS) tracks += page.items.map { it.track }
+            offset += PAGE
+            if (page.items.size < PAGE || (page.total in 1..offset)) break
+        }
+        mutex.withLock { known.clear(); known.addAll(all) }
+        // Likes and unlikes just made in the app win over the (lagging) account list.
+        _liked.value = withRecentChoices(all)
+        _likedTracks.value = tracks
+        libraryLoadedAt = System.currentTimeMillis()
+        Timber.d("SpotifyLikeCache: loaded ${all.size} liked tracks")
     }
 
     /** Optimistically reflect a like/unlike so all observing screens update immediately. */

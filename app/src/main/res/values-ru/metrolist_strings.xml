@@ -242,6 +242,14 @@
     <string name="wrapped_album_listening_time_minutes">%d минут</string>
     <string name="wrapped_no_data">Нет данных</string>
     <string name="wrapped_top_5_artists_title">Ваши топ-исполнители года</string>
+    <string name="wrapped_top_liked_artists_title">Самые лайкнутые исполнители</string>
+    <string name="wrapped_liked_disclaimer">Учтены лайки при использовании приложения</string>
+    <plurals name="wrapped_liked_count_plural">
+        <item quantity="one">%d лайкнутый трек</item>
+        <item quantity="few">%d лайкнутых трека</item>
+        <item quantity="many">%d лайкнутых треков</item>
+        <item quantity="other">%d лайкнутых треков</item>
+    </plurals>
     <string name="wrapped_artist_listening_time">%d минут</string>
     <string name="wrapped_top_5_songs_title">Ваши топ-треки года</string>
     <string name="wrapped_top_song_album_art_content_description">Обложка альбома</string>
@@ -2227,6 +2235,10 @@
     <string name="story_service_tracks">Твои треки %1$s</string>
     <string name="story_service_artists">Твои исполнители %1$s</string>
     <string name="story_service_genres_pre">Из чего складывается твой вкус</string>
+    <string name="story_liked_artists_title">Топ по лайкам</string>
+    <string name="story_liked_disclaimer">Лайки, поставленные за этот период</string>
+    <string name="service_stats_desc_youtube">Лайкнутые треки и любимые исполнители из YouTube Music</string>
+    <string name="stats_youtube_total">%1$d треков в Понравившихся</string>
     <string name="slider_ring">Кольцо вокруг обложки</string>
     <string name="slider_ring_desc">Без полоски: обложка круглая, прогресс идёт вокруг неё — веди пальцем по кольцу, чтобы перемотать</string>
     <string name="ring_cover_spin">Вращать обложку</string>
@@ -2251,4 +2263,35 @@
     <string name="donate_text">Без рекламы, подписок и платных функций. Если приложение тебе нравится, чаевые помогают оплачивать серверы и время на разработку. Спасибо!</string>
     <string name="donate_button">Оставить чаевые</string>
     <string name="donate_note">Откроется CloudTips: карта любого банка, СБП или Google Pay. Оплата проходит там — приложение не видит данные карты.</string>
+
+    <!-- Collaborative Playlists & Party Queue -->
+    <string name="collab_playlists_title">Общие плейлисты</string>
+    <string name="collab_playlists_subtitle">Вместе с друзьями</string>
+    <string name="collab_playlist_create">Создать общий плейлист</string>
+    <string name="collab_playlist_name_hint">Название плейлиста</string>
+    <string name="collab_max_limit_reached">Достигнут лимит (максимум 3 общих плейлиста)</string>
+    <string name="collab_party_round_robin">По очереди</string>
+    <string name="collab_party_round_robin_desc">Воспроизведение по одному треку от каждого участника</string>
+    <string name="share_outside_app">Вне приложения</string>
+    <string name="collab_play_selected">Включить выбранные</string>
+    <string name="collab_delete_selected">Удалить выбранные</string>
+    <string name="collab_access_toggle">Кто может добавлять</string>
+    <string name="collab_access_friends_and_link">Друзья и по ссылке</string>
+    <string name="collab_access_friends_only">Только друзья</string>
+    <string name="collab_add_track">Добавить трек</string>
+    <string name="collab_palette_title">Отметить цветом</string>
+    <string name="collab_palette_clear">Снять цвет</string>
+    <string name="collab_palette_apply">Применить</string>
+    <string name="collab_selected_count">Выбрано: %1$d</string>
+    <string name="collab_added_by">Добавил(а) %1$s</string>
+    <string name="collab_share_link">Поделиться ссылкой</string>
+    <string name="collab_link_copied">Ссылка скопирована</string>
+    <string name="collab_delete_track">Удалить трек</string>
+    <string name="collab_delete_playlist">Удалить общий плейлист</string>
+    <string name="collab_delete_playlist_confirm">Удалить общий плейлист «%1$s»?</string>
+    <string name="collab_track_added_toast">Трек добавлен в плейлист</string>
+    <string name="collab_limit_per_friend">Лимит треков на человека</string>
+    <string name="collab_limit_reached_toast">Достигнут лимит треков в этом плейлисте</string>
+    <string name="collab_empty_tracks">В очереди пока нет треков</string>
+    <string name="collab_empty_tracks_desc">Добавьте треки или отправьте ссылку друзьям</string>
 </resources>

@@ -212,6 +212,12 @@ object SpotifyMapper {
      */
     const val DURATION_TOLERANCE_WIDE_S = 30
 
+    /**
+     * Absolute ceiling for loose picking: if candidate duration is known and differs from
+     * the catalog track by more than this, reject rather than playing a cut preview / truncated upload.
+     */
+    const val MAX_LOOSE_DURATION_TOLERANCE_S = 40
+
     /** Minimum raw match score for an accepted candidate (a floor beneath the hard gates). */
     const val MIN_MATCH_THRESHOLD = 0.35
 
@@ -562,7 +568,11 @@ object SpotifyMapper {
 
     private fun loosePick(candidates: List<Candidate>, durationOff: (Candidate) -> Int?): MatchResult {
         if (candidates.isEmpty()) return MatchResult.NoMatch
-        val chosen = candidates.minByOrNull { durationOff(it) ?: Int.MAX_VALUE } ?: candidates.first()
+        val chosen = candidates.minByOrNull { durationOff(it) ?: Int.MAX_VALUE } ?: return MatchResult.NoMatch
+        val off = durationOff(chosen)
+        if (off != null && off > MAX_LOOSE_DURATION_TOLERANCE_S) {
+            return MatchResult.NoMatch
+        }
         return MatchResult.Matched(chosen.id, 0.0, chosen.title, chosen.artist)
     }
 

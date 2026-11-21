@@ -232,9 +232,11 @@ class HlsConcatDataSource(
         val stream = WholeStream(playlistUrl, playlist.segments.size, if (playlist.initUrl == null) seconds else 0.0, started)
         playlist.segments.forEachIndexed { i, url ->
             segmentPool.execute {
+                if (stream.failure != null) return@execute
                 try {
                     val raw = retrying { fetchBytes(url, null) }
                         ?: throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
+                    if (stream.failure != null) return@execute
                     val key = playlist.keys.getOrNull(i)
                     val plain = if (key == null) {
                         raw
@@ -296,8 +298,14 @@ class HlsConcatDataSource(
         repeat(PROBE_ATTEMPTS) { attempt ->
             val result = runCatching(block)
             result.getOrNull()?.let { return it }
+            val ex = result.exceptionOrNull()
             // A server out of reach stays out of reach: asking it twice more only adds silence.
-            result.exceptionOrNull()?.takeIf { it is HostUnreachableException || it.cause is HostUnreachableException }?.let { throw it }
+            if (ex is HostUnreachableException || ex?.cause is HostUnreachableException) throw ex
+            // Server returned HTTP 5xx or bad status (e.g. 504 Gateway Timeout, 502, 403, 404):
+            // retrying immediately won't help and stalls playback for minutes.
+            if (ex is DataSourceException && ex.reason == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
+                throw ex
+            }
             if (attempt < PROBE_ATTEMPTS - 1) Thread.sleep(400L * (attempt + 1))
         }
         return null
@@ -321,9 +329,11 @@ class HlsConcatDataSource(
         val executor = segmentPool
         urls.forEachIndexed { i, url ->
             executor.execute {
+                if (failure.get() != null) return@execute
                 try {
                     val raw = retrying { fetchBytes(url, null) }
                         ?: throw DataSourceException(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
+                    if (failure.get() != null) return@execute
                     val segmentIndex = i - offset
                     val key = if (segmentIndex >= 0) playlist.keys.getOrNull(segmentIndex) else null
                     parts[i] = if (key == null) {

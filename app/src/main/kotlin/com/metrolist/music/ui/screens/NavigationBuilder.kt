@@ -72,7 +72,6 @@ import com.metrolist.music.ui.screens.settings.integrations.VkLoginScreen
 import com.metrolist.music.ui.screens.settings.integrations.YandexLoginScreen
 import com.metrolist.music.ui.screens.recognition.RecognitionScreen
 import com.metrolist.music.ui.screens.recognition.RecognitionHistoryScreen
-import com.metrolist.music.ui.screens.wrapped.WrappedScreen
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 
@@ -365,6 +364,20 @@ fun NavGraphBuilder.navigationBuilder(
     }
 
     composable(
+        "collab_playlist/{pubkey}/{id}",
+        arguments = listOf(
+            androidx.navigation.navArgument("pubkey") { type = androidx.navigation.NavType.StringType },
+            androidx.navigation.navArgument("id") { type = androidx.navigation.NavType.StringType },
+        ),
+    ) { entry ->
+        com.metrolist.music.ui.screens.playlist.CollabPlaylistScreen(
+            navController = navController,
+            pubkey = entry.arguments?.getString("pubkey").orEmpty(),
+            playlistId = entry.arguments?.getString("id").orEmpty(),
+        )
+    }
+
+    composable(
         "import_playlist?target={target}",
         arguments = listOf(
             androidx.navigation.navArgument("target") {
@@ -585,9 +598,10 @@ fun NavGraphBuilder.navigationBuilder(
         route = "account_stats/{service}",
         arguments = listOf(navArgument("service") { type = NavType.StringType }),
     ) { entry ->
-        val service = entry.arguments?.getString("service")
-            ?.let { v -> com.metrolist.music.constants.MetadataSource.entries.firstOrNull { it.name == v } }
-            ?: com.metrolist.music.constants.MetadataSource.SPOTIFY
+        val serviceName = entry.arguments?.getString("service")
+        val service = com.metrolist.music.ui.screens.settings.integrations.ServiceStatsSource.entries
+            .firstOrNull { it.name == serviceName }
+            ?: com.metrolist.music.ui.screens.settings.integrations.ServiceStatsSource.SPOTIFY
         com.metrolist.music.ui.screens.settings.integrations.ServiceStatsScreen(navController, service)
     }
 
@@ -694,10 +708,6 @@ fun NavGraphBuilder.navigationBuilder(
 
     composable("login") {
         LoginScreen(navController)
-    }
-
-    composable("wrapped") {
-        WrappedScreen(navController)
     }
 
     dialog("equalizer") {

@@ -1467,7 +1467,7 @@ fun LocalPlaylistHeader(
                 com.metrolist.music.ui.component.DownloadOrShare(
                     downloaded = downloadedIds.size,
                     total = songs.size,
-                    downloadedIds = { downloadedIds },
+                    downloadedIds = { songs.mapNotNull { downloadUtil.downloadedIdOf(it.song.id) }.distinct().ifEmpty { downloadedIds } },
                     onDownloadRest = downloadRest,
                     compact = true,
                     downloading = downloadingAny,

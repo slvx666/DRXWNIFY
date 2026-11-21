@@ -2560,7 +2560,7 @@ class MusicService :
                             loudnessEnhancer?.enabled = false
                             Timber
                                 .tag(TAG)
-                                .w("Normalization enabled but no loudness data available - no normalization applied")
+                                .d("Normalization enabled but no loudness data available - no normalization applied")
                         }
                     }
                 } else {
@@ -5209,7 +5209,7 @@ class MusicService :
                     .tag(TAG)
                     .d("Storing format for $mediaId with loudnessDb: $loudnessDb, perceptualLoudnessDb: $perceptualLoudnessDb")
                 if (loudnessDb == null && perceptualLoudnessDb == null) {
-                    Timber.tag(TAG).w("No loudness data available from YouTube for video: $mediaId")
+                    Timber.tag(TAG).d("No loudness data available from YouTube for video: $mediaId")
                 }
 
                 database.query {
@@ -5258,21 +5258,36 @@ class MusicService :
             // transmuxed to ADTS, plain MP3) show a duration and seek.
             DefaultExtractorsFactory()
                 .setAdtsExtractorFlags(androidx.media3.extractor.ts.AdtsExtractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING)
-                .setMp3ExtractorFlags(androidx.media3.extractor.mp3.Mp3Extractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING),
+                .setMp3ExtractorFlags(
+                    androidx.media3.extractor.mp3.Mp3Extractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING or
+                        androidx.media3.extractor.mp3.Mp3Extractor.FLAG_ENABLE_INDEX_SEEKING,
+                ),
         ).setLoadErrorHandlingPolicy(
-            // "No source has this track" is final: retrying it every few seconds (it went on for over
-            // a minute) searched every provider again each time and kept the player stuck on it.
-            object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+            // "No source has this track" or server errors (HTTP 5xx, 404, unreachable host) are final:
+            // retrying them keeps the player stuck for minutes instead of immediately triggering fallback.
+            object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(1) {
+                override fun getMinimumLoadableRetryCount(dataType: Int): Int = 1
+
                 override fun getRetryDelayMsFor(info: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long =
-                    // A stream server out of reach is final too: the error goes straight to the
-                    // fallback (another upload or source) instead of a minute of retries.
-                    if (isNoAudioSource(info.exception) || hasUnreachableHost(info.exception)) {
+                    // A stream server out of reach, 5xx gateway/server error, or fatal response:
+                    // the error goes straight to fallback (another upload or source) instead of retries.
+                    if (isNoAudioSource(info.exception) || hasUnreachableHost(info.exception) || isFatalServerError(info.exception) || info.errorCount >= 2) {
                         androidx.media3.common.C.TIME_UNSET
                     } else {
                         super.getRetryDelayMsFor(info)
                     }
             },
         )
+
+    private fun isFatalServerError(error: Throwable?): Boolean {
+        var e = error
+        while (e != null) {
+            if (e is HttpDataSource.InvalidResponseCodeException && (e.responseCode in 500..599 || e.responseCode == 403 || e.responseCode == 404 || e.responseCode == 410)) return true
+            if (e is DataSourceException && e.reason == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) return true
+            e = e.cause
+        }
+        return false
+    }
 
     private fun hasUnreachableHost(error: Throwable?): Boolean {
         var e = error

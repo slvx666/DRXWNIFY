@@ -36,14 +36,14 @@ internal object RelayPool {
         "wss://nos.lol",
         "wss://relay.primal.net",
         "wss://nostr.mom",
-        "wss://relay.snort.social",
+        "wss://purplerelay.com",
         // Not behind Cloudflare: where it is cut (Russia), damus and primal don't answer and nos.lol
         // and nostr.mom are one server; these keep messages going. damus also wants a login to read
         // direct messages now.
         "wss://offchain.pub",
-        "wss://nostr.oxtr.dev",
+        "wss://relay.noswhere.com",
         "wss://nostr-pub.wellorder.net",
-        "wss://nostr.einundzwanzig.space",
+        "wss://nostr.land",
     )
 
     private const val IDLE_CLOSE_MS = 90_000L

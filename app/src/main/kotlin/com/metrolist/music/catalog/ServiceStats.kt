@@ -6,9 +6,13 @@
 package com.metrolist.music.catalog
 
 import android.content.Context
+import com.metrolist.innertube.YouTube
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.models.SpotifyArtist
+import com.metrolist.spotify.models.SpotifyImage
+import com.metrolist.spotify.models.SpotifySimpleAlbum
+import com.metrolist.spotify.models.SpotifySimpleArtist
 import com.metrolist.spotify.models.SpotifyTrack
 import com.metrolist.yandex.YandexMusic
 import kotlinx.coroutines.async
@@ -153,6 +157,43 @@ object ServiceStats {
         }.recoverCatching { e -> saved ?: throw e }
     }
 
+    /** YouTube Music: likes and the most liked artists from the Liked Music ("LM") playlist. */
+    suspend fun youtubeStats(force: Boolean = false): Result<YandexStats> {
+        val saved = read<YandexStats>("youtube1")
+        if (!force && saved != null && System.currentTimeMillis() - saved.at < DAY_MS) return Result.success(saved)
+        return runCatching {
+            val initial = YouTube.playlist("LM").getOrThrow()
+            val allSongs = initial.songs.toMutableList()
+            var cont = initial.continuation ?: initial.songsContinuation
+            var rounds = 0
+            while (cont != null && allSongs.size < 500 && rounds < 10) {
+                val next = YouTube.playlistContinuation(cont).getOrNull() ?: break
+                allSongs.addAll(next.songs)
+                cont = next.continuation
+                rounds++
+            }
+            check(allSongs.isNotEmpty()) { "YouTube Music library is empty" }
+            val byArtist = allSongs.groupBy { it.artists.firstOrNull()?.name?.trim().orEmpty() }
+                .filterKeys { it.isNotBlank() }
+            val artists = byArtist.entries.sortedByDescending { it.value.size }.take(15).map { (name, songs) ->
+                val first = songs.first()
+                val fakeTrack = SpotifyTrack(
+                    id = first.id,
+                    name = first.title,
+                    artists = first.artists.map { SpotifySimpleArtist(id = it.id, name = it.name) },
+                    album = first.album?.let { SpotifySimpleAlbum(id = it.id.orEmpty(), name = it.name, images = listOf(SpotifyImage(url = first.thumbnail, height = 300, width = 300))) },
+                )
+                ArtistCount(name, songs.size, fakeTrack, first.thumbnail)
+            }
+            val now = YearMonth.now()
+            val byMonth = (11 downTo 0).map { back ->
+                val m = now.minusMonths(back.toLong())
+                MonthCount(m.toString(), if (back == 0) allSongs.size else 0)
+            }
+            YandexStats(allSongs.size, byMonth, artists, System.currentTimeMillis()).also { write("youtube1", it) }
+        }.recoverCatching { e -> saved ?: throw e }
+    }
+
     private const val DAY_MS = 24 * 60 * 60_000L
 }
 
@@ -212,6 +253,8 @@ object MonthReview {
         val likesBestCount: Int = 0,
         /** A song not in the app's database (a service's track) by its key: something to play. */
         val media: (suspend (String) -> androidx.media3.common.MediaItem?)? = null,
+        /** Top 10 liked artists of this review's period (or all-time likes). */
+        val likedArtists: List<Item> = emptyList(),
     )
 
     private const val PREFS = "month_review"
@@ -307,6 +350,27 @@ object MonthReview {
         }
         val genreEarly = leading(inMonth.filter { it.event.timestamp < half })
         val genreLate = leading(inMonth.filter { it.event.timestamp >= half })
+        val allLiked = runCatching { database.likedSongsByCreateDateAsc().first() }.getOrDefault(emptyList())
+        val likedInMonth = allLiked.filter {
+            it.song.liked && it.song.likedDate != null && it.song.likedDate >= start && it.song.likedDate < end
+        }
+        val targetLikes = if (likedInMonth.isNotEmpty()) likedInMonth else allLiked.filter { it.song.liked }
+        val likedArtists = targetLikes
+            .groupBy { it.artists.firstOrNull()?.name?.trim().orEmpty() }
+            .filterKeys { it.isNotBlank() }
+            .entries
+            .sortedByDescending { it.value.size }
+            .take(10)
+            .map { (name, songs) ->
+                Item(
+                    title = name,
+                    subtitle = null,
+                    count = songs.size,
+                    image = songs.firstNotNullOfOrNull { it.artists.firstOrNull()?.thumbnailUrl }
+                        ?: songs.firstOrNull()?.song?.thumbnailUrl,
+                    songId = songs.firstOrNull()?.id,
+                )
+            }
         return Review(
             month = month,
             minutes = minutes,
@@ -323,6 +387,7 @@ object MonthReview {
             genreEarly = genreEarly,
             genreLate = genreLate,
             genreSongs = genreSongs.take(200),
+            likedArtists = likedArtists,
         )
     }
 

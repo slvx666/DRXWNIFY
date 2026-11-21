@@ -16,7 +16,9 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.background
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilledTonalButton
@@ -86,6 +88,7 @@ import coil3.compose.AsyncImage
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.friends.CollabPlaylistManager
 import com.metrolist.music.friends.FriendPlayback
 import com.metrolist.music.friends.FriendsHub
 import kotlinx.coroutines.launch
@@ -261,6 +264,7 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
     val liveClock = rememberLiveClock()
     val context = LocalContext.current
     val profile by FriendsHub.profile.collectAsState()
+    val me = profile
     val friends by FriendsHub.friends.collectAsState()
     val data by FriendsHub.data.collectAsState()
     val pinned by FriendsHub.pinned.collectAsState()
@@ -268,16 +272,19 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
     val requests by FriendsHub.requests.collectAsState()
     val listeningTo by FriendsHub.listeningTo.collectAsState()
     val invite by FriendsHub.invite.collectAsState()
+    val myCollabs by com.metrolist.music.friends.CollabPlaylistManager.myPlaylists.collectAsState()
     var showBackup by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var showRestore by remember { mutableStateOf(false) }
     var showAdd by remember { mutableStateOf(false) }
     var showHow by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var showCreateCollab by remember { mutableStateOf(false) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     // The header first; the rest a couple of frames later, after the opening animation got going:
     // composing everything in the first frame made the tab stutter while it slid in.
     var restReady by rememberSaveable { mutableStateOf(false) }
+    var friendsExpanded by rememberSaveable { mutableStateOf(true) }
     androidx.compose.runtime.LaunchedEffect(Unit) {
         repeat(3) { androidx.compose.runtime.withFrameNanos { } }
         restReady = true
@@ -576,46 +583,142 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
             }
         }
 
-        item(key = "friends_title") { SectionTitle(stringResource(R.string.friends_title), others.size) }
-        if (others.isEmpty()) {
-            item(key = "friends_empty") {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 24.dp),
-                ) {
-                    Icon(
-                        painterResource(R.drawable.group),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(40.dp),
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        stringResource(R.string.friends_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        item(key = "friends_title") {
+            SectionTitle(
+                title = stringResource(R.string.friends_title),
+                count = others.size,
+                expanded = friendsExpanded,
+                onToggleExpand = { friendsExpanded = !friendsExpanded },
+            )
+        }
+        if (friendsExpanded) {
+            if (others.isEmpty()) {
+                item(key = "friends_empty") {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 24.dp),
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.group),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(40.dp),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            stringResource(R.string.friends_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                    }
+                }
+            }
+            others.forEach { friend ->
+                item(key = friend.pubkey) {
+                    val d = data[friend.pubkey]
+                    FriendRow(
+                        pubkey = friend.pubkey,
+                        name = displayName(friend.pubkey, d?.name ?: friend.name),
+                        avatar = d?.avatar,
+                        now = d?.now,
+                        pinned = friend.pubkey in pinned,
+                        onClick = { navController.navigate("friend/${friend.pubkey}") },
+                        onLongClick = {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            val nowPinned = FriendsHub.togglePinned(friend.pubkey)
+                            Toast.makeText(context, if (nowPinned) R.string.friends_pinned else R.string.friends_unpinned, Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.animateItem(),
                     )
                 }
             }
         }
-        others.forEach { friend ->
-            item(key = friend.pubkey) {
-                val d = data[friend.pubkey]
-                FriendRow(
-                    pubkey = friend.pubkey,
-                    name = displayName(friend.pubkey, d?.name ?: friend.name),
-                    avatar = d?.avatar,
-                    now = d?.now,
-                    pinned = friend.pubkey in pinned,
-                    onClick = { navController.navigate("friend/${friend.pubkey}") },
-                    onLongClick = {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                        val nowPinned = FriendsHub.togglePinned(friend.pubkey)
-                        Toast.makeText(context, if (nowPinned) R.string.friends_pinned else R.string.friends_unpinned, Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.animateItem(),
-                )
+
+        // Shared Playlists (Party Queue) - Placed below the friends list
+        item(key = "my_collab_playlists") {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            painter = painterResource(R.drawable.queue_music),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            stringResource(R.string.collab_playlists_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "${myCollabs.size}/${CollabPlaylistManager.MAX_COLLAB_PLAYLISTS}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (myCollabs.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        myCollabs.forEach { cp ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { navController.navigate("collab_playlist/${me.pubkey}/${cp.id}") }
+                                    .padding(vertical = 4.dp),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(cp.name, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                stringResource(R.string.friends_tracks_count, cp.totalCount),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                            if (cp.roundRobin) {
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("•", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                                Spacer(Modifier.width(6.dp))
+                                                Text(
+                                                    stringResource(R.string.collab_party_round_robin),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    IconButton(onClick = { navController.navigate("collab_playlist/${me.pubkey}/${cp.id}") }) {
+                                        Icon(painterResource(R.drawable.play), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (myCollabs.size < CollabPlaylistManager.MAX_COLLAB_PLAYLISTS) {
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { showCreateCollab = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = com.metrolist.music.ui.theme.tuiButtonShape(),
+                        ) {
+                            Icon(painterResource(R.drawable.add), null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.collab_playlist_create))
+                        }
+                    }
+                }
             }
         }
     }
@@ -666,6 +769,64 @@ fun FriendsContent(navController: NavController, topPadding: Dp = 4.dp) {
                 }
             },
             dismissButton = { TextButton(onClick = { showRename = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) { Text(stringResource(android.R.string.cancel)) } },
+        )
+    }
+    if (showCreateCollab) {
+        var name by remember { mutableStateOf("") }
+        var roundRobin by remember { mutableStateOf(true) }
+        var allowByLink by remember { mutableStateOf(true) }
+
+        AlertDialog(
+            onDismissRequest = { showCreateCollab = false },
+            title = { Text(stringResource(R.string.collab_playlist_create)) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        placeholder = { Text(stringResource(R.string.collab_playlist_name_hint)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(R.string.collab_party_round_robin), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text(stringResource(R.string.collab_party_round_robin_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = roundRobin, onCheckedChange = { roundRobin = it })
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(R.string.collab_access_toggle), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text(
+                                if (allowByLink) stringResource(R.string.collab_access_friends_and_link)
+                                else stringResource(R.string.collab_access_friends_only),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(checked = allowByLink, onCheckedChange = { allowByLink = it })
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val created = CollabPlaylistManager.createPlaylist(name, roundRobin, allowByLink)
+                    showCreateCollab = false
+                    if (created != null && me != null) {
+                        navController.navigate("collab_playlist/${me.pubkey}/${created.id}")
+                    }
+                }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
+                    Text(stringResource(R.string.create))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateCollab = false }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
         )
     }
     if (showAdd) {
@@ -765,12 +926,25 @@ private fun CreateProfileCard() {
     }
 }
 
-/** A section heading of the Friends tab, with a count. */
+/** A section heading of the Friends tab, with a count and optional collapse arrow. */
 @Composable
-private fun SectionTitle(title: String, count: Int?) {
+private fun SectionTitle(
+    title: String,
+    count: Int?,
+    expanded: Boolean? = null,
+    onToggleExpand: (() -> Unit)? = null,
+) {
+    val clickModifier = if (onToggleExpand != null) {
+        Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onToggleExpand)
+    } else Modifier
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(clickModifier)
+            .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp),
     ) {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         if (count != null && count > 0) {
@@ -782,6 +956,21 @@ private fun SectionTitle(title: String, count: Int?) {
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp),
                 )
             }
+        }
+        if (expanded != null) {
+            Spacer(Modifier.weight(1f))
+            val rotation by animateFloatAsState(
+                targetValue = if (expanded) 180f else 0f,
+                label = "friends_expand_arrow",
+            )
+            Icon(
+                painter = painterResource(R.drawable.expand_more),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(24.dp)
+                    .rotate(rotation),
+            )
         }
     }
 }
@@ -1149,6 +1338,58 @@ fun FriendScreen(navController: NavController, pubkey: String) {
                     }
                 }
             }
+            val collabPlaylists = d?.collabPlaylists.orEmpty()
+            if (collabPlaylists.isNotEmpty()) {
+                item(key = "friend_collabs") {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    painter = painterResource(R.drawable.queue_music),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(stringResource(R.string.collab_playlists_title), fontWeight = FontWeight.SemiBold)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            collabPlaylists.forEach { cp ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainer,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { navController.navigate("collab_playlist/$pubkey/${cp.id}") }
+                                        .padding(vertical = 4.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(cp.name, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(
+                                                stringResource(R.string.friends_tracks_count, cp.totalCount),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        IconButton(onClick = { navController.navigate("collab_playlist/$pubkey/${cp.id}") }) {
+                                            Icon(painterResource(R.drawable.play), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // The friend's liked tracks (the newest 500): a card here, the whole list as a playlist.
             d?.likes?.takeIf { it.tracks.isNotEmpty() }?.let { likes ->
                 item(key = "likes") {

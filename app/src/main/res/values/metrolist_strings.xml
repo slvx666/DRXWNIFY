@@ -614,6 +614,12 @@
     <string name="wrapped_album_listening_time_minutes">%d minutes</string>
     <string name="wrapped_no_data">No data available</string>
     <string name="wrapped_top_5_artists_title">Your top artists of the year</string>
+    <string name="wrapped_top_liked_artists_title">Your most liked artists</string>
+    <string name="wrapped_liked_disclaimer">Likes made in the app</string>
+    <plurals name="wrapped_liked_count_plural">
+        <item quantity="one">%d liked song</item>
+        <item quantity="other">%d liked songs</item>
+    </plurals>
     <string name="wrapped_artist_listening_time">%d minutes</string>
     <string name="wrapped_top_5_songs_title">Your top songs of the year</string>
     <string name="wrapped_top_song_album_art_content_description">Album art</string>
@@ -2272,6 +2278,10 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="story_service_tracks">Your tracks %1$s</string>
     <string name="story_service_artists">Your artists %1$s</string>
     <string name="story_service_genres_pre">What your taste is made of</string>
+    <string name="story_liked_artists_title">Top liked artists</string>
+    <string name="story_liked_disclaimer">Likes given during this period</string>
+    <string name="service_stats_desc_youtube">Liked songs and top artists from your YouTube Music library</string>
+    <string name="stats_youtube_total">%1$d liked tracks in YouTube Music</string>
     <string name="slider_ring">Ring around the cover</string>
     <string name="slider_ring_desc">No bar: the cover is round and the progress runs around it — drag along the ring to seek</string>
     <string name="ring_cover_spin">Spin the cover</string>
@@ -2296,4 +2306,35 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="donate_text">No ads, no subscriptions, nothing locked. If the app is worth something to you, a tip helps pay for the servers and the time it takes. Thank you!</string>
     <string name="donate_button">Leave a tip</string>
     <string name="donate_note">Opens CloudTips: any bank card, SBP or Google Pay. The payment happens there — the app never sees your card.</string>
+
+    <!-- Collaborative Playlists & Party Queue -->
+    <string name="collab_playlists_title">Shared playlists</string>
+    <string name="collab_playlists_subtitle">Together with friends</string>
+    <string name="collab_playlist_create">Create shared playlist</string>
+    <string name="collab_playlist_name_hint">Playlist name</string>
+    <string name="collab_max_limit_reached">Maximum 3 shared playlists reached</string>
+    <string name="collab_party_round_robin">By turns</string>
+    <string name="collab_party_round_robin_desc">Plays 1 track from each contributor in turns</string>
+    <string name="share_outside_app">Outside the app</string>
+    <string name="collab_play_selected">Play selected</string>
+    <string name="collab_delete_selected">Delete selected</string>
+    <string name="collab_access_toggle">Who can add tracks</string>
+    <string name="collab_access_friends_and_link">Friends &amp; anyone with link</string>
+    <string name="collab_access_friends_only">Friends only</string>
+    <string name="collab_add_track">Add track</string>
+    <string name="collab_palette_title">Mark with color</string>
+    <string name="collab_palette_clear">Clear color</string>
+    <string name="collab_palette_apply">Apply color</string>
+    <string name="collab_selected_count">Selected: %1$d</string>
+    <string name="collab_added_by">Added by %1$s</string>
+    <string name="collab_share_link">Share link</string>
+    <string name="collab_link_copied">Link copied to clipboard</string>
+    <string name="collab_delete_track">Delete track</string>
+    <string name="collab_delete_playlist">Delete shared playlist</string>
+    <string name="collab_delete_playlist_confirm">Delete shared playlist \"%1$s\"?</string>
+    <string name="collab_track_added_toast">Track added to playlist</string>
+    <string name="collab_limit_per_friend">Track limit per friend</string>
+    <string name="collab_limit_reached_toast">Limit reached for this playlist</string>
+    <string name="collab_empty_tracks">No tracks in queue yet</string>
+    <string name="collab_empty_tracks_desc">Add tracks or share the link with friends</string>
 </resources>

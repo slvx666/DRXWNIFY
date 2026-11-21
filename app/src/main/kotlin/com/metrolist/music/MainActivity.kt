@@ -1200,7 +1200,7 @@ class MainActivity : ComponentActivity() {
                             // Pre-calculate values for graphicsLayer to avoid reading state during composition
                             val navBarTotalHeight = bottomInset + NavigationBarHeight
 
-                            if (!showRail && currentRoute != "wrapped") {
+                            if (!showRail) {
                                 Box {
                                     // Background band behind the mini player, reaching exactly up to its top
                                     // edge (border included), so a transparent mini player never has the page
@@ -1291,14 +1291,12 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                             } else {
-                                if (currentRoute != "wrapped") {
-                                    Box(Modifier.fillMaxSize().graphicsLayer { translationY = miniPlayerHide.toPx() }) {
-                                        BottomSheetPlayer(
-                                            state = playerBottomSheetState,
-                                            navController = navController,
-                                            pureBlack = pureBlack,
-                                        )
-                                    }
+                                Box(Modifier.fillMaxSize().graphicsLayer { translationY = miniPlayerHide.toPx() }) {
+                                    BottomSheetPlayer(
+                                        state = playerBottomSheetState,
+                                        navController = navController,
+                                        pureBlack = pureBlack,
+                                    )
                                 }
 
                                 Box(
@@ -1362,7 +1360,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
-                            if (showRail && currentRoute != "wrapped") {
+                            if (showRail) {
                                 AppNavigationRail(
                                     navigationItems = navigationItems,
                                     currentRoute = currentRoute,
@@ -1871,6 +1869,14 @@ class MainActivity : ComponentActivity() {
                     runCatching { navController.navigate(if (fromYouTube) "online_playlist/$id" else "spotify_playlist/$id") }
                 com.metrolist.music.utils.AppLinks.Kind.ARTIST ->
                     runCatching { navController.navigate(if (fromYouTube) "artist/$id" else "spotify_artist/$id") }
+                com.metrolist.music.utils.AppLinks.Kind.COLLAB -> {
+                    val parts = target.id.split('/')
+                    val pubkey = parts.getOrNull(0)
+                    val pid = parts.getOrNull(1)
+                    if (pubkey != null && pid != null) {
+                        runCatching { navController.navigate("collab_playlist/$pubkey/$pid") }
+                    }
+                }
                 com.metrolist.music.utils.AppLinks.Kind.TRACK -> if (fromYouTube) {
                     playerConnection?.playQueue(YouTubeQueue(WatchEndpoint(videoId = id)))
                 } else {

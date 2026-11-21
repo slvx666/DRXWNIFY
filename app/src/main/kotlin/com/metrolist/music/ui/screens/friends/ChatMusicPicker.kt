@@ -601,6 +601,7 @@ private fun PickRow(m: ChatMusic, checked: Boolean, onClick: () -> Unit) {
                     AppLinks.Kind.TRACK -> R.string.chat_track
                     AppLinks.Kind.ALBUM -> R.string.chat_album
                     AppLinks.Kind.PLAYLIST -> R.string.chat_playlist
+                    AppLinks.Kind.COLLAB -> R.string.collab_playlists_title
                     AppLinks.Kind.ARTIST -> R.string.chat_artist
                 },
             )

@@ -150,6 +150,7 @@ object FriendsHub {
         val stats: Stats? = null,
         val likes: SharedLikes? = null,
         val portrait: com.metrolist.music.portrait.ProfilePortrait? = null,
+        val collabPlaylists: List<CollabPlaylist>? = null,
         /** Newest event per field (created_at, s), so an older copy never replaces a newer one. */
         val stamps: Map<String, Long> = emptyMap(),
     )
@@ -163,6 +164,7 @@ object FriendsHub {
     private const val F_PLAYLISTS = "playlists"
     private const val F_STATS = "stats"
     private const val F_HELLO = "hello"
+    private const val F_COLLAB = "collab"
 
     /** Liked tracks of the account (or of the app without one), packed: see [packLikes]. */
     private const val F_LIKES = "likes"
@@ -252,27 +254,30 @@ object FriendsHub {
     }
 
     @Volatile
-    private var secretKey: ByteArray? = null
+    private var _secretKey: ByteArray? = null
+
+    internal val secretKey: ByteArray? get() = _secretKey
 
     internal fun databaseOrNull(): MusicDatabase? = database
 
     /** This profile's key, when there is a profile (for messages signed as it). */
-    internal fun secretKeyOrNull(): ByteArray? = secretKey
+    internal fun secretKeyOrNull(): ByteArray? = _secretKey
 
     fun init(context: Context, database: MusicDatabase) {
         appContext = context.applicationContext
         this.database = database
+        CollabPlaylistManager.init(context)
         val p = context.getSharedPreferences("friends", Context.MODE_PRIVATE)
         prefs = p
         loadFaces()
         // Relays that ask who we are (NIP-42) get it signed with this profile's key.
         RelayPool.authSigner = { relay, challenge ->
-            secretKey?.let { sk -> Nostr.sign(sk, 22242, listOf(listOf("relay", relay), listOf("challenge", challenge)), "") }
+            _secretKey?.let { sk -> Nostr.sign(sk, 22242, listOf(listOf("relay", relay), listOf("challenge", challenge)), "") }
         }
         p.getString("sk", null)?.let { hex ->
             runCatching {
                 val sk = hex.hexToBytes()
-                secretKey = sk
+                _secretKey = sk
                 _profile.value = Profile(Secp256k1.publicKey(sk).toHex(), p.getString("name", null).orEmpty(), p.getString("avatar", null))
             }
         }
@@ -585,7 +590,7 @@ object FriendsHub {
         val pub = Secp256k1.publicKey(sk).toHex()
         // Another profile: its mark has to be looked up again.
         if (pub != _profile.value?.pubkey) prefs?.edit()?.remove("verifiedFor")?.remove("iAmVerified")?.apply()
-        secretKey = sk
+        _secretKey = sk
         prefs?.edit()?.putString("sk", sk.toHex())?.putString("name", name)?.apply()
         _profile.value = Profile(pub, name, prefs?.getString("avatar", null))
         refreshAccess()
@@ -704,6 +709,7 @@ object FriendsHub {
         if (friendKeys.isNotEmpty()) {
             val dValues = JSONArray().put(D_PREFIX + F_PROFILE)
             DATA_FIELDS.forEach { dValues.put(D_PREFIX + it); dValues.put("$D_PREFIX$it:$me") }
+            (1..3).forEach { dValues.put("$D_PREFIX$F_COLLAB:$it") }
             dValues.put("$D_PREFIX$F_VERIFIED:$me")
             if (_profile.value?.isDeveloper == true) _friends.value.forEach { dValues.put("$D_PREFIX$F_VERIFIED:${it.pubkey}") }
             val filter = JSONObject()
@@ -766,17 +772,24 @@ object FriendsHub {
             newestSeen = maxOf(newestSeen, event.createdAt)
             val stamps = current.stamps + (field to event.createdAt)
             val json = content.takeIf { it.isNotBlank() }?.let { runCatching { JSONObject(it) }.getOrNull() }
-            val updated = when (field) {
-                F_PROFILE -> current.copy(
+            val updated = when {
+                field == F_PROFILE -> current.copy(
                     name = json?.optString("name")?.takeIf { it.isNotBlank() } ?: current.name,
                     avatar = json?.optString("pic")?.takeIf { it.isNotBlank() && it.length <= MAX_AVATAR_CHARS } ?: current.avatar,
                 )
-                F_NOW -> current.copy(now = json?.let(::nowFromJson))
-                F_HISTORY -> current.copy(history = json?.optJSONArray("tracks")?.let(::refsFromJson))
-                F_PLAYLISTS -> current.copy(playlists = json?.optJSONArray("playlists")?.let(::playlistsFromJson))
-                F_STATS -> current.copy(stats = json?.let(::statsFromJson))
-                F_LIKES -> current.copy(likes = content.takeIf { it.isNotBlank() }?.let(::unpackLikes))
-                F_PORTRAIT -> current.copy(portrait = content.takeIf { it.isNotBlank() }?.let(com.metrolist.music.portrait.PortraitCodec::unpack))
+                field == F_NOW -> current.copy(now = json?.let(::nowFromJson))
+                field == F_HISTORY -> current.copy(history = json?.optJSONArray("tracks")?.let(::refsFromJson))
+                field == F_PLAYLISTS -> current.copy(playlists = json?.optJSONArray("playlists")?.let(::playlistsFromJson))
+                field == F_STATS -> current.copy(stats = json?.let(::statsFromJson))
+                field == F_LIKES -> current.copy(likes = content.takeIf { it.isNotBlank() }?.let(::unpackLikes))
+                field == F_PORTRAIT -> current.copy(portrait = content.takeIf { it.isNotBlank() }?.let(com.metrolist.music.portrait.PortraitCodec::unpack))
+                field.startsWith(F_COLLAB) -> {
+                    val pl = json?.let(CollabPlaylistManager::playlistFromJson)
+                    if (pl != null) {
+                        val existing = current.collabPlaylists.orEmpty().filterNot { it.id == pl.id }
+                        current.copy(collabPlaylists = existing + pl)
+                    } else current
+                }
                 else -> return
             }.copy(stamps = stamps)
             _data.value = _data.value + (author to updated)

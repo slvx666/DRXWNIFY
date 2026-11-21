@@ -978,7 +978,8 @@ private fun AutoPlaylistHeader(
                         val ids = songs.map { it.song.id }
                         if (ids.isNotEmpty()) {
                             shareScope.launch {
-                                com.metrolist.music.utils.shareDownloadedFiles(appContext, shareDownloadUtil.downloadExporter, ids)
+                                val resolved = ids.mapNotNull { shareDownloadUtil.downloadedIdOf(it) }.distinct().ifEmpty { ids }
+                                com.metrolist.music.utils.shareDownloadedFiles(appContext, shareDownloadUtil.downloadExporter, resolved)
                             }
                         }
                     },

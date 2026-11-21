@@ -121,6 +121,17 @@ data class ChatMusic(
                         AppLinks.Kind.ARTIST -> Catalog.artist(target.id).getOrNull()?.let { a ->
                             plain.copy(title = a.name, by = "", cover = pick(a.images))
                         }
+                        AppLinks.Kind.COLLAB -> {
+                            val parts = target.id.split('/')
+                            val pub = parts.getOrNull(0).orEmpty()
+                            val name = FriendsHub.friends.value.firstOrNull { it.pubkey == pub }?.name
+                                ?: FriendsHub.data.value[pub]?.name
+                                ?: (pub.take(8) + "…")
+                            plain.copy(
+                                title = target.title?.takeIf { it.isNotBlank() } ?: "Shared Playlist",
+                                by = name,
+                            )
+                        }
                     }
                 }.getOrNull()
             }
