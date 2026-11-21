@@ -1,6 +1,5 @@
 package com.metrolist.music.ui.player
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.basicMarquee
@@ -18,7 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,11 +30,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,15 +48,16 @@ import com.metrolist.music.playback.rememberLikeSyncs
 import com.metrolist.music.playback.rememberTrackLiked
 import com.metrolist.music.ui.theme.GothicFace
 import com.metrolist.music.ui.theme.GothicThemeConfig
+import com.metrolist.music.ui.theme.SatanicThemeConfig
 import com.metrolist.music.utils.makeTimeString
 
 /**
- * Custom player controls for the GOTHIC Theme:
- * - Centered Track Title in Gothic Face (theme_gothic.ttf)
- * - Centered Artist in medieval Serif font
+ * Custom player controls for the GOTHIC Theme matching Satanic player layout 1:1:
+ * - Centered Track Title in authentic Gothic Blackletter font (GothicFace)
+ * - Centered Artist in medieval Serif font (GothicThemeConfig.SerifFont)
  * - Slender Gothic Cross like button on the right
- * - Clean progress bar with gothic cross / diamond thumb
- * - Gothic arcade-framed main playback buttons
+ * - Ornate duration bar with progress_decoration.png and accent slider
+ * - Main playback row with ornate button frames matching exact Satanic dimensions & positions
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -92,6 +90,10 @@ fun GothicPlayerControls(
     val mutedText = GothicThemeConfig.getMutedText(isDark)
     val accent = GothicThemeConfig.getAccent(isDark)
 
+    val playButtonFrame = SatanicThemeConfig.rememberAsset(SatanicThemeConfig.PATH_PLAY_BUTTON_FRAME)
+    val controlButtonFrame = SatanicThemeConfig.rememberAsset(SatanicThemeConfig.PATH_CONTROL_BUTTON_FRAME)
+    val progressDeco = SatanicThemeConfig.rememberAsset(SatanicThemeConfig.PATH_PROGRESS_DECORATION)
+
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current
     val isLiked = rememberTrackLiked(database, mediaMetadata.id)
@@ -121,7 +123,6 @@ fun GothicPlayerControls(
                         fontSize = 28.sp,
                         color = primaryText,
                         textAlign = TextAlign.Center,
-                        letterSpacing = 0.5.sp,
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -181,7 +182,7 @@ fun GothicPlayerControls(
 
         Spacer(Modifier.height(24.dp))
 
-        // ── 2. Progress Bar ─────────────────────────────────────────────────────────
+        // ── 2. Progress Bar with Decorative Element ─────────────────────────────────
         var dragFrac by remember { mutableFloatStateOf(-1f) }
         val currentFrac = if (dragFrac in 0f..1f) dragFrac
         else if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f)
@@ -204,7 +205,7 @@ fun GothicPlayerControls(
                 modifier = Modifier.width(42.dp),
             )
 
-            // Progress Slider Track
+            // Progress Slider Track with progress_decoration.png
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -239,41 +240,39 @@ fun GothicPlayerControls(
                     },
                 contentAlignment = Alignment.CenterStart,
             ) {
-                Canvas(modifier = Modifier.fillMaxWidth().height(14.dp)) {
-                    val w = size.width
-                    val activeW = w * currentFrac
-                    val cy = size.height / 2f
-
-                    // Inactive track line
-                    drawLine(
-                        color = primaryText.copy(alpha = 0.22f),
-                        start = Offset(0f, cy),
-                        end = Offset(w, cy),
-                        strokeWidth = 1.6.dp.toPx(),
-                        cap = StrokeCap.Round,
+                // Background Track: progress_decoration.png
+                if (progressDeco != null) {
+                    Image(
+                        bitmap = progressDeco,
+                        contentDescription = null,
+                        contentScale = ContentScale.FillWidth,
+                        colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(14.dp)
+                            .align(Alignment.Center),
                     )
+                }
 
-                    // Active track line
-                    if (activeW > 0f) {
+                // Foreground active line
+                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxWidth().height(14.dp)) {
+                    val w = size.width * currentFrac
+                    val cy = size.height / 2f
+                    // Active progress line
+                    if (w > 0f) {
                         drawLine(
                             color = accent,
                             start = Offset(0f, cy),
-                            end = Offset(activeW, cy),
-                            strokeWidth = 2.dp.toPx(),
-                            cap = StrokeCap.Round,
+                            end = Offset(w, cy),
+                            strokeWidth = 1.8.dp.toPx(),
                         )
                     }
-
-                    // Diamond / Lancet thumb
-                    val thumbSize = if (dragFrac in 0f..1f) 6.dp.toPx() else 4.dp.toPx()
-                    val path = Path().apply {
-                        moveTo(activeW, cy - thumbSize)
-                        lineTo(activeW + thumbSize * 0.7f, cy)
-                        lineTo(activeW, cy + thumbSize)
-                        lineTo(activeW - thumbSize * 0.7f, cy)
-                        close()
-                    }
-                    drawPath(path, color = if (isDark) Color.White else primaryText)
+                    // Small progress dot thumb
+                    drawCircle(
+                        color = if (isDark) Color.White else primaryText,
+                        radius = if (dragFrac in 0f..1f) 4.5.dp.toPx() else 3.dp.toPx(),
+                        center = Offset(w, cy),
+                    )
                 }
             }
 
@@ -290,7 +289,6 @@ fun GothicPlayerControls(
             )
         }
 
-        // Lowered spacing between seekbar and control buttons
         Spacer(Modifier.height(36.dp))
 
         // ── 3. Main Controls Row: Shuffle | Prev | Play/Pause | Next | Repeat ────────
@@ -315,13 +313,19 @@ fun GothicPlayerControls(
                 )
             }
 
-            // Previous Button with Gothic lancet arch frame
+            // Previous Button with control_button_frame.png
             Box(
                 modifier = Modifier.size(68.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Canvas(Modifier.matchParentSize()) {
-                    drawGothicFrame(size.minDimension, primaryText.copy(alpha = if (canSkipPrevious) 0.55f else 0.25f))
+                if (controlButtonFrame != null) {
+                    Image(
+                        bitmap = controlButtonFrame,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
+                        modifier = Modifier.size(68.dp),
+                    )
                 }
                 IconButton(
                     onClick = onSeekPrevious,
@@ -337,13 +341,19 @@ fun GothicPlayerControls(
                 }
             }
 
-            // Play/Pause Button with Gothic cathedral frame
+            // Play/Pause Button with play_button_frame.png
             Box(
                 modifier = Modifier.size(92.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Canvas(Modifier.matchParentSize()) {
-                    drawGothicFrame(size.minDimension, primaryText.copy(alpha = 0.85f), isMain = true)
+                if (playButtonFrame != null) {
+                    Image(
+                        bitmap = playButtonFrame,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
+                        modifier = Modifier.size(92.dp),
+                    )
                 }
                 IconButton(
                     onClick = onTogglePlayPause,
@@ -360,13 +370,19 @@ fun GothicPlayerControls(
                 }
             }
 
-            // Next Button with Gothic lancet arch frame
+            // Next Button with control_button_frame.png
             Box(
                 modifier = Modifier.size(68.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Canvas(Modifier.matchParentSize()) {
-                    drawGothicFrame(size.minDimension, primaryText.copy(alpha = if (canSkipNext) 0.55f else 0.25f))
+                if (controlButtonFrame != null) {
+                    Image(
+                        bitmap = controlButtonFrame,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
+                        modifier = Modifier.size(68.dp),
+                    )
                 }
                 IconButton(
                     onClick = onSeekNext,
@@ -397,38 +413,6 @@ fun GothicPlayerControls(
                     modifier = Modifier.size(28.dp),
                 )
             }
-        }
-    }
-}
-
-/** Draws a clean Gothic pointed lancet arch / fourfoil button frame */
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGothicFrame(dimension: Float, color: Color, isMain: Boolean = false) {
-    val r = dimension / 2f
-    val c = Offset(r, r)
-    val strokeWidth = (if (isMain) 1.6f else 1.2f) * density
-    val stroke = Stroke(strokeWidth)
-
-    // Outer circle
-    drawCircle(color, radius = r - strokeWidth * 2, style = stroke)
-
-    if (isMain) {
-        // Inner pointed diamond accents at 4 cardinal points
-        val innerR = r - strokeWidth * 2
-        val d = 4f * density
-        listOf(
-            Offset(c.x, c.y - innerR),
-            Offset(c.x + innerR, c.y),
-            Offset(c.x, c.y + innerR),
-            Offset(c.x - innerR, c.y),
-        ).forEach { pt ->
-            val path = Path().apply {
-                moveTo(pt.x, pt.y - d)
-                lineTo(pt.x + d * 0.7f, pt.y)
-                lineTo(pt.x, pt.y + d)
-                lineTo(pt.x - d * 0.7f, pt.y)
-                close()
-            }
-            drawPath(path, color = color)
         }
     }
 }

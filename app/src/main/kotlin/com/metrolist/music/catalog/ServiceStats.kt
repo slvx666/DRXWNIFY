@@ -350,16 +350,23 @@ object MonthReview {
         }
         val genreEarly = leading(inMonth.filter { it.event.timestamp < half })
         val genreLate = leading(inMonth.filter { it.event.timestamp >= half })
+        val listenedArtistsInMonth = inMonth.mapNotNull(artistOf).toSet()
         val allLiked = runCatching { database.likedSongsByCreateDateAsc().first() }.getOrDefault(emptyList())
         val likedInMonth = allLiked.filter {
-            it.song.liked && it.song.likedDate != null && it.song.likedDate >= start && it.song.likedDate < end
+            it.song.liked &&
+            it.song.likedDate != null &&
+            it.song.likedDate >= start &&
+            it.song.likedDate < end &&
+            it.artists.any { a -> listenedArtistsInMonth.any { listened -> listened.equals(a.name.trim(), ignoreCase = true) } }
         }
-        val targetLikes = if (likedInMonth.isNotEmpty()) likedInMonth else allLiked.filter { it.song.liked }
-        val likedArtists = targetLikes
+        val likedArtists = likedInMonth
             .groupBy { it.artists.firstOrNull()?.name?.trim().orEmpty() }
             .filterKeys { it.isNotBlank() }
             .entries
-            .sortedByDescending { it.value.size }
+            .sortedWith(
+                compareByDescending<Map.Entry<String, List<com.metrolist.music.db.entities.Song>>> { it.value.size }
+                    .thenByDescending { entry -> listensByArtist[entry.key] ?: 0 }
+            )
             .take(10)
             .map { (name, songs) ->
                 Item(

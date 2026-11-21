@@ -300,12 +300,16 @@ private fun NewMiniPlayer(
         }
     }
 
-    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val currentPreset = LocalAppThemePreset.current
+    val isSatanic = currentPreset == AppThemePreset.SATANIC
+    val isGothic = currentPreset == AppThemePreset.GOTHIC
+    val isCustomThemeMini = isSatanic || isGothic
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
 
     // Memoize colors
     val backgroundColor = when {
         isSatanic -> SatanicThemeConfig.getSurface(isDark)
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getSurface(isDark)
         miniPlayerBackground == MiniPlayerBackgroundStyle.DEFAULT    -> MaterialTheme.colorScheme.surfaceContainer
         miniPlayerBackground == MiniPlayerBackgroundStyle.TRANSPARENT -> Color.Black.copy(alpha = 0.25f)
         miniPlayerBackground == MiniPlayerBackgroundStyle.BLUR       -> MaterialTheme.colorScheme.surfaceContainer
@@ -313,27 +317,31 @@ private fun NewMiniPlayer(
         miniPlayerBackground == MiniPlayerBackgroundStyle.PURE_BLACK -> Color.Black
         else -> MaterialTheme.colorScheme.surfaceContainer
     }
-    val forceLightColors = !isSatanic && !useDarkTheme && (miniPlayerBackground == MiniPlayerBackgroundStyle.PURE_BLACK ||
+    val forceLightColors = !isCustomThemeMini && !useDarkTheme && (miniPlayerBackground == MiniPlayerBackgroundStyle.PURE_BLACK ||
             miniPlayerBackground == MiniPlayerBackgroundStyle.BLUR ||
             miniPlayerBackground == MiniPlayerBackgroundStyle.GRADIENT)
 
     val primaryColor = when {
         isSatanic -> SatanicThemeConfig.getPrimaryText(isDark)
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getPrimaryText(isDark)
         forceLightColors -> Color.White
         else -> MaterialTheme.colorScheme.primary
     }
     val outlineColor = when {
         isSatanic -> SatanicThemeConfig.getBorder(isDark)
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getBorder(isDark)
         forceLightColors -> Color.White
         else -> MaterialTheme.colorScheme.outline
     }
     val onSurfaceColor = when {
         isSatanic -> SatanicThemeConfig.getPrimaryText(isDark)
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getPrimaryText(isDark)
         forceLightColors -> Color.White
         else -> MaterialTheme.colorScheme.onSurface
     }
     val errorColor = when {
         isSatanic -> SatanicThemeConfig.getAccent(isDark)
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getAccent(isDark)
         forceLightColors -> Color(0xFFFF6B6B)
         else -> MaterialTheme.colorScheme.error
     }
@@ -585,11 +593,21 @@ private fun NewMiniPlayerPlayButton(
     val isListenTogetherGuest = listenTogetherManager?.let { it.isInRoom && !it.isHost } ?: false
     val isMuted by playerConnection.isMuted.collectAsState()
 
-    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val currentPresetPlay = LocalAppThemePreset.current
+    val isSatanic = currentPresetPlay == AppThemePreset.SATANIC
+    val isGothic = currentPresetPlay == AppThemePreset.GOTHIC
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
-    val trackColor = if (isSatanic) SatanicThemeConfig.getBorder(isDark).copy(alpha = 0.5f) else outlineColor.copy(alpha = 0.2f)
-    val strokeWidth = if (isSatanic) 2.dp else 3.dp
-    val activeProgressColor = if (isSatanic) SatanicThemeConfig.getAccent(isDark) else primaryColor
+    val trackColor = when {
+        isSatanic -> SatanicThemeConfig.getBorder(isDark).copy(alpha = 0.5f)
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getBorder(isDark).copy(alpha = 0.5f)
+        else -> outlineColor.copy(alpha = 0.2f)
+    }
+    val strokeWidth = if (isSatanic || isGothic) 2.dp else 3.dp
+    val activeProgressColor = when {
+        isSatanic -> SatanicThemeConfig.getAccent(isDark)
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getAccent(isDark)
+        else -> primaryColor
+    }
 
     Box(
         contentAlignment = Alignment.Center,
@@ -712,12 +730,24 @@ private fun NewMiniPlayerSongInfo(
         verticalArrangement = Arrangement.Center,
     ) {
         mediaMetadata?.let { metadata ->
-            val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+            val currentPresetText = LocalAppThemePreset.current
+            val isSatanic = currentPresetText == AppThemePreset.SATANIC
+            val isGothic = currentPresetText == AppThemePreset.GOTHIC
             val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+            val titleColor = when {
+                isSatanic -> SatanicThemeConfig.getPrimaryText(isDark)
+                isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getPrimaryText(isDark)
+                else -> onSurfaceColor
+            }
+            val titleFont = when {
+                isSatanic -> SatanicThemeConfig.SerifFont
+                isGothic -> com.metrolist.music.ui.theme.GothicFace
+                else -> null
+            }
             Text(
                 text = metadata.title,
-                color = if (isSatanic) SatanicThemeConfig.getPrimaryText(isDark) else onSurfaceColor,
-                fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null,
+                color = titleColor,
+                fontFamily = titleFont,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
@@ -730,10 +760,20 @@ private fun NewMiniPlayerSongInfo(
             ) {
                 if (metadata.explicit) MIcon.Explicit()
                 if (metadata.artists.any { it.name.isNotBlank() }) {
+                    val artistColor = when {
+                        isSatanic -> SatanicThemeConfig.getSecondaryText(isDark)
+                        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getSecondaryText(isDark)
+                        else -> onSurfaceColor.copy(alpha = 0.7f)
+                    }
+                    val artistFont = when {
+                        isSatanic -> SatanicThemeConfig.SerifFont
+                        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.SerifFont
+                        else -> null
+                    }
                     Text(
                         text = metadata.artists.joinToString { it.name },
-                        color = if (isSatanic) SatanicThemeConfig.getSecondaryText(isDark) else onSurfaceColor.copy(alpha = 0.7f),
-                        fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null,
+                        color = artistColor,
+                        fontFamily = artistFont,
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Clip,
@@ -1119,9 +1159,12 @@ private fun SubscribeButton(
     val artistEntity by artistFlow.collectAsState(initial = null)
     val isSubscribed = artistEntity?.bookmarkedAt != null
 
-    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val currentPresetSub = LocalAppThemePreset.current
+    val isSatanic = currentPresetSub == AppThemePreset.SATANIC
+    val isGothic = currentPresetSub == AppThemePreset.GOTHIC
+    val isCustomBtn = isSatanic || isGothic
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
-    val buttonModifier = if (isSatanic) {
+    val buttonModifier = if (isCustomBtn) {
         Modifier
             .size(36.dp)
             .clip(CircleShape.tui())
@@ -1167,6 +1210,8 @@ private fun SubscribeButton(
     ) {
         val subscribeTint = if (isSatanic) {
             if (isSubscribed) SatanicThemeConfig.getPrimaryText(isDark) else SatanicThemeConfig.getSecondaryText(isDark)
+        } else if (isGothic) {
+            if (isSubscribed) com.metrolist.music.ui.theme.GothicThemeConfig.getPrimaryText(isDark) else com.metrolist.music.ui.theme.GothicThemeConfig.getSecondaryText(isDark)
         } else {
             if (isSubscribed) primaryColor else onSurfaceColor.copy(alpha = 0.7f)
         }
@@ -1201,9 +1246,12 @@ private fun DownloadButton(
     val isDownloaded = state == Download.STATE_COMPLETED && !isExporting
     val isInProgress = state == Download.STATE_QUEUED || state == Download.STATE_DOWNLOADING || isExporting
 
-    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val currentPresetDl = LocalAppThemePreset.current
+    val isSatanic = currentPresetDl == AppThemePreset.SATANIC
+    val isGothic = currentPresetDl == AppThemePreset.GOTHIC
+    val isCustomDl = isSatanic || isGothic
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
-    val buttonModifier = if (isSatanic) {
+    val buttonModifier = if (isCustomDl) {
         Modifier
             .size(36.dp)
             .clip(CircleShape.tui())
@@ -1253,16 +1301,21 @@ private fun DownloadButton(
             },
     ) {
         if (isInProgress) {
+            val progressColor = when {
+                isSatanic -> SatanicThemeConfig.getSecondaryText(isDark)
+                isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getSecondaryText(isDark)
+                else -> onSurfaceColor.copy(alpha = 0.7f)
+            }
             CircularProgressIndicator(
                 strokeWidth = 2.dp,
-                color = if (isSatanic) SatanicThemeConfig.getSecondaryText(isDark) else onSurfaceColor.copy(alpha = 0.7f),
+                color = progressColor,
                 modifier = Modifier.size(18.dp),
             )
         } else {
-            val downloadTint = if (isSatanic) {
-                if (isDownloaded) SatanicThemeConfig.getPrimaryText(isDark) else SatanicThemeConfig.getSecondaryText(isDark)
-            } else {
-                if (isDownloaded) primaryColor else onSurfaceColor.copy(alpha = 0.7f)
+            val downloadTint = when {
+                isSatanic -> if (isDownloaded) SatanicThemeConfig.getPrimaryText(isDark) else SatanicThemeConfig.getSecondaryText(isDark)
+                isGothic -> if (isDownloaded) com.metrolist.music.ui.theme.GothicThemeConfig.getPrimaryText(isDark) else com.metrolist.music.ui.theme.GothicThemeConfig.getSecondaryText(isDark)
+                else -> if (isDownloaded) primaryColor else onSurfaceColor.copy(alpha = 0.7f)
             }
             Icon(
                 painter = painterResource(if (isDownloaded) R.drawable.offline else R.drawable.download),
@@ -1290,9 +1343,12 @@ private fun FavoriteButton(
     val isLiked = com.metrolist.music.playback.rememberTrackLiked(database, songId)
     val likeSyncs = com.metrolist.music.playback.rememberLikeSyncs(database, songId)
 
-    val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
+    val currentPresetFav = LocalAppThemePreset.current
+    val isSatanic = currentPresetFav == AppThemePreset.SATANIC
+    val isGothic = currentPresetFav == AppThemePreset.GOTHIC
+    val isCustomFav = isSatanic || isGothic
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
-    val buttonModifier = if (isSatanic) {
+    val buttonModifier = if (isCustomFav) {
         Modifier
             .size(36.dp)
             .clip(CircleShape.tui())
@@ -1315,10 +1371,10 @@ private fun FavoriteButton(
         modifier = buttonModifier
             .clickable { playerConnection.service.setCurrentFavorite(!isLiked) },
     ) {
-        val favTint = if (isSatanic) {
-            if (isLiked) SatanicThemeConfig.getPrimaryText(isDark) else SatanicThemeConfig.getSecondaryText(isDark)
-        } else {
-            if (isLiked) errorColor else onSurfaceColor.copy(alpha = 0.7f)
+        val favTint = when {
+            isSatanic -> if (isLiked) SatanicThemeConfig.getPrimaryText(isDark) else SatanicThemeConfig.getSecondaryText(isDark)
+            isGothic -> if (isLiked) com.metrolist.music.ui.theme.GothicThemeConfig.getPrimaryText(isDark) else com.metrolist.music.ui.theme.GothicThemeConfig.getSecondaryText(isDark)
+            else -> if (isLiked) errorColor else onSurfaceColor.copy(alpha = 0.7f)
         }
         Icon(
             painter = painterResource(com.metrolist.music.playback.LikeTarget.icon(isLiked, likeSyncs || isEpisode)),

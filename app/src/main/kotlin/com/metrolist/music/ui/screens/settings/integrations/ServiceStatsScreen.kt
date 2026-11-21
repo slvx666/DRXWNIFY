@@ -282,23 +282,47 @@ private suspend fun spotifyStory(
     val songs = genreSongs(genres, tops.tracks.map { it.id to it.artists.firstOrNull()?.name })
 
     val likedArtists = runCatching {
-        val paging = com.metrolist.spotify.Spotify.likedSongs(limit = 50).getOrNull()
-        val saved = paging?.items.orEmpty()
         val cutoff = when (range) {
-            ServiceStats.Range.SHORT -> java.time.Instant.now().minus(java.time.Duration.ofDays(30))
+            ServiceStats.Range.SHORT -> java.time.Instant.now().minus(java.time.Duration.ofDays(28))
             ServiceStats.Range.MEDIUM -> java.time.Instant.now().minus(java.time.Duration.ofDays(180))
             ServiceStats.Range.LONG -> java.time.Instant.EPOCH
         }
-        val inRange = saved.filter { s ->
-            s.addedAt?.let { ts ->
-                runCatching { java.time.Instant.parse(ts).isAfter(cutoff) }.getOrDefault(true)
-            } ?: true
+        val allTracks = mutableListOf<com.metrolist.spotify.models.SpotifySavedTrack>()
+        var offset = 0
+        val pageSize = 50
+        while (offset < 500) {
+            val page = com.metrolist.spotify.Spotify.likedSongs(limit = pageSize, offset = offset).getOrNull() ?: break
+            val items = page.items
+            if (items.isEmpty()) break
+            var reachedEnd = false
+            for (item in items) {
+                val instant = item.addedAt?.let { ts ->
+                    runCatching { java.time.Instant.parse(ts) }.getOrNull()
+                }
+                if (range == ServiceStats.Range.LONG) {
+                    allTracks.add(item)
+                } else if (instant != null) {
+                    if (instant.isAfter(cutoff)) {
+                        allTracks.add(item)
+                    } else {
+                        reachedEnd = true
+                        break
+                    }
+                }
+            }
+            if (reachedEnd || items.size < pageSize) break
+            offset += pageSize
         }
-        val target = if (inRange.isNotEmpty()) inRange else saved
-        target.groupBy { it.track.artists.firstOrNull()?.name?.trim().orEmpty() }
+        val byArtist = allTracks.groupBy { it.track.artists.firstOrNull()?.name?.trim().orEmpty() }
             .filterKeys { it.isNotBlank() }
-            .entries
-            .sortedByDescending { it.value.size }
+        byArtist.entries
+            .sortedWith(
+                compareByDescending<Map.Entry<String, List<com.metrolist.spotify.models.SpotifySavedTrack>>> { it.value.size }
+                    .thenBy { entry ->
+                        val idx = tops.artists.indexOfFirst { it.name.equals(entry.key, ignoreCase = true) }
+                        if (idx >= 0) idx else 999
+                    }
+            )
             .take(10)
             .map { (name, list) ->
                 val first = list.first().track

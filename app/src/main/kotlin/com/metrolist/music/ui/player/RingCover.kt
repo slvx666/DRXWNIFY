@@ -121,10 +121,21 @@ fun RingProgress(
             delay(200)
         }
     }
-    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val preset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
+    val isSatanic = preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val isGothic = preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC
+    val isCustomRing = isSatanic || isGothic
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
-    val satanicAccent = com.metrolist.music.ui.theme.SatanicThemeConfig.getAccent(isDark)
-    val satanicDot = if (isDark) Color.White else com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark)
+    val themeAccent = when {
+        isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getAccent(isDark)
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getAccent(isDark)
+        else -> activeColor
+    }
+    val themeDot = if (isDark) Color.White else when {
+        isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark)
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getPrimaryText(isDark)
+        else -> activeColor
+    }
     Box(modifier) {
         Canvas(
             Modifier
@@ -134,7 +145,7 @@ fun RingProgress(
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val c = Offset(size.width / 2f, size.height / 2f)
-                        val ringR = size.width / 2f - 8.dp.toPx()
+                        val ringR = if (isCustomRing) size.width * (530f / 1200f) else size.width / 2f - 8.dp.toPx()
                         val d = hypot(down.position.x - c.x, down.position.y - c.y)
                         // Only a touch on the ring (±22 dp) is the ring's.
                         if (abs(d - ringR) > 22.dp.toPx() || duration <= 0L) return@awaitEachGesture
@@ -171,14 +182,14 @@ fun RingProgress(
                 },
         ) {
             val c = Offset(size.width / 2f, size.height / 2f)
-            val r = if (isSatanic) size.width * (530f / 1200f) else size.width / 2f - 8.dp.toPx()
-            val stroke = if (isSatanic) 1.8.dp.toPx() else 4.dp.toPx()
-            if (!isSatanic) {
+            val r = if (isCustomRing) size.width * (530f / 1200f) else size.width / 2f - 8.dp.toPx()
+            val stroke = if (isCustomRing) 1.8.dp.toPx() else 4.dp.toPx()
+            if (!isCustomRing) {
                 drawCircle(trackColor, r, c, style = Stroke(stroke))
             }
             val f = dragFraction ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
             drawArc(
-                if (isSatanic) satanicAccent else activeColor,
+                themeAccent,
                 startAngle = -90f,
                 sweepAngle = 360f * f,
                 useCenter = false,
@@ -187,8 +198,8 @@ fun RingProgress(
                 style = Stroke(stroke, cap = StrokeCap.Round),
             )
             val a = Math.toRadians((360.0 * f) - 90.0)
-            val dot = if (isSatanic) (if (dragFraction != null) 6.dp.toPx() else 4.5.dp.toPx()) else (if (dragFraction != null) 9.dp.toPx() else 6.dp.toPx())
-            drawCircle(if (isSatanic) satanicDot else activeColor, dot, Offset(c.x + r * cos(a).toFloat(), c.y + r * sin(a).toFloat()))
+            val dot = if (isCustomRing) (if (dragFraction != null) 6.dp.toPx() else 4.5.dp.toPx()) else (if (dragFraction != null) 9.dp.toPx() else 6.dp.toPx())
+            drawCircle(themeDot, dot, Offset(c.x + r * cos(a).toFloat(), c.y + r * sin(a).toFloat()))
         }
         AnimatedVisibility(
             visible = dragFraction != null,

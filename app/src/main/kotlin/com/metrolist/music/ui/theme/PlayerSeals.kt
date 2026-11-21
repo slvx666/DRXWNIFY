@@ -256,11 +256,21 @@ private fun DrawScope.gothicCornerTracery(c: Offset, r: Float, color: Color, w: 
 private fun DrawScope.cathedralSeal(c: Offset, r: Float, base: Color) {
     val ink = base.copy(alpha = 0.70f)
     val w = 1.3.dp.toPx()
-    val coverR = r * 0.84f
+    val ringR = size.width * (530f / 1200f)
 
-    // Top: Inverted Gothic cross seated directly above the album cover
-    val topCenterY = c.y - coverR - 8.dp.toPx()
-    invertedCross(Offset(c.x, topCenterY), 15.dp.toPx(), ink.copy(alpha = 0.65f), w * 1.15f)
+    // Circular frame around the cover (identical to Satanic album_frame radius!)
+    drawCircle(ink.copy(alpha = 0.35f), radius = ringR, center = c, style = Stroke(1.2.dp.toPx()))
+
+    // Crosshair ticks at cardinal points (12, 3, 6, 9)
+    val tickLen = 6.dp.toPx()
+    drawLine(ink.copy(alpha = 0.50f), Offset(c.x, c.y - ringR - tickLen), Offset(c.x, c.y - ringR + tickLen), 1.2.dp.toPx())
+    drawLine(ink.copy(alpha = 0.50f), Offset(c.x, c.y + ringR - tickLen), Offset(c.x, c.y + ringR + tickLen), 1.2.dp.toPx())
+    drawLine(ink.copy(alpha = 0.50f), Offset(c.x - ringR - tickLen, c.y), Offset(c.x - ringR + tickLen, c.y), 1.2.dp.toPx())
+    drawLine(ink.copy(alpha = 0.50f), Offset(c.x + ringR - tickLen, c.y), Offset(c.x + ringR + tickLen, c.y), 1.2.dp.toPx())
+
+    // Top: Inverted Gothic cross seated directly above the circular frame
+    val topCenterY = c.y - ringR - 9.dp.toPx()
+    invertedCross(Offset(c.x, topCenterY), 16.dp.toPx(), ink.copy(alpha = 0.85f), w * 1.2f)
 
     // Subtle corner ornaments around the album cover (never loudly intrusive)
     gothicCornerTracery(c, r, ink, w)

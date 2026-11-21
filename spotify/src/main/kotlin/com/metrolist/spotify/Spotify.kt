@@ -1326,6 +1326,8 @@ object Spotify {
         offset: Int = 0,
     ): Result<SpotifyPaging<SpotifySavedTrack>> =
         runCatching {
+            authenticatedGet<SpotifyPaging<SpotifySavedTrack>>("me/tracks?limit=$limit&offset=$offset")
+        }.recoverCatching {
             val vars =
                 buildJsonObject {
                     put("offset", offset)
@@ -1344,10 +1346,16 @@ object Spotify {
 
             val savedTracks =
                 tracksData.arr("items")?.mapNotNull { elem ->
+                    val addedAt = elem.jsonObject.obj("addedAt")?.str("isoString")
+                        ?: elem.jsonObject.str("addedAt")
+                        ?: elem.jsonObject.str("added_at")
                     val trackWrapper = elem.jsonObject.obj("track") ?: return@mapNotNull null
                     val trackData = trackWrapper.obj("data") ?: return@mapNotNull null
                     val wrapperUri = trackWrapper.str("_uri") ?: trackWrapper.str("uri")
-                    SpotifySavedTrack(track = parseGqlTrack(trackData, uriOverride = wrapperUri))
+                    SpotifySavedTrack(
+                        addedAt = addedAt,
+                        track = parseGqlTrack(trackData, uriOverride = wrapperUri),
+                    )
                 } ?: emptyList()
 
             SpotifyPaging(

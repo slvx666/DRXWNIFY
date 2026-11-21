@@ -275,10 +275,19 @@ fun Queue(
             Box(Modifier.fillMaxSize().background(Color.Unspecified))
         },
         collapsedContent = {
-            if (LocalAppThemePreset.current == AppThemePreset.SATANIC) {
+            val currentPreset = LocalAppThemePreset.current
+            if (currentPreset == AppThemePreset.SATANIC || currentPreset == AppThemePreset.GOTHIC) {
                 val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
-                val buttonColor = if (isDark) Color.White else SatanicThemeConfig.LightPrimaryText
-                val accentColor = SatanicThemeConfig.getAccent(isDark)
+                val buttonColor = if (currentPreset == AppThemePreset.SATANIC) {
+                    if (isDark) Color.White else SatanicThemeConfig.LightPrimaryText
+                } else {
+                    if (isDark) Color.White else com.metrolist.music.ui.theme.GothicThemeConfig.LightPrimaryText
+                }
+                val accentColor = if (currentPreset == AppThemePreset.SATANIC) {
+                    SatanicThemeConfig.getAccent(isDark)
+                } else {
+                    com.metrolist.music.ui.theme.GothicThemeConfig.getAccent(isDark)
+                }
 
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween,
