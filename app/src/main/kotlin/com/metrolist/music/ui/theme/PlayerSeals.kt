@@ -207,49 +207,63 @@ private fun DrawScope.thornWreath(base: Color) {
 
 // ── 2. Gothic: Minimalist Dark Gothic Ring Decor ──────────────────────────────────────────────────
 
-/** Sharp Gothic architectural ornament / pendant hanging beneath the album cover */
-private fun DrawScope.gothicBottomOrnament(c: Offset, r: Float, color: Color, w: Float) {
-    val startY = c.y + r + 2.dp.toPx()
-    // Central vertical spear/finial pointing downwards
-    val spearLen = 16.dp.toPx()
-    drawLine(color, Offset(c.x, startY), Offset(c.x, startY + spearLen), w * 1.1f, cap = StrokeCap.Round)
-    // Small gothic crossbar on the lower finial
-    val crossY = startY + spearLen * 0.72f
-    val crossW = 4.5.dp.toPx()
-    drawLine(color, Offset(c.x - crossW, crossY), Offset(c.x + crossW, crossY), w * 0.9f, cap = StrokeCap.Round)
+/** Small, subtle Gothic corner tracery / brackets at the four diagonal corners around the cover */
+private fun DrawScope.gothicCornerTracery(c: Offset, r: Float, color: Color, w: Float) {
+    val coverR = r * 0.84f
+    val cornerDist = coverR * 0.98f
+    val armLen = 14.dp.toPx()
+    val faint = color.copy(alpha = 0.35f)
+    val cuspColor = color.copy(alpha = 0.24f)
 
-    // Symmetrical gothic lancet tracery curves
-    val span = 18.dp.toPx()
-    val drop = 11.dp.toPx()
-    val path = Path().apply {
-        // Left pointed lancet cusp
-        moveTo(c.x - span, startY - 1.dp.toPx())
-        quadraticTo(c.x - span * 0.5f, startY + drop * 0.85f, c.x, startY + drop)
-        // Right pointed lancet cusp
-        quadraticTo(c.x + span * 0.5f, startY + drop * 0.85f, c.x + span, startY - 1.dp.toPx())
-    }
-    drawPath(path, color, style = stroke(w))
+    for (sX in listOf(-1f, 1f)) {
+        for (sY in listOf(-1f, 1f)) {
+            val cornerX = c.x + sX * cornerDist
+            val cornerY = c.y + sY * cornerDist
+            val hEnd = Offset(cornerX - sX * armLen, cornerY)
+            val vEnd = Offset(cornerX, cornerY - sY * armLen)
 
-    // Tiny pointed diamond accent at the central meeting point
-    smallDiamond(Offset(c.x, startY + 5.dp.toPx()), 2.dp.toPx(), 3.2.dp.toPx(), color, w * 0.85f, filled = true)
+            // Outer corner bracket
+            val bracketPath = Path().apply {
+                moveTo(hEnd.x, hEnd.y)
+                lineTo(cornerX, cornerY)
+                lineTo(vEnd.x, vEnd.y)
+            }
+            drawPath(bracketPath, faint, style = Stroke(w * 0.9f, cap = StrokeCap.Round, join = StrokeJoin.Round))
 
-    // Flanking acute spire tips
-    listOf(-span, span).forEach { dx ->
-        val pt = Offset(c.x + dx, startY - 1.dp.toPx())
-        smallDiamond(pt, 1.8.dp.toPx(), 2.5.dp.toPx(), color, w * 0.8f, filled = true)
+            // Delicate inner lancet cusp curve
+            val cuspPath = Path().apply {
+                moveTo(hEnd.x, hEnd.y)
+                quadraticTo(cornerX - sX * 4.dp.toPx(), cornerY - sY * 4.dp.toPx(), vEnd.x, vEnd.y)
+            }
+            drawPath(cuspPath, cuspColor, style = Stroke(w * 0.75f, cap = StrokeCap.Round))
+
+            // Subtle tiny diamond tick at corner apex
+            smallDiamond(
+                Offset(cornerX + sX * 2.2.dp.toPx(), cornerY + sY * 2.2.dp.toPx()),
+                1.8.dp.toPx(),
+                1.8.dp.toPx(),
+                color.copy(alpha = 0.40f),
+                w * 0.8f,
+                filled = true
+            )
+
+            // Tiny delicate accent dot inside cusp
+            drawCircle(color.copy(alpha = 0.30f), 1.1.dp.toPx(), Offset(cornerX - sX * 4.5.dp.toPx(), cornerY - sY * 4.5.dp.toPx()))
+        }
     }
 }
 
 private fun DrawScope.cathedralSeal(c: Offset, r: Float, base: Color) {
-    val ink = base.copy(alpha = 0.75f)
+    val ink = base.copy(alpha = 0.70f)
     val w = 1.3.dp.toPx()
+    val coverR = r * 0.84f
 
     // Top: Inverted Gothic cross seated directly above the album cover
-    val topCenterY = c.y - r - 8.dp.toPx()
-    invertedCross(Offset(c.x, topCenterY), 16.dp.toPx(), ink, w * 1.2f)
+    val topCenterY = c.y - coverR - 8.dp.toPx()
+    invertedCross(Offset(c.x, topCenterY), 15.dp.toPx(), ink.copy(alpha = 0.65f), w * 1.15f)
 
-    // Bottom: Sharp Gothic architectural ornament / pendant beneath the album cover
-    gothicBottomOrnament(c, r, ink, w)
+    // Subtle corner ornaments around the album cover (never loudly intrusive)
+    gothicCornerTracery(c, r, ink, w)
 }
 
 // ── 3. Street Art: Minimalist Crown & Drips Ring ─────────────────────────────────────────────────

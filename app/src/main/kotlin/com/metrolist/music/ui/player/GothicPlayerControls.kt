@@ -118,7 +118,7 @@ fun GothicPlayerControls(
                     text = mediaMetadata.title,
                     style = TextStyle(
                         fontFamily = GothicFace,
-                        fontSize = 26.sp,
+                        fontSize = 28.sp,
                         color = primaryText,
                         textAlign = TextAlign.Center,
                         letterSpacing = 0.5.sp,

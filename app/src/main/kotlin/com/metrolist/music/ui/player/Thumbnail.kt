@@ -548,7 +548,7 @@ private fun ThumbnailHeader(
         }
         val titleStyle = if (isSatanic || isGothic) {
             MaterialTheme.typography.titleMedium.copy(
-                fontFamily = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.SerifFont else com.metrolist.music.ui.theme.GothicFace,
+                fontFamily = com.metrolist.music.ui.theme.SatanicThemeConfig.SerifFont,
                 fontSize = 14.sp
             )
         } else {
@@ -610,7 +610,7 @@ private fun ThumbnailHeader(
                 Text(
                     text = stringResource(R.string.spotify_plays, com.metrolist.music.playback.SpotifyPlays.format(plays)),
                     style = MaterialTheme.typography.labelMedium.copy(
-                        fontFamily = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.SerifFont else if (isGothic) com.metrolist.music.ui.theme.GothicFace else androidx.compose.ui.text.font.FontFamily.Default
+                        fontFamily = if (isSatanic || isGothic) com.metrolist.music.ui.theme.SatanicThemeConfig.SerifFont else androidx.compose.ui.text.font.FontFamily.Default
                     ),
                     color = textColor.copy(alpha = 0.75f),
                     maxLines = 1,

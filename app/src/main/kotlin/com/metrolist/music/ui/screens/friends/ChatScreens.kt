@@ -518,21 +518,34 @@ fun ChatScreen(navController: NavController, peer: String) {
             .then(if (blur > 0.dp) Modifier.blur(blur) else Modifier),
     ) {
         val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
-        val isDark = com.metrolist.music.ui.theme.SatanicThemeConfig.isDarkTheme()
+        val isGothic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC
+        val isDark = if (isGothic) com.metrolist.music.ui.theme.GothicThemeConfig.isDarkTheme() else com.metrolist.music.ui.theme.SatanicThemeConfig.isDarkTheme()
+
+        val headerText = when {
+            isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getPrimaryText(isDark)
+            isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark)
+            else -> null
+        }
+        val headerMuted = when {
+            isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getMutedText(isDark)
+            isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getMutedText(isDark)
+            else -> null
+        }
+        val headerFont = if (isGothic) com.metrolist.music.ui.theme.GothicThemeConfig.SerifFont else androidx.compose.ui.text.font.FontFamily.Default
 
         if (selecting) {
             val picked = messages.filter { it.id in selected }
             TopAppBar(
-                colors = if (isSatanic) TopAppBarDefaults.topAppBarColors(
+                colors = if (isSatanic || isGothic) TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
-                    titleContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
-                    navigationIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
-                    actionIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                    titleContentColor = headerText ?: MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = headerText ?: MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = headerText ?: MaterialTheme.colorScheme.onSurface,
                 ) else TopAppBarDefaults.topAppBarColors(),
                 navigationIcon = {
                     IconButton(onClick = { selected.clear() }) { Icon(painterResource(R.drawable.close), null) }
                 },
-                title = { Text(selected.size.toString()) },
+                title = { Text(selected.size.toString(), fontFamily = headerFont) },
                 actions = {
                     val copyText = picked.sortedBy { it.ts }.mapNotNull { copyTextOf(it).ifEmpty { null } }.joinToString("\n")
                     if (copyText.isNotEmpty()) {
@@ -550,11 +563,11 @@ fun ChatScreen(navController: NavController, peer: String) {
                 },
             )
         } else TopAppBar(
-            colors = if (isSatanic) TopAppBarDefaults.topAppBarColors(
+            colors = if (isSatanic || isGothic) TopAppBarDefaults.topAppBarColors(
                 containerColor = Color.Transparent,
-                titleContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
-                navigationIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
-                actionIconContentColor = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark),
+                titleContentColor = headerText ?: MaterialTheme.colorScheme.onSurface,
+                navigationIconContentColor = headerText ?: MaterialTheme.colorScheme.onSurface,
+                actionIconContentColor = headerText ?: MaterialTheme.colorScheme.onSurface,
             ) else TopAppBarDefaults.topAppBarColors(),
             navigationIcon = {
                 IconButton(onClick = navController::navigateUp) { Icon(painterResource(R.drawable.arrow_back), null) }
@@ -567,7 +580,7 @@ fun ChatScreen(navController: NavController, peer: String) {
                     PeerAvatar(peer, name, 40.dp)
                     Column(Modifier.padding(start = 12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false), color = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark) else Color.Unspecified)
+                            Text(name, style = MaterialTheme.typography.titleMedium.copy(fontFamily = headerFont), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false), color = headerText ?: Color.Unspecified)
                             AppVersion(peer, Modifier.padding(start = 6.dp))
                         }
                         // Read here, so its once-a-second tick redraws only this line.
@@ -582,8 +595,8 @@ fun ChatScreen(navController: NavController, peer: String) {
                             if (s != null) {
                                 Text(
                                     s,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.getMutedText(isDark) else MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = headerFont),
+                                    color = headerMuted ?: MaterialTheme.colorScheme.primary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -862,19 +875,25 @@ private fun MessageItem(
         }
     }
 
-    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
-    val isDark = com.metrolist.music.ui.theme.SatanicThemeConfig.isDarkTheme()
+    val preset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
+    val isSatanic = preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val isGothic = preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC
+    val isDark = if (isGothic) com.metrolist.music.ui.theme.GothicThemeConfig.isDarkTheme() else com.metrolist.music.ui.theme.SatanicThemeConfig.isDarkTheme()
 
-    val bubbleColor = if (isSatanic) {
-        if (m.mine) com.metrolist.music.ui.theme.SatanicThemeConfig.getElevated(isDark)
-        else com.metrolist.music.ui.theme.SatanicThemeConfig.getSurface(isDark)
-    } else {
-        if (m.mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+    val bubbleColor = when {
+        isGothic -> if (m.mine) com.metrolist.music.ui.theme.GothicThemeConfig.getElevated(isDark) else com.metrolist.music.ui.theme.GothicThemeConfig.getSurface(isDark)
+        isSatanic -> if (m.mine) com.metrolist.music.ui.theme.SatanicThemeConfig.getElevated(isDark) else com.metrolist.music.ui.theme.SatanicThemeConfig.getSurface(isDark)
+        else -> if (m.mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
     }
-    val textColor = if (isSatanic) {
-        com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark)
-    } else {
-        if (m.mine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    val textColor = when {
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getPrimaryText(isDark)
+        isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark)
+        else -> if (m.mine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+    }
+    val bubbleBorder = when {
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getBorder(isDark)
+        isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getBorder(isDark)
+        else -> null
     }
     val shape = RoundedCornerShape(
         topStart = if (!m.mine && firstOfGroup) 4.dp else 18.dp,
@@ -982,7 +1001,7 @@ private fun MessageItem(
                         .widthIn(max = 300.dp)
                         .clip(shape)
                         .background(bubbleColor)
-                        .then(if (isSatanic) Modifier.border(1.dp, com.metrolist.music.ui.theme.SatanicThemeConfig.getBorder(isDark), shape) else Modifier)
+                        .then(if (bubbleBorder != null) Modifier.border(1.dp, bubbleBorder, shape) else Modifier)
                         .then(clickable)
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                 ) {
@@ -1134,7 +1153,8 @@ private fun MessageText(text: String, color: Color, modifier: Modifier = Modifie
             }
         }
     }
-    Text(annotated, inlineContent = inline, color = color, style = MaterialTheme.typography.bodyLarge, modifier = modifier)
+    val msgFont = if (com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC) com.metrolist.music.ui.theme.GothicThemeConfig.SerifFont else androidx.compose.ui.text.font.FontFamily.Default
+    Text(annotated, inlineContent = inline, color = color, style = MaterialTheme.typography.bodyLarge.copy(fontFamily = msgFont), modifier = modifier)
 }
 
 @Composable
@@ -1479,14 +1499,41 @@ private fun Composer(
     val suggestions = remember(beforeCursor) { Stickers.suggest(beforeCursor).takeIf { it.isNotEmpty() } }
     val suggestionsShown = lastNonNull(suggestions).orEmpty()
 
-    val isSatanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
-    val isDark = com.metrolist.music.ui.theme.SatanicThemeConfig.isDarkTheme()
-    val primaryText = com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark)
-    val mutedText = com.metrolist.music.ui.theme.SatanicThemeConfig.getMutedText(isDark)
+    val preset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
+    val isSatanic = preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
+    val isGothic = preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC
+    val isDark = if (isGothic) com.metrolist.music.ui.theme.GothicThemeConfig.isDarkTheme() else com.metrolist.music.ui.theme.SatanicThemeConfig.isDarkTheme()
+
+    val primaryText = when {
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getPrimaryText(isDark)
+        isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getPrimaryText(isDark)
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    val mutedText = when {
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getMutedText(isDark)
+        isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getMutedText(isDark)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val inputElevated = when {
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getElevated(isDark)
+        isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getElevated(isDark)
+        else -> null
+    }
+    val inputBorder = when {
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getBorder(isDark)
+        isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getBorder(isDark)
+        else -> null
+    }
+    val codeColor = when {
+        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getAccent(isDark)
+        isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getAccent(isDark)
+        else -> MaterialTheme.colorScheme.primary
+    }
+    val inputFont = if (isGothic) com.metrolist.music.ui.theme.GothicThemeConfig.SerifFont else androidx.compose.ui.text.font.FontFamily.Default
 
     Box {
         Surface(
-            color = if (isSatanic) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
+            color = if (isSatanic || isGothic) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column {
@@ -1541,15 +1588,15 @@ private fun Composer(
                         modifier = Modifier
                             .weight(1f)
                             .then(
-                                if (isSatanic) {
+                                if (inputElevated != null && inputBorder != null) {
                                     Modifier
                                         .background(
-                                            color = com.metrolist.music.ui.theme.SatanicThemeConfig.getElevated(isDark),
+                                            color = inputElevated,
                                             shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
                                         )
                                         .border(
                                             width = 1.dp,
-                                            color = com.metrolist.music.ui.theme.SatanicThemeConfig.getBorder(isDark),
+                                            color = inputBorder,
                                             shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
                                         )
                                         .padding(horizontal = 4.dp)
@@ -1562,11 +1609,10 @@ private fun Composer(
                                 Icon(
                                     painterResource(if (shown) R.drawable.chat_keyboard else R.drawable.chat_mood),
                                     stringResource(R.string.chat_stickers),
-                                    tint = if (isSatanic) primaryText else LocalContentColor.current,
+                                    tint = if (isSatanic || isGothic) primaryText else LocalContentColor.current,
                                 )
                             }
                         }
-                        val codeColor = if (isSatanic) com.metrolist.music.ui.theme.SatanicThemeConfig.getAccent(isDark) else MaterialTheme.colorScheme.primary
                         val showCodes = remember(codeColor) { StickerCodes(codeColor) }
                         TextField(
                             value = field,
@@ -1577,17 +1623,18 @@ private fun Composer(
                             visualTransformation = showCodes,
                             // The keyboard is brought by the focus handler above, at the app's own pace.
                             keyboardOptions = KeyboardOptions(showKeyboardOnFocus = false),
-                            placeholder = { Text(stringResource(R.string.chat_message_hint)) },
+                            placeholder = { Text(stringResource(R.string.chat_message_hint), fontFamily = inputFont) },
                             maxLines = 6,
+                            textStyle = androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = inputFont),
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
                                 unfocusedContainerColor = Color.Transparent,
                                 focusedIndicatorColor = Color.Transparent,
                                 unfocusedIndicatorColor = Color.Transparent,
-                                focusedTextColor = if (isSatanic) primaryText else Color.Unspecified,
-                                unfocusedTextColor = if (isSatanic) primaryText else Color.Unspecified,
-                                focusedPlaceholderColor = if (isSatanic) mutedText else Color.Unspecified,
-                                unfocusedPlaceholderColor = if (isSatanic) mutedText else Color.Unspecified,
+                                focusedTextColor = if (isSatanic || isGothic) primaryText else Color.Unspecified,
+                                unfocusedTextColor = if (isSatanic || isGothic) primaryText else Color.Unspecified,
+                                focusedPlaceholderColor = if (isSatanic || isGothic) mutedText else Color.Unspecified,
+                                unfocusedPlaceholderColor = if (isSatanic || isGothic) mutedText else Color.Unspecified,
                             ),
                             modifier = Modifier
                                 .weight(1f)
@@ -1605,7 +1652,7 @@ private fun Composer(
                         )
                     }
 
-                    if (isSatanic) {
+                    if (isSatanic || isGothic) {
                         Spacer(Modifier.width(6.dp))
                     }
 
@@ -1619,15 +1666,15 @@ private fun Composer(
                             IconButton(
                                 onClick = ::send,
                                 enabled = canSend,
-                                modifier = if (isSatanic) {
+                                modifier = if (inputElevated != null && inputBorder != null) {
                                     Modifier
                                         .background(
-                                            color = com.metrolist.music.ui.theme.SatanicThemeConfig.getElevated(isDark),
+                                            color = inputElevated,
                                             shape = androidx.compose.foundation.shape.CircleShape,
                                         )
                                         .border(
                                             width = 1.dp,
-                                            color = com.metrolist.music.ui.theme.SatanicThemeConfig.getBorder(isDark),
+                                            color = inputBorder,
                                             shape = androidx.compose.foundation.shape.CircleShape,
                                         )
                                 } else Modifier,
@@ -1635,7 +1682,7 @@ private fun Composer(
                                 Icon(
                                     painterResource(R.drawable.chat_send),
                                     stringResource(R.string.chat_send),
-                                    tint = if (isSatanic) primaryText else MaterialTheme.colorScheme.primary,
+                                    tint = if (isSatanic || isGothic) primaryText else MaterialTheme.colorScheme.primary,
                                 )
                             }
                         } else {
@@ -1650,15 +1697,15 @@ private fun Composer(
                                     }
                                     onOpenMusic()
                                 },
-                                modifier = if (isSatanic) {
+                                modifier = if (inputElevated != null && inputBorder != null) {
                                     Modifier
                                         .background(
-                                            color = com.metrolist.music.ui.theme.SatanicThemeConfig.getElevated(isDark),
+                                            color = inputElevated,
                                             shape = androidx.compose.foundation.shape.CircleShape,
                                         )
                                         .border(
                                             width = 1.dp,
-                                            color = com.metrolist.music.ui.theme.SatanicThemeConfig.getBorder(isDark),
+                                            color = inputBorder,
                                             shape = androidx.compose.foundation.shape.CircleShape,
                                         )
                                 } else Modifier,
@@ -1666,7 +1713,7 @@ private fun Composer(
                                 Icon(
                                     painterResource(R.drawable.music_note),
                                     stringResource(R.string.chat_send_music),
-                                    tint = if (isSatanic) primaryText else MaterialTheme.colorScheme.primary,
+                                    tint = if (isSatanic || isGothic) primaryText else MaterialTheme.colorScheme.primary,
                                 )
                             }
                         }
