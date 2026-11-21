@@ -59,9 +59,9 @@ enum class AppThemePreset(val nameRes: Int, val descriptionRes: Int, val group: 
         // Linux: everything is a terminal.
         LINUX -> AppTypography.withFamily(FontFamily.Monospace, body = true)
         // Satanic and Gothic: headings in a serif; Breakcore's typed like a tape label.
-        // Satanic: the screen and section headings in the metal face; Gothic: a serif.
+        // Satanic and Gothic: headings in serif; titles and accents in blackletter.
         SATANIC -> AppTypography.headings(SatanicThemeConfig.SerifFont)
-        GOTHIC -> AppTypography.headings(GothicFace)
+        GOTHIC -> AppTypography.headings(SatanicThemeConfig.SerifFont)
         BREAKCORE -> AppTypography.headings(GlitchFace)
         // Street art: heavy headings, like a tag.
         STREET -> AppTypography.headings(StreetFace)

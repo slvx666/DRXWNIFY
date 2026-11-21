@@ -257,7 +257,11 @@ fun Thumbnail(
     val preset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
     val isSatanic = preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
     val isGothic = preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC
-    val isCustomTheme = isSatanic || isGothic
+    val sliderStyle by rememberEnumPreference(
+        com.metrolist.music.constants.SliderStyleKey,
+        com.metrolist.music.constants.SliderStyle.DEFAULT,
+    )
+    val isCustomTheme = isSatanic || isGothic || sliderStyle == com.metrolist.music.constants.SliderStyle.RING
     
     // Grid state
     val thumbnailLazyGridState = rememberLazyGridState()
@@ -739,18 +743,24 @@ private fun ThumbnailItem(
         contentAlignment = Alignment.Center
     ) {
         val preset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
-        val isCustomTheme = preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC || preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC
-        if (isCustomTheme) {
-            // Satanic / Gothic circular cover inside an occult/cathedral seal and ring
+        val sliderStyle by rememberEnumPreference(
+            com.metrolist.music.constants.SliderStyleKey,
+            com.metrolist.music.constants.SliderStyle.DEFAULT,
+        )
+        val isRing = (preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC ||
+            preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC ||
+            sliderStyle == com.metrolist.music.constants.SliderStyle.RING) && !hidePlayerThumbnail
+
+        if (isRing) {
+            // Circular cover inside a ring progress (Satanic / Gothic seals, or Street / Breakcore seals, or standard ring)
             val ringSpinOn by rememberPreference(com.metrolist.music.constants.RingCoverSpinKey, defaultValue = true)
-            val ring = !hidePlayerThumbnail
             val playing = isCurrent || item.mediaId == currentMediaId
             Box(Modifier.size(dimensions.thumbnailSize), contentAlignment = Alignment.Center) {
                 Box(
                     modifier = Modifier
                         .size(dimensions.thumbnailSize * RING_COVER_SHARE)
                         .coverSource(coverViewer)
-                        .then(if (ring) Modifier.ringSpin(playerConnection, active = ringSpinOn && playing) else Modifier)
+                        .then(if (isRing) Modifier.ringSpin(playerConnection, active = ringSpinOn && playing) else Modifier)
                         .clip(androidx.compose.foundation.shape.CircleShape)
                 ) {
                     if (hidePlayerThumbnail) {
@@ -765,9 +775,9 @@ private fun ThumbnailItem(
                 }
                 // An experimental theme's seal round the ring
                 if (!hidePlayerThumbnail) {
-                    com.metrolist.music.ui.theme.ThemePlayerDecor(ring = ring, color = textBackgroundColor, modifier = Modifier.matchParentSize())
+                    com.metrolist.music.ui.theme.ThemePlayerDecor(ring = true, color = textBackgroundColor, modifier = Modifier.matchParentSize())
                 }
-                if (ring) {
+                if (isRing) {
                     if (playing) {
                         RingProgress(
                             playerConnection = playerConnection,
@@ -805,6 +815,11 @@ private fun ThumbnailItem(
                         artworkUri = artworkUriToUse,
                         cropArtwork = cropAlbumArt
                     )
+                }
+
+                // An experimental theme's decor for square cover (e.g. Street spray drips, Breakcore stitches)
+                if (!hidePlayerThumbnail) {
+                    com.metrolist.music.ui.theme.ThemePlayerDecor(ring = false, color = textBackgroundColor, modifier = Modifier.matchParentSize())
                 }
 
                 // Cast button at top-right corner of thumbnail

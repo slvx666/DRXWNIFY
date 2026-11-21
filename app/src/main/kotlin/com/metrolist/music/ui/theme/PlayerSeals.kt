@@ -205,40 +205,51 @@ private fun DrawScope.thornWreath(base: Color) {
     )
 }
 
-// ── 2. Gothic: Minimalist Dark Gothic Ring ───────────────────────────────────────────────────────
+// ── 2. Gothic: Minimalist Dark Gothic Ring Decor ──────────────────────────────────────────────────
+
+/** Sharp Gothic architectural ornament / pendant hanging beneath the album cover */
+private fun DrawScope.gothicBottomOrnament(c: Offset, r: Float, color: Color, w: Float) {
+    val startY = c.y + r + 2.dp.toPx()
+    // Central vertical spear/finial pointing downwards
+    val spearLen = 16.dp.toPx()
+    drawLine(color, Offset(c.x, startY), Offset(c.x, startY + spearLen), w * 1.1f, cap = StrokeCap.Round)
+    // Small gothic crossbar on the lower finial
+    val crossY = startY + spearLen * 0.72f
+    val crossW = 4.5.dp.toPx()
+    drawLine(color, Offset(c.x - crossW, crossY), Offset(c.x + crossW, crossY), w * 0.9f, cap = StrokeCap.Round)
+
+    // Symmetrical gothic lancet tracery curves
+    val span = 18.dp.toPx()
+    val drop = 11.dp.toPx()
+    val path = Path().apply {
+        // Left pointed lancet cusp
+        moveTo(c.x - span, startY - 1.dp.toPx())
+        quadraticTo(c.x - span * 0.5f, startY + drop * 0.85f, c.x, startY + drop)
+        // Right pointed lancet cusp
+        quadraticTo(c.x + span * 0.5f, startY + drop * 0.85f, c.x + span, startY - 1.dp.toPx())
+    }
+    drawPath(path, color, style = stroke(w))
+
+    // Tiny pointed diamond accent at the central meeting point
+    smallDiamond(Offset(c.x, startY + 5.dp.toPx()), 2.dp.toPx(), 3.2.dp.toPx(), color, w * 0.85f, filled = true)
+
+    // Flanking acute spire tips
+    listOf(-span, span).forEach { dx ->
+        val pt = Offset(c.x + dx, startY - 1.dp.toPx())
+        smallDiamond(pt, 1.8.dp.toPx(), 2.5.dp.toPx(), color, w * 0.8f, filled = true)
+    }
+}
 
 private fun DrawScope.cathedralSeal(c: Offset, r: Float, base: Color) {
-    val ink = base.copy(alpha = 0.68f)
-    val faint = base.copy(alpha = 0.42f)
+    val ink = base.copy(alpha = 0.75f)
     val w = 1.3.dp.toPx()
 
-    val ringR = r + 1.5.dp.toPx()
-
-    // 4 clean arcs with gaps at cardinal points
-    fourArcRing(c, ringR, gapDeg = 12f, color = ink, w = w)
-
-    // 4 small, neat pointed ticks at the 45° diagonals
-    listOf(-135.0, -45.0, 45.0, 135.0).forEach { deg ->
-        val rad = Math.toRadians(deg)
-        val pIn = polar(c, ringR - 2.dp.toPx(), rad)
-        val pOut = polar(c, ringR + 3.5.dp.toPx(), rad)
-        drawLine(ink, pIn, pOut, w, cap = StrokeCap.Round)
-    }
-
-    // Top gap: Inverted Gothic cross seated directly above the album cover
-    val topCenterY = c.y - ringR - 8.dp.toPx()
+    // Top: Inverted Gothic cross seated directly above the album cover
+    val topCenterY = c.y - r - 8.dp.toPx()
     invertedCross(Offset(c.x, topCenterY), 16.dp.toPx(), ink, w * 1.2f)
-    smallDiamond(Offset(c.x, c.y - ringR), 2.dp.toPx(), 2.5.dp.toPx(), faint, w * 0.85f, filled = true)
 
-    // Bottom gap: Small clean pointed diamond tip
-    val botY = c.y + ringR
-    smallDiamond(Offset(c.x, botY + 2.dp.toPx()), 2.5.dp.toPx(), 4.5.dp.toPx(), ink, w)
-
-    // Left & Right gaps: Tiny diamond points sitting inside the ring gap (never clipped!)
-    listOf(-1f, 1f).forEach { s ->
-        val at = Offset(c.x + s * ringR, c.y)
-        smallDiamond(at, 2.2.dp.toPx(), 1.6.dp.toPx(), faint, w, filled = true)
-    }
+    // Bottom: Sharp Gothic architectural ornament / pendant beneath the album cover
+    gothicBottomOrnament(c, r, ink, w)
 }
 
 // ── 3. Street Art: Minimalist Crown & Drips Ring ─────────────────────────────────────────────────

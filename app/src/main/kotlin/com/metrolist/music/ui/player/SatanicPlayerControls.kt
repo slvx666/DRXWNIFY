@@ -135,13 +135,13 @@ fun SatanicPlayerControls(
                         ),
                 )
 
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(7.dp))
 
                 Text(
                     text = mediaMetadata.artists.joinToString { it.name }.ifEmpty { "—" },
                     style = TextStyle(
                         fontFamily = SatanicThemeConfig.SerifFont,
-                        fontSize = 16.sp,
+                        fontSize = 18.sp,
                         color = secondaryText,
                         textAlign = TextAlign.Center,
                     ),
@@ -301,19 +301,19 @@ fun SatanicPlayerControls(
             IconButton(
                 onClick = onToggleShuffle,
                 enabled = !isListenTogetherGuest,
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(52.dp),
             ) {
                 Icon(
                     painter = androidx.compose.ui.res.painterResource(R.drawable.shuffle),
                     contentDescription = null,
                     tint = if (shuffleModeEnabled) primaryText else mutedText,
-                    modifier = Modifier.size(26.dp),
+                    modifier = Modifier.size(28.dp),
                 )
             }
 
             // Previous Button with control_button_frame.png
             Box(
-                modifier = Modifier.size(62.dp),
+                modifier = Modifier.size(68.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 if (controlButtonFrame != null) {
@@ -322,26 +322,26 @@ fun SatanicPlayerControls(
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
                         colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
-                        modifier = Modifier.size(62.dp),
+                        modifier = Modifier.size(68.dp),
                     )
                 }
                 IconButton(
                     onClick = onSeekPrevious,
                     enabled = canSkipPrevious && !isListenTogetherGuest,
-                    modifier = Modifier.size(54.dp),
+                    modifier = Modifier.size(58.dp),
                 ) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(R.drawable.skip_previous),
                         contentDescription = null,
                         tint = if (canSkipPrevious) primaryText else mutedText,
-                        modifier = Modifier.size(30.dp),
+                        modifier = Modifier.size(32.dp),
                     )
                 }
             }
 
             // Play/Pause Button with play_button_frame.png
             Box(
-                modifier = Modifier.size(86.dp),
+                modifier = Modifier.size(92.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 if (playButtonFrame != null) {
@@ -350,12 +350,12 @@ fun SatanicPlayerControls(
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
                         colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
-                        modifier = Modifier.size(86.dp),
+                        modifier = Modifier.size(92.dp),
                     )
                 }
                 IconButton(
                     onClick = onTogglePlayPause,
-                    modifier = Modifier.size(76.dp),
+                    modifier = Modifier.size(82.dp),
                 ) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(
@@ -363,14 +363,14 @@ fun SatanicPlayerControls(
                         ),
                         contentDescription = null,
                         tint = primaryText,
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(44.dp),
                     )
                 }
             }
 
             // Next Button with control_button_frame.png
             Box(
-                modifier = Modifier.size(62.dp),
+                modifier = Modifier.size(68.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 if (controlButtonFrame != null) {
@@ -379,19 +379,19 @@ fun SatanicPlayerControls(
                         contentDescription = null,
                         contentScale = ContentScale.Fit,
                         colorFilter = if (!isDark) ColorFilter.tint(primaryText) else null,
-                        modifier = Modifier.size(62.dp),
+                        modifier = Modifier.size(68.dp),
                     )
                 }
                 IconButton(
                     onClick = onSeekNext,
                     enabled = canSkipNext && !isListenTogetherGuest,
-                    modifier = Modifier.size(54.dp),
+                    modifier = Modifier.size(58.dp),
                 ) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(R.drawable.skip_next),
                         contentDescription = null,
                         tint = if (canSkipNext) primaryText else mutedText,
-                        modifier = Modifier.size(30.dp),
+                        modifier = Modifier.size(32.dp),
                     )
                 }
             }
@@ -400,7 +400,7 @@ fun SatanicPlayerControls(
             IconButton(
                 onClick = onToggleRepeat,
                 enabled = !isListenTogetherGuest,
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(52.dp),
             ) {
                 Icon(
                     painter = androidx.compose.ui.res.painterResource(
@@ -408,7 +408,7 @@ fun SatanicPlayerControls(
                     ),
                     contentDescription = null,
                     tint = if (repeatMode != Player.REPEAT_MODE_OFF) primaryText else mutedText,
-                    modifier = Modifier.size(26.dp),
+                    modifier = Modifier.size(28.dp),
                 )
             }
         }

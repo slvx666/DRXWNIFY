@@ -62,18 +62,7 @@ internal fun androidx.compose.foundation.layout.BoxScope.MonoTopBar(preset: AppT
             thornLine(size.height - 1.dp.toPx(), ink.copy(alpha = if (dark) 0.42f else 0.5f), down = false, seed = 9)
         }
         AppThemePreset.GOTHIC -> Canvas(Modifier.matchParentSize()) {
-            // A row of small upright crosses along the bottom, on a thin rule.
-            val cross = ink.copy(alpha = if (dark) 0.3f else 0.36f)
-            val step = 26.dp.toPx()
-            var x = step / 2
-            val h = 9.dp.toPx()
-            val base = size.height - 5.dp.toPx()
-            while (x < size.width) {
-                drawLine(cross, Offset(x, base - h), Offset(x, base), 1.2.dp.toPx())
-                drawLine(cross, Offset(x - h * 0.28f, base - h * 0.7f), Offset(x + h * 0.28f, base - h * 0.7f), 1.2.dp.toPx())
-                x += step
-            }
-            hairline(ink.copy(alpha = 0.35f))
+            gothicSpireCresting(ink, dark)
         }
         AppThemePreset.STREET -> Canvas(Modifier.matchParentSize()) { streetBar(accent, ink, dark) }
         AppThemePreset.BREAKCORE -> Canvas(Modifier.matchParentSize()) { glitchBar(ink, dark) }
@@ -85,6 +74,46 @@ internal fun androidx.compose.foundation.layout.BoxScope.MonoTopBar(preset: AppT
 private fun DrawScope.hairline(color: Color) {
     val h = 1.dp.toPx()
     drawRect(color, topLeft = Offset(0f, size.height - h), size = Size(size.width, h))
+}
+
+/** Sharp Gothic architectural cresting / lancet spires along the bottom of the top bar */
+private fun DrawScope.gothicSpireCresting(ink: Color, dark: Boolean) {
+    val spireColor = ink.copy(alpha = if (dark) 0.45f else 0.52f)
+    val faintColor = ink.copy(alpha = if (dark) 0.22f else 0.28f)
+    val base = size.height - 1.dp.toPx()
+    val step = 18.dp.toPx()
+    var x = 0f
+    var idx = 0
+    while (x < size.width) {
+        val isTall = idx % 2 == 0
+        val spireH = if (isTall) 11.dp.toPx() else 8.dp.toPx()
+        val needleH = if (isTall) 3.5.dp.toPx() else 2.5.dp.toPx()
+        val midX = x + step * 0.5f
+        val apexY = base - spireH
+
+        // Lancet arch / acute triangle spire
+        val path = Path().apply {
+            moveTo(x, base)
+            quadraticTo(x + step * 0.18f, base - spireH * 0.65f, midX, apexY)
+            quadraticTo(x + step * 0.82f, base - spireH * 0.65f, x + step, base)
+        }
+        drawPath(path, spireColor, style = Stroke(1.1.dp.toPx(), cap = StrokeCap.Round))
+
+        // Acute vertical needle / finial piercing upward
+        drawLine(spireColor, Offset(midX, apexY), Offset(midX, apexY - needleH), 1.2.dp.toPx(), cap = StrokeCap.Round)
+
+        // Subtle tiny crosslet accent on tall spires
+        if (isTall) {
+            val arm = 1.6.dp.toPx()
+            val armY = apexY - needleH * 0.5f
+            drawLine(spireColor, Offset(midX - arm, armY), Offset(midX + arm, armY), 1.dp.toPx(), cap = StrokeCap.Round)
+        }
+
+        x += step
+        idx++
+    }
+    // Baseline rule
+    drawLine(faintColor, Offset(0f, base), Offset(size.width, base), 1.dp.toPx())
 }
 
 /** Small pointed arches side by side along the bottom edge, like a cloister's arcade. */
