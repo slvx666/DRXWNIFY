@@ -2029,6 +2029,16 @@
     <string name="chat_library_empty">Медиатека пуста или не подключён музыкальный сервис</string>
     <string name="chat_collections">Альбомы и плейлисты</string>
     <string name="chat_liked_tracks">Любимые треки</string>
+    <string name="disc_show_all">Показать все</string>
+    <string name="disc_all">Все</string>
+    <string name="disc_compilations">Сборники</string>
+    <string name="disc_sort_newest">Дата выпуска</string>
+    <string name="disc_sort_oldest">Сначала старые</string>
+    <string name="disc_sort_name">Название</string>
+    <string name="disc_nothing">Здесь релизов нет</string>
+    <string name="disc_single">Сингл</string>
+    <string name="disc_ep">EP</string>
+    <string name="disc_compilation">Сборник</string>
     <string name="chat_pinned">Закреплённые</string>
     <string name="chat_own_playlists">Мои плейлисты</string>
     <string name="chat_added_tracks">Добавленные треки</string>

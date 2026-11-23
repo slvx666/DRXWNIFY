@@ -2082,6 +2082,16 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="chat_library_empty">The library is empty, or no music service is signed in</string>
     <string name="chat_collections">Albums and playlists</string>
     <string name="chat_liked_tracks">Liked tracks</string>
+    <string name="disc_show_all">Show all</string>
+    <string name="disc_all">All</string>
+    <string name="disc_compilations">Compilations</string>
+    <string name="disc_sort_newest">Release date</string>
+    <string name="disc_sort_oldest">Oldest first</string>
+    <string name="disc_sort_name">Name</string>
+    <string name="disc_nothing">No releases here</string>
+    <string name="disc_single">Single</string>
+    <string name="disc_ep">EP</string>
+    <string name="disc_compilation">Compilation</string>
     <string name="chat_pinned">Pinned</string>
     <string name="chat_own_playlists">My playlists</string>
     <string name="chat_added_tracks">Added tracks</string>

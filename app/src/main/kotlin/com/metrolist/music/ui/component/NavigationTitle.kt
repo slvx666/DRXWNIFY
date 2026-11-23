@@ -9,6 +9,7 @@ import com.metrolist.music.ui.theme.themeSectionTitle
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -57,6 +58,9 @@ fun NavigationTitle(
     thumbnail: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     onPlayAllClick: (() -> Unit)? = null,
+    /** A quiet text link on the right ("Show all"). */
+    actionText: String? = null,
+    onAction: (() -> Unit)? = null,
 ) {
     val plain = LocalPlainSectionTitles.current
     val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
@@ -143,6 +147,19 @@ fun NavigationTitle(
                     fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null,
                 )
             }
+        }
+
+        if (actionText != null && onAction != null) {
+            Text(
+                text = actionText,
+                style = MaterialTheme.typography.labelLarge,
+                fontFamily = if (isSatanic) SatanicThemeConfig.SerifFont else null,
+                color = (if (isSatanic) SatanicThemeConfig.getSecondaryText(isDark) else MaterialTheme.colorScheme.onSurfaceVariant),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onAction)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+            )
         }
 
         if (onClick != null && !plain) {

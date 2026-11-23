@@ -659,6 +659,13 @@ fun NavGraphBuilder.navigationBuilder(
         ArtistScreen(navController)
     }
 
+    composable(
+        route = "artist_discography/{artistId}",
+        arguments = listOf(navArgument("artistId") { type = NavType.StringType }),
+    ) { entry ->
+        com.metrolist.music.ui.screens.artist.ArtistDiscographyScreen(navController, entry.arguments?.getString("artistId").orEmpty())
+    }
+
     composable("spotify_liked_songs") {
         SpotifyLikedSongsScreen(navController, scrollBehavior)
     }

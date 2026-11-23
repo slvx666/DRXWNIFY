@@ -777,7 +777,13 @@ fun ArtistScreen(
                     val youtubeHasSongs = !useCatalog && artistPage?.sections?.any { sec -> sec.items.any { it is SongItem } } == true
                     if (!youtubeHasSongs && catalogTopTracks.isNotEmpty()) {
                         item(key = "catalog_top_title") {
-                            NavigationTitle(title = stringResource(R.string.artist_top_tracks), modifier = Modifier.animateItem())
+                            val discographyId = viewModel.catalogArtistId
+                            NavigationTitle(
+                                title = stringResource(R.string.artist_top_tracks),
+                                modifier = Modifier.animateItem(),
+                                actionText = discographyId?.let { stringResource(R.string.disc_show_all) },
+                                onAction = discographyId?.let { id -> { navController.navigate("artist_discography/$id") } },
+                            )
                         }
                         val topTracks = catalogTopTracks.take(10)
                         items(items = topTracks, key = { "catalog_top_${it.id}" }) { track ->
