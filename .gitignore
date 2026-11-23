@@ -112,3 +112,6 @@ app/src/main/cpp/coverart/
 
 # Cloudflare wrangler local state
 .wrangler/
+
+# Firebase client config (read by app/build.gradle.kts for push); kept out of git
+app/google-services.json

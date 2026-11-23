@@ -406,6 +406,19 @@
             android:name=".listentogether.ListenTogetherActionReceiver"
             android:exported="false" />
 
+        <!-- Push wake-ups (chats, shared playlists); Firebase is set up in code (push/Push.kt). -->
+        <service
+            android:name=".push.PushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <provider
+            android:name="com.google.firebase.provider.FirebaseInitProvider"
+            android:authorities="${applicationId}.firebaseinitprovider"
+            tools:node="remove" />
+
         <receiver
             android:name=".friends.ChatAlarmReceiver"
             android:enabled="true"

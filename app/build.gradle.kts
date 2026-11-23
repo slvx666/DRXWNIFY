@@ -66,6 +66,27 @@ android {
             ?: System.getenv("CRASH_REPORT_TOKEN") ?: ""
         buildConfigField("String", "CRASH_REPORT_REPO", "\"$crashRepo\"")
         buildConfigField("String", "CRASH_REPORT_TOKEN", "\"$crashToken\"")
+
+        // Push (Firebase Cloud Messaging): the client config from app/google-services.json (kept out
+        // of git), read here instead of by the google-services plugin, so a build without the file
+        // still works (push is then off) and the debug package needs no entry of its own.
+        val fcm = file("google-services.json").takeIf { it.exists() }?.let { f ->
+            @Suppress("UNCHECKED_CAST")
+            val json = groovy.json.JsonSlurper().parse(f) as Map<String, Any?>
+            val project = json["project_info"] as Map<String, Any?>
+            val client = (json["client"] as List<Map<String, Any?>>).first()
+            val clientInfo = client["client_info"] as Map<String, Any?>
+            val apiKey = (client["api_key"] as List<Map<String, Any?>>).first()["current_key"]
+            mapOf(
+                "FCM_PROJECT_ID" to project["project_id"],
+                "FCM_SENDER_ID" to project["project_number"],
+                "FCM_APP_ID" to clientInfo["mobilesdk_app_id"],
+                "FCM_API_KEY" to apiKey,
+            )
+        }.orEmpty()
+        listOf("FCM_PROJECT_ID", "FCM_SENDER_ID", "FCM_APP_ID", "FCM_API_KEY").forEach { key ->
+            buildConfigField("String", key, "\"${fcm[key] ?: ""}\"")
+        }
     }
 
     flavorDimensions += listOf("variant")
@@ -76,6 +97,7 @@ android {
             isDefault = true
             buildConfigField("Boolean", "CAST_AVAILABLE", "false")
             buildConfigField("Boolean", "UPDATER_AVAILABLE", "false")
+            buildConfigField("Boolean", "PUSH_AVAILABLE", "true")
         }
 
         // GMS variant - with Google Cast support (requires Google Play Services)
@@ -83,6 +105,7 @@ android {
             dimension = "variant"
             buildConfigField("Boolean", "CAST_AVAILABLE", "true")
             buildConfigField("Boolean", "UPDATER_AVAILABLE", "false")
+            buildConfigField("Boolean", "PUSH_AVAILABLE", "true")
         }
 
         // IzzyOnDroid variant - no Google Cast, no built-in updater (store handles updates)
@@ -90,6 +113,7 @@ android {
             dimension = "variant"
             buildConfigField("Boolean", "CAST_AVAILABLE", "false")
             buildConfigField("Boolean", "UPDATER_AVAILABLE", "false")
+            buildConfigField("Boolean", "PUSH_AVAILABLE", "false")
         }
     }
 
@@ -293,6 +317,10 @@ dependencies {
     "gmsImplementation"(libs.media3.cast)
     "gmsImplementation"(libs.mediarouter)
     "gmsImplementation"(libs.cast.framework)
+
+    // Push: instant chat and shared-playlist wake-ups (needs Google Play services on the phone;
+    // without them the app keeps its half-hourly check). Switched off in the IzzyOnDroid build.
+    implementation(libs.firebase.messaging)
 
     implementation(libs.room.runtime)
     implementation(libs.kuromoji.ipadic)

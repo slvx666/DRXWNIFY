@@ -100,7 +100,13 @@ object ChatHub {
     // ── Peers: did they add me, and does their app have chats ────────────────────────────────────
 
     /** [protocol] 0 = no chats in their app; [version] their app's version, when it says. */
-    data class PeerStatus(val addedMe: Boolean, val protocol: Int, val version: String? = null) {
+    data class PeerStatus(
+        val addedMe: Boolean,
+        val protocol: Int,
+        val version: String? = null,
+        /** Where to wake their phone when I write (from their hello); null: their app has no push. */
+        val push: String? = null,
+    ) {
         val hasChat: Boolean get() = protocol > 0
         val hasReactions: Boolean get() = protocol >= PROTOCOL_REACTIONS
     }
@@ -415,6 +421,8 @@ object ChatHub {
                 }
                 ready.forEachIndexed { i, item -> sendOne(peer, item.text.trim(), item.music, if (i == 0) replyTo else null) }
             }
+            // Their phone is woken at once instead of finding the message at its next check.
+            com.metrolist.music.push.Push.wake(_peers.value[peer]?.push, com.metrolist.music.push.Push.TYPE_CHAT)
         }
     }
 
@@ -731,7 +739,7 @@ object ChatHub {
             val v = o.getJSONObject(k)
             // "c" (has chats, yes/no) from before the protocol number was kept.
             val protocol = if (v.has("p")) v.optInt("p") else if (v.optBoolean("c")) 1 else 0
-            PeerStatus(v.optBoolean("a"), protocol, v.optString("ver").takeIf { it.isNotBlank() })
+            PeerStatus(v.optBoolean("a"), protocol, v.optString("ver").takeIf { it.isNotBlank() }, v.optString("push").takeIf { it.isNotBlank() })
         }
     }.getOrDefault(emptyMap())
 
@@ -740,6 +748,7 @@ object ChatHub {
         peers.forEach { (k, v) ->
             val o = JSONObject().put("a", v.addedMe).put("c", v.hasChat).put("p", v.protocol)
             v.version?.let { o.put("ver", it) }
+            v.push?.let { o.put("push", it) }
             out.put(k, o)
         }
         prefs?.edit()?.putString("peers_$me", out.toString())?.apply()
@@ -785,7 +794,13 @@ object ChatHub {
             val known = _peers.value[author]
             // An old hello doesn't lower what their messages already showed.
             val protocol = maxOf(json?.optInt("chat") ?: 0, known?.protocol ?: 0)
-            PeerStatus(addedMe = plain != null, protocol = protocol, version = cleanVersion(json?.optString("ver")) ?: known?.version)
+            PeerStatus(
+                addedMe = plain != null,
+                protocol = protocol,
+                version = cleanVersion(json?.optString("ver")) ?: known?.version,
+                // A hello read in full tells the address as it is now (none: their app stopped having one).
+                push = if (json != null) json.optString("push").takeIf { it.length in 20..400 } else known?.push,
+            )
         }
         // Only what was heard replaces what was known (a relay that didn't answer forgets nothing).
         val merged = _peers.value + found
@@ -793,7 +808,8 @@ object ChatHub {
         savePeers(me, merged)
         // My hello again once per version of the app, to every friend who has me: they learn what
         // this one can do (reactions) and which version it is.
-        val toldKey = "told_${me}_${com.metrolist.music.BuildConfig.VERSION_NAME}"
+        // ...and again when this phone's push address changed, so they can wake it.
+        val toldKey = "told_${me}_${com.metrolist.music.BuildConfig.VERSION_NAME}_${com.metrolist.music.push.Push.token?.hashCode() ?: 0}"
         val told = prefs?.getStringSet(toldKey, emptySet()).orEmpty()
         val toTell = found.filter { it.value.addedMe && it.key !in told }.keys
         if (toTell.isNotEmpty()) {
@@ -898,6 +914,11 @@ object ChatHub {
     fun cancelCheck(context: Context) {
         val app = context.applicationContext
         app.getSystemService(AlarmManager::class.java)?.cancel(pending(app))
+    }
+
+    /** This phone's push address changed: friends hear the hello again (with the new one). */
+    fun pushTokenChanged() {
+        scope.launch { runCatching { refreshPeers() }.onFailure { Log.w(LOG_TAG, "hello after push change failed", it) } }
     }
 
     internal fun runCheck(then: () -> Unit) {

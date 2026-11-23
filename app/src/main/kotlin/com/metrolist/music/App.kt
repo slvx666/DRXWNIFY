@@ -250,6 +250,7 @@ class App :
         com.metrolist.music.friends.FriendLikesSync.init(this, database)
         com.metrolist.music.friends.FriendsHub.init(this, database)
         com.metrolist.music.friends.ChatHub.init(this)
+        com.metrolist.music.push.Push.init(this)
         com.metrolist.music.catalog.Catalog.init(dataStore, applicationScope, getString(R.string.liked_songs))
         com.metrolist.music.catalog.CrossCatalog.init(this, applicationScope)
         com.metrolist.music.catalog.VkCatalog.init(this)

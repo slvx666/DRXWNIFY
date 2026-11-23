@@ -64,6 +64,8 @@ data class CollabPlaylist(
     val maxTracksPerUser: Int = 5,
     val tracks: List<CollabTrack> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis(),
+    /** Where to wake the owner's phone when a guest sends tracks (see push/Push.kt). */
+    val pushToken: String? = null,
 ) {
     val totalCount: Int get() = tracks.size
     val contributorsCount: Int get() = tracks.map { it.addedByPubkey }.distinct().size
@@ -549,6 +551,18 @@ object CollabPlaylistManager {
         }
 
         RelayPool.publish(Nostr.sign(sk, Nostr.KIND_APP_DATA, requestTags(ownerPubkey, playlistId), payload.toString()))
+        wakeOwner(ownerPubkey, playlistId)
+    }
+
+    /** The owner's phone takes the request now, even with the app closed (when it has push). */
+    private fun wakeOwner(ownerPubkey: String, playlistId: String) {
+        val token = remotePlaylists["$ownerPubkey:$playlistId"]?.value?.pushToken
+        com.metrolist.music.push.Push.wake(token, com.metrolist.music.push.Push.TYPE_COLLAB)
+    }
+
+    /** This phone's push address changed: the shared playlists are published again with the new one. */
+    fun republishOwn() {
+        _myPlaylists.value.forEach { publishPlaylistState(it) }
     }
 
     /**
@@ -596,6 +610,7 @@ object CollabPlaylistManager {
         }
 
         RelayPool.publish(Nostr.sign(sk, Nostr.KIND_APP_DATA, requestTags(ownerPubkey, playlistId), payload.toString()))
+        wakeOwner(ownerPubkey, playlistId)
     }
 
     fun generateShareLink(ownerPubkey: String, playlistId: String, title: String): String {
@@ -631,6 +646,7 @@ object CollabPlaylistManager {
         put("link", p.allowByLink)
         put("max", p.maxTracksPerUser)
         put("updated", p.updatedAt)
+        (if (p.ownerPubkey == myPubkey()) com.metrolist.music.push.Push.token else p.pushToken)?.let { put("push", it) }
         val arr = JSONArray()
         p.tracks.forEach { t ->
             arr.put(JSONObject().apply {
@@ -678,6 +694,7 @@ object CollabPlaylistManager {
             maxTracksPerUser = o.optInt("max", DEFAULT_MAX_TRACKS_PER_USER),
             tracks = tracks,
             updatedAt = o.optLong("updated", System.currentTimeMillis()),
+            pushToken = o.optString("push").takeIf { it.length in 20..400 },
         )
     }.getOrNull()
 }

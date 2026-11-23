@@ -842,7 +842,10 @@ object FriendsHub {
 
     /** "I added you" with this profile's name; "chat" tells the friend this version has chats. */
     private fun helloContent(name: String) = JSONObject().put("name", name).put("chat", ChatHub.PROTOCOL)
-        .put("ver", com.metrolist.music.BuildConfig.VERSION_NAME.substringBefore('-').take(16)).toString()
+        .put("ver", com.metrolist.music.BuildConfig.VERSION_NAME.substringBefore('-').take(16))
+        // Where to wake this phone when the friend writes (see push/Push.kt); encrypted like the rest.
+        .apply { com.metrolist.music.push.Push.token?.let { put("push", it) } }
+        .toString()
 
     /** The hello sent again to a friend who already has this profile (so they learn it now has chats). */
     internal fun sayHelloAgain(pubkey: String) {
