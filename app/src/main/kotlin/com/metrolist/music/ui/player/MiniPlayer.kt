@@ -1380,7 +1380,7 @@ private fun FavoriteButton(
             painter = painterResource(com.metrolist.music.playback.LikeTarget.icon(isLiked, likeSyncs || isEpisode)),
             contentDescription = null,
             tint = favTint,
-            modifier = Modifier.size(20.dp),
+            modifier = if (isSatanic && com.metrolist.music.ui.theme.ThemeIcons.likeIsTall) Modifier.size(width = 15.dp, height = 38.dp) else Modifier.size(20.dp),
         )
     }
 }

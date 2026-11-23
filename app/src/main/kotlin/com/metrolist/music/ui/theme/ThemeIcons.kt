@@ -45,9 +45,14 @@ object ThemeIcons {
         }
     }
 
+    /** The Satanic like (a tall heart, a dagger when liked) needs more height than a square icon. */
+    val likeIsTall: Boolean get() = ThemeRuntime.preset == AppThemePreset.SATANIC
+
     /** The like icon (the usual heart, synced to the account) under the current theme; null keeps the heart. */
     fun like(liked: Boolean): Int? = when (ThemeRuntime.preset) {
-        AppThemePreset.SATANIC -> if (liked) R.drawable.theme_pentagram_active else R.drawable.theme_pentagram_outline
+        // A heart; liked, a dagger through it, the heart filled and its lines cut through (white on
+        // the dark theme like the drawing, black on the light one). Tinted like any icon.
+        AppThemePreset.SATANIC -> if (liked) R.drawable.theme_heart_dagger_filled else R.drawable.theme_heart_outline
         AppThemePreset.GOTHIC -> if (liked) R.drawable.theme_cross_filled else R.drawable.theme_cross_outline
         AppThemePreset.STREET -> if (liked) R.drawable.theme_crown_filled else R.drawable.theme_crown_outline
         AppThemePreset.BREAKCORE -> if (liked) R.drawable.theme_heart_broken_filled else R.drawable.theme_heart_broken_outline

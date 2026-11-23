@@ -164,15 +164,16 @@ fun SatanicPlayerControls(
                     onClick = { playerConnection.service.setCurrentFavorite(!isLiked) },
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .size(44.dp),
+                        .size(60.dp),
                 ) {
-                    val pentagramIcon = if (isLiked) R.drawable.theme_pentagram_active else R.drawable.theme_pentagram_outline
+                    val pentagramIcon = if (isLiked) R.drawable.theme_heart_dagger_filled else R.drawable.theme_heart_outline
                     val pentagramTint = if (isLiked) (if (isDark) Color.White else primaryText) else mutedText
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(pentagramIcon),
                         contentDescription = "Favorite",
                         tint = pentagramTint,
-                        modifier = Modifier.size(24.dp),
+                        // The heart with its dagger is tall: its own proportions, not a square.
+                        modifier = Modifier.size(width = 23.dp, height = 58.dp),
                     )
                 }
             }
