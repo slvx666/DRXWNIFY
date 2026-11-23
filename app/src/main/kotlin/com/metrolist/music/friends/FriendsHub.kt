@@ -266,7 +266,6 @@ object FriendsHub {
     fun init(context: Context, database: MusicDatabase) {
         appContext = context.applicationContext
         this.database = database
-        CollabPlaylistManager.init(context)
         val p = context.getSharedPreferences("friends", Context.MODE_PRIVATE)
         prefs = p
         loadFaces()
@@ -281,6 +280,10 @@ object FriendsHub {
                 _profile.value = Profile(Secp256k1.publicKey(sk).toHex(), p.getString("name", null).orEmpty(), p.getString("avatar", null))
             }
         }
+        // After the profile: the shared playlists listen for guests' requests as this profile, and
+        // started before it they found no key and never listened (guests' tracks waited forever
+        // for an owner who was online).
+        CollabPlaylistManager.init(context)
         _friends.value = runCatching {
             JSONArray(p.getString("friends", "[]")).let { a ->
                 (0 until a.length()).map { i ->
@@ -594,6 +597,7 @@ object FriendsHub {
         prefs?.edit()?.putString("sk", sk.toHex())?.putString("name", name)?.apply()
         _profile.value = Profile(pub, name, prefs?.getString("avatar", null))
         refreshAccess()
+        CollabPlaylistManager.listenForRequests()
     }
 
     fun setPrivacy(privacy: Privacy) {
