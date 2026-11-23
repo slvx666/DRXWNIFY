@@ -15,6 +15,7 @@ import com.metrolist.innertube.models.PlaylistItem
 import com.metrolist.innertube.models.PodcastItem
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.utils.completed
+import com.metrolist.innertube.utils.completedWithStatus
 import com.metrolist.innertube.utils.parseCookieString
 import com.metrolist.lastfm.LastFM
 import com.metrolist.music.constants.InnerTubeCookieKey
@@ -210,6 +211,28 @@ class SyncUtils @Inject constructor(
             is SyncOperation.ClearPodcastData -> executeClearPodcastData()
         }
     }
+
+    private val likeLedgerFile get() = java.io.File(context.filesDir, "spotify_like_ledger.json")
+
+    /** Spotify track id → the id this app liked it under, as of the last Spotify likes sync. */
+    private fun loadLikeLedger(): Map<String, String> = runCatching {
+        val json = org.json.JSONObject(likeLedgerFile.readText())
+        json.keys().asSequence().associateWith { json.getString(it) }
+    }.getOrDefault(emptyMap())
+
+    private fun saveLikeLedger(ledger: Map<String, String>) {
+        runCatching { likeLedgerFile.writeText(org.json.JSONObject(ledger).toString()) }
+            .onFailure { Timber.w(it, "Spotify like ledger not saved") }
+    }
+
+    /** "artist|title", loose: the same song under two ids gives the same key. */
+    private fun likeKey(artist: String, title: String): String =
+        artist.lowercase().filter { it.isLetterOrDigit() } + "|" +
+            title.lowercase().substringBefore(" (").substringBefore(" - ").filter { it.isLetterOrDigit() }
+
+    /** A YouTube video id (11 chars of [A-Za-z0-9_-]): what YouTube's own lists can hold. */
+    private fun isYouTubeVideoId(id: String): Boolean =
+        id.length == 11 && id.all { it.isLetterOrDigit() || it == '_' || it == '-' }
 
     private suspend fun isLoggedIn(): Boolean {
         return try {
@@ -726,13 +749,26 @@ class SyncUtils @Inject constructor(
         updateState { copy(likedSongs = SyncStatus.Syncing, currentOperation = "Syncing liked songs") }
 
         withRetry {
-            YouTube.playlist("LM").completed()
+            YouTube.playlist("LM").completedWithStatus()
         }.onSuccess { result ->
-            result.onSuccess { page ->
+            result.onSuccess { (page, complete) ->
                 try {
                     val remoteSongs = page.songs
                     val remoteIds = remoteSongs.map { it.id }.toSet()
-                    val localSongs = database.likedSongsByNameAsc().first()
+                    // Likes leave the app only when the whole "Liked music" was read: a list cut short
+                    // (a dropped request, a very long list) used to unlike everything past the cut.
+                    // Spotify's likes are its own sync's business, not YouTube's: they are not
+                    // unliked for being absent from YouTube Music either.
+                    val localSongs = if (!complete) {
+                        Timber.w("YouTube liked music read only part-way (${remoteSongs.size}): nothing unliked")
+                        emptyList()
+                    } else {
+                        val liked = database.likedSongsByNameAsc().first().filterNot { it.id in remoteIds }
+                        val fromSpotify = liked.map { it.id }.chunked(400).flatMapTo(HashSet()) { chunk ->
+                            runCatching { database.getSpotifyMatchesByYouTubeIds(chunk) }.getOrElse { emptyList() }.map { it.youtubeId }
+                        }
+                        liked.filterNot { it.id in fromSpotify || !isYouTubeVideoId(it.id) }
+                    }
                     val now = LocalDateTime.now()
 
                     // Pre-fetch all existing songs in a single batch query
@@ -744,7 +780,7 @@ class SyncUtils @Inject constructor(
                     // only one Flow update with the final state, preventing UI
                     // flickering from intermediate states during sync
                     database.withTransaction {
-                        localSongs.filterNot { it.id in remoteIds }.forEach { song ->
+                        localSongs.forEach { song ->
                             try {
                                 update(song.song.localToggleLike())
                             } catch (e: Exception) {
@@ -1237,7 +1273,10 @@ class SyncUtils @Inject constructor(
         try {
             // 1. Paginate through Spotify likes
             val pageSize = 50
-            val maxPages = 60 // hard cap at 3000 tracks to bound first-sync cost
+            // A cap only against a runaway loop: the old one (3000) cut longer lists, and what was
+            // past the cut could never be unliked.
+            val maxPages = 400
+            var truncated = false
             val remoteTracks = mutableListOf<com.metrolist.spotify.models.SpotifyTrack>()
             var offset = 0
             var pages = 0
@@ -1256,6 +1295,7 @@ class SyncUtils @Inject constructor(
                 if (page.items.size < pageSize || offset >= total) break
                 if (pages >= maxPages) {
                     Timber.w("Spotify likes sync truncated at $offset of $total")
+                    truncated = true
                     break
                 }
             }
@@ -1287,6 +1327,10 @@ class SyncUtils @Inject constructor(
             }
 
             val resolvedSpotifyIds = resolved.map { it.track.id }.toSet()
+            val remoteIds = remoteTracks.mapTo(HashSet()) { it.id }
+            val resolvedKeys = resolved.mapTo(HashSet()) { likeKey(it.track.artists.firstOrNull()?.name.orEmpty(), it.track.name) }
+            val ledger = loadLikeLedger()
+            val youtubeLoggedIn = isLoggedIn()
             Timber.d("Spotify likes: resolved ${resolved.size}/${remoteTracks.size} to YouTube ids")
 
             // 3. Read local liked songs once, outside the transaction (Flow.first
@@ -1308,6 +1352,7 @@ class SyncUtils @Inject constructor(
 
             val now = LocalDateTime.now()
 
+            val stale = HashSet<String>()
             database.withTransaction {
                 // 3a. Mark resolved tracks as liked (insert if missing, update otherwise)
                 resolved.forEachIndexed { index, r ->
@@ -1328,18 +1373,51 @@ class SyncUtils @Inject constructor(
                 //     for the song *and* that mapping points to a track that is
                 //     no longer liked on Spotify. Songs with no Spotify match are
                 //     left alone — they may simply have never been resolved.
-                localLiked.forEach { song ->
-                    if (song.id in resolvedYtIds) return@forEach
-                    val match = matchByYtId[song.id] ?: return@forEach
-                    if (match.spotifyId !in resolvedSpotifyIds) {
-                        try {
-                            update(song.song.copy(liked = false, likedDate = null))
-                        } catch (e: Exception) {
-                            Timber.e(e, "Failed to unlike song ${song.id} after Spotify removal")
-                        }
+                // 3c. What this sync liked before (the ledger) and Spotify no longer has, or
+                //     what an earlier sync found under another id for a track that is now found
+                //     under a new one: the old id lost its match row (one per Spotify track) and
+                //     stayed liked forever, so the app's likes kept growing past the account's.
+                // 3d. Such leftovers from before the ledger: a liked YouTube id with no match whose
+                //     artist and title are a Spotify like found under another id.
+                if (!truncated) {
+                    localLiked.forEach { song ->
+                        if (song.id in resolvedYtIds) return@forEach
+                        val match = matchByYtId[song.id] ?: return@forEach
+                        if (match.spotifyId !in resolvedSpotifyIds && match.spotifyId !in remoteIds) stale += song.id
+                    }
+                    ledger.forEach { (spotifyId, localId) ->
+                        if (localId in resolvedYtIds) return@forEach
+                        if (spotifyId !in remoteIds || spotifyId in resolvedSpotifyIds) stale += localId
                     }
                 }
+                if (!youtubeLoggedIn) {
+                    localLiked.forEach { song ->
+                        if (song.id in resolvedYtIds || song.id in matchByYtId || !isYouTubeVideoId(song.id)) return@forEach
+                        val key = likeKey(song.artists.firstOrNull()?.name.orEmpty(), song.song.title)
+                        if (key in resolvedKeys) stale += song.id
+                    }
+                }
+                localLiked.forEach { song ->
+                    if (song.id !in stale) return@forEach
+                    try {
+                        update(song.song.copy(liked = false, likedDate = null))
+                    } catch (e: Exception) {
+                        Timber.e(e, "Failed to unlike song ${song.id} after Spotify removal")
+                    }
+                }
+                if (stale.isNotEmpty()) Timber.d("Spotify likes: ${stale.size} stale or duplicate likes removed")
             }
+
+            // The ledger for the next sync: what is liked for Spotify now, and for a track not
+            // found this time the id it had before (it must not be unliked for a failed search).
+            val nextLedger = HashMap<String, String>()
+            if (!truncated) {
+                ledger.forEach { (spotifyId, localId) -> if (spotifyId in remoteIds && localId !in stale) nextLedger[spotifyId] = localId }
+            } else {
+                nextLedger.putAll(ledger)
+            }
+            resolved.forEach { nextLedger[it.track.id] = it.metadata.id }
+            saveLikeLedger(nextLedger)
 
             updateState { copy(likedSongs = SyncStatus.Completed) }
             Timber.d("Spotify likes sync completed: ${resolved.size} applied")
