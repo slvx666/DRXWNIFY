@@ -2294,4 +2294,6 @@
     <string name="collab_limit_reached_toast">Достигнут лимит треков в этом плейлисте</string>
     <string name="collab_empty_tracks">В очереди пока нет треков</string>
     <string name="collab_empty_tracks_desc">Добавьте треки или отправьте ссылку друзьям</string>
+    <string name="collab_request_sent_toast">Отправлено: трек добавится, когда владелец будет в сети</string>
+    <string name="collab_deselect_all">Снять выбор</string>
 </resources>

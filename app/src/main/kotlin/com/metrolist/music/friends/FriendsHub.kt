@@ -954,6 +954,10 @@ object FriendsHub {
         val artist = meta?.artists?.joinToString { it.name } ?: item.mediaMetadata.artist?.toString().orEmpty()
         val cover = meta?.thumbnailUrl ?: item.mediaMetadata.artworkUri?.toString()
         val duration = player.duration.takeIf { it > 0 } ?: ((meta?.duration ?: 0) * 1000L)
+        // A track of one of my shared playlists reached the player: it counts as played there.
+        if (playing && lastNow?.track?.title != title) {
+            runCatching { CollabPlaylistManager.notePlaying(title, artist) }
+        }
         nowJob?.cancel()
         nowJob = scope.launch {
             delay(NOW_DEBOUNCE_MS)

@@ -5,10 +5,6 @@
 
 package com.metrolist.music.ui.screens.playlist
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -48,7 +44,6 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -56,7 +51,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -70,6 +64,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -123,7 +118,6 @@ fun CollabPlaylistScreen(
     var showMusicPicker by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showPaletteSheet by remember { mutableStateOf(false) }
-    var showShareSheet by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var trackToDelete by remember { mutableStateOf<CollabTrack?>(null) }
 
@@ -149,7 +143,38 @@ fun CollabPlaylistScreen(
         }
     }
 
-    val currentTracks = playlist?.tracks.orEmpty()
+    // The list shows the order it plays in (round robin interleaves the senders): it showed the order
+    // of adding while a tap played the fair queue, so tapping a track started a different one.
+    val rawTracks = playlist?.tracks.orEmpty()
+    val currentTracks = remember(playlist) {
+        playlist?.let { if (it.roundRobin) CollabPlaylistManager.computeFairQueue(it) else it.tracks }.orEmpty()
+    }
+
+    /** A shown row's index in the stored list (what edits address). */
+    fun rawIndexOf(track: CollabTrack): Int =
+        rawTracks.indexOfFirst { it === track }.takeIf { it >= 0 } ?: rawTracks.indexOf(track)
+
+    fun rawIndices(shown: Collection<Int>): Set<Int> =
+        shown.mapNotNull { currentTracks.getOrNull(it)?.let(::rawIndexOf)?.takeIf { i -> i >= 0 } }.toSet()
+
+    fun share() {
+        val pl = playlist
+        val name = pl?.name.orEmpty()
+        val link = CollabPlaylistManager.generateShareLink(pubkey, playlistId, name)
+        com.metrolist.music.ui.component.ShareSheet.open(
+            title = name.ifBlank { context.getString(R.string.collab_playlists_title) },
+            music = listOf(
+                com.metrolist.music.friends.ChatMusic(
+                    kind = com.metrolist.music.utils.AppLinks.Kind.COLLAB,
+                    id = "$pubkey/$playlistId",
+                    title = name,
+                    by = myProfile?.name.orEmpty(),
+                    count = pl?.totalCount ?: 0,
+                ),
+            ),
+            linkText = if (name.isBlank()) link else "$name\n$link",
+        )
+    }
 
     fun playQueue(startIndex: Int = 0) {
         val pl = playlist ?: return
@@ -186,15 +211,17 @@ fun CollabPlaylistScreen(
                 }
             },
             actions = {
-                // Color palette button: LOCATED TO THE LEFT OF THE SELECTION BUTTON
-                IconButton(onClick = {
-                    showPaletteSheet = !showPaletteSheet
-                }) {
-                    Icon(
-                        painter = painterResource(R.drawable.palette),
-                        contentDescription = stringResource(R.string.collab_palette_title),
-                        tint = if (isColoringMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    )
+                // Colour marks are the owner's: a guest's taps on the palette changed nothing.
+                if (isOwner) {
+                    IconButton(onClick = {
+                        showPaletteSheet = !showPaletteSheet
+                    }) {
+                        Icon(
+                            painter = painterResource(R.drawable.palette),
+                            contentDescription = stringResource(R.string.collab_palette_title),
+                            tint = if (isColoringMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
                 }
 
                 // Selection button
@@ -211,7 +238,7 @@ fun CollabPlaylistScreen(
                 }
 
                 // Share button (opens share choices)
-                IconButton(onClick = { showShareSheet = true }) {
+                IconButton(onClick = ::share) {
                     Icon(painterResource(R.drawable.share), contentDescription = stringResource(R.string.collab_share_link))
                 }
 
@@ -345,13 +372,13 @@ fun CollabPlaylistScreen(
                             selectedIndices.addAll(currentTracks.indices)
                         }
                     }) {
-                        Text(if (selectedIndices.size == currentTracks.size) "Deselect" else stringResource(R.string.select_all_short))
+                        Text(if (selectedIndices.size == currentTracks.size) stringResource(R.string.collab_deselect_all) else stringResource(R.string.select_all_short))
                     }
                     Spacer(Modifier.width(6.dp))
                     Button(
                         onClick = {
                             if (isOwner) {
-                                CollabPlaylistManager.applyColor(playlistId, selectedIndices.toSet(), selectedColorHex)
+                                CollabPlaylistManager.applyColor(playlistId, rawIndices(selectedIndices), selectedColorHex)
                             }
                             exitColoringMode()
                         },
@@ -387,7 +414,7 @@ fun CollabPlaylistScreen(
                             selectedIndices.addAll(currentTracks.indices)
                         }
                     }) {
-                        Text(if (selectedIndices.size == currentTracks.size) "Deselect" else stringResource(R.string.select_all_short))
+                        Text(if (selectedIndices.size == currentTracks.size) stringResource(R.string.collab_deselect_all) else stringResource(R.string.select_all_short))
                     }
                     if (selectedIndices.isNotEmpty()) {
                         IconButton(onClick = {
@@ -402,17 +429,15 @@ fun CollabPlaylistScreen(
                         }) {
                             Icon(painterResource(R.drawable.play), contentDescription = stringResource(R.string.collab_play_selected), tint = MaterialTheme.colorScheme.onSecondaryContainer)
                         }
-                        IconButton(onClick = {
-                            showPaletteSheet = true
-                        }) {
-                            Icon(painterResource(R.drawable.palette), contentDescription = stringResource(R.string.collab_palette_title), tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                        }
                         if (isOwner) {
                             IconButton(onClick = {
-                                val toRemove = selectedIndices.sortedDescending()
-                                toRemove.forEach { idx ->
-                                    CollabPlaylistManager.removeTrackFromOwn(playlistId, idx)
-                                }
+                                showPaletteSheet = true
+                            }) {
+                                Icon(painterResource(R.drawable.palette), contentDescription = stringResource(R.string.collab_palette_title), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                            }
+                            IconButton(onClick = {
+                                // All at once: one by one it published the whole playlist per track.
+                                CollabPlaylistManager.removeTracksFromOwn(playlistId, rawIndices(selectedIndices))
                                 selectedIndices.clear()
                                 inSelectMode = false
                             }) {
@@ -492,7 +517,9 @@ fun CollabPlaylistScreen(
                                         }
                                     },
                                 )
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                // Already played: still listed, but no longer waiting.
+                                .alpha(if (track.played) 0.5f else 1f),
                         ) {
                             if (inAnySelect) {
                                 Checkbox(
@@ -604,7 +631,13 @@ fun CollabPlaylistScreen(
             showMusicPicker = false
             if (pickedList.isNotEmpty()) {
                 CollabPlaylistManager.sendAddTracksRequest(pubkey, playlistId, pickedList.map { it.trackRef() })
-                Toast.makeText(context, R.string.collab_track_added_toast, Toast.LENGTH_SHORT).show()
+                // A guest's tracks are a request: the owner's app adds them (and may be offline, or the
+                // guest's limit reached), so "added" was a promise it couldn't keep.
+                Toast.makeText(
+                    context,
+                    if (isOwner) R.string.collab_track_added_toast else R.string.collab_request_sent_toast,
+                    Toast.LENGTH_SHORT,
+                ).show()
             }
         },
     )
@@ -617,7 +650,7 @@ fun CollabPlaylistScreen(
             text = { Text("${track.artist} — ${track.title}") },
             confirmButton = {
                 TextButton(onClick = {
-                    val idx = currentTracks.indexOf(track)
+                    val idx = rawIndexOf(track)
                     if (isOwner && idx >= 0) {
                         CollabPlaylistManager.removeTrackFromOwn(playlistId, idx)
                     } else {
@@ -745,138 +778,5 @@ fun CollabPlaylistScreen(
                 }
             },
         )
-    }
-
-    // Share Options Bottom Sheet (In-app chats vs Outside app / Link)
-    if (showShareSheet) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = { showShareSheet = false },
-            sheetState = sheetState,
-        ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(bottom = 24.dp, top = 8.dp),
-            ) {
-                Text(
-                    playlist?.name ?: stringResource(R.string.collab_playlists_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 24.dp),
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    // Option 1: To in-app chats
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable {
-                                val chatMusic = com.metrolist.music.friends.ChatMusic(
-                                    kind = com.metrolist.music.utils.AppLinks.Kind.COLLAB,
-                                    id = "$pubkey/$playlistId",
-                                    title = playlist?.name.orEmpty(),
-                                    by = myProfile?.name.orEmpty(),
-                                    count = playlist?.totalCount ?: 0,
-                                )
-                                com.metrolist.music.friends.ChatHub.startForward(listOf(chatMusic))
-                                showShareSheet = false
-                                runCatching { navController.navigate("chats") }
-                            }
-                            .padding(12.dp),
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            modifier = Modifier.size(52.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    painter = painterResource(R.drawable.chat_bubble),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(stringResource(R.string.share_to_chats), style = MaterialTheme.typography.labelMedium)
-                    }
-
-                    // Option 2: Outside the app (system share sheet)
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable {
-                                val link = CollabPlaylistManager.generateShareLink(pubkey, playlistId, playlist?.name.orEmpty())
-                                val intent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, link)
-                                }
-                                context.startActivity(Intent.createChooser(intent, playlist?.name))
-                                showShareSheet = false
-                            }
-                            .padding(12.dp),
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            modifier = Modifier.size(52.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    painter = painterResource(R.drawable.share),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(stringResource(R.string.share_outside_app), style = MaterialTheme.typography.labelMedium)
-                    }
-
-                    // Option 3: Copy link
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable {
-                                val link = CollabPlaylistManager.generateShareLink(pubkey, playlistId, playlist?.name.orEmpty())
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Collab Playlist", link))
-                                Toast.makeText(context, R.string.collab_link_copied, Toast.LENGTH_SHORT).show()
-                                showShareSheet = false
-                            }
-                            .padding(12.dp),
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            modifier = Modifier.size(52.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    painter = painterResource(R.drawable.link),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(stringResource(R.string.copy_link), style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
-        }
     }
 }

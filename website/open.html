@@ -43,8 +43,10 @@
   </main>
   <script>
     (function () {
-      var KINDS = { album: "Альбом", playlist: "Плейлист", track: "Трек", artist: "Исполнитель" };
-      var m = location.pathname.match(/^\/(album|playlist|track|artist)\/([^/?#]+)/);
+      var KINDS = { album: "Альбом", playlist: "Плейлист", track: "Трек", artist: "Исполнитель", collab: "Общий плейлист" };
+      // A shared playlist is /collab/<owner key>/<playlist id>: both parts go to the app.
+      var m = location.pathname.match(/^\/(collab)\/([0-9a-f]{64}\/[A-Za-z0-9]+)/) ||
+        location.pathname.match(/^\/(album|playlist|track|artist)\/([^/?#]+)/);
       var open = document.getElementById("open");
       if (!m) { open.hidden = true; return; }
       var kind = m[1];
@@ -78,7 +80,7 @@
         cover.style.backgroundImage = "url('https://i.ytimg.com/vi/" + encodeURIComponent(id.slice(3)) + "/hqdefault.jpg')";
       }
 
-      var tail = kind + "/" + encodeURIComponent(id) + location.search;
+      var tail = kind + "/" + (kind === "collab" ? id : encodeURIComponent(id)) + location.search;
       var fallback = encodeURIComponent(location.origin + "/");
       // Chrome on Android: an intent link opens the app (or the site when it is not installed).
       open.href = /android/i.test(navigator.userAgent)

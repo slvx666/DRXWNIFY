@@ -102,6 +102,9 @@ object CollabPlaylistManager {
     const val DEFAULT_MAX_TRACKS_PER_USER = 5
     private const val D_COLLAB_PREFIX = "drxw:collab:"
     private const val TAG_COLLAB_REQ = "drxw_collab_req"
+    /** Requests are picked up when the owner was away up to a week. */
+    private const val REQUEST_WINDOW_S = 7 * 24 * 3600L
+    private const val MAX_HANDLED_REQUESTS = 2000
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var prefs: SharedPreferences? = null
@@ -115,9 +118,27 @@ object CollabPlaylistManager {
 
     private var reqSubId: String? = null
 
+    /**
+     * Every change to [_myPlaylists] reads, edits and writes the list: two requests arriving at once
+     * (relays answer on their own threads) each started from the same list and one of them was lost.
+     */
+    private val lock = Any()
+
+    /**
+     * Ids of the request events already applied. Relays send the last days' requests again at every
+     * start, and each of them used to be added again: the same tracks piled up after each restart.
+     */
+    private val handledRequests = LinkedHashSet<String>()
+
+    @Volatile private var lastNoted: String? = null
+
+    /** Per watched playlist, the newest version seen: relays also hand out older copies. */
+    private val newestSeen = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     fun init(context: Context) {
         val p = context.getSharedPreferences("collab_playlists", Context.MODE_PRIVATE)
         prefs = p
+        p.getString("handled_requests", null)?.split(',')?.filter { it.isNotBlank() }?.let { synchronized(lock) { handledRequests.addAll(it) } }
         loadSavedPlaylists()
         listenForRequests()
     }
@@ -135,6 +156,30 @@ object CollabPlaylistManager {
         _myPlaylists.value = list
     }
 
+    private fun saveHandled() {
+        val p = prefs ?: return
+        val ids = synchronized(lock) {
+            while (handledRequests.size > MAX_HANDLED_REQUESTS) handledRequests.remove(handledRequests.first())
+            handledRequests.joinToString(",")
+        }
+        p.edit().putString("handled_requests", ids).apply()
+    }
+
+    /** Applies [change] to playlist [id] of this profile under [lock]; saves and publishes the result. */
+    private inline fun mutateOwn(id: String, change: (CollabPlaylist) -> CollabPlaylist?): CollabPlaylist? {
+        val updated = synchronized(lock) {
+            val current = _myPlaylists.value
+            val target = current.firstOrNull { it.id == id } ?: return null
+            val next = change(target)?.copy(updatedAt = System.currentTimeMillis()) ?: return null
+            _myPlaylists.value = current.map { if (it.id == id) next else it }
+            next
+        }
+        savePlaylists()
+        notifyLocalPlaylistUpdated(updated)
+        publishPlaylistState(updated)
+        return updated
+    }
+
     private fun savePlaylists() {
         val p = prefs ?: return
         val a = JSONArray()
@@ -150,8 +195,9 @@ object CollabPlaylistManager {
         val current = _myPlaylists.value
         if (current.size >= MAX_COLLAB_PLAYLISTS) return null
 
-        val usedIds = current.map { it.id }.toSet()
-        val nextId = (1..MAX_COLLAB_PLAYLISTS).firstOrNull { it.toString() !in usedIds }?.toString() ?: return null
+        // A fresh random id: "1", "2", "3" were handed out again after a delete, so the old playlist's
+        // links (and requests still on the relays) landed in the new one.
+        val nextId = java.util.UUID.randomUUID().toString().replace("-", "").take(10)
 
         val playlist = CollabPlaylist(
             id = nextId,
@@ -195,19 +241,14 @@ object CollabPlaylistManager {
         allowByLink: Boolean? = null,
         maxTracksPerUser: Int? = null,
     ) {
-        val current = _myPlaylists.value
-        val target = current.firstOrNull { it.id == id } ?: return
-        val updated = target.copy(
-            name = name ?: target.name,
-            roundRobin = roundRobin ?: target.roundRobin,
-            allowByLink = allowByLink ?: target.allowByLink,
-            maxTracksPerUser = maxTracksPerUser ?: target.maxTracksPerUser,
-            updatedAt = System.currentTimeMillis(),
-        )
-        _myPlaylists.value = current.map { if (it.id == id) updated else it }
-        savePlaylists()
-        notifyLocalPlaylistUpdated(updated)
-        publishPlaylistState(updated)
+        mutateOwn(id) { target ->
+            target.copy(
+                name = name ?: target.name,
+                roundRobin = roundRobin ?: target.roundRobin,
+                allowByLink = allowByLink ?: target.allowByLink,
+                maxTracksPerUser = maxTracksPerUser ?: target.maxTracksPerUser,
+            )
+        }
     }
 
     /**
@@ -215,17 +256,7 @@ object CollabPlaylistManager {
      */
     fun addTracksToOwn(playlistId: String, newTracks: List<CollabTrack>): Boolean {
         if (newTracks.isEmpty()) return false
-        val current = _myPlaylists.value
-        val target = current.firstOrNull { it.id == playlistId } ?: return false
-        val updated = target.copy(
-            tracks = target.tracks + newTracks,
-            updatedAt = System.currentTimeMillis(),
-        )
-        _myPlaylists.value = current.map { if (it.id == playlistId) updated else it }
-        savePlaylists()
-        notifyLocalPlaylistUpdated(updated)
-        publishPlaylistState(updated)
-        return true
+        return mutateOwn(playlistId) { it.copy(tracks = it.tracks + newTracks) } != null
     }
 
     /**
@@ -238,32 +269,28 @@ object CollabPlaylistManager {
      * Remove track by index in own playlist.
      */
     fun removeTrackFromOwn(playlistId: String, index: Int) {
-        val current = _myPlaylists.value
-        val target = current.firstOrNull { it.id == playlistId } ?: return
-        if (index !in target.tracks.indices) return
-        val updatedTracks = target.tracks.toMutableList().apply { removeAt(index) }
-        val updated = target.copy(tracks = updatedTracks, updatedAt = System.currentTimeMillis())
-        _myPlaylists.value = current.map { if (it.id == playlistId) updated else it }
-        savePlaylists()
-        notifyLocalPlaylistUpdated(updated)
-        publishPlaylistState(updated)
+        mutateOwn(playlistId) { target ->
+            if (index !in target.tracks.indices) return@mutateOwn null
+            target.copy(tracks = target.tracks.toMutableList().apply { removeAt(index) })
+        }
+    }
+
+    /** Removes several tracks at once (their indices in [CollabPlaylist.tracks]): one publish, not one each. */
+    fun removeTracksFromOwn(playlistId: String, indices: Set<Int>) {
+        if (indices.isEmpty()) return
+        mutateOwn(playlistId) { target -> target.copy(tracks = target.tracks.filterIndexed { i, _ -> i !in indices }) }
     }
 
     /**
      * Reorder tracks in own playlist.
      */
     fun moveTrackInOwn(playlistId: String, fromIndex: Int, toIndex: Int) {
-        val current = _myPlaylists.value
-        val target = current.firstOrNull { it.id == playlistId } ?: return
-        if (fromIndex !in target.tracks.indices || toIndex !in target.tracks.indices) return
-        val updatedTracks = target.tracks.toMutableList()
-        val item = updatedTracks.removeAt(fromIndex)
-        updatedTracks.add(toIndex, item)
-        val updated = target.copy(tracks = updatedTracks, updatedAt = System.currentTimeMillis())
-        _myPlaylists.value = current.map { if (it.id == playlistId) updated else it }
-        savePlaylists()
-        notifyLocalPlaylistUpdated(updated)
-        publishPlaylistState(updated)
+        mutateOwn(playlistId) { target ->
+            if (fromIndex !in target.tracks.indices || toIndex !in target.tracks.indices) return@mutateOwn null
+            val updatedTracks = target.tracks.toMutableList()
+            updatedTracks.add(toIndex, updatedTracks.removeAt(fromIndex))
+            target.copy(tracks = updatedTracks)
+        }
     }
 
     /**
@@ -271,33 +298,38 @@ object CollabPlaylistManager {
      * [colorHex] is a hex string (e.g. "#E53935"), or null to clear color (10th choice).
      */
     fun applyColor(playlistId: String, indices: Set<Int>, colorHex: String?) {
-        val current = _myPlaylists.value
-        val target = current.firstOrNull { it.id == playlistId } ?: return
-        val updatedTracks = target.tracks.mapIndexed { idx, track ->
-            if (idx in indices) track.copy(colorHex = colorHex) else track
+        mutateOwn(playlistId) { target ->
+            target.copy(tracks = target.tracks.mapIndexed { idx, track -> if (idx in indices) track.copy(colorHex = colorHex) else track })
         }
-        val updated = target.copy(tracks = updatedTracks, updatedAt = System.currentTimeMillis())
-        _myPlaylists.value = current.map { if (it.id == playlistId) updated else it }
-        savePlaylists()
-        notifyLocalPlaylistUpdated(updated)
-        publishPlaylistState(updated)
     }
 
     /**
      * Marks track as played or unplayed without removing it from the list.
      */
     fun setTrackPlayed(playlistId: String, index: Int, played: Boolean) {
-        val current = _myPlaylists.value
-        val target = current.firstOrNull { it.id == playlistId } ?: return
-        if (index !in target.tracks.indices) return
-        val updatedTracks = target.tracks.toMutableList().apply {
-            this[index] = this[index].copy(played = played)
+        mutateOwn(playlistId) { target ->
+            if (index !in target.tracks.indices || target.tracks[index].played == played) return@mutateOwn null
+            target.copy(tracks = target.tracks.toMutableList().apply { this[index] = this[index].copy(played = played) })
         }
-        val updated = target.copy(tracks = updatedTracks, updatedAt = System.currentTimeMillis())
-        _myPlaylists.value = current.map { if (it.id == playlistId) updated else it }
-        savePlaylists()
-        notifyLocalPlaylistUpdated(updated)
-        publishPlaylistState(updated)
+    }
+
+    /**
+     * The owner's player reached a track of one of their playlists: it counts as played, which frees
+     * its sender's slot (the per-person limit counts only tracks still waiting). Matched by title and
+     * artist, as the player knows the track under its own id.
+     */
+    fun notePlaying(title: String, artist: String) {
+        if (title.isBlank() || _myPlaylists.value.isEmpty()) return
+        // Once per track start: the player reports the same track many times (pause, seek, buffering).
+        if (lastNoted == "$artist|$title") return
+        lastNoted = "$artist|$title"
+        fun norm(v: String) = v.lowercase().filter { it.isLetterOrDigit() }
+        val t = norm(title)
+        val a = norm(artist)
+        _myPlaylists.value.forEach { pl ->
+            val idx = pl.tracks.indexOfFirst { !it.played && norm(it.title) == t && (a.isEmpty() || norm(it.artist).let { x -> x.contains(a) || a.contains(x) }) }
+            if (idx >= 0) setTrackPlayed(pl.id, idx, true)
+        }
     }
 
     /**
@@ -355,7 +387,7 @@ object CollabPlaylistManager {
             .put("kinds", JSONArray().put(Nostr.KIND_APP_DATA))
             .put("#p", JSONArray().put(me))
             .put("#t", JSONArray().put(TAG_COLLAB_REQ))
-            .put("since", System.currentTimeMillis() / 1000 - 3600 * 24)
+            .put("since", System.currentTimeMillis() / 1000 - REQUEST_WINDOW_S)
 
         reqSubId = RelayPool.subscribe(listOf(filter)) { event ->
             handleIncomingRequest(event)
@@ -364,13 +396,13 @@ object CollabPlaylistManager {
 
     private fun handleIncomingRequest(event: NostrEvent) {
         if (!event.isValid()) return
+        if (synchronized(lock) { !handledRequests.add(event.id) }) return
+        saveHandled()
         val senderPubkey = event.pubkey
         val json = runCatching { JSONObject(event.content) }.getOrNull() ?: return
         val playlistId = json.optString("playlistId")
         val action = json.optString("action")
-
-        val current = _myPlaylists.value
-        val playlist = current.firstOrNull { it.id == playlistId } ?: return
+        val playlist = _myPlaylists.value.firstOrNull { it.id == playlistId } ?: return
 
         // Check access: if allowByLink is false, must be friend
         if (!playlist.allowByLink) {
@@ -382,69 +414,41 @@ object CollabPlaylistManager {
         when (action) {
             "add", "add_batch" -> {
                 val senderName = json.optString("senderName", "Friend").take(40)
-                val senderAvatar = json.optString("senderAvatar").takeIf { it.isNotBlank() }
-                val existingCount = playlist.tracks.count { it.addedByPubkey == senderPubkey && !it.played }
-                val remainingSlots = (playlist.maxTracksPerUser - existingCount).coerceAtLeast(0)
-                if (remainingSlots <= 0) return
-
-                val tracksToAdd = mutableListOf<CollabTrack>()
-                if (action == "add") {
-                    val trackObj = json.optJSONObject("track")
-                    if (trackObj != null) {
-                        tracksToAdd.add(
-                            CollabTrack(
-                                id = trackObj.getString("id"),
-                                title = trackObj.optString("t", "Unknown"),
-                                artist = trackObj.optString("a", "Unknown"),
-                                cover = trackObj.optString("c").takeIf { it.startsWith("http") },
-                                durationMs = trackObj.optLong("d", 0L),
-                                addedByPubkey = senderPubkey,
-                                addedByName = senderName,
-                                addedByAvatar = senderAvatar,
-                                addedAt = System.currentTimeMillis(),
-                            )
-                        )
-                    }
+                val senderAvatar = json.optString("senderAvatar").takeIf { it.startsWith("http") }
+                val incoming = if (action == "add") {
+                    listOfNotNull(json.optJSONObject("track"))
                 } else {
-                    val tracksArr = json.optJSONArray("tracks") ?: JSONArray()
-                    for (i in 0 until minOf(tracksArr.length(), remainingSlots)) {
-                        val trackObj = tracksArr.optJSONObject(i) ?: continue
-                        tracksToAdd.add(
-                            CollabTrack(
-                                id = trackObj.getString("id"),
-                                title = trackObj.optString("t", "Unknown"),
-                                artist = trackObj.optString("a", "Unknown"),
-                                cover = trackObj.optString("c").takeIf { it.startsWith("http") },
-                                durationMs = trackObj.optLong("d", 0L),
-                                addedByPubkey = senderPubkey,
-                                addedByName = senderName,
-                                addedByAvatar = senderAvatar,
-                                addedAt = System.currentTimeMillis() + i,
-                            )
+                    val arr = json.optJSONArray("tracks") ?: JSONArray()
+                    (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+                }
+                mutateOwn(playlistId) { current ->
+                    val waiting = current.tracks.count { it.addedByPubkey == senderPubkey && !it.played }
+                    val slots = (current.maxTracksPerUser - waiting).coerceAtLeast(0)
+                    val now = System.currentTimeMillis()
+                    val added = incoming.take(slots).mapIndexedNotNull { i, o ->
+                        val id = o.optString("id").takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
+                        CollabTrack(
+                            id = id,
+                            title = o.optString("t", "Unknown").take(200),
+                            artist = o.optString("a", "Unknown").take(200),
+                            cover = o.optString("c").takeIf { it.startsWith("http") },
+                            durationMs = o.optLong("d", 0L),
+                            addedByPubkey = senderPubkey,
+                            addedByName = senderName,
+                            addedByAvatar = senderAvatar,
+                            addedAt = now + i,
                         )
                     }
+                    if (added.isEmpty()) null else current.copy(tracks = current.tracks + added)
                 }
-
-                if (tracksToAdd.isEmpty()) return
-                val updatedTracks = playlist.tracks + tracksToAdd
-                val updated = playlist.copy(tracks = updatedTracks, updatedAt = System.currentTimeMillis())
-                _myPlaylists.value = current.map { if (it.id == playlistId) updated else it }
-                savePlaylists()
-                notifyLocalPlaylistUpdated(updated)
-                publishPlaylistState(updated)
             }
             "remove" -> {
                 val trackId = json.optString("trackId")
                 if (trackId.isBlank()) return
                 // Contributor can only remove their own unplayed track
-                val idx = playlist.tracks.indexOfFirst { it.id == trackId && it.addedByPubkey == senderPubkey && !it.played }
-                if (idx >= 0) {
-                    val updatedTracks = playlist.tracks.toMutableList().apply { removeAt(idx) }
-                    val updated = playlist.copy(tracks = updatedTracks, updatedAt = System.currentTimeMillis())
-                    _myPlaylists.value = current.map { if (it.id == playlistId) updated else it }
-                    savePlaylists()
-                    notifyLocalPlaylistUpdated(updated)
-                    publishPlaylistState(updated)
+                mutateOwn(playlistId) { current ->
+                    val idx = current.tracks.indexOfFirst { it.id == trackId && it.addedByPubkey == senderPubkey && !it.played }
+                    if (idx < 0) null else current.copy(tracks = current.tracks.toMutableList().apply { removeAt(idx) })
                 }
             }
         }
@@ -476,8 +480,11 @@ object CollabPlaylistManager {
 
         val subId = RelayPool.subscribe(listOf(filter)) { event ->
             if (event.pubkey == ownerPubkey && event.isValid()) {
-                val pl = runCatching { JSONObject(event.content) }.getOrNull()?.let(::playlistFromJson)
-                flow.value = pl
+                // Each relay sends the copy it has; an older one arriving last showed an old list.
+                val newer = newestSeen.compute(key) { _, seen -> maxOf(seen ?: 0L, event.createdAt) } == event.createdAt
+                if (!newer) return@subscribe
+                // An empty event is the playlist deleted by its owner.
+                flow.value = runCatching { JSONObject(event.content) }.getOrNull()?.let(::playlistFromJson)
             }
         }
         remoteSubs[key] = subId
@@ -488,6 +495,7 @@ object CollabPlaylistManager {
         val key = "$ownerPubkey:$id"
         remoteSubs.remove(key)?.let { RelayPool.close(it) }
         remotePlaylists.remove(key)
+        newestSeen.remove(key)
     }
 
     /**
@@ -540,14 +548,20 @@ object CollabPlaylistManager {
             put("tracks", arr)
         }
 
-        val tags = listOf(
-            listOf("p", ownerPubkey),
-            listOf("t", TAG_COLLAB_REQ),
-            listOf("collab_id", playlistId),
-        )
-
-        RelayPool.publish(Nostr.sign(sk, Nostr.KIND_APP_DATA, tags, payload.toString()))
+        RelayPool.publish(Nostr.sign(sk, Nostr.KIND_APP_DATA, requestTags(ownerPubkey, playlistId), payload.toString()))
     }
+
+    /**
+     * A request's tags. Its own "d": app data is replaceable per author and "d", so without one each
+     * new request of a guest replaced the previous one on the relays — of several sent while the
+     * owner was away only the last arrived.
+     */
+    private fun requestTags(ownerPubkey: String, playlistId: String): List<List<String>> = listOf(
+        listOf("d", "drxw:collabreq:" + java.util.UUID.randomUUID().toString()),
+        listOf("p", ownerPubkey),
+        listOf("t", TAG_COLLAB_REQ),
+        listOf("collab_id", playlistId),
+    )
 
     /**
      * Send an add-track request to the host.
@@ -581,13 +595,7 @@ object CollabPlaylistManager {
             put("senderPubkey", me)
         }
 
-        val tags = listOf(
-            listOf("p", ownerPubkey),
-            listOf("t", TAG_COLLAB_REQ),
-            listOf("collab_id", playlistId),
-        )
-
-        RelayPool.publish(Nostr.sign(sk, Nostr.KIND_APP_DATA, tags, payload.toString()))
+        RelayPool.publish(Nostr.sign(sk, Nostr.KIND_APP_DATA, requestTags(ownerPubkey, playlistId), payload.toString()))
     }
 
     fun generateShareLink(ownerPubkey: String, playlistId: String, title: String): String {
