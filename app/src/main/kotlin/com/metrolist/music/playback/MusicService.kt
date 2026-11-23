@@ -3557,6 +3557,14 @@ class MusicService :
         // Aggressive cache clearing for all playback errors
         if (mediaId != null) {
             val serving = fallbackServing[mediaId]
+            // A YouTube upload that broke off mid-track is most likely an address googlevideo stopped
+            // serving, not a bad upload: once per track the same upload is read on with a fresh address.
+            if (serving?.provider == AudioProviderId.YOUTUBE && player.currentPosition > 0 &&
+                isMalformedContainerError(error) && youtubeCutOffs.add(mediaId)
+            ) {
+                if (youtubeCutOffs.size > 256) youtubeCutOffs.clear()
+                keepYoutubeUpload.add(mediaId)
+            }
             performAggressiveCacheClear(mediaId)
             // A source that sent no audio in time: the retry goes to the next source, not to another
             // upload on the same one (VK has many) — each try cost its own long wait.
@@ -3620,7 +3628,7 @@ class MusicService :
                 } else {
                     Timber.tag(TAG).w("Malformed container detected (upstream Media3 bug), auto-skipping $mediaId")
                     AudioDiagnostics.warn("audio still broken after $MALFORMED_RETRIES tries — skipping the track")
-                    if (mediaId != null) markSongAsFailed(mediaId)
+                    if (mediaId != null) { keepYoutubeUpload.remove(mediaId); markSongAsFailed(mediaId) }
                     skipOnError()
                 }
                 return
@@ -3673,6 +3681,11 @@ class MusicService :
         // The audio provider serving a fallback / rescued track just failed: the next attempt skips it
         // and switches to another provider that has the track.
         fallbackServing[mediaId]?.let { serving ->
+            if (serving.provider == AudioProviderId.YOUTUBE && mediaId in keepYoutubeUpload) {
+                AudioDiagnostics.info("YouTube ${serving.trackId} of $mediaId broke off — same upload, fresh address")
+                YTPlayerUtils.forceRefreshForVideo(serving.trackId)
+                return@let
+            }
             AudioDiagnostics.warn("playback of $mediaId via ${serving.provider} (${serving.trackId}) failed — switching upload/source")
             markFallbackFailed(mediaId, trackId = serving.trackId)
             runCatching { playerCache.removeResource(RESCUE_CACHE_PREFIX + mediaId) }
@@ -3934,6 +3947,7 @@ class MusicService :
         retryJob =
             scope.launch {
                 performAggressiveCacheClear(mediaId)
+                keepYoutubeUpload.remove(mediaId)
                 delay(RETRY_DELAY_MS)
 
                 val currentPosition = player.currentPosition
@@ -4496,8 +4510,16 @@ class MusicService :
         // holds (it is read by key) and the address fills in the rest. Cached bytes alone left the
         // player nothing to fetch the rest from — the track failed where the cache ended.
         songUrlCache[cacheKey]?.takeIf { it.second > System.currentTimeMillis() }?.let { (url, _) ->
-            val spec = dataSpec.buildUpon().setUri(url.toUri()).setKey(cacheKey).build()
-            return if (fallbackServing[mediaId]?.provider == AudioProviderId.YOUTUBE) spec.subrange(0, CHUNK_LENGTH) else spec
+            val youtube = fallbackServing[mediaId]?.takeIf { it.provider == AudioProviderId.YOUTUBE }
+            if (youtube != null && youtubeAddressSpent(url)) {
+                // googlevideo serves an address only so far: a fresh one for the same video goes on.
+                songUrlCache.remove(cacheKey)
+                YTPlayerUtils.forceRefreshForVideo(youtube.trackId)
+            } else {
+                val spec = dataSpec.buildUpon().setUri(url.toUri()).setKey(cacheKey).build()
+                if (youtube != null) noteYoutubeOpen(url)
+                return if (youtube != null) spec.subrange(0, CHUNK_LENGTH) else spec
+            }
         }
         if (!bypassCache && usePlayerCache && playerCache.holdsWhole(cacheKey)) {
             if (cachedAudioStillChosen(mediaId, cacheKey)) {
@@ -4656,6 +4678,7 @@ class MusicService :
                 claimCache(cacheKey, "${AudioProviderId.YOUTUBE.name}:${plan.videoId}")
                 songUrlCache[cacheKey] =
                     data.streamUrl to System.currentTimeMillis() + (data.streamExpiresInSeconds * 1000L)
+                noteYoutubeOpen(data.streamUrl)
                 AudioDiagnostics.info("playing $mediaId via YOUTUBE (${plan.videoId})")
                 dataSpec.buildUpon().setUri(data.streamUrl.toUri()).setKey(cacheKey).build()
                     .subrange(0, CHUNK_LENGTH)
@@ -5084,7 +5107,17 @@ class MusicService :
                     return@Factory dataSpec
                 }
 
-                songUrlCache[mediaId]?.takeIf { it.second > System.currentTimeMillis() }?.let {
+                songUrlCache[mediaId]?.takeIf { it.second > System.currentTimeMillis() }
+                    ?.takeUnless { cached ->
+                        // An address googlevideo has served its share of: a fresh one is resolved below.
+                        youtubeAddressSpent(cached.first).also { spent ->
+                            if (spent) {
+                                songUrlCache.remove(mediaId)
+                                YTPlayerUtils.forceRefreshForVideo(mediaId)
+                            }
+                        }
+                    }?.let {
+                    noteYoutubeOpen(it.first)
                     scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
                     Fix403.i(
                         Fix403.nextId("cache"), "urlCache.hit",
@@ -5239,6 +5272,7 @@ class MusicService :
 
                 songUrlCache[mediaId] =
                     streamUrl to System.currentTimeMillis() + (nonNullPlayback.streamExpiresInSeconds * 1000L)
+                noteYoutubeOpen(streamUrl)
                 return@Factory dataSpec.withUri(streamUrl.toUri()).subrange(0, CHUNK_LENGTH)
             }
         }
@@ -5278,6 +5312,29 @@ class MusicService :
                     }
             },
         )
+
+    /**
+     * How many 512 KB pieces each YouTube stream address was opened for. Since November googlevideo
+     * stops an address after about 1 MB (two pieces): the third piece came back empty, the extractor
+     * hit an EOF and every YouTube track broke off at ~1:04 (then 2:06, 2:58 on the next uploads).
+     * So after [YOUTUBE_PIECES_PER_ADDRESS] pieces the video's address is resolved afresh, ahead of
+     * time while the buffer still plays, instead of failing and switching to another upload.
+     */
+    private val youtubeAddressOpens = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /** Tracks whose YouTube upload already got its one "fresh address" retry ([keepYoutubeUpload]). */
+    private val youtubeCutOffs: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /** The next cache clears of these keep their YouTube upload (only its address is refreshed). */
+    private val keepYoutubeUpload: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    private fun noteYoutubeOpen(url: String) {
+        if (youtubeAddressOpens.size > 256) youtubeAddressOpens.clear()
+        youtubeAddressOpens.merge(url, 1, Int::plus)
+    }
+
+    private fun youtubeAddressSpent(url: String): Boolean =
+        (youtubeAddressOpens[url] ?: 0) >= YOUTUBE_PIECES_PER_ADDRESS
 
     private fun isFatalServerError(error: Throwable?): Boolean {
         var e = error
@@ -6512,6 +6569,9 @@ class MusicService :
         const val NOTIFICATION_ID = 888
         const val ERROR_CODE_NO_STREAM = 1000001
         const val CHUNK_LENGTH = 512 * 1024L
+
+        /** See [youtubeAddressOpens]: googlevideo serves an address about 1 MB, two pieces. */
+        const val YOUTUBE_PIECES_PER_ADDRESS = 2
 
         /** Cache-key prefix for audio rescued from another provider for a regular YouTube id. */
         const val RESCUE_CACHE_PREFIX = "fbrescue:"

@@ -43,7 +43,8 @@ internal object RelayPool {
         "wss://offchain.pub",
         "wss://relay.noswhere.com",
         "wss://nostr-pub.wellorder.net",
-        "wss://nostr.land",
+        // (nostr.land, put here once, is paid: it refused every event.)
+        "wss://relay.nostr.bg",
     )
 
     private const val IDLE_CLOSE_MS = 90_000L

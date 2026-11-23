@@ -74,8 +74,11 @@ class YouTubeTrackResolver(
         // song by the right artist: the old loose pick took the duration-closest of ANYTHING, which
         // played ".m0lly – CONCUSSION" as "Mindless Self Indulgence – Seven Minutes in Heaven".
         val tokens = SpotifyMapper.artistTokens(allArtists.ifBlank { primaryArtist })
+        // Nor someone else's recording: "Hydramint_x3 – The Northern - Samsara (cover)" passed the name
+        // checks and played as The Northern once their own uploads had been set aside.
         val looseCandidates = seen.values.filter { c ->
-            SpotifyMapper.titlePlausiblyMatches(c.title, track.name, tokens) && SpotifyMapper.artistMatches(c.title, c.artist, tokens)
+            SpotifyMapper.titlePlausiblyMatches(c.title, track.name, tokens) && SpotifyMapper.artistMatches(c.title, c.artist, tokens) &&
+                !SpotifyMapper.isForeignRecording(track.name, c.title)
         }
         if (loose && looseCandidates.isNotEmpty()) {
             val result = SpotifyMapper.selectBestMatch(
