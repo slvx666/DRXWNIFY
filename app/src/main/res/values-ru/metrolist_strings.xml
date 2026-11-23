@@ -2029,6 +2029,9 @@
     <string name="chat_library_empty">Медиатека пуста или не подключён музыкальный сервис</string>
     <string name="chat_collections">Альбомы и плейлисты</string>
     <string name="chat_liked_tracks">Любимые треки</string>
+    <string name="chat_pinned">Закреплённые</string>
+    <string name="chat_own_playlists">Мои плейлисты</string>
+    <string name="chat_added_tracks">Добавленные треки</string>
     <string name="chat_track">Трек</string>
     <string name="share_as_file">Файлом</string>
     <string name="share_as_link">Ссылкой</string>

@@ -2082,6 +2082,9 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="chat_library_empty">The library is empty, or no music service is signed in</string>
     <string name="chat_collections">Albums and playlists</string>
     <string name="chat_liked_tracks">Liked tracks</string>
+    <string name="chat_pinned">Pinned</string>
+    <string name="chat_own_playlists">My playlists</string>
+    <string name="chat_added_tracks">Added tracks</string>
     <string name="chat_track">Track</string>
     <string name="share_as_file">As a file</string>
     <string name="share_as_link">As a link</string>

@@ -104,8 +104,8 @@ private object PickerCache {
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
     val recent = kotlinx.coroutines.flow.MutableStateFlow<List<ChatMusic>?>(null)
-    /** Albums, playlists and artists; then liked tracks. */
-    val library = kotlinx.coroutines.flow.MutableStateFlow<Pair<List<ChatMusic>, List<ChatMusic>>?>(null)
+    /** What the library tab shows; filled in parts (the phone's own first, the account's after). */
+    val library = kotlinx.coroutines.flow.MutableStateFlow<PickerLibrary?>(null)
     private var recentAt = 0L
     private var libraryAt = 0L
     private var recentJob: kotlinx.coroutines.Job? = null
@@ -122,13 +122,9 @@ private object PickerCache {
         if (now - libraryAt > FRESH_MS && libraryJob?.isActive != true) {
             libraryJob = scope.launch {
                 val loaded = loadLibrary()
-                if (loaded != null) {
-                    library.value = loaded
-                    libraryAt = System.currentTimeMillis()
-                } else if (library.value == null) {
-                    // Failed with nothing shown yet: an empty library rather than loading forever.
-                    library.value = emptyList<ChatMusic>() to emptyList()
-                }
+                if (loaded) libraryAt = System.currentTimeMillis()
+                // Failed with nothing shown yet: an empty library rather than loading forever.
+                if (library.value == null) library.value = PickerLibrary()
             }
         }
     }
@@ -147,44 +143,126 @@ private object PickerCache {
         }.getOrNull()
     }
 
-    private suspend fun loadLibrary(): Pair<List<ChatMusic>, List<ChatMusic>>? = runCatching {
-        runCatching { Catalog.ensureAuthenticated() }
-        val entries = mutableListOf<SpotifyLibraryEntry>()
-        var offset = 0
-        // The whole library (as its screen loads it, pages mostly cached already), so a search finds all.
-        while (offset < 1000) {
-            val page = Catalog.myLibrary(null, 50, offset).getOrNull() ?: break
-            entries += page.items
-            offset += 50
-            if (page.items.isEmpty() || offset >= page.total) break
-        }
-        val collections = entries.mapNotNull { e ->
-            val kind = when (e.kind) {
-                SpotifyLibraryEntry.Kind.ALBUM -> AppLinks.Kind.ALBUM
-                SpotifyLibraryEntry.Kind.PLAYLIST -> AppLinks.Kind.PLAYLIST
-                SpotifyLibraryEntry.Kind.ARTIST -> AppLinks.Kind.ARTIST
-                else -> return@mapNotNull null
+    /**
+     * The phone's own part first (pinned, the app's playlists, hearts, added tracks: no network, so
+     * shown at once and the same without a music account), then the account's albums, playlists
+     * and liked tracks page by page, each page shown as it comes. Before, nothing showed until the
+     * whole account library and up to 3000 likes had been fetched.
+     */
+    private suspend fun loadLibrary(): Boolean {
+        val db = FriendsHub.databaseOrNull()
+        val pins = com.metrolist.music.catalog.LibraryPins.pinned.value
+        fun songMusic(s: com.metrolist.music.db.entities.Song) =
+            ChatMusic.ofMedia(s.id, s.title, s.orderedArtists.joinToString { it.name }, s.thumbnailUrl, s.song.duration.coerceAtLeast(0) * 1000L)
+
+        val own = runCatching {
+            db?.playlists(com.metrolist.music.constants.PlaylistSortType.CREATE_DATE, descending = true)?.first().orEmpty()
+                .filter { it.playlist.isEditable }
+                .map { p ->
+                    OwnPlaylist(
+                        id = p.id,
+                        name = p.playlist.name,
+                        cover = (p.playlist.thumbnailUrl ?: p.thumbnails.firstOrNull())?.takeIf { it.startsWith("http") },
+                        count = p.songCount,
+                        pinKey = com.metrolist.music.viewmodels.SpotifyLibraryViewModel.LOCAL_PLAYLIST_URI_PREFIX + p.id,
+                    )
+                }
+        }.getOrDefault(emptyList())
+        val localLiked = runCatching {
+            db?.likedSongsByCreateDateAsc()?.first().orEmpty().asReversed().mapNotNull(::songMusic)
+        }.getOrDefault(emptyList())
+        val added = runCatching {
+            db?.songsByCreateDateAsc()?.first().orEmpty().asReversed().filterNot { it.song.liked }.mapNotNull(::songMusic)
+        }.getOrDefault(emptyList())
+        val local = PickerLibrary(
+            pinnedOwn = own.filter { it.pinKey in pins }.sortedBy { pins.indexOf(it.pinKey) },
+            own = own.filterNot { it.pinKey in pins },
+            liked = localLiked,
+            added = added,
+        )
+        library.value = (library.value ?: PickerLibrary()).copy(
+            pinnedOwn = local.pinnedOwn, own = local.own, added = local.added,
+            liked = mergeLiked(library.value?.serviceLiked.orEmpty(), localLiked),
+            localLiked = localLiked,
+        )
+
+        if (Catalog.source == null) return true
+        return runCatching {
+            runCatching { Catalog.ensureAuthenticated() }
+            val entries = mutableListOf<Pair<String, ChatMusic>>()
+            var offset = 0
+            while (offset < 1000) {
+                val page = Catalog.myLibrary(null, 50, offset).getOrNull() ?: break
+                page.items.mapNotNullTo(entries) { e ->
+                    val kind = when (e.kind) {
+                        SpotifyLibraryEntry.Kind.ALBUM -> AppLinks.Kind.ALBUM
+                        SpotifyLibraryEntry.Kind.PLAYLIST -> AppLinks.Kind.PLAYLIST
+                        SpotifyLibraryEntry.Kind.ARTIST -> AppLinks.Kind.ARTIST
+                        else -> return@mapNotNullTo null
+                    }
+                    e.uri.ifBlank { e.id } to ChatMusic(kind, e.id, e.name, e.creator.orEmpty(), e.imageUrl?.takeIf { it.startsWith("http") }, count = e.totalCount)
+                }
+                offset += 50
+                // Pinned ones on top, as in the library itself.
+                val (pinned, rest) = entries.partition { it.first in pins }
+                library.value = library.value?.copy(
+                    pinned = pinned.sortedBy { pins.indexOf(it.first) }.map { it.second },
+                    collections = rest.map { it.second },
+                )
+                if (page.items.isEmpty() || offset >= page.total) break
             }
-            ChatMusic(kind, e.id, e.name, e.creator.orEmpty(), e.imageUrl?.takeIf { it.startsWith("http") }, count = e.totalCount)
-        }
-        // All liked tracks: the app's own copy of them when it has one, else page by page.
-        val source = Catalog.source
-        val cachedLikes = source?.let { com.metrolist.music.catalog.LikedSongsCache.get(it.name) }?.tracks.orEmpty()
-        val likedTracks = cachedLikes.ifEmpty {
-            val out = mutableListOf<com.metrolist.spotify.models.SpotifyTrack>()
-            var likedOffset = 0
-            while (likedOffset < 3000) {
-                val page = Catalog.likedSongs(50, likedOffset).getOrNull() ?: break
-                page.items.mapTo(out) { it.track }
-                likedOffset += 50
-                if (page.items.isEmpty() || likedOffset >= page.total) break
+            // All liked tracks: the app's own copy of them when it has one, else page by page.
+            val cachedLikes = Catalog.source?.let { com.metrolist.music.catalog.LikedSongsCache.get(it.name) }?.tracks.orEmpty()
+            fun publish(tracks: List<com.metrolist.spotify.models.SpotifyTrack>) {
+                val service = tracks.filter { !it.isLocal }.mapNotNull { ChatMusic.ofTrack(FriendsHub.refOfCatalog(it)) }.distinctBy { it.key }
+                library.value = library.value?.let { it.copy(serviceLiked = service, liked = mergeLiked(service, it.localLiked)) }
             }
-            out
+            if (cachedLikes.isNotEmpty()) {
+                publish(cachedLikes)
+            } else {
+                val out = mutableListOf<com.metrolist.spotify.models.SpotifyTrack>()
+                var likedOffset = 0
+                while (likedOffset < 3000) {
+                    val page = Catalog.likedSongs(50, likedOffset).getOrNull() ?: break
+                    page.items.mapTo(out) { it.track }
+                    likedOffset += 50
+                    publish(out)
+                    if (page.items.isEmpty() || likedOffset >= page.total) break
+                }
+            }
+            true
+        }.getOrDefault(false)
+    }
+
+    /** The account's liked tracks, then hearts given in the app that the account doesn't have. */
+    private fun mergeLiked(service: List<ChatMusic>, local: List<ChatMusic>): List<ChatMusic> {
+        if (service.isEmpty()) return local
+        val keys = service.mapTo(HashSet()) { it.key }
+        return service + local.filterNot { it.key in keys }
+    }
+
+    /** A playlist made in the app: its tracks, looked up when it is opened in the panel. */
+    suspend fun tracksOf(playlistId: String): List<ChatMusic> = runCatching {
+        FriendsHub.databaseOrNull()?.playlistSongs(playlistId)?.first().orEmpty().mapNotNull { ps ->
+            val s = ps.song
+            ChatMusic.ofMedia(s.id, s.title, s.orderedArtists.joinToString { it.name }, s.thumbnailUrl, s.song.duration.coerceAtLeast(0) * 1000L)
         }
-        val liked = likedTracks.filter { !it.isLocal }.mapNotNull { ChatMusic.ofTrack(FriendsHub.refOfCatalog(it)) }.distinctBy { it.key }
-        collections to liked
-    }.getOrNull()
+    }.getOrDefault(emptyList())
 }
+
+/** A playlist made in the app, in the library tab (opened in place to pick its tracks). */
+private data class OwnPlaylist(val id: String, val name: String, val cover: String?, val count: Int, val pinKey: String)
+
+private data class PickerLibrary(
+    val pinned: List<ChatMusic> = emptyList(),
+    val pinnedOwn: List<OwnPlaylist> = emptyList(),
+    val own: List<OwnPlaylist> = emptyList(),
+    val collections: List<ChatMusic> = emptyList(),
+    val liked: List<ChatMusic> = emptyList(),
+    val serviceLiked: List<ChatMusic> = emptyList(),
+    val localLiked: List<ChatMusic> = emptyList(),
+    val added: List<ChatMusic> = emptyList(),
+)
 
 /**
  * The chat's music panel (the right button with nothing typed): about half the space, pulled up for
@@ -434,47 +512,135 @@ private fun RecentList(selected: Set<String>, onToggle: (ChatMusic) -> Unit) {
     }
 }
 
-/** The library's albums, playlists and artists, then the liked tracks. */
+private sealed interface LibRow {
+    data class Header(val title: Int) : LibRow
+    data class Music(val m: ChatMusic, val nested: Boolean = false) : LibRow
+    data class Own(val p: OwnPlaylist, val open: Boolean) : LibRow
+    data class OwnLoading(val id: String) : LibRow
+}
+
+private val LibRow.rowKey: String get() = when (this) {
+    is LibRow.Header -> "h$title"
+    is LibRow.Music -> (if (nested) "n:" else "") + m.key
+    is LibRow.Own -> "own:" + p.id
+    is LibRow.OwnLoading -> "ownload:$id"
+}
+
+/**
+ * Pinned first, then the playlists made in the app (opened in place to pick their tracks), the
+ * account's albums, playlists and artists, liked tracks and tracks added to the library. The
+ * phone's own part shows at once and the same without a music account.
+ */
 @Composable
 private fun LibraryList(selected: Set<String>, onToggle: (ChatMusic) -> Unit) {
     val loaded by PickerCache.library.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
-    val list: List<Pair<Int?, ChatMusic?>>? = remember(loaded, query) {
-        val (collections, liked) = loaded ?: return@remember null
-        val c = collections.filter { it.matches(query) }
-        val l = liked.filter { it.matches(query) }
-        buildList<Pair<Int?, ChatMusic?>> {
-            if (c.isNotEmpty()) add(R.string.chat_collections to null)
-            c.forEach { add(null to it) }
-            if (l.isNotEmpty()) add(R.string.chat_liked_tracks to null)
-            l.forEach { add(null to it) }
+    var openId by rememberSaveable { mutableStateOf<String?>(null) }
+    val openTracks by produceState<List<ChatMusic>?>(null, openId) {
+        value = null
+        value = openId?.let { PickerCache.tracksOf(it) }
+    }
+    val list: List<LibRow>? = remember(loaded, query, openId, openTracks) {
+        val lib = loaded ?: return@remember null
+        fun ownRows(ps: List<OwnPlaylist>): List<LibRow> = ps.filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }.flatMap { p ->
+            val open = p.id == openId
+            buildList {
+                add(LibRow.Own(p, open))
+                if (open) {
+                    val tracks = openTracks
+                    if (tracks == null) add(LibRow.OwnLoading(p.id)) else tracks.filter { it.matches(query) }.forEach { add(LibRow.Music(it, nested = true)) }
+                }
+            }
         }
+        buildList {
+            val pinned = lib.pinned.filter { it.matches(query) }
+            val pinnedOwn = ownRows(lib.pinnedOwn)
+            if (pinned.isNotEmpty() || pinnedOwn.isNotEmpty()) {
+                add(LibRow.Header(R.string.chat_pinned))
+                addAll(pinnedOwn)
+                pinned.forEach { add(LibRow.Music(it)) }
+            }
+            val own = ownRows(lib.own)
+            if (own.isNotEmpty()) {
+                add(LibRow.Header(R.string.chat_own_playlists))
+                addAll(own)
+            }
+            val c = lib.collections.filter { it.matches(query) }
+            if (c.isNotEmpty()) {
+                add(LibRow.Header(R.string.chat_collections))
+                c.forEach { add(LibRow.Music(it)) }
+            }
+            val l = lib.liked.filter { it.matches(query) }
+            if (l.isNotEmpty()) {
+                add(LibRow.Header(R.string.chat_liked_tracks))
+                l.forEach { add(LibRow.Music(it)) }
+            }
+            val likedKeys = lib.liked.mapTo(HashSet()) { it.key }
+            val a = lib.added.filter { it.key !in likedKeys && it.matches(query) }
+            if (a.isNotEmpty()) {
+                add(LibRow.Header(R.string.chat_added_tracks))
+                a.forEach { add(LibRow.Music(it)) }
+            }
+        }.distinctBy { it.rowKey }
     }
     Column(Modifier.fillMaxSize()) {
         FilterField(query, { query = it }, R.string.chat_find_library)
         when {
             list == null -> Loading()
             list.isEmpty() -> Note(stringResource(if (query.isBlank()) R.string.chat_library_empty else R.string.chat_nothing_found))
-            else -> LibraryRows(list, selected, onToggle)
+            else -> LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), modifier = Modifier.fillMaxSize()) {
+                items(list, key = { it.rowKey }) { row ->
+                    when (row) {
+                        is LibRow.Header -> Text(
+                            stringResource(row.title),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 4.dp),
+                        )
+                        is LibRow.Music -> Box(Modifier.padding(start = if (row.nested) 24.dp else 0.dp)) {
+                            PickRow(row.m, row.m.key in selected) { onToggle(row.m) }
+                        }
+                        is LibRow.Own -> OwnPlaylistRow(row.p, row.open) { openId = if (row.open) null else row.p.id }
+                        is LibRow.OwnLoading -> Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
+/** A playlist made in the app: a tap opens its tracks right below it (and closes them again). */
 @Composable
-private fun LibraryRows(list: List<Pair<Int?, ChatMusic?>>, selected: Set<String>, onToggle: (ChatMusic) -> Unit) {
-    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), modifier = Modifier.fillMaxSize()) {
-        items(list, key = { (header, m) -> header?.toString() ?: m!!.key }) { (header, m) ->
-            if (header != null) {
-                Text(
-                    stringResource(header),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 4.dp),
-                )
-            } else if (m != null) {
-                PickRow(m, m.key in selected) { onToggle(m) }
-            }
+private fun OwnPlaylistRow(p: OwnPlaylist, open: Boolean, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        AsyncImage(
+            model = p.cover,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+        )
+        Column(Modifier.padding(horizontal = 12.dp).weight(1f)) {
+            Text(p.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                stringResource(R.string.chat_playlist) + " · " + androidx.compose.ui.res.pluralStringResource(R.plurals.n_song, p.count, p.count),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
         }
+        Icon(
+            painterResource(if (open) R.drawable.expand_less else R.drawable.expand_more),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -504,7 +670,15 @@ private fun SearchList(selected: Set<String>, onToggle: (ChatMusic) -> Unit) {
                 r?.artists?.items.orEmpty().forEach { a ->
                     add(ChatMusic(AppLinks.Kind.ARTIST, a.id, a.name, "", a.images.firstOrNull()?.url))
                 }
-            }.filter { it.id.isNotBlank() }
+            }.filter { it.id.isNotBlank() }.ifEmpty {
+                // No catalog answer (no music account, or it is down): YouTube's songs instead.
+                com.metrolist.innertube.YouTube.search(q, com.metrolist.innertube.YouTube.SearchFilter.FILTER_SONG)
+                    .getOrNull()?.items.orEmpty()
+                    .filterIsInstance<com.metrolist.innertube.models.SongItem>()
+                    .mapNotNull { song ->
+                        ChatMusic.ofMedia(song.id, song.title, song.artists.joinToString { it.name }, song.thumbnail, (song.duration ?: 0) * 1000L)
+                    }
+            }
         }
     }
     Column(Modifier.fillMaxSize()) {
