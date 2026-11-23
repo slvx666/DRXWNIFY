@@ -1676,6 +1676,7 @@ class MusicService :
         queueLoadJob?.cancel()
         currentQueue = queue
         RecommendedTracks.clear()
+        handQueued.clear()
         queueTitle = null
         val persistShuffleAcrossQueues = dataStore.get(PersistentShuffleAcrossQueuesKey, false)
         val previousShuffleEnabled = player.shuffleModeEnabled
@@ -1820,7 +1821,7 @@ class MusicService :
         if (!dataStore.get(AutoLoadMoreKey, true) || player.repeatMode != REPEAT_MODE_OFF) return
         if (player.mediaItemCount == 0 || player.playbackState == STATE_IDLE) return
         val currentId = player.currentMediaItem?.mediaId ?: return
-        if (!currentQueue.isRecommendations && !RecommendedTracks.isRecommended(currentId)) return
+        if (!currentQueue.endsWithRadio && !RecommendedTracks.isRecommended(currentId)) return
         if (recommendationsRefillJob?.isActive == true || queueLoadJob?.isActive == true) return
         val spent = currentQueue
         recommendationsRefillJob = scope.launch(SilentHandler) {
@@ -2124,11 +2125,17 @@ class MusicService :
             }
         }
 
+        if (!player.shuffleModeEnabled) {
+            queueByHand(items, first = true)
+            return
+        }
+
         val insertIndex = player.currentMediaItemIndex + 1
         val shuffleEnabled = player.shuffleModeEnabled
 
         // Insert items immediately after the current item in the window/index space
         player.addMediaItems(insertIndex, items)
+        handQueued.addAll(items.map { it.mediaId })
         player.prepare()
 
         if (shuffleEnabled) {
@@ -2212,6 +2219,43 @@ class MusicService :
         }
     }
 
+    /** Tracks the user queued by hand ("play next", "add to queue") in the current queue. */
+    private val handQueued: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
+
+    /**
+     * Queues tracks the user picked. There is no pool of recommendations in front of them any more:
+     * what the app had picked ahead is dropped, "play next" ([first]) goes right after the current
+     * track, "add to queue" after the tracks queued by hand before it (in the order they were
+     * added), and both before the rest of the album or playlist that plays. With nothing of the
+     * list left after them, the music goes on with recommendations from the last track queued
+     * (an album track added from its album goes on with the album: see [addAlbumFromTrack]).
+     * Before, "add to queue" went to the very end, behind twenty-odd recommended tracks.
+     */
+    private fun queueByHand(items: List<MediaItem>, first: Boolean) {
+        if (items.isEmpty()) return
+        val wasRadio = currentQueue.isRecommendations || currentQueue.endsWithRadio
+        if (wasRadio) {
+            loadMoreJob?.cancel()
+            recommendationsRefillJob?.cancel()
+        }
+        RecommendedTracks.unmark(items)
+        dropUpcomingRecommendations()
+        var at = player.currentMediaItemIndex + 1
+        if (!first) {
+            while (at < player.mediaItemCount && player.getMediaItemAt(at).mediaId in handQueued) at++
+        }
+        at = at.coerceIn(0, player.mediaItemCount)
+        val listLeftAfter = at < player.mediaItemCount || currentQueue.hasNextListPage() && !currentQueue.isRecommendations
+        player.addMediaItems(at, items)
+        handQueued.addAll(items.map { it.mediaId })
+        if (!listLeftAfter) {
+            // What follows grows from the last track queued, not from the old radio's seed.
+            loadMoreJob?.cancel()
+            currentQueue = ListQueue(title = queueTitle, items = emptyList(), endsWithRadio = true)
+        }
+        player.prepare()
+    }
+
     /** Takes the not-yet-played tracks the app recommended by itself out of the queue. */
     private fun dropUpcomingRecommendations() {
         val current = player.currentMediaItemIndex
@@ -2237,6 +2281,11 @@ class MusicService :
             indicesToRemove.sortedDescending().forEach { index ->
                 player.removeMediaItem(index)
             }
+        }
+
+        if (!player.shuffleModeEnabled && player.mediaItemCount > 0) {
+            queueByHand(items, first = false)
+            return
         }
 
         // Capture the already-played part of the shuffle order *before* mutating the
@@ -2966,6 +3015,9 @@ class MusicService :
             return
         }
         if (dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL) return
+        // Repeat on a list (an album, a playlist, search results): the list goes round, no radio
+        // is added after it.
+        if (player.repeatMode == REPEAT_MODE_ALL && !currentQueue.isRecommendations && !currentQueue.hasNextListPage()) return
         if (loadMoreJob?.isActive == true) return
         // The new queue is still being put together (its first track already plays): a page asked
         // for now would run alongside it, on the same position in the queue, so tracks were

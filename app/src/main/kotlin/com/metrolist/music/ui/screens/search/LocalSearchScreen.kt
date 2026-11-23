@@ -234,6 +234,7 @@ fun LocalSearchScreen(
                                                             title = queueSearchedSongsStr,
                                                             items = songs,
                                                             startIndex = songs.indexOfFirst { it.mediaId == item.id },
+                                                            endsWithRadio = true,
                                                         ),
                                                     )
                                                 }

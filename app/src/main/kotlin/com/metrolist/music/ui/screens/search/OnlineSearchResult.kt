@@ -85,6 +85,7 @@ import com.metrolist.innertube.models.EpisodeItem
 import com.metrolist.innertube.models.PlaylistItem
 import com.metrolist.innertube.models.PodcastItem
 import com.metrolist.innertube.models.SongItem
+import com.metrolist.music.extensions.toMediaItem
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.innertube.models.YTItem
 import com.metrolist.music.LocalDatabase
@@ -280,6 +281,11 @@ fun OnlineSearchResult(
         }
     }
 
+    // The songs the search shows, in the order shown: a tap plays them from the one tapped.
+    fun shownSongs(): List<SongItem> =
+        (if (isShowingSummary) searchSummary?.summaries?.flatMap { it.items } else itemsPage?.items)
+            .orEmpty().filterIsInstance<SongItem>().distinctBy { it.id }
+
     val ytItemContent: @Composable LazyItemScope.(YTItem) -> Unit = { item: YTItem ->
         val longClick = {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -375,21 +381,48 @@ fun OnlineSearchResult(
                                             }
                                             val spotifyTrack = full ?: item.toSpotifyTrackStub()
                                             if (spotifyTrack != null) {
+                                                // The search's songs from this one on; then (repeat
+                                                // off) recommendations from the last one played.
+                                                val songs = shownSongs().filter { it.id.isSpotifyId() }
+                                                val tracks = songs.mapNotNull { s ->
+                                                    if (s.id == item.id) spotifyTrack else s.toSpotifyTrackStub()
+                                                }
+                                                val index = tracks.indexOfFirst { it.id == spotifyTrack.id }
                                                 playerConnection.playQueue(
-                                                    SpotifyQueue(
-                                                        initialTrack = spotifyTrack,
-                                                        mapper = viewModel.spotifyYouTubeMapper,
-                                                    )
+                                                    if (index >= 0) {
+                                                        com.metrolist.music.playback.queues.SearchResultsQueue(
+                                                            tracks = tracks,
+                                                            startIndex = index,
+                                                            mapper = viewModel.spotifyYouTubeMapper,
+                                                        )
+                                                    } else {
+                                                        SpotifyQueue(
+                                                            initialTrack = spotifyTrack,
+                                                            mapper = viewModel.spotifyYouTubeMapper,
+                                                        )
+                                                    },
                                                 )
                                             }
                                         }
                                     } else {
-                                        playerConnection.playQueue(
-                                            YouTubeQueue(
-                                                WatchEndpoint(videoId = item.id),
-                                                item.toMediaMetadata(),
-                                            ),
-                                        )
+                                        val songs = shownSongs().filterNot { it.id.isSpotifyId() }
+                                        val index = songs.indexOfFirst { it.id == item.id }
+                                        if (songs.size > 1 && index >= 0) {
+                                            playerConnection.playQueue(
+                                                com.metrolist.music.playback.queues.ListQueue(
+                                                    items = songs.map { it.toMediaItem() },
+                                                    startIndex = index,
+                                                    endsWithRadio = true,
+                                                ),
+                                            )
+                                        } else {
+                                            playerConnection.playQueue(
+                                                YouTubeQueue(
+                                                    WatchEndpoint(videoId = item.id),
+                                                    item.toMediaMetadata(),
+                                                ),
+                                            )
+                                        }
                                     }
                                 }
 

@@ -30,6 +30,9 @@ object RecommendedTracks {
     /** A new queue chosen by the user: what the old radio recommended is the user's choice now. */
     fun clear() = synchronized(ids) { ids.clear() }
 
+    /** The user picked these by hand (queued them): no longer the app's picks. */
+    fun unmark(items: List<MediaItem>) = synchronized(ids) { items.forEach { ids.remove(it.mediaId) } }
+
     fun isRecommended(mediaId: String): Boolean = synchronized(ids) { mediaId in ids }
 
     /** True when [mediaId] was recommended and its known bitrate ([bitrateBps], > 0) is too low. */

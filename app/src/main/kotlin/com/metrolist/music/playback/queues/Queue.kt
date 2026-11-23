@@ -33,6 +33,12 @@ interface Queue {
     /** The queue is recommendations (a radio, "For you"): shuffle mixes what is already queued. */
     val isRecommendations: Boolean get() = false
 
+    /**
+     * When the list is over (and repeat is off) the music goes on with recommendations from the
+     * last track queued: radios, search results, what the user queued by hand.
+     */
+    val endsWithRadio: Boolean get() = isRecommendations
+
     suspend fun nextPage(): List<MediaItem>
 
     /**

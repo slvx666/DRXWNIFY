@@ -170,6 +170,7 @@ fun SourceSearchResult(
                 title = selectedArtist ?: query.text,
                 items = list.map { SourceSearch.mediaItemOf(it) },
                 startIndex = index,
+                endsWithRadio = true,
             ),
         )
     }
