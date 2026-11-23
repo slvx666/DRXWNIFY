@@ -93,6 +93,10 @@ object ForYouRecommender {
         private suspend fun nextLocked(count: Int): List<SpotifyTrack> {
             if (!Catalog.ensureAuthenticated()) return emptyList()
             val t = taste ?: taste(database).also { taste = it }
+            // Every call has its own budget of rounds: a few failed ones in a row (the network
+            // dropped, the catalog said "too many requests") used to end the session for good, and
+            // the radio ran dry an hour later with nothing ever asked for again.
+            emptyRounds = 0
             while (pool.count { it.id !in used && it.id !in seenBefore } < count && emptyRounds < MAX_EMPTY_ROUNDS) {
                 val more = if (!mixesTried) {
                     mixesTried = true
@@ -131,7 +135,9 @@ object ForYouRecommender {
             return out
         }
 
-        private suspend fun seeds(t: Taste): List<Pair<String, Double>> = seedIds ?: resolveSeeds(t).also { seedIds = it }
+        // Kept once found; an empty answer (the catalog unreachable for a moment) is asked again next time.
+        private suspend fun seeds(t: Taste): List<Pair<String, Double>> =
+            seedIds ?: resolveSeeds(t).also { if (it.isNotEmpty()) seedIds = it }
     }
 
     private const val MAX_EMPTY_ROUNDS = 6

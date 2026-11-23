@@ -272,6 +272,9 @@ private const val QUEUE_PRELOAD_AHEAD_THRESHOLD = 20
 // returns false. Issue #139.
 private const val SHUFFLE_PRELOAD_MAX_ITEMS = 500
 
+/** Waits before each try at a new radio when the recommendations ran out (the first try at once). */
+private val RECOMMENDATIONS_RETRY_MS = longArrayOf(0L, 5_000L, 20_000L, 60_000L)
+
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @androidx.annotation.OptIn(UnstableApi::class)
 @AndroidEntryPoint
@@ -1765,19 +1768,7 @@ class MusicService :
 
     /** Replaces what follows the current item with a similar-artists radio. False when not a catalog track. */
     private suspend fun startCatalogRadio(currentMediaId: String, currentIndex: Int): Boolean {
-        if (!com.metrolist.music.catalog.Catalog.isActive) return false
-        val seed = withContext(Dispatchers.IO) {
-            SpotifyMetadataRegistry.get(currentMediaId)?.takeIf { it.id.isNotBlank() }
-                ?: (FallbackIds.catalogIdOf(currentMediaId)
-                    ?: runCatching { database.getSpotifyMatchByYouTubeId(currentMediaId)?.spotifyId }.getOrNull())
-                    ?.let { com.metrolist.music.catalog.Catalog.getTrack(it).getOrNull() }
-        } ?: return false
-        val radio = com.metrolist.music.playback.queues.SpotifyQueue(
-            initialTrack = seed,
-            mapper = SpotifyYouTubeMapper(database),
-            context = this,
-            database = database,
-        )
+        val radio = catalogRadioFrom(currentMediaId) ?: return false
         val items = withContext(Dispatchers.IO) {
             radio.nextPage()
                 .filterExplicit(dataStore.get(HideExplicitKey, false))
@@ -1797,6 +1788,97 @@ class MusicService :
         }
         currentQueue = radio
         return true
+    }
+
+    /** A similar-artists radio grown from [mediaId]; null when it is not a catalog track (or no catalog is linked). */
+    private suspend fun catalogRadioFrom(mediaId: String): com.metrolist.music.playback.queues.SpotifyQueue? {
+        if (!com.metrolist.music.catalog.Catalog.isActive) return null
+        val seed = withContext(Dispatchers.IO) {
+            SpotifyMetadataRegistry.get(mediaId)?.takeIf { it.id.isNotBlank() }
+                ?: (FallbackIds.catalogIdOf(mediaId)
+                    ?: runCatching { database.getSpotifyMatchByYouTubeId(mediaId)?.spotifyId }.getOrNull())
+                    ?.let { com.metrolist.music.catalog.Catalog.getTrack(it).getOrNull() }
+        } ?: return null
+        return com.metrolist.music.playback.queues.SpotifyQueue(
+            initialTrack = seed,
+            mapper = SpotifyYouTubeMapper(database),
+            context = this,
+            database = database,
+        )
+    }
+
+    private var recommendationsRefillJob: Job? = null
+
+    /**
+     * Music never stops in a radio. A radio from a track is a fixed set and "For you" can come back
+     * empty (the network dropped, the catalog said "too many requests"): when the queue has nothing
+     * more, a new radio grows from the last queued track — the catalog's similar artists, else
+     * YouTube's radio for a YouTube track, else "For you" from the listener's taste — tried again a
+     * little later while nothing comes. Lists (an album, a playlist) still end where they end.
+     */
+    private fun continueRecommendations() {
+        if (!dataStore.get(AutoLoadMoreKey, true) || player.repeatMode != REPEAT_MODE_OFF) return
+        if (player.mediaItemCount == 0 || player.playbackState == STATE_IDLE) return
+        val currentId = player.currentMediaItem?.mediaId ?: return
+        if (!currentQueue.isRecommendations && !RecommendedTracks.isRecommended(currentId)) return
+        if (recommendationsRefillJob?.isActive == true || queueLoadJob?.isActive == true) return
+        val spent = currentQueue
+        recommendationsRefillJob = scope.launch(SilentHandler) {
+            for (wait in RECOMMENDATIONS_RETRY_MS) {
+                if (wait > 0) delay(wait)
+                if (currentQueue !== spent || player.mediaItemCount == 0) return@launch
+                val (radio, items) = nextRadio() ?: continue
+                if (currentQueue !== spent) return@launch
+                val firstNew = player.mediaItemCount
+                player.addMediaItems(items)
+                currentQueue = radio
+                AudioDiagnostics.info("recommendations ran out: ${items.size} more from a new ${radio.javaClass.simpleName}")
+                if (player.playbackState == Player.STATE_ENDED) {
+                    player.seekTo(firstNew, 0)
+                    player.prepare()
+                    player.play()
+                }
+                return@launch
+            }
+            AudioDiagnostics.warn("recommendations ran out and no new radio could be started")
+        }
+    }
+
+    /** The next radio and its first tracks (none already queued), or null when no source answered. */
+    private suspend fun nextRadio(): Pair<Queue, List<MediaItem>>? {
+        val queued = (0 until player.mediaItemCount).mapTo(HashSet()) { player.getMediaItemAt(it).mediaId }
+        val seeds = listOfNotNull(
+            player.getMediaItemAt(player.mediaItemCount - 1).mediaId,
+            player.currentMediaItem?.mediaId,
+        ).distinct()
+        val hideExplicit = dataStore.get(HideExplicitKey, false)
+        val hideVideos = dataStore.get(HideVideoSongsKey, false)
+        fun usable(items: List<MediaItem>) = items.filterExplicit(hideExplicit).filterVideoSongs(hideVideos)
+            .filterNot { it.mediaId in queued || BlockedTracks.isBlocked(it.mediaId) }
+            .distinctBy { it.mediaId }
+            .also { RecommendedTracks.mark(it) }
+
+        for (seed in seeds) {
+            val radio = runCatching { catalogRadioFrom(seed) }.getOrNull() ?: continue
+            val items = usable(runCatching { withContext(Dispatchers.IO) { radio.nextPage() } }.getOrDefault(emptyList()))
+            if (items.isNotEmpty()) return radio to items
+        }
+        for (seed in seeds.filter { it.length == 11 && it.all { c -> c.isLetterOrDigit() || c == '_' || c == '-' } }) {
+            val radio = YouTubeQueue(endpoint = WatchEndpoint(videoId = seed))
+            val items = usable(runCatching { withContext(Dispatchers.IO) { radio.getInitialStatus().items } }.getOrDefault(emptyList()))
+            if (items.isNotEmpty()) return radio to items
+        }
+        if (com.metrolist.music.catalog.Catalog.isActive) {
+            val forYou = com.metrolist.music.playback.queues.ForYouQueue(
+                startTracks = emptyList(),
+                sessionFactory = { ForYouRecommender.Session(database, hideExplicit) },
+                mapper = SpotifyYouTubeMapper(database),
+                preload = null,
+            )
+            val items = usable(runCatching { withContext(Dispatchers.IO) { forYou.nextPage() } }.getOrDefault(emptyList()))
+            if (items.isNotEmpty()) return forYou to items
+        }
+        return null
     }
 
     fun startRadioSeamlessly() {
@@ -2878,7 +2960,11 @@ class MusicService :
      * (the last load came back empty or late), so playback goes on with the first new track.
      */
     private fun loadMoreOfQueue(resumeWhenLoaded: Boolean) {
-        if (!dataStore.get(AutoLoadMoreKey, true) || !currentQueue.hasNextPage()) return
+        if (!dataStore.get(AutoLoadMoreKey, true)) return
+        if (!currentQueue.hasNextPage()) {
+            continueRecommendations()
+            return
+        }
         if (dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL) return
         if (loadMoreJob?.isActive == true) return
         // The new queue is still being put together (its first track already plays): a page asked
@@ -2901,7 +2987,11 @@ class MusicService :
                         .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
                         .filterNot { BlockedTracks.isBlocked(it.mediaId) }
                 }
-            if (currentQueue !== queue || mediaItems.isEmpty()) return@launch
+            if (currentQueue !== queue) return@launch
+            if (mediaItems.isEmpty()) {
+                continueRecommendations()
+                return@launch
+            }
             if (player.playbackState == STATE_IDLE && !resumeWhenLoaded) return@launch
             val firstNew = player.mediaItemCount
             player.addMediaItems(mediaItems)
