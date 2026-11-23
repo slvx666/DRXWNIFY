@@ -363,15 +363,12 @@ object SpotifyBatchDownload {
             val youtubeOf = tracks.chunked(400).flatMap { chunk ->
                 runCatching { database.getSpotifyMatchesBySpotifyIds(chunk.map { it.id }) }.getOrElse { emptyList() }
             }.associate { it.spotifyId to it.youtubeId }
+            // Only what is really in the folder, the same test the "16" on the button counts with: a
+            // track that isn't downloaded would have to be fetched and converted first, which is what
+            // made a send take long enough to look like nothing happened.
             tracks.mapNotNull { track ->
-                val fallback = FallbackIds.of(track.id)
-                val yt = youtubeOf[track.id]
-                when {
-                    fallback in exported -> fallback
-                    yt != null && yt in exported -> yt
-                    yt != null -> yt
-                    else -> fallback
-                }
+                FallbackIds.of(track.id).takeIf { it in exported }
+                    ?: youtubeOf[track.id]?.takeIf { it in exported }
             }
         }
 

@@ -72,6 +72,13 @@ object ShareSheet {
 
     val request = MutableStateFlow<Request?>(null)
 
+    /**
+     * Where "as a file" runs. Not the sheet's own scope: the sheet closes right after the tap and its
+     * scope dies with it, which cancelled a whole album half-way through gathering its files (one
+     * track was quick enough to make it, so it looked random).
+     */
+    val work = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main.immediate)
+
     /** "To a playlist" was picked: the playlist picker is open for these song ids. */
     val playlistPick = MutableStateFlow<(suspend () -> List<String>)?>(null)
 
@@ -160,7 +167,8 @@ fun ShareSheetHost(navController: NavController) {
                 if (!ids.isNullOrEmpty()) {
                     Option(R.drawable.download, stringResource(R.string.share_as_file)) {
                         val appContext = context.applicationContext
-                        scope.launch { com.metrolist.music.utils.shareDownloadedFiles(appContext, downloadUtil.downloadExporter, ids) }
+                        val exporter = downloadUtil.downloadExporter
+                        ShareSheet.work.launch { com.metrolist.music.utils.shareDownloadedFiles(appContext, exporter, ids) }
                         dismiss()
                     }
                 }
