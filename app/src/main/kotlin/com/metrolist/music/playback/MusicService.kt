@@ -3134,6 +3134,19 @@ class MusicService :
                         "no length for '${player.currentMediaItem?.mediaMetadata?.title}' " +
                             "(${fallbackServing[mediaId]?.provider?.name ?: "YouTube/cache"}): slider and seeking won't work",
                     )
+                    // A download without a length (saved that way by an older version: a friend's
+                    // "Trouble" showed 0:00 and couldn't be sought) is a broken copy like a cut-short
+                    // one: it plays on from the network and is downloaded again, whole.
+                    val expectedMs = (player.currentMediaItem?.metadata?.duration ?: 0) * 1000L
+                    val downloaded = downloadCache.isCached(mediaId, 0, 1) || !exportedFiles[mediaId].isNullOrEmpty()
+                    if (downloaded && expectedMs >= 60_000L) {
+                        recoverBrokenCopy(
+                            mediaId,
+                            player.currentMediaItemIndex,
+                            player.currentPosition,
+                            player.currentMediaItem?.mediaMetadata?.title?.toString().orEmpty(),
+                        )
+                    }
                 }
             }
             scheduleCrossfade()

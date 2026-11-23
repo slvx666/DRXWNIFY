@@ -101,6 +101,7 @@ private val ChatMusic.key: String get() = kind.path + ":" + id
  */
 private object PickerCache {
     private const val FRESH_MS = 5 * 60_000L
+    private const val PINNED_IN_ACCOUNT = "pinned|"
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
     val recent = kotlinx.coroutines.flow.MutableStateFlow<List<ChatMusic>?>(null)
@@ -135,9 +136,7 @@ private object PickerCache {
             db.events().first().asSequence()
                 .map { it.song }
                 .distinctBy { it.id }
-                .mapNotNull { s ->
-                    ChatMusic.ofMedia(s.id, s.title, s.orderedArtists.joinToString { it.name }, s.thumbnailUrl, s.song.duration.coerceAtLeast(0) * 1000L)
-                }
+                .mapNotNull(::pickable)
                 .take(300)
                 .toList()
         }.getOrNull()
@@ -152,9 +151,11 @@ private object PickerCache {
     private suspend fun loadLibrary(): Boolean {
         val db = FriendsHub.databaseOrNull()
         val pins = com.metrolist.music.catalog.LibraryPins.pinned.value
-        fun songMusic(s: com.metrolist.music.db.entities.Song) =
-            ChatMusic.ofMedia(s.id, s.title, s.orderedArtists.joinToString { it.name }, s.thumbnailUrl, s.song.duration.coerceAtLeast(0) * 1000L)
+        fun songMusic(s: com.metrolist.music.db.entities.Song) = pickable(s)
 
+        val covers = runCatching {
+            db?.playlistLatestThumbnails()?.first().orEmpty().associate { it.playlistId to it.thumbnailUrl }
+        }.getOrDefault(emptyMap())
         val own = runCatching {
             db?.playlists(com.metrolist.music.constants.PlaylistSortType.CREATE_DATE, descending = true)?.first().orEmpty()
                 .filter { it.playlist.isEditable }
@@ -162,7 +163,7 @@ private object PickerCache {
                     OwnPlaylist(
                         id = p.id,
                         name = p.playlist.name,
-                        cover = (p.playlist.thumbnailUrl ?: p.thumbnails.firstOrNull())?.takeIf { it.startsWith("http") },
+                        cover = listOfNotNull(p.playlist.thumbnailUrl, p.thumbnails.firstOrNull(), covers[p.id]).firstOrNull { it.startsWith("http") },
                         count = p.songCount,
                         pinKey = com.metrolist.music.viewmodels.SpotifyLibraryViewModel.LOCAL_PLAYLIST_URI_PREFIX + p.id,
                     )
@@ -200,13 +201,15 @@ private object PickerCache {
                         SpotifyLibraryEntry.Kind.ARTIST -> AppLinks.Kind.ARTIST
                         else -> return@mapNotNullTo null
                     }
-                    e.uri.ifBlank { e.id } to ChatMusic(kind, e.id, e.name, e.creator.orEmpty(), e.imageUrl?.takeIf { it.startsWith("http") }, count = e.totalCount)
+                    // Pinned in the account itself (a green pin in the library) counts as pinned too.
+                    (if (e.pinned) PINNED_IN_ACCOUNT + e.uri.ifBlank { e.id } else e.uri.ifBlank { e.id }) to
+                        ChatMusic(kind, e.id, e.name, e.creator.orEmpty(), e.imageUrl?.takeIf { it.startsWith("http") }, count = e.totalCount)
                 }
                 offset += 50
                 // Pinned ones on top, as in the library itself.
-                val (pinned, rest) = entries.partition { it.first in pins }
+                val (pinned, rest) = entries.partition { it.first in pins || it.first.startsWith(PINNED_IN_ACCOUNT) }
                 library.value = library.value?.copy(
-                    pinned = pinned.sortedBy { pins.indexOf(it.first) }.map { it.second },
+                    pinned = pinned.sortedBy { pins.indexOf(it.first).let { i -> if (i < 0) Int.MAX_VALUE else i } }.map { it.second },
                     collections = rest.map { it.second },
                 )
                 if (page.items.isEmpty() || offset >= page.total) break
@@ -242,12 +245,28 @@ private object PickerCache {
     }
 
     /** A playlist made in the app: its tracks, looked up when it is opened in the panel. */
-    suspend fun tracksOf(playlistId: String): List<ChatMusic> = runCatching {
-        FriendsHub.databaseOrNull()?.playlistSongs(playlistId)?.first().orEmpty().mapNotNull { ps ->
-            val s = ps.song
-            ChatMusic.ofMedia(s.id, s.title, s.orderedArtists.joinToString { it.name }, s.thumbnailUrl, s.song.duration.coerceAtLeast(0) * 1000L)
-        }
-    }.getOrDefault(emptyList())
+    suspend fun tracksOf(playlistId: String): List<ChatMusic> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val db = FriendsHub.databaseOrNull()
+        runCatching {
+            val songs = db?.playlistSongs(playlistId)?.first().orEmpty()
+            songs.mapNotNull { ps -> pickable(ps.song) }.also { android.util.Log.i("DrxwPicker", "playlist $playlistId: ${songs.size} rows, ${it.size} sendable (db=${db != null})") }
+        }.onFailure { android.util.Log.w("DrxwPicker", "playlist $playlistId tracks failed", it) }.getOrDefault(emptyList())
+    }
+}
+
+/**
+ * A track of the phone's library as something to send. A track found on a source site (VK…) goes
+ * too, by its source id: the friend's app plays the same upload, or finds it by title and artist.
+ * Only files from the phone itself can't be sent.
+ */
+private fun pickable(s: com.metrolist.music.db.entities.Song): ChatMusic? {
+    val title = s.title
+    val by = s.orderedArtists.joinToString { it.name }
+    val ms = s.song.duration.coerceAtLeast(0) * 1000L
+    ChatMusic.ofMedia(s.id, title, by, s.thumbnailUrl, ms)?.let { return it }
+    if (s.id.startsWith("local:")) return null
+    val catalogId = com.metrolist.music.resolver.FallbackIds.catalogIdOf(s.id) ?: return null
+    return ChatMusic(AppLinks.Kind.TRACK, catalogId, title, by, s.thumbnailUrl?.takeIf { it.startsWith("http") }, ms)
 }
 
 /** A playlist made in the app, in the library tab (opened in place to pick its tracks). */
