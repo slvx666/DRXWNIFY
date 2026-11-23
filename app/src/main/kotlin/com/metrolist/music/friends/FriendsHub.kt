@@ -680,7 +680,7 @@ object FriendsHub {
     fun startLive() {
         liveUsers++
         if (liveUsers == 1) openLive()
-        scope.launch { publishLibraryIfStale(10 * 60_000L) }
+        scope.launch { publishLibraryIfStale(LIVE_LIBRARY_MS) }
     }
 
     @Synchronized
@@ -885,7 +885,26 @@ object FriendsHub {
         }
     }
 
+    /**
+     * [publishField] for the library fields, skipped when the same content already went to the same
+     * audience lately. Each goes encrypted once per friend (playlists ~25 KB, history ~10 KB, times
+     * 17 friends, times every relay), and the Friends screen asked for it on every opening: relays
+     * answered with "daily storage quota reached" and "banned: too many rate-limit violations",
+     * and then refused chat messages too.
+     */
+    private fun publishChanged(field: String, content: String, audience: Audience, onlyFor: String?) {
+        if (onlyFor != null) return publishField(field, content, audience, onlyFor)
+        val p = prefs
+        val hash = (audience.name + "|" + content).hashCode()
+        val now = System.currentTimeMillis()
+        if (p != null && p.getInt("sentHash_$field", 0) == hash && now - p.getLong("sentAt_$field", 0L) < FIELD_REPUBLISH_MS) return
+        publishField(field, content, audience, null)
+        p?.edit()?.putInt("sentHash_$field", hash)?.putLong("sentAt_$field", now)?.apply()
+    }
+
     private fun clearField(field: String, wasAudience: Audience) {
+        // Emptied: the next publish has to go out even if the content is the same as before.
+        prefs?.edit()?.remove("sentHash_$field")?.apply()
         when (wasAudience) {
             Audience.EVERYONE -> publishPublic(field, "")
             Audience.FRIENDS -> _friends.value.forEach { publishTo(it.pubkey, field, "") }
@@ -1006,7 +1025,7 @@ object FriendsHub {
                         songs.take(MAX_PLAYLIST_TRACKS).map { refOf(db, it.song, 0, withCover = false) },
                     )
                 }
-                publishField(F_PLAYLISTS, JSONObject().put("playlists", playlistsToJson(playlists)).toString(), privacy.playlists, onlyFor)
+                publishChanged(F_PLAYLISTS, JSONObject().put("playlists", playlistsToJson(playlists)).toString(), privacy.playlists, onlyFor)
             }
             if (privacy.playlists != Audience.NOBODY) publishLikes(db, privacy.playlists, onlyFor)
             if (privacy.stats != Audience.NOBODY) {
@@ -1020,7 +1039,7 @@ object FriendsHub {
                     likedCount = db.likedSongsCount().first(),
                     topArtists = top,
                 )
-                publishField(F_STATS, statsToJson(stats).toString(), privacy.stats, onlyFor)
+                publishChanged(F_STATS, statsToJson(stats).toString(), privacy.stats, onlyFor)
             }
             if (onlyFor == null) prefs?.edit()?.putLong("libraryAt", System.currentTimeMillis())?.apply()
         }.onFailure { Timber.w(it, "FriendsHub: publishing the library failed") }
@@ -1034,7 +1053,7 @@ object FriendsHub {
             .take(MAX_HISTORY)
             // Listens are kept in local time: as epoch time for the friend's clock.
             .map { e -> refOf(db, e.song, e.event.timestamp.atZone(zone).toInstant().toEpochMilli()) }
-        publishField(F_HISTORY, JSONObject().put("tracks", refsToJson(history)).toString(), audience, onlyFor)
+        publishChanged(F_HISTORY, JSONObject().put("tracks", refsToJson(history)).toString(), audience, onlyFor)
     }
 
     private var historyJob: Job? = null
@@ -1284,7 +1303,11 @@ object FriendsHub {
     /** A "playing" with no track length counts this long. */
     private const val UNKNOWN_LENGTH_MS = 12 * 60_000L
     private const val LIBRARY_REFRESH_MS = 6 * 60 * 60_000L
-    private const val HISTORY_PUBLISH_DELAY_MS = 2 * 60_000L
+    private const val HISTORY_PUBLISH_DELAY_MS = 15 * 60_000L
+    /** Unchanged library fields go again only this often (relays may drop old data). */
+    private const val FIELD_REPUBLISH_MS = 3L * 24 * 60 * 60_000
+    /** Opening a friends screen checks the library for changes at most this often. */
+    private const val LIVE_LIBRARY_MS = 30 * 60_000L
     private const val MAX_HISTORY = 50
     const val MAX_LIKES = 500
     /** Packed likes above this many characters lose their oldest tracks (encryption adds a third). */

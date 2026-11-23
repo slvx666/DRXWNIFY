@@ -503,7 +503,9 @@ object ChatHub {
     private fun deliver(message: ChatMessage, event: JSONObject) {
         if (!delivering.add(message.id)) return
         val accepted = java.util.concurrent.atomic.AtomicBoolean(false)
-        RelayPool.listen(event.optString("id")) { _, ok, _ ->
+        val takenBy = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        RelayPool.listen(event.optString("id")) { relay, ok, _ ->
+            if (ok) takenBy += relay.removePrefix("wss://")
             if (ok && accepted.compareAndSet(false, true)) {
                 scope.launch { dao?.setState(message.owner, message.peer, message.id, ChatMessage.STATE_SENT) }
             }
@@ -511,7 +513,12 @@ object ChatHub {
         RelayPool.publishRaw(event)
         scope.launch {
             delay(SEND_TIMEOUT_MS)
-            if (!accepted.get()) dao?.setState(message.owner, message.peer, message.id, ChatMessage.STATE_FAILED)
+            if (accepted.get()) {
+                Log.i(LOG_TAG, "msg ${message.id.take(8)} taken by ${takenBy.size}: ${takenBy.joinToString(" ")}")
+            } else {
+                dao?.setState(message.owner, message.peer, message.id, ChatMessage.STATE_FAILED)
+                Log.w(LOG_TAG, "msg ${message.id.take(8)} taken by no relay: ${RelayPool.describe()}")
+            }
             delivering.remove(message.id)
         }
     }

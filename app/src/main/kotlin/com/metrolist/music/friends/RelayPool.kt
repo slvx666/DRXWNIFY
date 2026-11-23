@@ -39,18 +39,27 @@ internal object RelayPool {
         "wss://purplerelay.com",
         // Not behind Cloudflare: where it is cut (Russia), damus and primal don't answer and nos.lol
         // and nostr.mom are one server; these keep messages going. damus also wants a login to read
-        // direct messages now.
-        "wss://offchain.pub",
-        "wss://relay.noswhere.com",
-        "wss://nostr-pub.wellorder.net",
-        // (nostr.land, put here once, is paid: it refused every event.)
-        "wss://relay.nostr.bg",
+        // direct messages now. Checked 2026-11-24: each takes a new key's direct messages and app
+        // data and gives them back. Dropped then: offchain.pub (refuses keys outside its "web of
+        // trust"), relay.noswhere.com (takes events, never gives them back), nostr-pub.wellorder.net
+        // and relay.nostr.bg (gone). nostr.land is paid.
+        "wss://relay.snort.social",
+        "wss://relay.angor.io",
+        "wss://nostr-01.yakihonne.com",
+        "wss://relay.nostr.wirednet.jp",
     )
 
     private const val IDLE_CLOSE_MS = 90_000L
-    private const val BURST = 20
-    private const val PER_SECOND = 8.0
+    private const val BURST = 12
+    private const val PER_SECOND = 5.0
     private const val ACK_KEEP_MS = 60_000L
+    /** A socket still not open after this long is given up and dialled again. */
+    private const val CONNECT_STUCK_MS = 30_000L
+    private const val MAX_PENDING = 300
+    /** "banned": nothing goes to that relay for this long (talking to it only lengthens the ban). */
+    private const val BANNED_MUTE_MS = 60 * 60_000L
+    /** It won't store our events (quota spent, a whitelist, payment): reads go on, writes stop. */
+    private const val WRITES_MUTE_MS = 6 * 60 * 60_000L
     private const val LOG_TAG = "DrxwRelay"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -73,6 +82,18 @@ internal object RelayPool {
         /** The AUTH event sent to this relay (its "OK" means the relay knows who we are now). */
         @Volatile var authEventId: String? = null
         @Volatile var challenge: String? = null
+        /** When the current socket was dialled (it may still be connecting). */
+        @Volatile var connectingSince = 0L
+        /** Until then this relay gets nothing at all (it banned us). */
+        @Volatile var mutedUntil = 0L
+        /** Until then our events don't go to it (it refuses to store them); subscriptions still run. */
+        @Volatile var writesMutedUntil = 0L
+        /** Until then the writer holds (it said "rate-limited"). */
+        @Volatile var slowUntil = 0L
+        /** "rate-limited" answers in a row: each holds the writer longer. */
+        @Volatile var rateHits = 0
+        /** A reconnect is already waiting for the mute to end. */
+        @Volatile var wakeScheduled = false
     }
 
     /**
@@ -152,11 +173,32 @@ internal object RelayPool {
     /** An already signed event (as JSON), sent again as it is: same id, so relays and readers take it once. */
     fun publishRaw(event: JSONObject) {
         val message = JSONArray().put("EVENT").put(event).toString()
-        relays.values.forEach { send(it, message) }
+        val now = System.currentTimeMillis()
+        relays.values.forEach { if (now >= it.writesMutedUntil) send(it, message) }
     }
 
     /** Relays whose socket is open right now. */
     fun openCount(): Int = relays.values.count { it.open }
+
+    /** Each relay's state in a few words, for the log when a message found no relay. */
+    fun describe(): String {
+        val now = System.currentTimeMillis()
+        return relays.values.joinToString(", ") { r ->
+            val name = r.url.removePrefix("wss://")
+            val state = when {
+                now < r.mutedUntil -> "muted ${(r.mutedUntil - now) / 60_000}m"
+                r.open -> "open"
+                r.socket != null -> "dialling ${(now - r.connectingSince) / 1000}s"
+                else -> "closed f=${r.failures}"
+            }
+            val extra = buildString {
+                if (now < r.writesMutedUntil) append(" no-writes ${(r.writesMutedUntil - now) / 60_000}m")
+                if (now < r.slowUntil) append(" slow")
+                if (r.pending.isNotEmpty()) append(" q=${r.pending.size}")
+            }
+            "$name:$state$extra"
+        }
+    }
 
     /** Called when a relay's socket opens (messages that didn't go can try again then). */
     @Volatile
@@ -178,9 +220,14 @@ internal object RelayPool {
     private fun reconnectNow() {
         relays.values.forEach { relay ->
             relay.failures = 0
-            if (relay.socket == null && (subscriptions.isNotEmpty() || relay.pending.isNotEmpty())) connect(relay)
+            if (subscriptions.isEmpty() && relay.pending.isEmpty()) return@forEach
+            if (relay.socket == null || stuck(relay)) connect(relay)
         }
     }
+
+    /** Dialled long ago and still not open: the attempt is lost (it would otherwise hold the relay forever). */
+    private fun stuck(relay: Relay): Boolean =
+        relay.socket != null && !relay.open && System.currentTimeMillis() - relay.connectingSince > CONNECT_STUCK_MS
 
     /**
      * Runs [filters] on every relay; [onEvent] gets each valid event once. [onEose] is called each
@@ -215,7 +262,9 @@ internal object RelayPool {
             return
         }
         relay.pending += message
-        if (socket == null) connect(relay)
+        // A relay away for long doesn't hoard everything since (the outbox sends chats again anyway).
+        while (relay.pending.size > MAX_PENDING) relay.pending.poll()
+        if (socket == null || stuck(relay)) connect(relay)
     }
 
     private val writers = ConcurrentHashMap<String, Job>()
@@ -225,6 +274,8 @@ internal object RelayPool {
         if (writers[relay.url]?.isActive == true) return
         writers[relay.url] = scope.launch {
             for (message in relay.out) {
+                val hold = relay.slowUntil - System.currentTimeMillis()
+                if (hold > 0) delay(hold)
                 while (true) {
                     val wait = relay.bucket.take()
                     if (wait == 0L) break
@@ -236,11 +287,46 @@ internal object RelayPool {
         }
     }
 
+    /**
+     * Dials [relay]. The socket is stored under the relay's lock and every callback checks it under
+     * the same lock: a dial that failed at once (no network, an unknown host) used to report the
+     * failure before newWebSocket had returned, the stale check threw the report away, and the dead
+     * socket stayed as the relay's forever: every message for it waited in [Relay.pending], and on
+     * a phone up for hours chats stopped going anywhere until the app was restarted.
+     */
     private fun connect(relay: Relay) {
-        relay.socket = client.newWebSocket(
-            Request.Builder().url(relay.url).build(),
-            object : WebSocketListener() {
+        val now = System.currentTimeMillis()
+        if (now < relay.mutedUntil) {
+            wakeAfterMute(relay)
+            return
+        }
+        synchronized(relay) {
+            relay.socket?.cancel()
+            relay.open = false
+            relay.connectingSince = now
+            relay.socket = client.newWebSocket(Request.Builder().url(relay.url).build(), listenerFor(relay))
+        }
+    }
+
+    /** One reconnect when the relay's ban is over (if anything still wants it then). */
+    private fun wakeAfterMute(relay: Relay) {
+        if (relay.wakeScheduled) return
+        relay.wakeScheduled = true
+        scope.launch {
+            delay((relay.mutedUntil - System.currentTimeMillis()).coerceAtLeast(1_000L))
+            relay.wakeScheduled = false
+            if (relay.socket == null && (subscriptions.isNotEmpty() || relay.pending.isNotEmpty())) connect(relay)
+        }
+    }
+
+    private fun current(relay: Relay, webSocket: WebSocket) = synchronized(relay) { relay.socket === webSocket }
+
+    private fun listenerFor(relay: Relay) = object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
+                    if (!current(relay, webSocket)) {
+                        webSocket.close(1000, null)
+                        return
+                    }
                     relay.open = true
                     relay.challenge = null
                     relay.authEventId = null
@@ -259,31 +345,69 @@ internal object RelayPool {
                     handle(relay, text)
                 }
 
+                // The relay closes: we close too (without it the socket lingered half-closed, looking open).
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    webSocket.close(1000, null)
+                    dropped(relay, webSocket)
+                }
+
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = dropped(relay, webSocket)
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                     Timber.d("Relay %s failed: %s", relay.url, t.message)
-                    relay.failures++
+                    if (current(relay, webSocket)) relay.failures++
                     dropped(relay, webSocket)
                 }
-            },
-        )
-    }
+            }
 
     private fun dropped(relay: Relay, webSocket: WebSocket) {
-        if (relay.socket !== webSocket) return
-        relay.socket = null
-        relay.open = false
-        // Live subscriptions come back after a pause; with none, the relay just stays closed.
-        if (subscriptions.isNotEmpty()) {
+        synchronized(relay) {
+            if (relay.socket !== webSocket) return
+            relay.socket = null
+            relay.open = false
+        }
+        // Live subscriptions (or messages still waiting) come back after a pause; with neither,
+        // the relay just stays closed.
+        if (subscriptions.isNotEmpty() || relay.pending.isNotEmpty()) {
             // 10 s, then longer after each failure in a row (up to 5 min), a little random so the
             // phone doesn't knock on every relay at the same instant.
             val wait = (10_000L shl relay.failures.coerceAtMost(5)).coerceAtMost(300_000L)
             scope.launch {
                 delay(wait + (0..wait / 5).random())
-                if (relay.socket == null && subscriptions.isNotEmpty()) connect(relay)
+                if (relay.socket == null && (subscriptions.isNotEmpty() || relay.pending.isNotEmpty())) connect(relay)
             }
         }
+    }
+
+    /**
+     * What a relay's refusal means for us. "banned" stops everything to it for an hour; a relay
+     * that won't store our events (quota spent, a web of trust, a whitelist, payment) stops getting
+     * them for hours; "rate-limited" holds its writer, longer each time in a row. Before, the phone
+     * went on sending at full pace into the limits and got itself banned.
+     */
+    private fun refused(relay: Relay, reason: String) {
+        val r = reason.lowercase()
+        val now = System.currentTimeMillis()
+        when {
+            r.startsWith("banned") -> {
+                relay.mutedUntil = now + BANNED_MUTE_MS
+                relay.pending.clear()
+                synchronized(relay) { relay.socket }?.close(1000, null)
+            }
+            "quota" in r || "tomorrow" in r || "web of trust" in r || "white-list" in r || "whitelist" in r ||
+                r.startsWith("restricted") || "pay " in r || "sign up" in r ->
+                relay.writesMutedUntil = now + WRITES_MUTE_MS
+            r.startsWith("rate-limited") || r.startsWith("error: rate-limited") -> slowDown(relay, r)
+        }
+    }
+
+    private fun slowDown(relay: Relay, reason: String) {
+        val asked = Regex("retry in (\\d+)\\s*ms").find(reason)?.groupValues?.get(1)?.toLongOrNull()
+        // Its own "retry in" is a floor, not a promise: asking again at once got the phone banned.
+        val backoff = (5_000L shl relay.rateHits.coerceAtMost(5)).coerceAtMost(120_000L)
+        val hold = maxOf(asked ?: 0L, backoff)
+        relay.rateHits++
+        relay.slowUntil = maxOf(relay.slowUntil, System.currentTimeMillis() + hold)
     }
 
     private fun handle(relay: Relay, text: String) {
@@ -309,7 +433,12 @@ internal object RelayPool {
                     }
                     return
                 }
-                if (!ok) android.util.Log.i(LOG_TAG, "${relay.url} refused ${message.optString(1).take(8)}: $reason")
+                if (ok) {
+                    relay.rateHits = 0
+                } else {
+                    android.util.Log.i(LOG_TAG, "${relay.url} refused ${message.optString(1).take(8)}: $reason")
+                    refused(relay, reason)
+                }
                 acks[message.optString(1)]?.let { runCatching { it(relay.url, ok, reason) } }
                 return
             }
@@ -320,10 +449,25 @@ internal object RelayPool {
             "NOTICE", "CLOSED" -> {
                 val text = message.optString(message.length() - 1)
                 android.util.Log.i(LOG_TAG, "${relay.url} ${message.optString(0)}: $text")
+                // damus writes "ERROR: auth-required: ..." / "ERROR: rate-limited: ...".
+                val said = text.removePrefix("ERROR: ").removePrefix("error: ")
+                val closed = message.optString(0) == "CLOSED"
                 // "auth-required": the client says who it is (with the challenge the relay sent), then asks again.
-                if (message.optString(0) == "CLOSED" && text.startsWith("auth-required")) {
+                if (closed && said.startsWith("auth-required")) {
                     relay.waitingForAuth += message.optString(1)
                     authenticate(relay)
+                } else if (said.startsWith("rate-limited") || said.startsWith("banned")) {
+                    refused(relay, said)
+                    // A subscription it cut for reading too much is asked for once more after the pause.
+                    val subId = message.optString(1)
+                    if (closed && said.startsWith("rate-limited")) scope.launch {
+                        delay((relay.slowUntil - System.currentTimeMillis()).coerceAtLeast(1_000L))
+                        val sub = subscriptions[subId] ?: return@launch
+                        if (relay.open) {
+                            relay.out.trySend(reqMessage(subId, sub.filters))
+                            ensureWriter(relay)
+                        }
+                    }
                 }
                 return
             }
@@ -352,9 +496,11 @@ internal object RelayPool {
                 delay(IDLE_CLOSE_MS / 3)
                 if (subscriptions.isEmpty() && System.currentTimeMillis() - lastUse > IDLE_CLOSE_MS) {
                     relays.values.forEach { relay ->
-                        relay.socket?.close(1000, null)
-                        relay.socket = null
-                        relay.open = false
+                        synchronized(relay) {
+                            relay.socket?.close(1000, null)
+                            relay.socket = null
+                            relay.open = false
+                        }
                         relay.pending.clear()
                     }
                     break
