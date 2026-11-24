@@ -936,6 +936,18 @@ fun BottomSheetPlayer(
         val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
         val controlsContent: @Composable ColumnScope.(MediaMetadata) -> Unit = controlsContent@{ mediaMetadata ->
             val preset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
+            var artistsSheet by remember { mutableStateOf<List<Pair<String, String?>>?>(null) }
+            artistsSheet?.let { list ->
+                ArtistsSheet(
+                    artists = list,
+                    onOpen = { id ->
+                        artistsSheet = null
+                        state.collapseSoft()
+                        navController.navigate(artistRoute(id))
+                    },
+                    onDismiss = { artistsSheet = null },
+                )
+            }
             if (preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC) {
                 val shuffleModeEnabled by playerConnection.shuffleModeEnabled.collectAsState()
                 SatanicPlayerControls(
@@ -983,10 +995,16 @@ fun BottomSheetPlayer(
                         }
                     },
                     onArtistClick = {
-                        val artistId = mediaMetadata.artists.firstOrNull()?.id
-                        if (!artistId.isNullOrBlank()) {
-                            state.collapseSoft()
-                            navController.navigate("artist/$artistId")
+                        // One artist opens at once; several come up in a sheet, top to bottom as in the line.
+                        val links = playerArtistLinks(mediaMetadata)
+                        val withIds = links.filter { !it.second.isNullOrBlank() }
+                        if (links.size > 1 && withIds.isNotEmpty()) {
+                            artistsSheet = links
+                        } else {
+                            withIds.firstOrNull()?.second?.let { id ->
+                                state.collapseSoft()
+                                navController.navigate(artistRoute(id))
+                            }
                         }
                     },
                     onTitleLongClick = {
@@ -1049,10 +1067,16 @@ fun BottomSheetPlayer(
                         }
                     },
                     onArtistClick = {
-                        val artistId = mediaMetadata.artists.firstOrNull()?.id
-                        if (!artistId.isNullOrBlank()) {
-                            state.collapseSoft()
-                            navController.navigate("artist/$artistId")
+                        // One artist opens at once; several come up in a sheet, top to bottom as in the line.
+                        val links = playerArtistLinks(mediaMetadata)
+                        val withIds = links.filter { !it.second.isNullOrBlank() }
+                        if (links.size > 1 && withIds.isNotEmpty()) {
+                            artistsSheet = links
+                        } else {
+                            withIds.firstOrNull()?.second?.let { id ->
+                                state.collapseSoft()
+                                navController.navigate(artistRoute(id))
+                            }
                         }
                     },
                     onTitleLongClick = {
