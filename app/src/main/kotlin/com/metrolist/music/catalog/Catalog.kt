@@ -437,6 +437,50 @@ object Catalog {
         ids
     }
 
+    @Volatile
+    private var spotifySavedPlaylists: Pair<Long, MutableSet<String>>? = null
+    private val savedPlaylistsMutex = Mutex()
+
+    /** Spotify playlists in the library (saved ones and the user's own). */
+    private suspend fun spotifySavedPlaylistIds(): MutableSet<String> = savedPlaylistsMutex.withLock {
+        spotifySavedPlaylists?.takeIf { System.currentTimeMillis() - it.first < SAVED_ALBUMS_TTL_MS }?.let { return it.second }
+        SpotifyTokenManager.ensureAuthenticated()
+        val ids = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        var offset = 0
+        while (offset < 2000) {
+            val page = Spotify.myLibrary(filter = "Playlists", limit = 50, offset = offset).getOrThrow()
+            page.items.filter { it.kind == SpotifyLibraryEntry.Kind.PLAYLIST }.forEach { ids += it.id }
+            offset += 50
+            if (page.items.isEmpty() || offset >= page.total) break
+        }
+        spotifySavedPlaylists = System.currentTimeMillis() to ids
+        ids
+    }
+
+    @Volatile
+    private var spotifyUserId: String? = null
+
+    /** The signed-in Spotify user's id (asked once), or null when it can't be had. */
+    suspend fun spotifyMyId(): String? = spotifyUserId ?: runCatching {
+        SpotifyTokenManager.ensureAuthenticated()
+        Spotify.me().getOrNull()?.id?.takeIf { it.isNotBlank() }
+    }.getOrNull()?.also { spotifyUserId = it }
+
+    /** Whether a Spotify playlist someone else made is in the library; null where there is no such thing. */
+    suspend fun isPlaylistSaved(id: String): Result<Boolean>? = when (sourceOf(id)) {
+        MetadataSource.SPOTIFY -> runCatching { id in spotifySavedPlaylistIds() }
+        else -> null
+    }
+
+    /** Puts a Spotify playlist in the library, or takes it out. */
+    suspend fun setPlaylistSaved(id: String, save: Boolean): Result<Unit> {
+        SpotifyTokenManager.ensureAuthenticated()
+        val uris = listOf("spotify:playlist:$id")
+        return (if (save) Spotify.addToLibrary(uris) else Spotify.removeFromLibrary(uris))
+            .onSuccess { spotifySavedPlaylists?.second?.let { if (save) it.add(id) else it.remove(id) } }
+            .also { invalidateCaches() }
+    }
+
     suspend fun isAlbumSaved(id: String): Result<Boolean> = when (sourceOf(id)) {
         MetadataSource.YANDEX -> YandexMusic.isAlbumLiked(id)
         MetadataSource.VK -> VkCatalog.isAlbumSaved(id)

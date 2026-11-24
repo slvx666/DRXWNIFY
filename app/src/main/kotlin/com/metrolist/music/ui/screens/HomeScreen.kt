@@ -1532,13 +1532,18 @@ fun HomeScreen(
                                     val pages = (cells.size + itemsPerPage - 1) / itemsPerPage
                                     val pagerState = rememberPagerState(pageCount = { pages })
                                     val starting by viewModel.forYouStarting.collectAsState()
+                                    val diceJob = remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
                                     // The radio is usually prepared already and starts at once; the
                                     // dice still rolls (dots gather and spread) so the tap is seen.
                                     var diceRolling by remember { mutableStateOf(false) }
 
                                     fun startRadio(start: com.metrolist.spotify.models.SpotifyTrack?) {
-                                        if (isListenTogetherGuest || starting) return
-                                        scope.launch {
+                                        if (isListenTogetherGuest) return
+                                        // The dice still thinking doesn't hold the covers: a tapped one
+                                        // plays at once and the dice's radio is dropped.
+                                        if (start == null && starting) return
+                                        if (start != null) diceJob.value?.cancel()
+                                        val job = scope.launch {
                                             val queue = if (start != null) {
                                                 viewModel.forYouRadioFrom(start, spotifyMapper)
                                             } else {
@@ -1562,6 +1567,7 @@ fun HomeScreen(
                                             }
                                             player.volume = volume
                                         }
+                                        if (start == null) diceJob.value = job
                                     }
 
                                     HorizontalPager(

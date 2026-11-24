@@ -463,13 +463,45 @@ fun SpotifyPlaylistScreen(
                                     }
                                 }
                             }
+                            // Someone else's Spotify playlist (found in search): a heart puts it in the
+                            // library or takes it out, as on an album. Not on the user's own ones —
+                            // taking those "out of the library" would unfollow them.
+                            val savableId = playlist?.id?.takeIf { it.isNotBlank() && it != com.metrolist.music.catalog.Catalog.SPOTIFY_LIKED_ID }
+                            var playlistSaved by androidx.compose.runtime.remember(savableId) { mutableStateOf<Boolean?>(null) }
+                            LaunchedEffect(savableId) {
+                                if (savableId == null) return@LaunchedEffect
+                                val mine = com.metrolist.music.catalog.Catalog.spotifyMyId()
+                                val own = mine != null && mine == playlist?.owner?.id
+                                playlistSaved = if (own) null else com.metrolist.music.catalog.Catalog.isPlaylistSaved(savableId)?.getOrNull()
+                            }
+                            playlistSaved?.let { saved ->
+                                val heartTint by androidx.compose.animation.animateColorAsState(
+                                    if (saved) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                                    label = "playlistHeart",
+                                )
+                                androidx.compose.material3.IconButton(
+                                    onClick = {
+                                        val id = savableId ?: return@IconButton
+                                        playlistSaved = !saved
+                                        coroutineScope.launch {
+                                            com.metrolist.music.catalog.Catalog.setPlaylistSaved(id, !saved)
+                                                .onFailure { playlistSaved = saved }
+                                        }
+                                    },
+                                ) {
+                                    Icon(
+                                        painterResource(if (saved) R.drawable.favorite else R.drawable.favorite_border),
+                                        contentDescription = null,
+                                        tint = heartTint,
+                                    )
+                                }
+                            }
                             // A link to the playlist, beside the download button (it used to sit in the top bar).
                             com.metrolist.music.ui.component.ShareLinkButton(
                                 com.metrolist.music.utils.AppLinks.Kind.PLAYLIST,
                                 playlist?.id?.takeIf { it.isNotBlank() && it != com.metrolist.yandex.YandexIds.LIKED_SONGS_ID },
                                 playlist?.name,
                                 playlist?.owner?.displayName,
-                                icon = R.drawable.share_link,
                                 files = { SpotifyBatchDownload.downloadedMediaIds(database, tracks) },
                             )
                         }

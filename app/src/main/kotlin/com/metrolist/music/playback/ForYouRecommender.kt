@@ -6,6 +6,7 @@
 package com.metrolist.music.playback
 
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import com.metrolist.music.catalog.AccountLikes
 import com.metrolist.music.catalog.Catalog
 import com.metrolist.music.constants.ArtistSortType
@@ -60,6 +61,18 @@ object ForYouRecommender {
         val cyrillicShare: Double,
     )
 
+    // What every session needs and that changes slowly, kept between sessions: each dice and each
+    // radio used to work it all out again — the linked accounts' likes (up to 15 s), then up to 20
+    // artists looked up one after another by name (VK and Yandex artists carry no Spotify id) —
+    // and the dice thought for most of a minute.
+    @Volatile private var sharedTaste: Pair<Long, Taste>? = null
+    @Volatile private var sharedSeeds: Pair<Long, List<Pair<String, Double>>>? = null
+    @Volatile private var sharedMixes: Pair<Long, List<SpotifyTrack>>? = null
+    private val artistByName = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private const val SHARED_TTL_MS = 30 * 60 * 1000L
+
+    private fun <T> Pair<Long, T>?.fresh(): T? = this?.takeIf { System.currentTimeMillis() - it.first < SHARED_TTL_MS }?.second
+
     /** The tracks shown on the home page. */
     suspend fun build(database: MusicDatabase, hideExplicit: Boolean): List<SpotifyTrack> =
         Session(database, hideExplicit).next(TARGET)
@@ -92,7 +105,8 @@ object ForYouRecommender {
 
         private suspend fun nextLocked(count: Int): List<SpotifyTrack> {
             if (!Catalog.ensureAuthenticated()) return emptyList()
-            val t = taste ?: taste(database).also { taste = it }
+            val t = taste ?: (sharedTaste.fresh() ?: taste(database).also { sharedTaste = System.currentTimeMillis() to it })
+                .also { taste = it }
             // Every call has its own budget of rounds: a few failed ones in a row (the network
             // dropped, the catalog said "too many requests") used to end the session for good, and
             // the radio ran dry an hour later with nothing ever asked for again.
@@ -102,7 +116,8 @@ object ForYouRecommender {
                     mixesTried = true
                     runCatching {
                         // Spotify's own mixes whenever Spotify is linked, whatever the main account is.
-                        if (Catalog.state.value.spotifyConnected) madeForYou() else emptyList()
+                        if (!Catalog.state.value.spotifyConnected) emptyList()
+                        else sharedMixes.fresh() ?: madeForYou().also { if (it.isNotEmpty()) sharedMixes = System.currentTimeMillis() to it }
                     }.onFailure { Timber.w(it, "forYou: Spotify mixes unavailable") }.getOrDefault(emptyList())
                 } else {
                     fromTaste(t, seeds(t))
@@ -137,7 +152,8 @@ object ForYouRecommender {
 
         // Kept once found; an empty answer (the catalog unreachable for a moment) is asked again next time.
         private suspend fun seeds(t: Taste): List<Pair<String, Double>> =
-            seedIds ?: resolveSeeds(t).also { if (it.isNotEmpty()) seedIds = it }
+            seedIds ?: (sharedSeeds.fresh() ?: resolveSeeds(t).also { if (it.isNotEmpty()) sharedSeeds = System.currentTimeMillis() to it })
+                .also { if (it.isNotEmpty()) seedIds = it }
     }
 
     private const val MAX_EMPTY_ROUNDS = 6
@@ -234,11 +250,19 @@ object ForYouRecommender {
     private suspend fun resolveSeeds(taste: Taste): List<Pair<String, Double>> {
         val spotify = Catalog.ensureSearchable(MetadataSource.SPOTIFY)
         val target = if (spotify) MetadataSource.SPOTIFY else Catalog.source ?: return emptyList()
-        return taste.artists.entries.sortedByDescending { it.value }.take(20).mapNotNull { (key, weight) ->
-            val name = taste.artistNames[key] ?: key.removePrefix(NAME_KEY)
-            val id = if (key.startsWith(ID_KEY) && spotify) key.removePrefix(ID_KEY) else exactArtist(target, name)
-            id?.let { it to weight }
-        }.distinctBy { it.first }
+        // Side by side (a few at a time), not one after another, and remembered by name.
+        val gate = kotlinx.coroutines.sync.Semaphore(4)
+        return coroutineScope {
+            taste.artists.entries.sortedByDescending { it.value }.take(20).map { (key, weight) ->
+                async {
+                    val name = taste.artistNames[key] ?: key.removePrefix(NAME_KEY)
+                    val id = if (key.startsWith(ID_KEY) && spotify) key.removePrefix(ID_KEY)
+                    else artistByName["$target|$name"] ?: gate.withPermit { exactArtist(target, name) }
+                        ?.also { artistByName["$target|$name"] = it }
+                    id?.let { it to weight }
+                }
+            }.awaitAll().filterNotNull().distinctBy { it.first }
+        }
     }
 
     private suspend fun exactArtist(target: MetadataSource, name: String): String? {
