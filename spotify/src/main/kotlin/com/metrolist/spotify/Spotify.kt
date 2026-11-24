@@ -32,6 +32,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -1965,11 +1966,46 @@ object Spotify {
     /** queryArtistOverview is shared by artist/discography/top tracks/related: reuse it for a few minutes. */
     private val artistUnionCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, JsonObject>>()
 
+    /** Overviews being fetched now: a second caller for the same artist waits for that answer. */
+    private val artistUnionInFlight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<JsonObject>>()
+
+    /**
+     * At most a few overview queries at once. The recommendations asked for dozens in one burst
+     * (related artists, then each one's top tracks, round after round) and Spotify's gateway
+     * answered 500 / "connection closed" for the lot, the music standing silent meanwhile.
+     */
+    private val artistUnionGate = kotlinx.coroutines.sync.Semaphore(ARTIST_OVERVIEW_PARALLEL)
+
     private suspend fun artistUnion(artistId: String): JsonObject {
-        artistUnionCache[artistId]?.takeIf { System.currentTimeMillis() - it.first < 5 * 60 * 1000L }?.let { return it.second }
-        if (artistUnionCache.size > 50) artistUnionCache.clear()
-        return fetchArtistUnion(artistId).also { artistUnionCache[artistId] = System.currentTimeMillis() to it }
+        val now = System.currentTimeMillis()
+        artistUnionCache[artistId]?.takeIf { now - it.first < ARTIST_OVERVIEW_TTL_MS }?.let { return it.second }
+        // Kept, not dropped all at once at 50: a round of recommendations alone reads more than
+        // that, so every round fetched the same artists again. The oldest go first.
+        if (artistUnionCache.size > ARTIST_OVERVIEW_CACHE_MAX) {
+            artistUnionCache.entries.sortedBy { it.value.first }
+                .take(artistUnionCache.size - ARTIST_OVERVIEW_CACHE_MAX + ARTIST_OVERVIEW_CACHE_MAX / 4)
+                .forEach { artistUnionCache.remove(it.key) }
+        }
+        val mine = kotlinx.coroutines.CompletableDeferred<JsonObject>()
+        val running = artistUnionInFlight.putIfAbsent(artistId, mine)
+        if (running != null) return running.await()
+        return try {
+            artistUnionGate.withPermit { fetchArtistUnion(artistId) }
+                .also { union ->
+                    artistUnionCache[artistId] = System.currentTimeMillis() to union
+                    mine.complete(union)
+                }
+        } catch (e: Throwable) {
+            mine.completeExceptionally(e)
+            throw e
+        } finally {
+            artistUnionInFlight.remove(artistId, mine)
+        }
     }
+
+    private const val ARTIST_OVERVIEW_PARALLEL = 4
+    private const val ARTIST_OVERVIEW_TTL_MS = 30 * 60 * 1000L
+    private const val ARTIST_OVERVIEW_CACHE_MAX = 400
 
     private suspend fun fetchArtistUnion(artistId: String): JsonObject {
         val response =

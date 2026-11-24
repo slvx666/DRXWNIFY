@@ -470,10 +470,15 @@ class HomeViewModel @Inject constructor(
         prepareJob = viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 val session = newRadioSession()
-                // Prepared in the background, so it can be long: the dice queue used to start with 6
-                // tracks, and swiping past them waited ~10 s for the next ones to be worked out.
-                val first = session.next(PREPARED_RADIO_TRACKS)
-                if (first.isNotEmpty()) preparedRadio = session to first
+                // Ready quickly (a few tracks), then grown in the background: asked for 25 at once it
+                // was seldom ready when the dice was tapped, and the dice then built a radio from
+                // scratch (20 s). Grown, the queue doesn't wait for its next tracks either.
+                val first = session.next(6)
+                if (first.isEmpty()) return@runCatching
+                val prepared = session to first
+                preparedRadio = prepared
+                val more = session.next(PREPARED_RADIO_TRACKS - first.size)
+                if (more.isNotEmpty() && preparedRadio === prepared) preparedRadio = session to (first + more)
             }
         }
     }
