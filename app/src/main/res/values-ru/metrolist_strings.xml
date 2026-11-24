@@ -1124,7 +1124,7 @@
     <string name="track_version_info">%1$s · совпадение %2$d%%</string>
     <string name="track_version_current">играет сейчас</string>
     <string name="track_version_changed">Версия трека изменена</string>
-    <string name="queue_play_next">В начало очереди</string>
+    <string name="queue_play_next">Добавить в начало очереди</string>
     <string name="track_info">Информация о треке</string>
     <string name="spotify_add_to_playlist">Добавить в плейлист Spotify</string>
     <string name="spotify_add_to_playlist_desc">Добавить трек в один из твоих плейлистов Spotify</string>
@@ -2307,6 +2307,7 @@
     <string name="collab_limit_reached_toast">Достигнут лимит треков в этом плейлисте</string>
     <string name="collab_empty_tracks">В очереди пока нет треков</string>
     <string name="collab_empty_tracks_desc">Добавьте треки или отправьте ссылку друзьям</string>
-    <string name="collab_request_sent_toast">Отправлено: трек добавится, когда владелец будет в сети</string>
+    <string name="collab_request_sent_toast">Отправлено владельцу плейлиста</string>
+    <string name="collab_request_waiting_toast">Владелец пока не принял — трек добавится, когда его приложение будет открыто</string>
     <string name="collab_deselect_all">Снять выбор</string>
 </resources>

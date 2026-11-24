@@ -231,7 +231,12 @@ fun SpotifyPlaylistScreen(
             )
         }
     }
-    val startPlaylistDownload: () -> Unit = { if (allLoaded) downloadTracks(tracks) }
+    val startPlaylistDownload: () -> Unit = {
+        if (allLoaded) {
+            com.metrolist.music.ui.component.BatchMarks.started(context, playlistDownloadSourceId)
+            downloadTracks(tracks)
+        }
+    }
     val swipeRemoveEnabled by rememberPreference(SwipeToRemoveSongKey, defaultValue = false)
 
     LaunchedEffect(mutationError) {
@@ -259,6 +264,13 @@ fun SpotifyPlaylistScreen(
     }
 
     val mutableItems = remember { mutableStateListOf<SpotifyPlaylistTrack>() }
+    // While this list is open, a track of it queued by hand goes on with the list once the queue runs out on it.
+    com.metrolist.music.playback.OpenListEffect { mediaId ->
+        val list = mutableItems.mapNotNull { it.track }
+        val id = com.metrolist.music.playback.OpenAlbum.catalogIdOf(mediaId, spotifyToYt)
+        val index = list.indexOfFirst { it.id == id }
+        if (index < 0) null else SpotifyPlaylistQueue(playlistId = viewModel.playlistId, initialTracks = list, startIndex = index, mapper = viewModel.mapper)
+    }
     LaunchedEffect(sortedItems) {
         if (sortedItems.isEmpty() && mutableItems.isEmpty()) return@LaunchedEffect
         val currentUids = mutableItems.map { it.uid }
@@ -467,7 +479,7 @@ fun SpotifyPlaylistScreen(
                             total = tracks.size,
                         )
                         if (playlistDownloadProgress == null) com.metrolist.music.ui.component.DownloadIssuesLink(tracks)
-                        if (allLoaded) com.metrolist.music.ui.component.ResumeUnfinishedBatch(tracks, playlistDownloadProgress != null, downloads, spotifyToYt) { startPlaylistDownload() }
+                        if (allLoaded) com.metrolist.music.ui.component.ResumeUnfinishedBatch(playlistDownloadSourceId, tracks, playlistDownloadProgress != null, downloads, spotifyToYt) { startPlaylistDownload() }
                     }
                 }
             }

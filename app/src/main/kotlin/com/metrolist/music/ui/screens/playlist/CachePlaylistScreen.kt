@@ -115,6 +115,12 @@ fun CachePlaylistScreen(
     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
     val cachedSongs by viewModel.cachedSongs.collectAsState()
+    // While this list is open, a track of it queued by hand goes on with the list once the queue runs out on it.
+    com.metrolist.music.playback.OpenListEffect { mediaId ->
+        val list = cachedSongs ?: return@OpenListEffect null
+        val index = list.indexOfFirst { it.id == mediaId }
+        if (index < 0) null else ListQueue(title = "Cache Songs", items = list.map { it.toMediaItem() }, startIndex = index)
+    }
 
     val (sortType, onSortTypeChange) = rememberEnumPreference(
         SongSortTypeKey,

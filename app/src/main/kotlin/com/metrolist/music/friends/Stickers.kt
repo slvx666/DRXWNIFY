@@ -41,7 +41,12 @@ object Stickers {
     /** Every sticker, retired ones too ("hidden" in the json), so old messages still show them. */
     private var byId: Map<String, Sticker> = emptyMap()
 
+    /** How often each sticker was sent here, and when last: the panel shows the most used first. */
+    @Volatile
+    private var use: android.content.SharedPreferences? = null
+
     fun init(context: Context) {
+        if (use == null) use = context.applicationContext.getSharedPreferences("sticker_use", Context.MODE_PRIVATE)
         if (all.isNotEmpty()) return
         runCatching {
             val text = context.assets.open("stickers/stickers.json").bufferedReader().use { it.readText() }
@@ -56,6 +61,30 @@ object Stickers {
     }
 
     fun byId(id: String): Sticker? = byId[id]
+
+    /** A message going out: its stickers count as used. */
+    fun noteSent(text: String) {
+        val prefs = use ?: return
+        val ids = tokens(text).map { it.second }.filter { it in byId }
+        if (ids.isEmpty()) return
+        val now = System.currentTimeMillis()
+        prefs.edit().apply {
+            ids.groupingBy { it }.eachCount().forEach { (id, n) ->
+                putInt("n:$id", prefs.getInt("n:$id", 0) + n)
+                putLong("t:$id", now)
+            }
+        }.apply()
+    }
+
+    /** The pickable stickers, the most used first (then the most recently used), the rest as listed. */
+    fun byUse(): List<Sticker> {
+        val prefs = use ?: return all
+        return all.withIndex().sortedWith(
+            compareByDescending<IndexedValue<Sticker>> { prefs.getInt("n:${it.value.id}", 0) }
+                .thenByDescending { prefs.getLong("t:${it.value.id}", 0L) }
+                .thenBy { it.index },
+        ).map { it.value }
+    }
 
     fun token(sticker: Sticker): String = "$START${sticker.id}$END"
 

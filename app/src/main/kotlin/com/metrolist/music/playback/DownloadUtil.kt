@@ -404,25 +404,8 @@ constructor(
             result[cursor.download.request.id] = cursor.download
         }
         downloads.value = result
-        dropLeftoverDownloads(result.values)
         reconcileWithDownloads()
         exportMissingFiles()
-    }
-
-    /**
-     * Downloads an earlier run left unfinished (the app was closed or killed mid-album) wait in the
-     * index, and the download manager starts paused: the next "download" pressed anywhere woke the
-     * service and they all came back — one track pressed in the mini player and a whole album was
-     * downloaded. They are dropped at start, so a press downloads what was pressed and nothing else
-     * (an album still wanted is downloaded again from its page).
-     */
-    private fun dropLeftoverDownloads(all: Collection<Download>) {
-        val leftover = all.filter {
-            it.state == Download.STATE_QUEUED || it.state == Download.STATE_DOWNLOADING || it.state == Download.STATE_RESTARTING
-        }
-        if (leftover.isEmpty()) return
-        AudioDiagnostics.info("download: ${leftover.size} unfinished download(s) from before dropped (not resumed by the next press)")
-        leftover.forEach { runCatching { downloadManager.removeDownload(it.request.id) } }
     }
 
     /**

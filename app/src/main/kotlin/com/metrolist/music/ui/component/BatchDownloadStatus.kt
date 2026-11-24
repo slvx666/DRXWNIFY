@@ -212,14 +212,19 @@ fun DownloadIssuesLink(tracks: List<SpotifyTrack>, modifier: Modifier = Modifier
  */
 @Composable
 fun ResumeUnfinishedBatch(
+    key: String,
     tracks: List<SpotifyTrack>,
     running: Boolean,
     downloads: Map<String, androidx.media3.exoplayer.offline.Download>,
     spotifyToYt: Map<String, String>,
     start: () -> Unit,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var resumed by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     if (resumed || running || tracks.isEmpty()) return
+    // Only a list the user set downloading as a whole: one track of an open album downloaded from
+    // the mini player used to look like an unfinished album and downloaded all of it.
+    if (!BatchMarks.isStarted(context, key)) return
     val unfinished = tracks.any { track ->
         listOfNotNull(
             downloads[com.metrolist.music.resolver.FallbackIds.of(track.id)],
@@ -230,9 +235,26 @@ fun ResumeUnfinishedBatch(
                 it.state == androidx.media3.exoplayer.offline.Download.STATE_RESTARTING
         }
     }
-    if (!unfinished) return
+    if (!unfinished) {
+        BatchMarks.finished(context, key)
+        return
+    }
     androidx.compose.runtime.LaunchedEffect(Unit) {
         resumed = true
         start()
     }
+}
+
+/** Lists (albums, playlists) the user set downloading as a whole, until they are all downloaded. */
+object BatchMarks {
+    private fun prefs(context: android.content.Context) =
+        context.getSharedPreferences("batch_downloads", android.content.Context.MODE_PRIVATE)
+
+    fun started(context: android.content.Context, key: String) = prefs(context).edit().putBoolean(key, true).apply()
+
+    fun finished(context: android.content.Context, key: String) {
+        if (prefs(context).contains(key)) prefs(context).edit().remove(key).apply()
+    }
+
+    fun isStarted(context: android.content.Context, key: String): Boolean = prefs(context).getBoolean(key, false)
 }

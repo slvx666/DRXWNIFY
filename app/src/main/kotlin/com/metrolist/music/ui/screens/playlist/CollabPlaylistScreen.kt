@@ -623,6 +623,26 @@ fun CollabPlaylistScreen(
         }
     }
 
+    // A guest's tracks go to the owner's app as a request: "sent" at once, then "added" as soon as
+    // they show up in the playlist — or, if nothing came back in a while, that the owner's app
+    // will add them when it is opened (it used to say so every time, the owner online or not).
+    var awaiting by remember { mutableStateOf<Set<String>>(emptySet()) }
+    fun keyOf(title: String, artist: String) = (title + "|" + artist).lowercase().filter { it.isLetterOrDigit() || it == '|' }
+    androidx.compose.runtime.LaunchedEffect(awaiting, playlist) {
+        if (awaiting.isEmpty()) return@LaunchedEffect
+        val have = playlist?.tracks.orEmpty().mapTo(HashSet()) { keyOf(it.title, it.artist) }
+        if (awaiting.all { it in have }) {
+            awaiting = emptySet()
+            Toast.makeText(context, R.string.collab_track_added_toast, Toast.LENGTH_SHORT).show()
+            return@LaunchedEffect
+        }
+        kotlinx.coroutines.delay(20_000)
+        if (awaiting.isNotEmpty()) {
+            awaiting = emptySet()
+            Toast.makeText(context, R.string.collab_request_waiting_toast, Toast.LENGTH_LONG).show()
+        }
+    }
+
     // Music Picker Panel
     MusicPickerPanel(
         visible = showMusicPicker,
@@ -631,6 +651,7 @@ fun CollabPlaylistScreen(
             showMusicPicker = false
             if (pickedList.isNotEmpty()) {
                 CollabPlaylistManager.sendAddTracksRequest(pubkey, playlistId, pickedList.map { it.trackRef() })
+                if (!isOwner) awaiting = pickedList.map { it.trackRef() }.mapTo(HashSet()) { keyOf(it.title, it.artist) }
                 // A guest's tracks are a request: the owner's app adds them (and may be offline, or the
                 // guest's limit reached), so "added" was a promise it couldn't keep.
                 Toast.makeText(

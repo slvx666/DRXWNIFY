@@ -1372,7 +1372,17 @@ private fun FavoriteButton(
     Box(
         contentAlignment = Alignment.Center,
         modifier = buttonModifier
-            .clickable { playerConnection.service.setCurrentFavorite(!isLiked) },
+            .then(
+                if (tallHeart) {
+                    // Not clipped, so the press shows as a round ripple (a bounded one showed half a square).
+                    Modifier.clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = androidx.compose.material3.ripple(bounded = false, radius = 18.dp),
+                    ) { playerConnection.service.setCurrentFavorite(!isLiked) }
+                } else {
+                    Modifier.clickable { playerConnection.service.setCurrentFavorite(!isLiked) }
+                },
+            ),
     ) {
         val favTint = when {
             isSatanic -> if (isLiked) SatanicThemeConfig.getPrimaryText(isDark) else SatanicThemeConfig.getSecondaryText(isDark)

@@ -2351,5 +2351,6 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="collab_empty_tracks">No tracks in queue yet</string>
     <string name="collab_empty_tracks_desc">Add tracks or share the link with friends</string>
     <string name="collab_request_sent_toast">Sent: the owner\'s app adds it to the playlist</string>
+    <string name="collab_request_waiting_toast">The owner hasn\'t taken it yet — it is added when their app is opened</string>
     <string name="collab_deselect_all">Deselect</string>
 </resources>

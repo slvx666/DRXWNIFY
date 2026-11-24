@@ -148,6 +148,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import kotlin.math.roundToInt
@@ -619,6 +620,8 @@ fun ChatScreen(navController: NavController, peer: String) {
                 Text(note, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
         }
+        // The composer lies over the messages: they scroll on under it and show around the field.
+        var composerPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
         Box(Modifier.weight(1f).onGloballyPositioned { listTopPx = it.positionInRoot().y.roundToInt() }) {
             if (loaded != null && messages.isEmpty()) {
                 EmptyNote(stringResource(R.string.chat_say_hi), Modifier.align(Alignment.Center))
@@ -632,7 +635,12 @@ fun ChatScreen(navController: NavController, peer: String) {
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(
+                    start = 8.dp,
+                    end = 8.dp,
+                    top = 8.dp,
+                    bottom = 8.dp + with(LocalDensity.current) { composerPx.toDp() },
+                ),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 items(lines, key = { it.key }, contentType = { it::class }) { line ->
@@ -668,8 +676,10 @@ fun ChatScreen(navController: NavController, peer: String) {
                 }
             }
             }
-        }
         Composer(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .onSizeChanged { composerPx = it.height },
             peer = peer,
             peerName = name,
             replyTo = replyTo,
@@ -684,6 +694,7 @@ fun ChatScreen(navController: NavController, peer: String) {
             },
             onOpenMusic = { musicOpen = true },
         )
+        }
     }
         MusicPickerPanel(
             visible = musicOpen,
@@ -1367,6 +1378,7 @@ private suspend fun openMusic(music: ChatMusic, navController: NavController) {
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun Composer(
+    modifier: Modifier = Modifier,
     peer: String,
     peerName: String,
     replyTo: ChatMessage?,
@@ -1477,6 +1489,7 @@ private fun Composer(
 
     fun send() {
         val body = field.text.trim()
+        if (editing == null) Stickers.noteSent(body)
         val edit = editing
         val fwd = forward
         when {
@@ -1533,7 +1546,7 @@ private fun Composer(
     }
     val inputFont = if (isGothic) com.metrolist.music.ui.theme.GothicThemeConfig.SerifFont else androidx.compose.ui.text.font.FontFamily.Default
 
-    Box {
+    Box(modifier) {
         Surface(
             color = if (isSatanic || isGothic) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer,
             modifier = Modifier.fillMaxWidth(),
@@ -1901,6 +1914,8 @@ private fun StickerPanel(
     onPick: (Stickers.Sticker) -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
+    // The most used first; the order is taken when the panel opens, so it doesn't shift while picking.
+    val ordered = remember { Stickers.byUse() }
     Column(modifier) {
         HorizontalDivider()
         LazyVerticalGrid(
@@ -1909,7 +1924,7 @@ private fun StickerPanel(
             contentPadding = PaddingValues(start = 8.dp, top = 8.dp, end = 8.dp, bottom = bottomPadding + 8.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            items(Stickers.all, key = { it.id }) { s ->
+            items(ordered, key = { it.id }) { s ->
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier

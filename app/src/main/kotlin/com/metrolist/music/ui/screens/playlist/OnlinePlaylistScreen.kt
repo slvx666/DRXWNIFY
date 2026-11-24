@@ -126,6 +126,13 @@ fun OnlinePlaylistScreen(
 
     val playlist by viewModel.playlist.collectAsState()
     val songs by viewModel.playlistSongs.collectAsState()
+    // While this list is open, a track of it queued by hand goes on with the list once the queue runs out on it.
+    com.metrolist.music.playback.OpenListEffect { mediaId ->
+        val pl = playlist ?: return@OpenListEffect null
+        val list = songs
+        val index = list.indexOfFirst { it.id == mediaId }
+        if (index < 0) null else YouTubePlaylistQueue(playlistId = pl.id, playlistTitle = pl.title, initialSongs = list, initialContinuation = viewModel.continuation, startIndex = index)
+    }
     val dbPlaylist by viewModel.dbPlaylist.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val isLoadingMore by viewModel.isLoadingMore.collectAsState()

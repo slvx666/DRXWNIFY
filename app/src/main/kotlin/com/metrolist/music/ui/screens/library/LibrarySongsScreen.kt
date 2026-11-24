@@ -127,6 +127,12 @@ fun LibrarySongsScreen(
     val hideExplicit by rememberPreference(key = HideExplicitKey, defaultValue = false)
 
     val songs by viewModel.allSongs.collectAsState()
+    // While this list is open, a track of it queued by hand goes on with the list once the queue runs out on it.
+    com.metrolist.music.playback.OpenListEffect { mediaId ->
+        val list = songs ?: return@OpenListEffect null
+        val index = list.indexOfFirst { it.id == mediaId }
+        if (index < 0) null else ListQueue(title = queueAllSongsStr, items = list.map { it.toMediaItem() }, startIndex = index)
+    }
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
     val searchQuery by viewModel.searchQuery.collectAsState()
     val debouncedSearchQuery by viewModel.debouncedSearchQuery.collectAsState()

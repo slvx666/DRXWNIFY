@@ -181,6 +181,12 @@ fun LocalPlaylistScreen(
 
     val playlist by viewModel.playlist.collectAsState()
     val songs by viewModel.playlistSongs.collectAsState()
+    // While this list is open, a track of it queued by hand goes on with the list once the queue runs out on it.
+    com.metrolist.music.playback.OpenListEffect { mediaId ->
+        val list = songs ?: return@OpenListEffect null
+        val index = list.indexOfFirst { it.song.id == mediaId }
+        if (index < 0) null else ListQueue(title = playlist?.playlist?.name, items = list.map { it.song.toMediaItem() }, startIndex = index)
+    }
     // Tracks that came without a cover (VK uploads) get one from the catalog, in the background.
     LaunchedEffect(songs.size) { com.metrolist.music.playback.MissingCovers.fill(database, songs.map { it.song }) }
     val mutableSongs = remember { mutableStateListOf<PlaylistSong>() }

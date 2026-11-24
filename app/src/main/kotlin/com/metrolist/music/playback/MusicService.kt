@@ -2258,33 +2258,31 @@ class MusicService :
     }
 
     /**
-     * Queues tracks the user picked, shuffled or not. There is no pool of recommendations in front
-     * of them: what the app had picked ahead by itself is dropped, "play next" ([first]) goes right
-     * after the current track (before what was queued by hand earlier), "add to queue" after the
-     * tracks queued by hand before it, in the order they were added — both before the rest of the
-     * album or playlist that plays. With nothing of the list left after them, the music goes on
-     * from the last track queued: the rest of its album when it was queued from an opened album
-     * ([OpenAlbum]), else recommendations from it.
+     * Queues tracks the user picked, shuffled or not. "Play next" ([first]) goes right after the
+     * current track (before what was queued by hand earlier), "add to queue" after the tracks queued
+     * by hand before it, in the order they were added. Everything else that was still to come (the
+     * recommendations, the rest of the list) goes: the music goes on from the last track queued —
+     * the rest of the list it was queued from while that list was open ([OpenAlbum]: an album, then
+     * recommendations from it; a playlist, liked tracks), else recommendations from that track.
      */
     private fun queueByHand(items: List<MediaItem>, first: Boolean) {
         if (items.isEmpty()) return
-        // Queued while its album is open (a menu, a swipe, a selection): the album is remembered.
+        // Queued while its list is open (a menu, a swipe, a selection): the list is remembered.
         for (item in items) {
-            OpenAlbum.queueFrom(item.mediaId)?.let { handAlbum[item.mediaId] = it }
+            val list = OpenAlbum.queueFrom(item.mediaId)
+            if (list != null) handAlbum[item.mediaId] = list else handAlbum.remove(item.mediaId)
         }
-        val wasRadio = currentQueue.isRecommendations || currentQueue.endsWithRadio
-        if (wasRadio) {
-            loadMoreJob?.cancel()
-            recommendationsRefillJob?.cancel()
-        }
+        loadMoreJob?.cancel()
+        recommendationsRefillJob?.cancel()
         RecommendedTracks.unmark(items)
-        dropUpcomingRecommendations()
         val newIds = items.mapTo(HashSet()) { it.mediaId }
+        // Only the tracks queued by hand stay ahead of the new ones.
+        upcomingIndices()
+            .filter { player.getMediaItemAt(it).mediaId !in handQueued || player.getMediaItemAt(it).mediaId in newIds }
+            .sortedDescending()
+            .forEach { player.removeMediaItem(it) }
         val upcoming = upcomingIndices()
-        // The hand-queued run right after the current track ("add to queue" goes behind it).
-        val handRun = upcoming.takeWhile { player.getMediaItemAt(it).mediaId in handQueued && player.getMediaItemAt(it).mediaId !in newIds }
-        val listLeftAfter = upcoming.any { player.getMediaItemAt(it).mediaId !in handQueued } ||
-            currentQueue.hasNextListPage() && !currentQueue.isRecommendations
+        val handRun = upcoming
         if (player.shuffleModeEnabled) {
             val current = player.currentMediaItemIndex
             val played = playedShuffleIndices(current)
@@ -2303,11 +2301,8 @@ class MusicService :
             player.addMediaItems(at, items)
         }
         handQueued.addAll(newIds)
-        if (!listLeftAfter) {
-            // What follows grows from the last track queued, not from the old radio's seed.
-            loadMoreJob?.cancel()
-            currentQueue = ListQueue(title = queueTitle, items = emptyList(), endsWithRadio = true)
-        }
+        // What follows grows from the last track queued, not from the old list or radio.
+        currentQueue = ListQueue(title = queueTitle, items = emptyList(), endsWithRadio = true)
         player.prepare()
     }
 
@@ -3117,6 +3112,8 @@ class MusicService :
     override fun onPlaybackStateChanged(
         @Player.State playbackState: Int,
     ) {
+        // Playing again (the player holds its own wake lock now), or stopped for good.
+        if (playbackState == Player.STATE_READY && player.playWhenReady || playbackState == Player.STATE_ENDED) recoveryDone()
         // How long the sound took: one line per track in the audio journal, so a slow start can be
         // looked into afterwards (the 30-second one couldn't be — nothing said where the time went).
         startTiming?.let { (mediaId, since) ->
@@ -3678,8 +3675,48 @@ class MusicService :
             (error.cause as? PlaybackException)?.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED ||
             (error.cause as? PlaybackException)?.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED
 
+    /**
+     * Held while a playback error is being recovered from. On an error the player goes idle and lets
+     * its own wake lock go: with the screen off the phone fell asleep inside the retry's one-second
+     * delay, and the track stood silent until the phone was woken (51 minutes, three hours). Released
+     * as soon as the player is playing again, or after [RECOVERY_WAKE_MS] at the latest.
+     */
+    private val recoveryWakeLock by lazy {
+        (getSystemService(Context.POWER_SERVICE) as android.os.PowerManager)
+            .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "drxwnify:playback-recovery")
+            .apply { setReferenceCounted(false) }
+    }
+
+    private fun stayAwakeForRecovery() {
+        runCatching { recoveryWakeLock.acquire(RECOVERY_WAKE_MS) }
+    }
+
+    private fun recoveryDone() {
+        runCatching { if (recoveryWakeLock.isHeld) recoveryWakeLock.release() }
+    }
+
+    /**
+     * Media3 restarts the service in the foreground from its notification update; from the background
+     * Android 12+ refuses that with an exception nothing caught — the app crashed when play was pressed
+     * on the notification hours after playback had stopped. Refused, the service just goes on as it is.
+     */
+    override fun startForegroundService(service: Intent): android.content.ComponentName? =
+        try {
+            super.startForegroundService(service)
+        } catch (e: IllegalStateException) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                e is android.app.ForegroundServiceStartNotAllowedException
+            ) {
+                AudioDiagnostics.warn("Android refused to bring the player to the foreground from the background — carrying on")
+                null
+            } else {
+                throw e
+            }
+        }
+
     override fun onPlayerError(error: PlaybackException) {
         super.onPlayerError(error)
+        stayAwakeForRecovery()
 
         // Safety check : ensuring player is still initialized
         if (!playerInitialized.value) {
@@ -4452,7 +4489,17 @@ class MusicService :
                                     // Playback streams VK tracks from their first segment. Their own
                                     // client: not YouTube's proxy and connection pool, with timeouts
                                     // of its own, so a stuck request fails in seconds, not minutes.
-                                    HlsConcatDataSource.Factory(OkHttpDataSource.Factory(client), hlsClient, streamWhole = true)
+                                    HlsConcatDataSource.Factory(
+                                        com.metrolist.music.playback.datasource.YoutubeResumingDataSource.Factory(
+                                            OkHttpDataSource.Factory(client),
+                                            freshAddress = ::freshYoutubeAddress,
+                                            onResumed = { key, position ->
+                                                AudioDiagnostics.info("YouTube piece of $key came back short at ${position / 1024} KB — read on with a fresh address")
+                                            },
+                                        ),
+                                        hlsClient,
+                                        streamWhole = true,
+                                    )
                                 },
                         ),
                     ),
@@ -5544,6 +5591,43 @@ class MusicService :
         youtubeAddressOpens.merge(url, 1, Int::plus)
     }
 
+    /**
+     * A fresh stream address for the YouTube video behind cache [key], in the same format as [old]
+     * (a different itag would be other bytes at the same offset). Called from the loader thread
+     * when googlevideo stopped serving [old] mid-piece; every cached copy of the old address goes.
+     */
+    private fun freshYoutubeAddress(key: String?, old: android.net.Uri): android.net.Uri? {
+        val cacheKey = key?.removePrefix(CUT_SHORT_KEY_PREFIX) ?: return null
+        val mediaId = stripQobuzCacheKeyPrefix(cacheKey)
+        val videoId = fallbackServing[mediaId]?.takeIf { it.provider == AudioProviderId.YOUTUBE }?.trackId
+            ?: mediaId.takeUnless { FallbackIds.isFallbackId(it) || it.startsWith("local:") }
+            ?: return null
+        YTPlayerUtils.forceRefreshForVideo(videoId)
+        val data = runCatching {
+            runBlocking(Dispatchers.IO) {
+                withTimeout(20_000L) {
+                    YTPlayerUtils.playerResponseForPlayback(
+                        videoId,
+                        audioQuality = audioQuality,
+                        connectivityManager = connectivityManager,
+                    ).getOrThrow()
+                }
+            }
+        }.onFailure { AudioDiagnostics.warn("fresh YouTube address for $videoId failed: ${it.message?.take(120)}") }
+            .getOrNull() ?: return null
+        val oldItag = runCatching { old.getQueryParameter("itag") }.getOrNull()
+        if (oldItag != null && oldItag != data.format.itag.toString()) {
+            AudioDiagnostics.warn("fresh YouTube address for $videoId is another format (itag ${data.format.itag}, was $oldItag)")
+            return null
+        }
+        val expires = System.currentTimeMillis() + data.streamExpiresInSeconds * 1000L
+        val oldUrl = old.toString()
+        val holders = runCatching { songUrlCache.entries.filter { it.value.first == oldUrl }.map { it.key } }.getOrDefault(emptyList())
+        (holders + cacheKey).forEach { songUrlCache[it] = data.streamUrl to expires }
+        noteYoutubeOpen(data.streamUrl)
+        return data.streamUrl.toUri()
+    }
+
     private fun youtubeAddressSpent(url: String): Boolean =
         (youtubeAddressOpens[url] ?: 0) >= YOUTUBE_PIECES_PER_ADDRESS
 
@@ -5735,6 +5819,7 @@ class MusicService :
 
     override fun onDestroy() {
         isRunning = false
+        recoveryDone()
         preCacheJob?.cancel()
         // Friends see the music stop now, not a "playing" that never ends.
         runCatching { com.metrolist.music.friends.FriendsHub.playerStopped() }
@@ -6786,6 +6871,9 @@ class MusicService :
 
         /** Cache-key prefix for audio rescued from another provider for a regular YouTube id. */
         const val RESCUE_CACHE_PREFIX = "fbrescue:"
+
+        /** See [recoveryWakeLock]: enough for a source switch with a slow search. */
+        private const val RECOVERY_WAKE_MS = 3 * 60 * 1000L
 
         /** How often a playback failure is explained at most (a run of skips says it once). */
         private const val FAILURE_EXPLAIN_EVERY_MS = 30_000L

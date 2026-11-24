@@ -191,6 +191,13 @@ fun SpotifyLikedSongsScreen(
         }
         if (sortDescending) sorted.reversed() else sorted
     }
+    // While this list is open, a track of it queued by hand goes on with the list once the queue runs out on it.
+    com.metrolist.music.playback.OpenListEffect { mediaId ->
+        val list = sortedTracks
+        val id = com.metrolist.music.playback.OpenAlbum.catalogIdOf(mediaId, spotifyToYt)
+        val index = list.indexOfFirst { it.id == id }
+        if (index < 0) null else SpotifyLikedSongsQueue(startIndex = index, mapper = viewModel.mapper, tracks = list)
+    }
 
     // Downloaded / not downloaded filter, plus why a track didn't download last time.
     val downloadedIds = com.metrolist.music.ui.component.rememberDownloadedIds(tracks)

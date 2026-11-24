@@ -336,7 +336,10 @@ fun SpotifyAlbumScreen(
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             val isDownloading = downloadProgress != null
-                            val startAlbumDownload: () -> Unit = { downloadTracks(tracks) }
+                            val startAlbumDownload: () -> Unit = {
+                                com.metrolist.music.ui.component.BatchMarks.started(context, downloadSourceId)
+                                downloadTracks(tracks)
+                            }
                             if (isDownloading) {
                                 // Cancel this album's batch download.
                                 OutlinedButton(onClick = { SpotifyBatchDownload.cancel(downloadSourceId) }, shape = com.metrolist.music.ui.theme.tuiButtonShape()) {
@@ -414,7 +417,7 @@ fun SpotifyAlbumScreen(
                             total = tracks.size,
                         )
                         if (downloadProgress == null) com.metrolist.music.ui.component.DownloadIssuesLink(tracks)
-                        com.metrolist.music.ui.component.ResumeUnfinishedBatch(tracks, downloadProgress != null, downloads, spotifyToYt) { downloadTracks(tracks) }
+                        com.metrolist.music.ui.component.ResumeUnfinishedBatch(downloadSourceId, tracks, downloadProgress != null, downloads, spotifyToYt) { downloadTracks(tracks) }
                     }
                 }
             }
