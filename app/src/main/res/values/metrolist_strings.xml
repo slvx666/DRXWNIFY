@@ -1412,6 +1412,8 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="soulseek_last_resort">Last resort: slow, files come from other people’s computers</string>
     <string name="soulseek_last_resort_unavailable">Needs an account — or Wi-Fi, if “Wi-Fi only” is on</string>
     <string name="soulseek_last_resort_short">last resort · slow</string>
+    <string name="track_lyrics_menu">Lyrics</string>
+    <string name="track_lyrics_menu_desc">Paste your own text, or find another version if this one is wrong</string>
     <string name="track_version">Change track version</string>
     <string name="track_version_desc">Where it plays and downloads from: other recordings and sources, closest match first, with bitrate</string>
     <string name="track_version_info">%1$s · %2$d%% match</string>
@@ -2353,4 +2355,11 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="collab_request_sent_toast">Sent: the owner\'s app adds it to the playlist</string>
     <string name="collab_request_waiting_toast">The owner hasn\'t taken it yet — it is added when their app is opened</string>
     <string name="collab_deselect_all">Deselect</string>
+    <string name="embed_lyrics_downloads">Download with lyrics</string>
+    <string name="embed_lyrics_downloads_desc">Write the lyrics into downloaded files when the song is matched for sure</string>
+    <string name="embed_lyrics_all">Write lyrics into the tracks</string>
+    <string name="embed_lyrics_all_desc">Into the downloaded files, only where the lyrics are matched for sure</string>
+    <string name="embed_lyrics_progress">Lyrics: %1$d of %2$d</string>
+    <string name="embed_lyrics_counts">Written %1$d · not found %2$d · errors %3$d</string>
+    <string name="embed_lyrics_done">Lyrics written into %1$d tracks · not found %2$d · errors %3$d</string>
 </resources>

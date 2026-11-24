@@ -318,6 +318,7 @@ fun PlayerSettings(
             )
         )
 
+        var embedLyrics by rememberPreference(com.metrolist.music.constants.EmbedLyricsInDownloadsKey, defaultValue = false)
         Material3SettingsGroup(
             title = stringResource(R.string.player),
             items = buildList {
@@ -332,6 +333,25 @@ fun PlayerSettings(
                     title = { Text(stringResource(R.string.download_format)) },
                     description = { Text(downloadFormatText(downloadFormat)) },
                     onClick = { showDownloadFormatDialog = true }
+                ))
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.lyrics),
+                    title = { Text(stringResource(R.string.embed_lyrics_downloads)) },
+                    description = { Text(stringResource(R.string.embed_lyrics_downloads_desc)) },
+                    trailingContent = {
+                        com.metrolist.music.ui.theme.ThemedSwitch(
+                            checked = embedLyrics,
+                            onCheckedChange = { embedLyrics = it },
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(id = if (embedLyrics) R.drawable.check else R.drawable.close),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { embedLyrics = !embedLyrics }
                 ))
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.linear_scale),

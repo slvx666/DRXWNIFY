@@ -283,16 +283,17 @@ class DownloadExporter @Inject constructor(
         }
 
     /** Writes [songId]'s file again (new tags or cover) and deletes the previous one. */
-    suspend fun rewrite(songId: String) {
+    suspend fun rewrite(songId: String): Boolean {
         val old = exportedUri(songId)
-        val fresh = export(songId, force = true).getOrNull() ?: return
-        if (old == null || old == fresh) return
+        val fresh = export(songId, force = true).getOrNull() ?: return false
+        if (old == null || old == fresh) return true
         withContext(Dispatchers.IO) {
             runCatching {
                 if (DocumentsContract.isDocumentUri(context, old)) DocumentsContract.deleteDocument(context.contentResolver, old)
                 else context.contentResolver.delete(old, null, null)
             }
         }
+        return true
     }
 
     /**
@@ -512,6 +513,10 @@ class DownloadExporter @Inject constructor(
             ?: song.song.albumName?.trim()?.takeIf { it.isNotEmpty() }
         val spotifyAlbumType = spotifyTrack?.album?.albumType?.lowercase()
 
+        // Lyrics go in only when asked for (the setting, or "write lyrics into the tracks") and only
+        // a certain match: no lyrics is better than another song's.
+        val lyrics = lyricsForFile(songId, title, primaryArtist, song.song.duration)
+
         Timber.d(
             "DownloadExporter: naming %s raw='%s' -> artist='%s' title='%s' (dbArtist=%b)",
             songId, rawTitle, artistString, title, dbPrimaryArtist != null,
@@ -626,7 +631,7 @@ class DownloadExporter @Inject constructor(
             var finalMime: String = srcMime
             for (target in plan) {
                 val out = File.createTempFile("mld_out_", ".${target.ext}", tempDir).also { tempOutputs.add(it) }
-                if (runFfmpeg(tempInput, srcExt, tempCover, out, target, title, artistString, albumName, songId)) {
+                if (runFfmpeg(tempInput, srcExt, tempCover, out, target, title, artistString, albumName, songId, lyrics)) {
                     Timber.i("DownloadExporter: %s -> %s (from %s, cover=%b)", songId, target, srcMime, tempCover != null)
                     sourceFile = out; finalExt = target.ext; finalMime = target.mime
                     break
@@ -764,6 +769,7 @@ class DownloadExporter @Inject constructor(
         artist: String,
         album: String?,
         songId: String,
+        lyrics: String? = null,
     ): Boolean {
         return try {
             val args = buildList {
@@ -793,6 +799,9 @@ class DownloadExporter @Inject constructor(
                 add("-metadata"); add("title=$title")
                 add("-metadata"); add("artist=$artist")
                 if (album != null) { add("-metadata"); add("album=$album") }
+                // M4A (\u00a9lyr) and FLAC (a LYRICS comment) take it from FFmpeg; MP3 gets its USLT
+                // frame afterwards, FFmpeg 6 would only write it as a TXXX nobody reads.
+                if (lyrics != null && format.ext != "mp3") { add("-metadata"); add("lyrics=$lyrics") }
                 if (format.ext == "m4a") { add("-movflags"); add("+faststart") }
                 add(output.absolutePath)
             }.toTypedArray()
@@ -801,6 +810,10 @@ class DownloadExporter @Inject constructor(
             val session = FFmpegKit.executeWithArguments(args)
             val rc = session.returnCode
             val success = ReturnCode.isSuccess(rc) && output.exists() && output.length() > 0
+            if (success && lyrics != null && format.ext == "mp3") {
+                runCatching { Id3Lyrics.write(output, lyrics) }
+                    .onFailure { Timber.w(it, "DownloadExporter: lyrics tag not written for %s", songId) }
+            }
             if (!success) {
                 Timber.w(
                     "DownloadExporter: ffmpeg rc=%s for %s\n%s",
@@ -1084,7 +1097,70 @@ class DownloadExporter @Inject constructor(
         return cleaned.ifEmpty { "audio" }
     }
 
+    /** Lyrics found for "write lyrics into the tracks", used by the export it starts. */
+    private val lyricsOverride = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun lyricsForFile(songId: String, title: String, artist: String, durationSec: Int): String? {
+        lyricsOverride[songId]?.let { return it }
+        if (!context.dataStore.get(com.metrolist.music.constants.EmbedLyricsInDownloadsKey, false)) return null
+        return findLyrics(songId, title, artist, durationSec)
+    }
+
+    /**
+     * Lyrics certain to be this song's: the ones the user put in or picked themselves, otherwise
+     * LrcLib's only when the title, the artist and the length all match (see LrcLib.strictPlainLyrics).
+     * Plain text: timings are left out.
+     */
+    private fun findLyrics(songId: String, title: String, artist: String, durationSec: Int): String? {
+        if (com.metrolist.music.lyrics.LyricsPicks.isPicked(context, songId)) {
+            val own = runCatching { kotlinx.coroutines.runBlocking { database.lyrics(songId).first() } }.getOrNull()?.lyrics
+            val plain = own?.lines()?.joinToString("\n") { it.replace(LRC_TIMES, "") }?.trim()
+            if (!plain.isNullOrBlank() && plain != com.metrolist.music.db.entities.LyricsEntity.LYRICS_NOT_FOUND) return plain
+        }
+        return runCatching {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeoutOrNull(12_000L) {
+                    com.metrolist.lrclib.LrcLib.strictPlainLyrics(title, artist, durationSec)
+                }
+            }
+        }.getOrNull()
+    }
+
+    /**
+     * Writes lyrics into every downloaded file it can be sure of, one after another: found first,
+     * then the file written again with them; not found leaves the file as it is.
+     */
+    fun embedLyricsAllInBackground() {
+        if (LyricsEmbedJob.progress.value?.done == false) return
+        scope.launch(Dispatchers.IO) {
+            val ids = context.dataStore.get(ExportedSongIdsKey, emptySet()).toList()
+            var p = LyricsEmbedJob.Progress(total = ids.size)
+            LyricsEmbedJob.progress.value = p
+            for (id in ids) {
+                if (LyricsEmbedJob.cancelled) break
+                val song = runCatching { database.getSongByIdBlocking(id) }.getOrNull()
+                val spotify = com.metrolist.music.playback.SpotifyMetadataRegistry.get(id)
+                val artist = spotify?.artists?.firstOrNull()?.name ?: song?.orderedArtists?.firstOrNull()?.name
+                val title = spotify?.name?.takeIf { it.isNotBlank() } ?: song?.song?.title?.let(::cleanTrackTitle)
+                val duration = song?.song?.duration ?: 0
+                val lyrics = if (song == null || artist == null || title == null) null else findLyrics(id, title, artist, duration)
+                p = if (lyrics == null) {
+                    p.copy(checked = p.checked + 1, notFound = p.notFound + 1)
+                } else {
+                    lyricsOverride[id] = lyrics
+                    val ok = try { runCatching { rewrite(id) }.getOrDefault(false) } finally { lyricsOverride.remove(id) }
+                    if (ok) p.copy(checked = p.checked + 1, written = p.written + 1)
+                    else p.copy(checked = p.checked + 1, failed = p.failed + 1)
+                }
+                LyricsEmbedJob.progress.value = p
+            }
+            LyricsEmbedJob.progress.value = p.copy(done = true)
+            LyricsEmbedJob.cancelled = false
+        }
+    }
+
     companion object {
+        private val LRC_TIMES = Regex("""^(\[[0-9:.]+\])+\s*""")
         /** Separator inside an [ExportFolderHintsKey] entry ("songId\\folder"). */
         private const val HINT_SEPARATOR = '\u001F'
 

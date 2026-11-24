@@ -468,6 +468,8 @@ private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
                         contentDescription = null,
                         modifier = Modifier.matchParentSize(),
                         contentScale = ContentScale.FillBounds,
+                        // Light lines for the dark page; ink on the light one.
+                        colorFilter = if (!isDark) androidx.compose.ui.graphics.ColorFilter.tint(SatanicThemeConfig.LightPrimaryText) else null,
                     )
                 }
             }

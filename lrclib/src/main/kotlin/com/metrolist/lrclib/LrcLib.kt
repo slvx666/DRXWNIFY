@@ -135,15 +135,58 @@ object LrcLib {
         return results
     }
 
+    private fun squash(text: String): String = text.lowercase().filter { it.isLetterOrDigit() }
+
+    /**
+     * The found track really is this one: its title (cleaned the same way) is the same or nearly
+     * so, and so is its artist. The broader searches (title only, free text) brought back any song
+     * of a similar length with a similar name — lyrics of another song altogether.
+     */
+    private fun isSameSong(track: Track, cleanedTitle: String, cleanedArtist: String, artists: String): Boolean {
+        val want = squash(cleanedTitle)
+        val got = squash(cleanTitle(track.trackName))
+        if (want.isEmpty() || got.isEmpty()) return false
+        val titleOk = want == got || calculateStringSimilarity(want, got) >= 0.85 &&
+            minOf(want.length, got.length) * 10 >= maxOf(want.length, got.length) * 8
+        if (!titleOk) return false
+        val theirArtist = squash(track.artistName)
+        if (theirArtist.isEmpty()) return false
+        val ours = (listOf(cleanedArtist) + artists.split(',', '&')).map(::squash).filter { it.isNotEmpty() }
+        return ours.any { a -> a == theirArtist || theirArtist.contains(a) || a.contains(theirArtist) || calculateStringSimilarity(a, theirArtist) >= 0.8 }
+    }
+
+    private val lrcTimes = Regex("""^(\[[0-9:.]+\])+\s*""")
+
+    /**
+     * Plain lyrics only when the match is certain (to be written into a file, where nothing is
+     * better than the wrong song's words): searched by title and artist, the same song by name and
+     * artist, its length within 3 s. No timings: synced text is turned into plain lines.
+     */
+    suspend fun strictPlainLyrics(title: String, artist: String, duration: Int): String? = runCatching {
+        if (duration <= 0) return@runCatching null
+        val cleanedTitle = cleanTitle(title)
+        val cleanedArtist = cleanArtist(artist)
+        val found = (
+            queryLyricsWithParams(trackName = cleanedTitle, artistName = cleanedArtist) +
+                (if (cleanedTitle != title.trim()) queryLyricsWithParams(trackName = title.trim(), artistName = cleanedArtist) else emptyList())
+            ).filter { it.plainLyrics != null || it.syncedLyrics != null }
+            .filter { isSameSong(it, cleanedTitle, cleanedArtist, artist) && abs(it.duration.toInt() - duration) <= 3 }
+            .minByOrNull { abs(it.duration.toInt() - duration) }
+            ?: return@runCatching null
+        val plain = found.plainLyrics?.takeIf { it.isNotBlank() }
+            ?: found.syncedLyrics?.lines()?.joinToString("\n") { it.replace(lrcTimes, "") }
+        plain?.trim()?.takeIf { it.isNotBlank() }
+    }.getOrNull()
+
     suspend fun getLyrics(
         title: String,
         artist: String,
         duration: Int,
         album: String? = null,
     ) = runCatching {
-        val tracks = queryLyrics(artist, title, album)
         val cleanedTitle = cleanTitle(title)
         val cleanedArtist = cleanArtist(artist)
+        val tracks = queryLyrics(artist, title, album).filter { isSameSong(it, cleanedTitle, cleanedArtist, artist) }
 
         val res = when {
             duration == -1 -> {

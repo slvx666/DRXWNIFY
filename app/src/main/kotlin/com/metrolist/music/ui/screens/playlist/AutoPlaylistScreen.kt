@@ -549,6 +549,9 @@ fun AutoPlaylistScreen(
                             )
                         }
                     }
+                    if (playlistType == PlaylistType.DOWNLOAD) {
+                        item(key = "lyrics_embed") { com.metrolist.music.ui.component.LyricsEmbedProgressLine() }
+                    }
 
                     item(key = "songs_header") {
                         Row(

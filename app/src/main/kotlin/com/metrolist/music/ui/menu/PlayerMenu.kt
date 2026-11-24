@@ -446,6 +446,20 @@ fun PlayerMenu(
         onDismiss = { showListenTogetherDialog = false },
     )
 
+    // "Lyrics": the menu turns into the lyrics menu — paste your own text, or search the
+    // providers for another version when the one found is wrong.
+    var showLyricsMenu by rememberSaveable { mutableStateOf(false) }
+    if (showLyricsMenu) {
+        val trackLyrics by database.lyrics(mediaMetadata.id).collectAsState(initial = null)
+        com.metrolist.music.ui.menu.LyricsMenu(
+            lyricsProvider = { trackLyrics },
+            songProvider = { librarySong?.song },
+            mediaMetadataProvider = { mediaMetadata },
+            onDismiss = onDismiss,
+        )
+        return
+    }
+
     var showSelectArtistDialog by rememberSaveable {
         mutableStateOf(false)
     }
@@ -1166,6 +1180,20 @@ fun PlayerMenu(
                                     onClick = {
                                         showVersionDialog = true
                                     },
+                                ),
+                            )
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.track_lyrics_menu)) },
+                                    description = { Text(text = stringResource(R.string.track_lyrics_menu_desc)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.lyrics),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    onClick = { showLyricsMenu = true },
                                 ),
                             )
                         }

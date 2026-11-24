@@ -84,6 +84,8 @@ fun NavigationTitle(
                         .padding(horizontal = 16.dp, vertical = 6.dp)
                         .height(8.dp),
                 contentScale = ContentScale.FillWidth,
+                // Drawn white for the dark page; on the light page the line and its star are ink.
+                colorFilter = if (!isDark) androidx.compose.ui.graphics.ColorFilter.tint(SatanicThemeConfig.LightPrimaryText) else null,
             )
         }
 

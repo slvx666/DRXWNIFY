@@ -132,6 +132,8 @@ fun LyricsMenu(
             initialTextFieldValue = TextFieldValue(lyricsProvider()?.lyrics.orEmpty()),
             singleLine = false,
             onDone = {
+                // Put in by hand: trusted to be written into the downloaded file as it is.
+                com.metrolist.music.lyrics.LyricsPicks.mark(context, mediaMetadataProvider().id)
                 database.query {
                     upsert(
                         LyricsEntity(
@@ -280,6 +282,7 @@ fun LyricsMenu(
                         .clickable {
                             onDismiss()
                             viewModel.cancelSearch()
+                            com.metrolist.music.lyrics.LyricsPicks.mark(context, searchMediaMetadata.id)
                             database.query {
                                 upsert(
                                     LyricsEntity(

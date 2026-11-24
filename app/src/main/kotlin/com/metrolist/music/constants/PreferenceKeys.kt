@@ -156,6 +156,8 @@ val CrossfadeGaplessKey = booleanPreferencesKey("crossfadeGapless")
 val MaxImageCacheSizeKey = intPreferencesKey("maxImageCacheSize")
 val MaxSongCacheSizeKey = intPreferencesKey("maxSongCacheSize")
 val EnableSongCacheKey = booleanPreferencesKey("enableSongCache")
+/** Lyrics written into downloaded files (plain text, only a certain match); off unless chosen. */
+val EmbedLyricsInDownloadsKey = booleanPreferencesKey("embedLyricsInDownloads")
 val PreCacheTracksKey = intPreferencesKey("preCacheTracks")
 val PreCacheOnlyWifiKey = booleanPreferencesKey("preCacheOnlyWifi")
 

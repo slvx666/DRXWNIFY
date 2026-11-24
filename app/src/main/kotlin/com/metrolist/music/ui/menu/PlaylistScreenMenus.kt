@@ -327,6 +327,7 @@ fun AutoPlaylistMenu(
     val localContext = LocalContext.current
 
     val (showExportDialog, setShowExportDialog) = remember { mutableStateOf(false) }
+    val downloadUtilForLyrics = com.metrolist.music.LocalDownloadUtil.current
 
     val downloadMenuItem =
         when {
@@ -418,6 +419,25 @@ fun AutoPlaylistMenu(
                     null
                 },
                 downloadMenuItem,
+                // The downloaded files get their lyrics written in, where the lyrics are certain.
+                if (isDownloadedPlaylist) {
+                    Material3MenuItemData(
+                        title = { Text(stringResource(R.string.embed_lyrics_all)) },
+                        description = { Text(stringResource(R.string.embed_lyrics_all_desc)) },
+                        icon = {
+                            Icon(
+                                painter = painterResource(R.drawable.lyrics),
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            downloadUtilForLyrics.downloadExporter.embedLyricsAllInBackground()
+                            onDismiss()
+                        },
+                    )
+                } else {
+                    null
+                },
             ),
     )
 

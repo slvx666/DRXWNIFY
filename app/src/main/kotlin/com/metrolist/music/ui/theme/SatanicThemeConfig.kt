@@ -35,9 +35,9 @@ object SatanicThemeConfig {
     val Accent = Color(0xFFD0D0D0)
 
     // Light Mode (SatanicDay - ash stone & aged parchment)
-    val LightBackground = Color(0xFFD6D1C5)
-    val LightSurface = Color(0xFFD1CBBC)
-    val LightElevated = Color(0xFFC9C3B3)
+    val LightBackground = Color(0xFFD4CFC0)
+    val LightSurface = Color(0xFFCEC7B4)
+    val LightElevated = Color(0xFFC6BFAC)
     val LightPrimaryText = Color(0xFF0A0A0A)
     val LightSecondaryText = Color(0xFF3F3C36)
     val LightMutedText = Color(0xFF6E6A60)

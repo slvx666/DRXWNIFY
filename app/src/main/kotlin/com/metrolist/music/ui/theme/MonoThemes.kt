@@ -120,8 +120,8 @@ internal val SatanicNight = Tone(
 // Day is an old yellowed satanic book: one paper for every page (the library background's), the
 // bars, cards and buttons in the mini player's older, yellower paper, all in black ink.
 internal val SatanicDay = Tone(
-    page = c(0xFFD6D1C5),
-    steps = listOf(c(0xFFDBD7CB), c(0xFFD4CFC2), c(0xFFD1CBBC), c(0xFFC9C3B3), c(0xFFC0BAA9)),
+    page = c(0xFFD4CFC0),
+    steps = listOf(c(0xFFD8D3C6), c(0xFFD1CBBC), c(0xFFCEC7B4), c(0xFFC6BFAC), c(0xFFBDB6A3)),
     ink = c(0xFF0A0A0A), inkSoft = c(0xFF3F3C36),
     accent = c(0xFF0A0A0A), onAccent = c(0xFFE3DFD3),
     accentContainer = c(0xFFB5AE9C), onAccentContainer = c(0xFF0A0A0A),

@@ -1119,6 +1119,8 @@
     <string name="soulseek_last_resort">Крайний случай: медленно, файлы качаются с чужих компьютеров</string>
     <string name="soulseek_last_resort_unavailable">Нужен вход — или Wi-Fi, если включено «Только Wi-Fi»</string>
     <string name="soulseek_last_resort_short">крайний случай · медленно</string>
+    <string name="track_lyrics_menu">Текст песни</string>
+    <string name="track_lyrics_menu_desc">Вставить свой текст или найти другую версию, если этот неверный</string>
     <string name="track_version">Изменить версию трека</string>
     <string name="track_version_desc">Откуда трек играет и скачивается: другие записи и источники, сначала самые точные, с битрейтом</string>
     <string name="track_version_info">%1$s · совпадение %2$d%%</string>
@@ -2310,4 +2312,11 @@
     <string name="collab_request_sent_toast">Отправлено владельцу плейлиста</string>
     <string name="collab_request_waiting_toast">Владелец пока не принял — трек добавится, когда его приложение будет открыто</string>
     <string name="collab_deselect_all">Снять выбор</string>
+    <string name="embed_lyrics_downloads">Скачивать с текстом</string>
+    <string name="embed_lyrics_downloads_desc">Вшивать текст в скачанные файлы, если трек найден точно</string>
+    <string name="embed_lyrics_all">Вшить текст в треки</string>
+    <string name="embed_lyrics_all_desc">В скачанные файлы, только там, где текст найден точно</string>
+    <string name="embed_lyrics_progress">Текст: %1$d из %2$d</string>
+    <string name="embed_lyrics_counts">Вшито %1$d · не найдено %2$d · ошибок %3$d</string>
+    <string name="embed_lyrics_done">Текст вшит в %1$d треков · не найдено %2$d · ошибок %3$d</string>
 </resources>

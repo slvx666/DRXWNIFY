@@ -4750,6 +4750,15 @@ class MusicService :
         runCatching { playerCache.removeResource(cacheKey) }
     }
 
+    /**
+     * One source lookup per track at a time. The next track's warm-up and the player's own preload
+     * asked at the same moment, and while a "better version" was being saved one got YouTube and
+     * the other VK: both wrote into the one cache entry, the player read YouTube's container with
+     * VK's bytes in it and broke off for seconds (Matroska "No valid varint", EOF). Now the second
+     * waits and takes the address the first found.
+     */
+    private val resolveLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
     private fun resolveFallbackDataSpec(
         dataSpec: DataSpec,
         mediaId: String,
@@ -4757,6 +4766,20 @@ class MusicService :
         youtubeRescue: Boolean,
         youtubeError: Throwable? = null,
         depth: Int = 0,
+    ): DataSpec? {
+        val lockKey = if (youtubeRescue) RESCUE_CACHE_PREFIX + mediaId else mediaId
+        return synchronized(resolveLocks.getOrPut(lockKey) { Any() }) {
+            resolveFallbackDataSpecLocked(dataSpec, mediaId, bypassCache, youtubeRescue, youtubeError, depth)
+        }
+    }
+
+    private fun resolveFallbackDataSpecLocked(
+        dataSpec: DataSpec,
+        mediaId: String,
+        bypassCache: Boolean,
+        youtubeRescue: Boolean,
+        youtubeError: Throwable?,
+        depth: Int,
     ): DataSpec? {
         val cacheKey = if (youtubeRescue) RESCUE_CACHE_PREFIX + mediaId else mediaId
         val usePlayerCache = dataStore.get(EnableSongCacheKey, true)
@@ -4824,7 +4847,16 @@ class MusicService :
         }
         val failures = currentFailures(mediaId)
 
-        val plan = runCatching {
+        // The rest of a track already playing from a YouTube video comes from that same video: a
+        // better version found meanwhile is for the next play ("used from the next play"), and
+        // switching in the middle fed the YouTube container another upload's bytes.
+        val serving = fallbackServing[mediaId]
+        val keepServing = dataSpec.position > 0 && depth == 0 && serving != null &&
+            serving.provider == AudioProviderId.YOUTUBE &&
+            cacheOwners.getString(cacheKey, null) == "${AudioProviderId.YOUTUBE.name}:${serving.trackId}"
+        val plan = if (keepServing) {
+            AudioFallbackEngine.StreamPlan.YouTube(serving!!.trackId)
+        } else runCatching {
             runBlocking(Dispatchers.IO) {
                 withTimeout(FALLBACK_RESOLVE_TIMEOUT_MS) {
                     AudioFallbackEngine.streamPlan(mediaId, dbSong, failures.providers, failures.tracks)
