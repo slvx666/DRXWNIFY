@@ -706,13 +706,18 @@ fun SpotifyPlaylistScreen(
                                             selection.toggle(track.id)
                                             return@combinedClickable
                                         }
+                                        val found = if (isSearching) displayItems.mapNotNull { it.track } else null
                                         playerConnection.playQueue(
-                                            SpotifyPlaylistQueue(
-                                                playlistId = viewModel.playlistId,
-                                                initialTracks = mutableItems.mapNotNull { it.track },
-                                                startIndex = originalIndex,
-                                                mapper = viewModel.mapper,
-                                            ),
+                                            if (found != null) {
+                                                com.metrolist.music.playback.queues.SearchResultsQueue(tracks = found, startIndex = found.indexOfFirst { it.id == track.id }.coerceAtLeast(0), mapper = viewModel.mapper)
+                                            } else {
+                                                SpotifyPlaylistQueue(
+                                                    playlistId = viewModel.playlistId,
+                                                    initialTracks = mutableItems.mapNotNull { it.track },
+                                                    startIndex = originalIndex,
+                                                    mapper = viewModel.mapper,
+                                                )
+                                            },
                                         )
                                     },
                                     onLongClick = {

@@ -666,12 +666,17 @@ fun SpotifyLikedSongsScreen(
                                     selection.toggle(track.id)
                                     return@combinedClickable
                                 }
+                                // A search plays what it found (then repeat or recommendations), not the whole list.
                                 playerConnection.playQueue(
-                                    SpotifyLikedSongsQueue(
-                                        startIndex = originalIndex,
-                                        mapper = viewModel.mapper,
-                                        tracks = sortedTracks,
-                                    )
+                                    if (isSearching) {
+                                        com.metrolist.music.playback.queues.SearchResultsQueue(tracks = displayTracks, startIndex = index, mapper = viewModel.mapper)
+                                    } else {
+                                        SpotifyLikedSongsQueue(
+                                            startIndex = originalIndex,
+                                            mapper = viewModel.mapper,
+                                            tracks = sortedTracks,
+                                        )
+                                    },
                                 )
                             },
                             onLongClick = {

@@ -15,6 +15,10 @@ object ThemeRuntime {
     @Volatile
     var preset: AppThemePreset = AppThemePreset.STANDARD
 
+    /** The app draws itself dark (set with [preset]); icons that differ per mode read it. */
+    @Volatile
+    var isDark: Boolean = true
+
     /** The Linux theme draws everything as a terminal UI: square corners, no pills or circles. */
     val tui: Boolean get() = preset == AppThemePreset.LINUX
 }

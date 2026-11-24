@@ -623,11 +623,13 @@ fun AutoPlaylistScreen(
                                             } else if (song.song.id == mediaMetadata?.id) {
                                                 playerConnection.togglePlayPause()
                                             } else {
+                                                val pool = if (isSearching) filteredSongs else songs!!
                                                 playerConnection.playQueue(
                                                     ListQueue(
                                                         title = playlist,
-                                                        items = songs!!.map { it.toMediaItem() },
-                                                        startIndex = songs!!.indexOfFirst { it.id == song.id },
+                                                        items = pool.map { it.toMediaItem() },
+                                                        startIndex = pool.indexOfFirst { it.id == song.id }.coerceAtLeast(0),
+                                                        endsWithRadio = isSearching,
                                                     ),
                                                 )
                                             }

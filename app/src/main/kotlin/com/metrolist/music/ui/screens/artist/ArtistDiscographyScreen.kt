@@ -59,12 +59,14 @@ import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.catalog.Catalog
 import com.metrolist.music.playback.SpotifyYouTubeMapper
-import com.metrolist.music.playback.queues.SpotifyPlaylistQueue
 import com.metrolist.music.utils.makeTimeString
 import com.metrolist.spotify.models.SpotifyAlbum
 import com.metrolist.spotify.models.SpotifyTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.only
 
 private enum class ReleaseFilter(val label: Int) {
     ALL(R.string.disc_all),
@@ -91,6 +93,7 @@ fun ArtistDiscographyScreen(navController: NavController, artistId: String) {
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current
     val mapper = remember(database) { SpotifyYouTubeMapper(database) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var filter by rememberSaveable { mutableStateOf(ReleaseFilter.ALL) }
     var sort by rememberSaveable { mutableStateOf(ReleaseSort.NEWEST) }
 
@@ -118,8 +121,22 @@ fun ArtistDiscographyScreen(navController: NavController, artistId: String) {
         }
     }
 
+    /** The discography as shown is one list: it plays from this track down, release after release. */
+    fun playFrom(release: SpotifyAlbum, index: Int) {
+        val list = shown
+        scope.launch {
+            val before = withContext(Dispatchers.IO) {
+                list.takeWhile { it.id != release.id }.sumOf { com.metrolist.music.playback.queues.DiscographyQueue.tracksOf(it).size }
+            }
+            playerConnection?.playQueue(com.metrolist.music.playback.queues.DiscographyQueue(list, before + index, mapper))
+        }
+    }
+
     LazyColumn(
-        contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
+        // The header takes the status bar itself; only the player at the bottom is padded for.
+        contentPadding = LocalPlayerAwareWindowInsets.current
+            .only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom)
+            .asPaddingValues(),
         modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
     ) {
         stickyHeader(key = "header") {
@@ -147,23 +164,19 @@ fun ArtistDiscographyScreen(navController: NavController, artistId: String) {
             else -> items(shown, key = { it.id }) { album ->
                 ReleaseSection(
                     album = album,
+                    mapper = mapper,
                     onOpen = { navController.navigate("spotify_album/${album.id}") },
-                    onPlay = { tracks, index ->
-                        playerConnection?.playQueue(
-                            SpotifyPlaylistQueue(
-                                playlistId = "album_${album.id}",
-                                initialTracks = tracks,
-                                startIndex = index,
-                                mapper = mapper,
-                            ),
-                        )
-                    },
+                    onPlay = { index -> playFrom(album, index) },
                 )
             }
         }
     }
 }
 
+/**
+ * Stays on top: back and the artist's name (two lines when long) on the first row, which releases
+ * and in what order on the second, so the name never has to share its row with them.
+ */
 @Composable
 private fun DiscographyHeader(
     artistName: String,
@@ -173,31 +186,39 @@ private fun DiscographyHeader(
     onFilter: (ReleaseFilter) -> Unit,
     onSort: (ReleaseSort) -> Unit,
 ) {
-    var filterOpen by remember { mutableStateOf(false) }
     var sortOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.statusBars)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(end = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp)) {
             IconButton(onClick = onBack) { Icon(painterResource(R.drawable.arrow_back), contentDescription = null) }
             Text(
                 artistName,
-                style = MaterialTheme.typography.titleLarge,
+                style = if (artistName.length > 22) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            Box {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { filterOpen = true }.padding(horizontal = 8.dp, vertical = 6.dp),
-                ) {
-                    Text(stringResource(filter.label), style = MaterialTheme.typography.labelLarge)
-                    Icon(painterResource(R.drawable.expand_more), null, modifier = Modifier.size(18.dp))
-                }
-                DropdownMenu(expanded = filterOpen, onDismissRequest = { filterOpen = false }) {
-                    ReleaseFilter.entries.forEach { f ->
-                        DropdownMenuItem(text = { Text(stringResource(f.label)) }, onClick = { onFilter(f); filterOpen = false })
-                    }
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, bottom = 6.dp),
+        ) {
+            androidx.compose.foundation.lazy.LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                items(ReleaseFilter.entries) { f ->
+                    val on = f == filter
+                    Text(
+                        stringResource(f.label),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (on) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { onFilter(f) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
                 }
             }
             Box {
@@ -219,13 +240,28 @@ private fun DiscographyHeader(
     }
 }
 
-/** One release: cover, name, kind · year · tracks, a play button, then its tracks (looked up when shown). */
+/**
+ * One release: cover, name, kind · year · tracks, then add / download / share as on any album,
+ * then its tracks (looked up when shown). A track plays the discography from there.
+ */
 @Composable
-private fun ReleaseSection(album: SpotifyAlbum, onOpen: () -> Unit, onPlay: (List<SpotifyTrack>, Int) -> Unit) {
+private fun ReleaseSection(album: SpotifyAlbum, mapper: SpotifyYouTubeMapper, onOpen: () -> Unit, onPlay: (Int) -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val database = LocalDatabase.current
+    val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val tracks by produceState<List<SpotifyTrack>?>(album.tracks?.items?.filter { !it.isLocal }?.takeIf { it.isNotEmpty() }, album.id) {
         if (value != null) return@produceState
-        value = withContext(Dispatchers.IO) { Catalog.album(album.id).getOrNull()?.tracks?.items?.filter { !it.isLocal } }.orEmpty()
+        value = withContext(Dispatchers.IO) { com.metrolist.music.playback.queues.DiscographyQueue.tracksOf(album) }
     }
+    var saved by remember(album.id) { mutableStateOf<Boolean?>(null) }
+    androidx.compose.runtime.LaunchedEffect(album.id) {
+        saved = withContext(Dispatchers.IO) { Catalog.isAlbumSaved(album.id).getOrNull() }
+    }
+    val sourceId = "album_${album.id}"
+    val progress by com.metrolist.music.playback.SpotifyBatchDownload.progressBySource.collectAsState()
+    val downloading = progress[sourceId]?.let { it.phase != com.metrolist.music.playback.SpotifyBatchDownload.Phase.DONE } == true
+
     val kind = stringResource(
         when (album.albumType?.lowercase()) {
             "single" -> if ((album.totalTracks.takeIf { it > 0 } ?: tracks?.size ?: 1) > 3) R.string.disc_ep else R.string.disc_single
@@ -236,6 +272,7 @@ private fun ReleaseSection(album: SpotifyAlbum, onOpen: () -> Unit, onPlay: (Lis
     )
     val year = album.releaseDate?.take(4).orEmpty()
     val count = album.totalTracks.takeIf { it > 0 } ?: tracks?.size ?: 0
+    val by = album.artists.joinToString { it.name }
     Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 4.dp)) {
             AsyncImage(
@@ -254,16 +291,50 @@ private fun ReleaseSection(album: SpotifyAlbum, onOpen: () -> Unit, onPlay: (Lis
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),
                 )
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .padding(top = 10.dp)
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurface)
-                        .clickable(enabled = !tracks.isNullOrEmpty()) { tracks?.let { onPlay(it, 0) } },
-                ) {
-                    Icon(painterResource(R.drawable.play), null, tint = MaterialTheme.colorScheme.surface, modifier = Modifier.size(24.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                    // Add to the library (saved in the account), as the album's own page does.
+                    IconButton(onClick = {
+                        val target = !(saved ?: false)
+                        saved = target
+                        scope.launch {
+                            val ok = withContext(Dispatchers.IO) {
+                                (if (target) Catalog.saveAlbum(album.id) else Catalog.removeAlbum(album.id)).isSuccess
+                            }
+                            if (!ok) saved = !target
+                        }
+                    }) {
+                        Icon(painterResource(if (saved == true) R.drawable.done else R.drawable.library_add), contentDescription = null)
+                    }
+                    // Download the release (into its album folder, as from its page).
+                    IconButton(
+                        enabled = !tracks.isNullOrEmpty() && !downloading,
+                        onClick = {
+                            tracks?.let { list ->
+                                android.widget.Toast.makeText(context, context.getString(R.string.spotify_download_started, list.size), android.widget.Toast.LENGTH_SHORT).show()
+                                com.metrolist.music.playback.SpotifyBatchDownload.start(
+                                    appContext = context.applicationContext,
+                                    sourceId = sourceId,
+                                    tracks = list,
+                                    mapper = mapper,
+                                    label = album.name,
+                                    downloads = downloadUtil.downloads,
+                                    database = database,
+                                )
+                            }
+                        },
+                    ) {
+                        if (downloading) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(painterResource(R.drawable.download), contentDescription = null)
+                        }
+                    }
+                    com.metrolist.music.ui.component.ShareLinkButton(
+                        com.metrolist.music.utils.AppLinks.Kind.ALBUM,
+                        album.id,
+                        album.name,
+                        by,
+                    )
                 }
             }
         }
@@ -273,12 +344,12 @@ private fun ReleaseSection(album: SpotifyAlbum, onOpen: () -> Unit, onPlay: (Lis
                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             }
         } else {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
             list.forEachIndexed { i, t ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth().clickable { onPlay(list, i) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().clickable { onPlay(i) }.padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text(
                         "${i + 1}",

@@ -45,6 +45,16 @@ object ThemeIcons {
         }
     }
 
+    /**
+     * The Satanic like. On the light theme the filled heart gets a thin ring a little away from it:
+     * its cut-through lines along the edge read as a white outline on the white background.
+     */
+    fun satanicLike(liked: Boolean): Int = when {
+        !liked -> R.drawable.theme_heart_outline
+        ThemeRuntime.isDark -> R.drawable.theme_heart_dagger_filled
+        else -> R.drawable.theme_heart_dagger_filled_light
+    }
+
     /** The Satanic like (a tall heart, a dagger when liked) needs more height than a square icon. */
     val likeIsTall: Boolean get() = ThemeRuntime.preset == AppThemePreset.SATANIC
 
@@ -52,7 +62,7 @@ object ThemeIcons {
     fun like(liked: Boolean): Int? = when (ThemeRuntime.preset) {
         // A heart; liked, a dagger through it, the heart filled and its lines cut through (white on
         // the dark theme like the drawing, black on the light one). Tinted like any icon.
-        AppThemePreset.SATANIC -> if (liked) R.drawable.theme_heart_dagger_filled else R.drawable.theme_heart_outline
+        AppThemePreset.SATANIC -> satanicLike(liked)
         AppThemePreset.GOTHIC -> if (liked) R.drawable.theme_cross_filled else R.drawable.theme_cross_outline
         AppThemePreset.STREET -> if (liked) R.drawable.theme_crown_filled else R.drawable.theme_crown_outline
         AppThemePreset.BREAKCORE -> if (liked) R.drawable.theme_heart_broken_filled else R.drawable.theme_heart_broken_outline

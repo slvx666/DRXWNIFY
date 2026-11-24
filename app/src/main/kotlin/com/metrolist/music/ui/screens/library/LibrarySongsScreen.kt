@@ -480,6 +480,7 @@ fun LibrarySongsScreen(
                                             title = queueAllSongsStr,
                                             items = filteredSongs.map { it.toMediaItem() },
                                             startIndex = index,
+                                            endsWithRadio = searchQuery.isNotBlank(),
                                         ),
                                     )
                                 }

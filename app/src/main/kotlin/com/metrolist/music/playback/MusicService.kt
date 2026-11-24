@@ -1677,6 +1677,7 @@ class MusicService :
         currentQueue = queue
         RecommendedTracks.clear()
         handQueued.clear()
+        handAlbum.clear()
         queueTitle = null
         val persistShuffleAcrossQueues = dataStore.get(PersistentShuffleAcrossQueuesKey, false)
         val previousShuffleEnabled = player.shuffleModeEnabled
@@ -1828,8 +1829,15 @@ class MusicService :
             for (wait in RECOMMENDATIONS_RETRY_MS) {
                 if (wait > 0) delay(wait)
                 if (currentQueue !== spent || player.mediaItemCount == 0) return@launch
-                val (radio, items) = nextRadio() ?: continue
+                val (radio, items) = albumAfterQueue()?.takeIf { it.second.isNotEmpty() || it.first.hasNextPage() }
+                    ?: nextRadio() ?: continue
                 if (currentQueue !== spent) return@launch
+                if (items.isEmpty()) {
+                    // The album's first window was all queued already: its next page follows.
+                    currentQueue = radio
+                    loadMoreOfQueue(resumeWhenLoaded = true)
+                    return@launch
+                }
                 val firstNew = player.mediaItemCount
                 player.addMediaItems(items)
                 currentQueue = radio
@@ -2192,9 +2200,10 @@ class MusicService :
     }
 
     /**
-     * "Add to queue" on a track of an opened album ([albumQueue] starts at that track): the track and
-     * the rest of the album after it go to the end of the queue in album order, and once the album
-     * is over the queue goes on with recommendations built from this album.
+     * "Add to queue" / "play next" on a track of an opened album ([albumQueue] starts at that
+     * track): only that track is queued, like any other. The album is remembered with it: when the
+     * queue runs out and this was the last track queued by hand, the album goes on from after it
+     * (see [albumAfterQueue]); otherwise recommendations follow from the last track.
      */
     fun addAlbumFromTrack(albumQueue: Queue, playNext: Boolean = false) {
         if (player.mediaItemCount == 0 || player.playbackState == STATE_IDLE) {
@@ -2207,16 +2216,30 @@ class MusicService :
                     .filterExplicit(dataStore.get(HideExplicitKey, false))
                     .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
             }
-            if (status.items.isEmpty()) return@launch
-            // The radio queued so far was the app's pick; the album the user chose replaces it.
-            // Otherwise the album sat behind 20+ radio tracks and "didn't continue".
-            loadMoreJob?.cancel()
-            dropUpcomingRecommendations()
-            val albumPart = status.items.drop(status.mediaItemIndex.coerceIn(0, status.items.size - 1))
-            if (playNext) playNext(albumPart) else addToQueue(albumPart)
-            // What follows the album now comes from the album, not from the previous queue's radio.
-            currentQueue = albumQueue
+            val track = status.items.getOrNull(status.mediaItemIndex.coerceIn(0, (status.items.size - 1).coerceAtLeast(0))) ?: return@launch
+            handAlbum[track.mediaId] = albumQueue
+            if (playNext) playNext(listOf(track)) else addToQueue(listOf(track))
         }
+    }
+
+    /** Album a hand-queued track was added from (its album goes on after it when the queue is spent). */
+    private val handAlbum = java.util.concurrent.ConcurrentHashMap<String, Queue>()
+
+    /**
+     * The queue ran out on a track queued from an opened album: that album from after the track
+     * (the album queue then goes on as it does, into its radio). Null when the last track wasn't one.
+     */
+    private suspend fun albumAfterQueue(): Pair<Queue, List<MediaItem>>? {
+        if (player.mediaItemCount == 0) return null
+        val lastId = player.getMediaItemAt(player.mediaItemCount - 1).mediaId
+        val album = handAlbum.remove(lastId) ?: return null
+        val status = runCatching { withContext(Dispatchers.IO) { album.getInitialStatus() } }.getOrNull() ?: return null
+        val queued = (0 until player.mediaItemCount).mapTo(HashSet()) { player.getMediaItemAt(it).mediaId }
+        val after = status.items.drop(status.mediaItemIndex + 1)
+            .filterExplicit(dataStore.get(HideExplicitKey, false))
+            .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
+            .filterNot { it.mediaId in queued }
+        return album to after
     }
 
     /** Tracks the user queued by hand ("play next", "add to queue") in the current queue. */

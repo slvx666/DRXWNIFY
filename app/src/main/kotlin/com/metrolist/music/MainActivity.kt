@@ -621,6 +621,7 @@ class MainActivity : ComponentActivity() {
         }
 
         com.metrolist.music.ui.theme.ThemeRuntime.preset = appThemePreset
+        com.metrolist.music.ui.theme.ThemeRuntime.isDark = useDarkTheme
         MetrolistTheme(
             darkTheme = useDarkTheme,
             pureBlack = pureBlack,

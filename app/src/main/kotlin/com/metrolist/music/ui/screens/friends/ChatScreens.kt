@@ -1514,9 +1514,9 @@ private fun Composer(
         isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getMutedText(isDark)
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+    // The field and the music button stand on the chat's own background: an outline, no plate under them.
     val inputElevated = when {
-        isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getElevated(isDark)
-        isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getElevated(isDark)
+        isGothic || isSatanic -> Color.Transparent
         else -> null
     }
     val inputBorder = when {
