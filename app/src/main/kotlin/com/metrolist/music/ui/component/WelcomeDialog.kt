@@ -32,6 +32,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -62,12 +64,11 @@ fun WelcomeDialog(
     onDismiss: () -> Unit,
     /** Already connected: no account picker, just a "Continue" button. */
     accountsLinked: Boolean = false,
+    /** In the app's own layout instead of a window over it (so the launch intro can fade off it). */
+    inline: Boolean = false,
 ) {
     val context = LocalContext.current
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
+    val body: @Composable () -> Unit = {
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -238,6 +239,34 @@ fun WelcomeDialog(
                 }
             }
         }
+    }
+    if (inline) {
+        androidx.activity.compose.BackHandler(onBack = onDismiss)
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.6f))
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss,
+                ),
+        ) {
+            // Taps on the card itself don't reach the scrim behind it.
+            Box(
+                Modifier.clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                ),
+            ) { body() }
+        }
+    } else {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) { body() }
     }
 }
 

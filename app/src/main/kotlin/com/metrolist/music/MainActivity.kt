@@ -1622,6 +1622,24 @@ class MainActivity : ComponentActivity() {
                         welcomePrefs.edit().putLong("seen_install_stamp", installStamp).apply()
                     }
 
+                    // Drawn in the app, under the intro: as the intro's black fades, the welcome is
+                    // already there (as a window of its own it popped up a moment after home).
+                    if (welcomeSeenFor != installStamp && appComposed) {
+                        com.metrolist.music.ui.component.WelcomeDialog(
+                            onConnectSpotify = {
+                                markWelcomeSeen()
+                                navController.navigate("settings/spotify/login")
+                            },
+                            onConnectYandex = {
+                                markWelcomeSeen()
+                                navController.navigate("settings/yandex/login")
+                            },
+                            onDismiss = { markWelcomeSeen() },
+                            accountsLinked = anyAccountLinked,
+                            inline = true,
+                        )
+                    }
+
                     if (introVisible) {
                         com.metrolist.music.ui.component.AppIntro(
                             exitProgress = introExit,
@@ -1651,22 +1669,6 @@ class MainActivity : ComponentActivity() {
                                 com.metrolist.music.ui.component.AppIntroState.played = true
                                 introVisible = false
                             },
-                        )
-                    }
-
-                    // The intro plays to the end and fades into the app; the welcome greets after it.
-                    if (welcomeSeenFor != installStamp && !introVisible) {
-                        com.metrolist.music.ui.component.WelcomeDialog(
-                            onConnectSpotify = {
-                                markWelcomeSeen()
-                                navController.navigate("settings/spotify/login")
-                            },
-                            onConnectYandex = {
-                                markWelcomeSeen()
-                                navController.navigate("settings/yandex/login")
-                            },
-                            onDismiss = { markWelcomeSeen() },
-                            accountsLinked = anyAccountLinked,
                         )
                     }
 

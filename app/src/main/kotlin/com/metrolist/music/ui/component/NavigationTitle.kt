@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -164,11 +165,15 @@ fun NavigationTitle(
             )
         }
 
-        if (onClick != null && !plain) {
+        if (onClick != null) {
+            // Plain titles (the experimental themes) get a small, quiet one: a section that opens
+            // full screen should look like it, without a button.
             Icon(
                 painter = painterResource(R.drawable.arrow_forward),
                 contentDescription = null,
-                tint = if (isSatanic) SatanicThemeConfig.getPrimaryText(isDark) else MaterialTheme.colorScheme.primary
+                tint = (if (isSatanic) SatanicThemeConfig.getPrimaryText(isDark) else MaterialTheme.colorScheme.primary)
+                    .let { if (plain) it.copy(alpha = 0.7f) else it },
+                modifier = if (plain) Modifier.size(18.dp) else Modifier,
             )
         }
     }
