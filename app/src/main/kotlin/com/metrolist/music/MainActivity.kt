@@ -1621,7 +1621,6 @@ class MainActivity : ComponentActivity() {
                         startupWelcomeDone.value = true
                         welcomePrefs.edit().putLong("seen_install_stamp", installStamp).apply()
                     }
-                    var introHoldingForWelcome by remember { mutableStateOf(false) }
 
                     if (introVisible) {
                         com.metrolist.music.ui.component.AppIntro(
@@ -1652,17 +1651,11 @@ class MainActivity : ComponentActivity() {
                                 com.metrolist.music.ui.component.AppIntroState.played = true
                                 introVisible = false
                             },
-                            holdBeforeExit = {
-                                if (welcomeSeenFor != installStamp) {
-                                    introHoldingForWelcome = true
-                                    androidx.compose.runtime.snapshotFlow { welcomeSeenFor == installStamp }.first { it }
-                                }
-                            },
                         )
                     }
 
-                    // The welcome comes first: over the intro, which waits for it before revealing home.
-                    if (welcomeSeenFor != installStamp && (!introVisible || introHoldingForWelcome)) {
+                    // The intro plays to the end and fades into the app; the welcome greets after it.
+                    if (welcomeSeenFor != installStamp && !introVisible) {
                         com.metrolist.music.ui.component.WelcomeDialog(
                             onConnectSpotify = {
                                 markWelcomeSeen()

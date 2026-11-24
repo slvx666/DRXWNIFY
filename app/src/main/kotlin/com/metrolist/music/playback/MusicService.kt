@@ -273,7 +273,7 @@ private const val QUEUE_PRELOAD_AHEAD_THRESHOLD = 20
 private const val SHUFFLE_PRELOAD_MAX_ITEMS = 500
 
 /** Waits before each try at a new radio when the recommendations ran out (the first try at once). */
-private val RECOMMENDATIONS_RETRY_MS = longArrayOf(0L, 5_000L, 20_000L, 60_000L)
+private val RECOMMENDATIONS_RETRY_MS = longArrayOf(0L, 3_000L, 10_000L, 20_000L, 30_000L, 60_000L, 60_000L, 120_000L, 120_000L)
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -1717,7 +1717,17 @@ class MusicService :
             }
             if (initialStatus.items.isEmpty()) return@launch
             originalQueueSize = initialStatus.items.size
-            if (queue.preloadItem != null) {
+            if (queue.preloadItem != null && queue.isRecommendations) {
+                // A radio never holds a track twice: the preloaded first track and the rest, once each.
+                val preloadId = player.currentMediaItem?.mediaId
+                val start = initialStatus.items.getOrNull(initialStatus.mediaItemIndex)?.mediaId
+                val seen = HashSet<String>().apply { preloadId?.let(::add); start?.let(::add) }
+                val before = initialStatus.items.subList(0, initialStatus.mediaItemIndex).filter { seen.add(it.mediaId) }
+                val after = initialStatus.items.subList(initialStatus.mediaItemIndex + 1, initialStatus.items.size)
+                    .filter { seen.add(it.mediaId) }
+                player.addMediaItems(0, before)
+                player.addMediaItems(after)
+            } else if (queue.preloadItem != null) {
                 player.addMediaItems(
                     0,
                     initialStatus.items.subList(0, initialStatus.mediaItemIndex),
@@ -1929,7 +1939,14 @@ class MusicService :
             val items = usable(runCatching { withContext(Dispatchers.IO) { radio.nextPage() } }.getOrDefault(emptyList()))
             if (items.isNotEmpty()) return radio to items
         }
-        for (seed in seeds.filter { it.length == 11 && it.all { c -> c.isLetterOrDigit() || c == '_' || c == '-' } }) {
+        // A catalog track that played from YouTube has a video: YouTube's radio from it when the
+        // catalog's own radio didn't answer (the queue used to stop there).
+        val videoSeeds = seeds.mapNotNull { seed ->
+            if (seed.length == 11) seed
+            else fallbackServing[seed]?.takeIf { it.provider == AudioProviderId.YOUTUBE }?.trackId
+                ?: FallbackIds.catalogIdOf(seed)?.let { id -> runCatching { withContext(Dispatchers.IO) { database.getSpotifyMatch(id)?.youtubeId } }.getOrNull() }
+        }.distinct()
+        for (seed in videoSeeds.filter { it.length == 11 && it.all { c -> c.isLetterOrDigit() || c == '_' || c == '-' } }) {
             val radio = YouTubeQueue(endpoint = WatchEndpoint(videoId = seed))
             val items = usable(runCatching { withContext(Dispatchers.IO) { radio.getInitialStatus().items } }.getOrDefault(emptyList()))
             if (items.isNotEmpty()) return radio to items
@@ -3092,6 +3109,16 @@ class MusicService :
                         .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
                         .filterNot { BlockedTracks.isBlocked(it.mediaId) }
                 }
+                    .let { page ->
+                        // A radio (or what follows a list) never repeats what is queued: a fresh "For
+                        // you" session that found nothing new hands out the tracks heard lately, and
+                        // they were appended again and again (the same five, six times over).
+                        if (!queue.isRecommendations && queue.hasNextListPage()) page
+                        else {
+                            val queued = (0 until player.mediaItemCount).mapTo(HashSet()) { player.getMediaItemAt(it).mediaId }
+                            page.filter { queued.add(it.mediaId) }
+                        }
+                    }
             if (currentQueue !== queue) return@launch
             if (mediaItems.isEmpty()) {
                 continueRecommendations()
