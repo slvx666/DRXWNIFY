@@ -62,6 +62,9 @@ object Stickers {
 
     fun byId(id: String): Sticker? = byId[id]
 
+    /** Goes up each time a sticker is sent, so the panel re-sorts. */
+    val version = kotlinx.coroutines.flow.MutableStateFlow(0)
+
     /** A message going out: its stickers count as used. */
     fun noteSent(text: String) {
         val prefs = use ?: return
@@ -74,6 +77,7 @@ object Stickers {
                 putLong("t:$id", now)
             }
         }.apply()
+        version.value++
     }
 
     /** The pickable stickers, the most used first (then the most recently used), the rest as listed. */

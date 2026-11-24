@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.atan2
@@ -33,10 +34,13 @@ fun ThemePlayerDecor(ring: Boolean, color: Color, modifier: Modifier = Modifier)
         if (ring) {
             val frame = SatanicThemeConfig.rememberAsset(SatanicThemeConfig.PATH_ALBUM_FRAME)
             if (frame != null) {
+                // Drawn white for the dark page; on the light page its rings and four crosses are ink.
+                val light = androidx.compose.material3.MaterialTheme.colorScheme.surface.luminance() >= 0.4f
                 androidx.compose.foundation.Image(
                     bitmap = frame,
                     contentDescription = null,
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    colorFilter = if (light) androidx.compose.ui.graphics.ColorFilter.tint(SatanicThemeConfig.LightPrimaryText) else null,
                     modifier = modifier,
                 )
             }

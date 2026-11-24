@@ -679,6 +679,17 @@ private fun ThumbnailItem(
     val currentCoverName by androidx.compose.runtime.rememberUpdatedState(coverName)
     coverViewer.Content()
 
+    val preset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
+    val sliderStyle by rememberEnumPreference(
+        com.metrolist.music.constants.SliderStyleKey,
+        com.metrolist.music.constants.SliderStyle.DEFAULT,
+    )
+    val isRing = (preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC ||
+        preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC ||
+        sliderStyle == com.metrolist.music.constants.SliderStyle.RING) && !hidePlayerThumbnail
+    val ringNow by androidx.compose.runtime.rememberUpdatedState(isRing)
+    val coverSizeNow by androidx.compose.runtime.rememberUpdatedState(dimensions.thumbnailSize)
+
     Box(
         modifier = modifier
             .then(
@@ -697,7 +708,8 @@ private fun ThumbnailItem(
             }
             .pointerInput(Unit) {
                 // Narrow strips at the edges (a sixth of the width each) seek on every tap
-                // (no waiting for a second one); the rest of the cover opens it at once.
+                // (no waiting for a second one); the rest of the cover opens it at once. A round
+                // cover opens only on the cover itself: everything left of it seeks back, right forward.
                 detectTapGestures(
                     onLongPress = {
                         if (!hidePlayerThumbnail && !currentCoverUrl.isNullOrBlank()) {
@@ -706,8 +718,15 @@ private fun ThumbnailItem(
                         }
                     },
                     onTap = { offset ->
-                        val strip = size.width / 6f
-                        val inMiddle = offset.x >= strip && offset.x <= size.width - strip
+                        val inMiddle = if (ringNow) {
+                            val coverR = coverSizeNow.toPx() * RING_COVER_SHARE / 2f
+                            val dx = offset.x - size.width / 2f
+                            val dy = offset.y - size.height / 2f
+                            dx * dx + dy * dy <= coverR * coverR
+                        } else {
+                            val strip = size.width / 6f
+                            offset.x >= strip && offset.x <= size.width - strip
+                        }
                         if (inMiddle || isListenTogetherGuest) {
                             if (!hidePlayerThumbnail) coverViewer.open(currentCoverUrl, currentCoverName)
                             return@detectTapGestures
@@ -742,15 +761,6 @@ private fun ThumbnailItem(
             },
         contentAlignment = Alignment.Center
     ) {
-        val preset = com.metrolist.music.ui.theme.LocalAppThemePreset.current
-        val sliderStyle by rememberEnumPreference(
-            com.metrolist.music.constants.SliderStyleKey,
-            com.metrolist.music.constants.SliderStyle.DEFAULT,
-        )
-        val isRing = (preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC ||
-            preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC ||
-            sliderStyle == com.metrolist.music.constants.SliderStyle.RING) && !hidePlayerThumbnail
-
         if (isRing) {
             // Circular cover inside a ring progress (Satanic / Gothic seals, or Street / Breakcore seals, or standard ring)
             val ringSpinOn by rememberPreference(com.metrolist.music.constants.RingCoverSpinKey, defaultValue = true)

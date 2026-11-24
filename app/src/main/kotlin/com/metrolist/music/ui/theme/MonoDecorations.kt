@@ -271,12 +271,14 @@ fun Modifier.themeSectionTitle(title: String): Modifier {
     val ink = MaterialTheme.colorScheme.onSurface
     val accent = MaterialTheme.colorScheme.primary
     return when (preset) {
-        AppThemePreset.SATANIC -> drawWithContent {
+        // The room after the words is kept for the mark, so a long title's mark never reaches the
+        // screen's edge (the words give way, ending in "…").
+        AppThemePreset.SATANIC -> padding(end = 20.dp).drawWithContent {
             drawContent()
             // An inverted cross after the words, thorns under them.
             invertedCross(Offset(size.width + 9.dp.toPx(), size.height * 0.5f), 13.dp.toPx(), accent.copy(alpha = 0.75f), 1.4.dp.toPx())
         }
-        AppThemePreset.GOTHIC -> drawWithContent {
+        AppThemePreset.GOTHIC -> padding(end = 20.dp).drawWithContent {
             drawContent()
             // A slender upright cross after the words.
             val c = Offset(size.width + 9.dp.toPx(), size.height * 0.52f)
@@ -286,7 +288,7 @@ fun Modifier.themeSectionTitle(title: String): Modifier {
             drawLine(color, Offset(c.x - h * 0.26f, c.y - h * 0.2f), Offset(c.x + h * 0.26f, c.y - h * 0.2f), 1.3.dp.toPx())
         }
         AppThemePreset.STREET -> graphicsLayer { rotationZ = -1.5f }
-        AppThemePreset.BREAKCORE -> drawWithContent {
+        AppThemePreset.BREAKCORE -> padding(end = 34.dp).drawWithContent {
             drawContent()
             val r = Random(title.hashCode())
             val pen = ink.copy(alpha = 0.55f)

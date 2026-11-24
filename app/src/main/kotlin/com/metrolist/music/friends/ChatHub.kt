@@ -387,6 +387,7 @@ object ChatHub {
      */
     fun sendAll(peer: String, text: String, music: List<ChatMusic>, replyTo: String? = null) {
         var body = text.trim()
+        Stickers.noteSent(body)
         val cards = music.toMutableList()
         if (cards.isEmpty()) {
             ChatMusic.findLink(body)?.let { (range, target) ->

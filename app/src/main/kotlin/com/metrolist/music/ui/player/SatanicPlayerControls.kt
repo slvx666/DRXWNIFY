@@ -198,12 +198,13 @@ fun SatanicPlayerControls(
             // Current position
             Text(
                 text = makeTimeString(effectivePos).ifEmpty { "0:00" },
+                // A little larger, and ink on the light page, so it reads over the drawings.
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = SatanicThemeConfig.SerifFont,
-                    color = secondaryText,
-                    fontSize = 13.sp,
+                    color = if (isDark) secondaryText else primaryText,
+                    fontSize = 15.sp,
                 ),
-                modifier = Modifier.width(42.dp),
+                modifier = Modifier.width(48.dp),
             )
 
             // Progress Slider Track with progress_decoration.png
@@ -265,13 +266,13 @@ fun SatanicPlayerControls(
                             color = accent,
                             start = androidx.compose.ui.geometry.Offset(0f, cy),
                             end = androidx.compose.ui.geometry.Offset(w, cy),
-                            strokeWidth = 1.8.dp.toPx(),
+                            strokeWidth = 2.6.dp.toPx(),
                         )
                     }
                     // Small progress dot thumb
                     drawCircle(
                         color = if (isDark) Color.White else primaryText,
-                        radius = if (dragFrac in 0f..1f) 4.5.dp.toPx() else 3.dp.toPx(),
+                        radius = if (dragFrac in 0f..1f) 5.dp.toPx() else 3.6.dp.toPx(),
                         center = androidx.compose.ui.geometry.Offset(w, cy),
                     )
                 }
@@ -282,11 +283,11 @@ fun SatanicPlayerControls(
                 text = if (duration > 0) makeTimeString(duration) else "0:00",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontFamily = SatanicThemeConfig.SerifFont,
-                    color = secondaryText,
-                    fontSize = 13.sp,
+                    color = if (isDark) secondaryText else primaryText,
+                    fontSize = 15.sp,
                     textAlign = TextAlign.End,
                 ),
-                modifier = Modifier.width(42.dp),
+                modifier = Modifier.width(48.dp),
             )
         }
 

@@ -34,6 +34,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.unit.dp
 import com.metrolist.music.ui.theme.AppThemePreset
@@ -67,6 +69,10 @@ fun Material3SettingsGroup(
         else -> 6.dp
     }
     val neonEdge = preset == AppThemePreset.SYNTHWAVE
+    // Satanic's light page is an old book: each item is drawn like the mini player — its yellower
+    // paper, an ink edge and a faint second line inside it.
+    val bookPage = preset == AppThemePreset.SATANIC &&
+        MaterialTheme.colorScheme.surface.luminance() >= 0.4f
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -84,9 +90,13 @@ fun Material3SettingsGroup(
         // Settings items
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(if (bookPage) 6.dp else 4.dp)
         ) {
             items.forEachIndexed { index, item ->
+                if (bookPage) {
+                    BookPageItem(item)
+                    return@forEachIndexed
+                }
                 val shape = when {
                     items.size == 1 -> RoundedCornerShape(outer)
                     index == 0 -> RoundedCornerShape(topStart = outer, topEnd = outer, bottomStart = inner, bottomEnd = inner)
@@ -113,6 +123,36 @@ fun Material3SettingsGroup(
                 }
             }
         }
+    }
+}
+
+/** One settings item on Satanic's light page, in the mini player's dress. */
+@Composable
+private fun BookPageItem(item: Material3SettingsItem) {
+    val paper = com.metrolist.music.ui.theme.SatanicThemeConfig.LightSurface
+    val ink = com.metrolist.music.ui.theme.SatanicThemeConfig.LightBorder
+    val shape = RoundedCornerShape(32.dp)
+    androidx.compose.foundation.layout.Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize()
+            .clip(shape)
+            .background(paper)
+            .border(1.dp, ink, shape)
+            .drawWithContent {
+                drawContent()
+                val inset = 3.dp.toPx()
+                val r = minOf(32.dp.toPx(), size.height / 2) - inset
+                drawRoundRect(
+                    color = ink.copy(alpha = 0.40f),
+                    topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+                    size = androidx.compose.ui.geometry.Size(size.width - inset * 2, size.height - inset * 2),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 0.8.dp.toPx()),
+                )
+            },
+    ) {
+        Material3SettingsItemRow(item = item)
     }
 }
 

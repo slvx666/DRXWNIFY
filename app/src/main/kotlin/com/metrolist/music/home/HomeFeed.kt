@@ -195,6 +195,8 @@ object HomeFeed {
         /** Per artist (lower case): likes and chosen plays, for the genre rows. */
         val likesByArtist: Map<String, Int>,
         val playsByArtist: Map<String, Double>,
+        /** Titles (letters and digits, the part before any bracket) of everything ever played or liked. */
+        val heardTitles: Set<String> = emptySet(),
     )
 
     private suspend fun taste(database: MusicDatabase): Taste {
@@ -222,7 +224,11 @@ object HomeFeed {
         val now = LocalDateTime.now()
         val chosenPerTrack = HashMap<String, Int>()
         val artistOfTrack = HashMap<String, String>()
-        database.events().first().take(5000).forEach { e ->
+        val heardTitles = HashSet<String>()
+        val allEvents = database.events().first()
+        // The whole history for what was heard at all (an album played years ago is not "unheard").
+        allEvents.forEach { e -> titleKey(e.song.song.title).takeIf { it.isNotEmpty() }?.let(heardTitles::add) }
+        allEvents.take(5000).forEach { e ->
             val song = e.song
             val artist = song.artists.firstOrNull() ?: return@forEach
             val key = note(artist.name, artist.id) ?: return@forEach
@@ -260,6 +266,7 @@ object HomeFeed {
             val artist = t.artists.firstOrNull() ?: return@forEach
             val key = note(artist.name, artist.id) ?: return@forEach
             known += trackKey(artist.name, t.name)
+            titleKey(t.name).takeIf { it.isNotEmpty() }?.let(heardTitles::add)
             love.merge(key, 1.0, Double::plus)
             likes.merge(key, 1, Int::plus)
         }
@@ -267,6 +274,7 @@ object HomeFeed {
             val artist = s.artists.firstOrNull() ?: return@forEach
             val key = note(artist.name, artist.id) ?: return@forEach
             known += trackKey(artist.name, s.song.title)
+            titleKey(s.song.title).takeIf { it.isNotEmpty() }?.let(heardTitles::add)
             love.merge(key, 1.0, Double::plus)
             likes.merge(key, 1, Int::plus)
         }
@@ -278,7 +286,7 @@ object HomeFeed {
         val favorites = love.entries.filter { it.value >= MIN_LOVE }.sortedByDescending { it.value }.take(40).map { (key, s) ->
             Favorite(names.getValue(key), ids[key], s)
         }
-        return Taste(favorites, known, knownArtists, recent, albums, albumTracks, liked, likedAt, likes, plays)
+        return Taste(favorites, known, knownArtists, recent, albums, albumTracks, liked, likedAt, likes, plays, heardTitles)
     }
 
     /** Catalog ids for the strongest favourites that only have a name (YouTube or local tracks). */
@@ -474,7 +482,9 @@ object HomeFeed {
 
     /**
      * Albums (and EPs) of loved artists that were never played, or dropped after a track or two —
-     * two at most per artist, a different set each day.
+     * two at most per artist, a different set each day. An album is checked by its own tracks
+     * against the whole history and the likes (by title), not by the album name a play was saved
+     * with: many plays have no album name, or another one (a single, a deluxe edition).
      */
     private suspend fun unheardAlbums(favorites: List<Favorite>, taste: Taste, rotation: Long, gate: Semaphore): List<SpotifyAlbum> = coroutineScope {
         val random = Random(rotation * 11 + 5)
@@ -487,6 +497,16 @@ object HomeFeed {
                         full && (taste.albumTracks[albumKey(f.name, album.name)]?.size ?: 0) < 3
                     }
                     .shuffled(random)
+                    .take(5)
+                    .filter { album ->
+                        val titles = gate.withPermit {
+                            com.metrolist.music.playback.queues.DiscographyQueue.tracksOf(album)
+                        }.map { titleKey(it.name) }.filter { it.isNotEmpty() }.distinct()
+                        if (titles.isEmpty()) return@filter false
+                        val heard = titles.count { it in taste.heardTitles }
+                        // A track or two tried is still "not got round to"; more than that, or a quarter, is heard.
+                        heard < 3 && heard * 4 < titles.size
+                    }
                     .take(2)
                     .map { album ->
                         album.copy(
@@ -578,6 +598,9 @@ object HomeFeed {
     private fun trackKey(artist: String, title: String): String =
         artist.lowercase().filter { it.isLetterOrDigit() } + "|" +
             title.lowercase().substringBefore(" (").substringBefore(" - ").filter { it.isLetterOrDigit() }
+
+    private fun titleKey(title: String): String =
+        title.lowercase().substringBefore(" (").substringBefore(" - ").substringBefore(" [").filter { it.isLetterOrDigit() }
 
     private fun albumKey(artist: String, album: String): String =
         artist.lowercase().filter { it.isLetterOrDigit() } + "|" + album.lowercase().substringBefore(" (").filter { it.isLetterOrDigit() }

@@ -1489,7 +1489,6 @@ private fun Composer(
 
     fun send() {
         val body = field.text.trim()
-        if (editing == null) Stickers.noteSent(body)
         val edit = editing
         val fwd = forward
         when {
@@ -1914,8 +1913,9 @@ private fun StickerPanel(
     onPick: (Stickers.Sticker) -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
-    // The most used first; the order is taken when the panel opens, so it doesn't shift while picking.
-    val ordered = remember { Stickers.byUse() }
+    // The most used first: a sticker just sent moves up at once.
+    val usedTimes by Stickers.version.collectAsState()
+    val ordered = remember(usedTimes) { Stickers.byUse() }
     Column(modifier) {
         HorizontalDivider()
         LazyVerticalGrid(

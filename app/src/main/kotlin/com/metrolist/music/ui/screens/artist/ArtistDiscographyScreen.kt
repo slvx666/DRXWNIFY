@@ -135,6 +135,14 @@ fun ArtistDiscographyScreen(navController: NavController, artistId: String) {
         }
     }
 
+    // Tracks can be picked across releases, as on an album's page; the keys are catalog track ids.
+    val selection = com.metrolist.music.ui.component.rememberTrackSelection()
+    val loaded = remember { androidx.compose.runtime.mutableStateMapOf<String, List<SpotifyTrack>>() }
+    val pickable = remember(shown, loaded.toMap()) { shown.flatMap { loaded[it.id].orEmpty() }.distinctBy { it.id } }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val downloadUtil = com.metrolist.music.LocalDownloadUtil.current
+
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(
         // The header takes the status bar itself; only the player at the bottom is padded for.
         contentPadding = LocalPlayerAwareWindowInsets.current
@@ -150,6 +158,7 @@ fun ArtistDiscographyScreen(navController: NavController, artistId: String) {
                 onBack = { navController.navigateUp() },
                 onFilter = { filter = it },
                 onSort = { sort = it },
+                actions = { com.metrolist.music.ui.component.TrackSelectionActions(selection, pickable.map { it.id }) },
             )
         }
         when {
@@ -171,9 +180,44 @@ fun ArtistDiscographyScreen(navController: NavController, artistId: String) {
                     navController = navController,
                     onOpen = { navController.navigate("spotify_album/${album.id}") },
                     onPlay = { index -> playFrom(album, index) },
+                    selection = selection,
+                    onTracks = { loaded[album.id] = it },
                 )
             }
         }
+        item(key = "selection_space") { com.metrolist.music.ui.component.TrackSelectionSpacer(selection) }
+    }
+
+    com.metrolist.music.ui.component.TrackSelectionBar(
+        selection = selection,
+        onDownload = { keys ->
+            val picked = pickable.filter { it.id in keys }
+            if (picked.isNotEmpty()) {
+                android.widget.Toast.makeText(context, context.getString(R.string.spotify_download_started, picked.size), android.widget.Toast.LENGTH_SHORT).show()
+                com.metrolist.music.playback.SpotifyBatchDownload.start(
+                    appContext = context.applicationContext,
+                    sourceId = "discography_$artistId",
+                    tracks = picked,
+                    mapper = mapper,
+                    label = artistName,
+                    downloads = downloadUtil.downloads,
+                    database = database,
+                )
+            }
+            selection.stop()
+        },
+        songIdsForPlaylist = { keys -> com.metrolist.music.ui.component.SelectedTracks.songIdsOf(database, mapper, pickable.filter { it.id in keys }) },
+        shareMediaIds = { keys -> com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, pickable.filter { it.id in keys }) },
+        onDelete = { keys ->
+            val picked = pickable.filter { it.id in keys }
+            com.metrolist.music.ui.component.SelectedTracks.delete(context, downloadUtil) {
+                com.metrolist.music.ui.component.SelectedTracks.mediaIdsOf(database, picked)
+            }
+        },
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .padding(LocalPlayerAwareWindowInsets.current.only(androidx.compose.foundation.layout.WindowInsetsSides.Bottom).asPaddingValues()),
+    )
     }
 }
 
@@ -189,11 +233,12 @@ private fun DiscographyHeader(
     onBack: () -> Unit,
     onFilter: (ReleaseFilter) -> Unit,
     onSort: (ReleaseSort) -> Unit,
+    actions: @Composable () -> Unit,
 ) {
     var filterOpen by remember { mutableStateOf(false) }
     var sortOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.statusBars)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(end = 4.dp, top = 4.dp)) {
             IconButton(onClick = onBack) { Icon(painterResource(R.drawable.arrow_back), contentDescription = null) }
             Text(
                 artistName,
@@ -203,6 +248,7 @@ private fun DiscographyHeader(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            actions()
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -255,6 +301,8 @@ private fun ReleaseSection(
     navController: NavController,
     onOpen: () -> Unit,
     onPlay: (Int) -> Unit,
+    selection: com.metrolist.music.ui.component.TrackSelection,
+    onTracks: (List<SpotifyTrack>) -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val database = LocalDatabase.current
@@ -266,6 +314,7 @@ private fun ReleaseSection(
         if (value != null) return@produceState
         value = withContext(Dispatchers.IO) { com.metrolist.music.playback.queues.DiscographyQueue.tracksOf(album) }
     }
+    androidx.compose.runtime.LaunchedEffect(tracks) { tracks?.let(onTracks) }
     var saved by remember(album.id) { mutableStateOf<Boolean?>(null) }
     androidx.compose.runtime.LaunchedEffect(album.id) {
         saved = withContext(Dispatchers.IO) { Catalog.isAlbumSaved(album.id).getOrNull() }
@@ -337,7 +386,7 @@ private fun ReleaseSection(
                     modifier = Modifier.padding(top = 4.dp),
                 )
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                    // Add to the library (saved in the account), as the album's own page does.
+                    // Like (saved in the account), the heart as on the album's own page.
                     IconButton(onClick = {
                         val target = !(saved ?: false)
                         saved = target
@@ -348,7 +397,15 @@ private fun ReleaseSection(
                             if (!ok) saved = !target
                         }
                     }) {
-                        Icon(painterResource(if (saved == true) R.drawable.done else R.drawable.library_add), contentDescription = null)
+                        val heartTint by androidx.compose.animation.animateColorAsState(
+                            if (saved == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                            label = "releaseHeart",
+                        )
+                        Icon(
+                            painterResource(if (saved == true) R.drawable.favorite else R.drawable.favorite_border),
+                            contentDescription = stringResource(if (saved == true) R.string.remove_from_library else R.string.add_to_library),
+                            tint = heartTint,
+                        )
                     }
                     // Download as on the album's page: downloading shows its progress (a tap cancels),
                     // all downloaded shows the mark, otherwise it downloads the rest.
@@ -387,6 +444,7 @@ private fun ReleaseSection(
                 progress = downloadProgress,
                 downloaded = downloadedCount,
                 total = trackList.size,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
             com.metrolist.music.ui.component.ResumeUnfinishedBatch(sourceId, trackList, downloading, downloads, spotifyToYt) { startDownload() }
         }
@@ -425,7 +483,8 @@ private fun ReleaseSection(
                         },
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                track.playCount?.takeIf { it > 0 }?.let { plays ->
+                                // Play counts make room for the ticks while tracks are being picked.
+                                track.playCount?.takeIf { it > 0 && !selection.active }?.let { plays ->
                                     Text(
                                         text = com.metrolist.music.playback.SpotifyPlays.format(plays),
                                         style = MaterialTheme.typography.bodySmall,
@@ -437,6 +496,9 @@ private fun ReleaseSection(
                                 // The downloaded-mark's slot is always kept, so the counts line up.
                                 Box(modifier = Modifier.width(20.dp), contentAlignment = Alignment.CenterEnd) {
                                     com.metrolist.music.ui.component.Icon.Download(downloadState)
+                                }
+                                com.metrolist.music.ui.component.TrackSelectionCheck(selection.active, selection.isSelected(track.id)) {
+                                    selection.toggle(track.id)
                                 }
                             }
                         },
@@ -453,7 +515,7 @@ private fun ReleaseSection(
                         modifier = Modifier
                             .fillMaxWidth()
                             .combinedClickable(
-                                onClick = { onPlay(i) },
+                                onClick = { if (selection.active) selection.toggle(track.id) else onPlay(i) },
                                 onLongClick = {
                                     menuState.show {
                                         com.metrolist.music.ui.menu.PlayerMenu(
