@@ -186,6 +186,7 @@ private fun DiscographyHeader(
     onFilter: (ReleaseFilter) -> Unit,
     onSort: (ReleaseSort) -> Unit,
 ) {
+    var filterOpen by remember { mutableStateOf(false) }
     var sortOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.statusBars)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(end = 16.dp, top = 4.dp)) {
@@ -201,24 +202,21 @@ private fun DiscographyHeader(
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, bottom = 6.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
         ) {
-            androidx.compose.foundation.lazy.LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.weight(1f),
-            ) {
-                items(ReleaseFilter.entries) { f ->
-                    val on = f == filter
-                    Text(
-                        stringResource(f.label),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (on) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable { onFilter(f) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
+            // The release kind: one button that opens the list (all, albums, singles and EPs, compilations).
+            Box(Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { filterOpen = true }.padding(horizontal = 8.dp, vertical = 6.dp),
+                ) {
+                    Text(stringResource(filter.label), style = MaterialTheme.typography.labelLarge)
+                    Icon(painterResource(R.drawable.expand_more), null, modifier = Modifier.size(18.dp))
+                }
+                DropdownMenu(expanded = filterOpen, onDismissRequest = { filterOpen = false }) {
+                    ReleaseFilter.entries.forEach { f ->
+                        DropdownMenuItem(text = { Text(stringResource(f.label)) }, onClick = { onFilter(f); filterOpen = false })
+                    }
                 }
             }
             Box {

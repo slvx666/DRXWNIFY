@@ -404,7 +404,8 @@ class PlayerConnection(
                 castHandler.skipToNext()
                 return
             }
-            player.seekToNext()
+            // On the last track the queue goes on (recommendations from it) and plays what came.
+            service.skipToNextOrContinue()
             if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
                 player.prepare()
             }
@@ -665,9 +666,11 @@ class PlayerConnection(
             canSkipPrevious.value = player.isCommandAvailable(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM) ||
                 !window.isLive ||
                 player.isCommandAvailable(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+            // Without repeat "next" works on the last track too: the queue goes on from it.
             canSkipNext.value = window.isLive &&
                 window.isDynamic ||
-                player.isCommandAvailable(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                player.isCommandAvailable(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) ||
+                player.repeatMode == REPEAT_MODE_OFF
         } else {
             canSkipPrevious.value = false
             canSkipNext.value = false

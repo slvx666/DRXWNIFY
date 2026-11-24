@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -173,7 +174,8 @@ fun SatanicPlayerControls(
                         contentDescription = "Favorite",
                         tint = pentagramTint,
                         // The heart with its dagger is tall: its own proportions, not a square.
-                        modifier = Modifier.size(width = 20.dp, height = 50.dp),
+                        // The dagger version is larger so its heart is as big as the plain heart.
+                        modifier = if (isLiked) Modifier.requiredSize(width = 23.dp, height = 57.dp) else Modifier.size(width = 20.dp, height = 50.dp),
                     )
                 }
             }

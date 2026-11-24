@@ -282,7 +282,7 @@ fun PlayerMenu(
         coroutineScope.launch {
             if (albumQueue != null) {
                 playerConnection.service.addAlbumFromTrack(albumQueue(), playNext = true)
-                Toast.makeText(context, context.getString(R.string.added_album_rest_to_queue), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.added_to_play_next), Toast.LENGTH_SHORT).show()
             } else if (spotifyTrack != null) {
                 val item = withContext(Dispatchers.IO) {
                     spotifyMapper.resolveToMediaItem(spotifyTrack)
@@ -324,7 +324,7 @@ fun PlayerMenu(
         coroutineScope.launch {
             if (albumQueue != null) {
                 playerConnection.service.addAlbumFromTrack(albumQueue())
-                Toast.makeText(context, context.getString(R.string.added_album_rest_to_queue), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.added_to_queue), Toast.LENGTH_SHORT).show()
             } else if (spotifyTrack != null) {
                 val item = withContext(Dispatchers.IO) {
                     spotifyMapper.resolveToMediaItem(spotifyTrack)

@@ -1816,13 +1816,17 @@ class MusicService :
      * empty (the network dropped, the catalog said "too many requests"): when the queue has nothing
      * more, a new radio grows from the last queued track — the catalog's similar artists, else
      * YouTube's radio for a YouTube track, else "For you" from the listener's taste — tried again a
-     * little later while nothing comes. Lists (an album, a playlist) still end where they end.
+     * little later while nothing comes. A list (an album, a playlist, search results) that played
+     * out goes on the same way: recommendations from its last track — or, when that track was
+     * queued by hand from an opened album, the rest of that album. Shuffle plays the list out
+     * first; repeat loops it instead.
      */
     private fun continueRecommendations() {
         if (!dataStore.get(AutoLoadMoreKey, true) || player.repeatMode != REPEAT_MODE_OFF) return
         if (player.mediaItemCount == 0 || player.playbackState == STATE_IDLE) return
-        val currentId = player.currentMediaItem?.mediaId ?: return
-        if (!currentQueue.endsWithRadio && !RecommendedTracks.isRecommended(currentId)) return
+        if (player.currentMediaItem == null) return
+        // Shuffle: what is left of the list plays first; new tracks would be mixed into it.
+        if (player.shuffleModeEnabled && player.hasNextMediaItem() && player.playbackState != Player.STATE_ENDED) return
         if (recommendationsRefillJob?.isActive == true || queueLoadJob?.isActive == true) return
         val spent = currentQueue
         recommendationsRefillJob = scope.launch(SilentHandler) {
@@ -1838,26 +1842,79 @@ class MusicService :
                     loadMoreOfQueue(resumeWhenLoaded = true)
                     return@launch
                 }
+                val hadNext = player.hasNextMediaItem()
                 val firstNew = player.mediaItemCount
                 player.addMediaItems(items)
                 currentQueue = radio
-                AudioDiagnostics.info("recommendations ran out: ${items.size} more from a new ${radio.javaClass.simpleName}")
-                if (player.playbackState == Player.STATE_ENDED) {
-                    player.seekTo(firstNew, 0)
-                    player.prepare()
-                    player.play()
-                }
+                AudioDiagnostics.info("queue ran out: ${items.size} more from a new ${radio.javaClass.simpleName}")
+                afterAppended(firstNew, hadNext, resume = true)
                 return@launch
             }
             AudioDiagnostics.warn("recommendations ran out and no new radio could be started")
         }
     }
 
+    /** "Next" on the last track pressed: the queue goes on (see [continueRecommendations]) and plays the first new track. */
+    @Volatile private var skipWhenMoreFrom: String? = null
+
+    /**
+     * Tracks were appended from [firstNew] on. In shuffle, when nothing was left to play
+     * ([hadNext] false), they follow the current track instead of being mixed into the played part.
+     * Playback moves on to the first of them when the queue had ended ([resume]) or "next" was
+     * pressed on the last track.
+     */
+    private fun afterAppended(firstNew: Int, hadNext: Boolean, resume: Boolean) {
+        if (firstNew >= player.mediaItemCount) return
+        if (player.shuffleModeEnabled && !hadNext) {
+            val current = player.currentMediaItemIndex
+            val order = (playedShuffleIndices(current) + current + (firstNew until player.mediaItemCount)).distinct()
+            val missing = (0 until player.mediaItemCount).filter { it !in order }
+            player.setShuffleOrder(DefaultShuffleOrder((order + missing).toIntArray(), System.currentTimeMillis()))
+        }
+        val skip = skipWhenMoreFrom != null && skipWhenMoreFrom == player.currentMediaItem?.mediaId
+        skipWhenMoreFrom = null
+        if (skip || resume && player.playbackState == Player.STATE_ENDED) {
+            player.seekTo(firstNew, 0)
+            player.prepare()
+            player.play()
+        }
+    }
+
+    /**
+     * "Next": the next track, or — on the last one, without repeat — what the queue goes on with
+     * (the list's next page, the album a hand-queued track came from, recommendations from the last
+     * track), playing its first track as soon as it is there.
+     */
+    fun skipToNextOrContinue() {
+        if (player.hasNextMediaItem() || player.repeatMode != REPEAT_MODE_OFF || player.mediaItemCount == 0) {
+            player.seekToNext()
+            return
+        }
+        skipWhenMoreFrom = player.currentMediaItem?.mediaId
+        loadMoreOfQueue(resumeWhenLoaded = true)
+    }
+
+    /** The track that plays last as the queue stands (shuffle order when shuffling). */
+    private fun lastInPlayOrder(): Int {
+        if (player.mediaItemCount == 0) return C.INDEX_UNSET
+        if (!player.shuffleModeEnabled) return player.mediaItemCount - 1
+        val timeline = player.currentTimeline
+        if (timeline.isEmpty) return player.mediaItemCount - 1
+        var idx = player.currentMediaItemIndex
+        var steps = 0
+        while (steps++ < timeline.windowCount) {
+            val next = timeline.getNextWindowIndex(idx, Player.REPEAT_MODE_OFF, true)
+            if (next == C.INDEX_UNSET) break
+            idx = next
+        }
+        return idx
+    }
+
     /** The next radio and its first tracks (none already queued), or null when no source answered. */
     private suspend fun nextRadio(): Pair<Queue, List<MediaItem>>? {
         val queued = (0 until player.mediaItemCount).mapTo(HashSet()) { player.getMediaItemAt(it).mediaId }
         val seeds = listOfNotNull(
-            player.getMediaItemAt(player.mediaItemCount - 1).mediaId,
+            lastInPlayOrder().takeIf { it != C.INDEX_UNSET }?.let { player.getMediaItemAt(it).mediaId },
             player.currentMediaItem?.mediaId,
         ).distinct()
         val hideExplicit = dataStore.get(HideExplicitKey, false)
@@ -2133,70 +2190,7 @@ class MusicService :
             }
         }
 
-        if (!player.shuffleModeEnabled) {
-            queueByHand(items, first = true)
-            return
-        }
-
-        val insertIndex = player.currentMediaItemIndex + 1
-        val shuffleEnabled = player.shuffleModeEnabled
-
-        // Insert items immediately after the current item in the window/index space
-        player.addMediaItems(insertIndex, items)
-        handQueued.addAll(items.map { it.mediaId })
-        player.prepare()
-
-        if (shuffleEnabled) {
-            // Rebuild shuffle order so that newly inserted items are played next
-            val timeline = player.currentTimeline
-            if (!timeline.isEmpty) {
-                val size = timeline.windowCount
-                val currentIndex = player.currentMediaItemIndex
-
-                // Newly inserted indices are a contiguous range [insertIndex, insertIndex + items.size)
-                val newIndices = (insertIndex until (insertIndex + items.size)).toSet()
-
-                // Collect existing shuffle traversal order excluding current index
-                val orderAfter = mutableListOf<Int>()
-                var idx = currentIndex
-                while (true) {
-                    idx = timeline.getNextWindowIndex(idx, Player.REPEAT_MODE_OFF, /*shuffleModeEnabled=*/true)
-                    if (idx == C.INDEX_UNSET) break
-                    if (idx != currentIndex) orderAfter.add(idx)
-                }
-
-                val prevList = mutableListOf<Int>()
-                var pIdx = currentIndex
-                while (true) {
-                    pIdx = timeline.getPreviousWindowIndex(pIdx, Player.REPEAT_MODE_OFF, /*shuffleModeEnabled=*/true)
-                    if (pIdx == C.INDEX_UNSET) break
-                    if (pIdx != currentIndex) prevList.add(pIdx)
-                }
-                prevList.reverse() // preserve original forward order
-
-                val existingOrder = (prevList + orderAfter).filter { it != currentIndex && it !in newIndices }
-
-                // Build new shuffle order: current -> newly inserted (in insertion order) -> rest
-                val nextBlock = (insertIndex until (insertIndex + items.size)).toList()
-                val finalOrder = IntArray(size)
-                var pos = 0
-                finalOrder[pos++] = currentIndex
-                nextBlock.forEach { if (it in 0 until size) finalOrder[pos++] = it }
-                existingOrder.forEach { if (pos < size) finalOrder[pos++] = it }
-
-                // Fill any missing indices (safety) to ensure a full permutation
-                if (pos < size) {
-                    for (i in 0 until size) {
-                        if (!finalOrder.contains(i)) {
-                            finalOrder[pos++] = i
-                            if (pos == size) break
-                        }
-                    }
-                }
-
-                player.setShuffleOrder(DefaultShuffleOrder(finalOrder, System.currentTimeMillis()))
-            }
-        }
+        queueByHand(items, first = true)
     }
 
     /**
@@ -2230,32 +2224,54 @@ class MusicService :
      * (the album queue then goes on as it does, into its radio). Null when the last track wasn't one.
      */
     private suspend fun albumAfterQueue(): Pair<Queue, List<MediaItem>>? {
-        if (player.mediaItemCount == 0) return null
-        val lastId = player.getMediaItemAt(player.mediaItemCount - 1).mediaId
+        val last = lastInPlayOrder()
+        if (last == C.INDEX_UNSET) return null
+        val lastId = player.getMediaItemAt(last).mediaId
         val album = handAlbum.remove(lastId) ?: return null
         val status = runCatching { withContext(Dispatchers.IO) { album.getInitialStatus() } }.getOrNull() ?: return null
         val queued = (0 until player.mediaItemCount).mapTo(HashSet()) { player.getMediaItemAt(it).mediaId }
         val after = status.items.drop(status.mediaItemIndex + 1)
             .filterExplicit(dataStore.get(HideExplicitKey, false))
             .filterVideoSongs(dataStore.get(HideVideoSongsKey, false))
-            .filterNot { it.mediaId in queued }
+            .filterNot { it.mediaId in queued || BlockedTracks.isBlocked(it.mediaId) }
+        AudioDiagnostics.info("queue ran out on a track from an opened album: ${after.size} more of it")
         return album to after
     }
 
     /** Tracks the user queued by hand ("play next", "add to queue") in the current queue. */
     private val handQueued: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
 
+    /** The tracks still to play after the current one, in play order (shuffle order when shuffling). */
+    private fun upcomingIndices(): List<Int> {
+        val current = player.currentMediaItemIndex
+        if (!player.shuffleModeEnabled) return (current + 1 until player.mediaItemCount).toList()
+        val timeline = player.currentTimeline
+        if (timeline.isEmpty) return emptyList()
+        val out = mutableListOf<Int>()
+        var idx = current
+        while (out.size < timeline.windowCount) {
+            idx = timeline.getNextWindowIndex(idx, Player.REPEAT_MODE_OFF, true)
+            if (idx == C.INDEX_UNSET || idx == current) break
+            out += idx
+        }
+        return out
+    }
+
     /**
-     * Queues tracks the user picked. There is no pool of recommendations in front of them any more:
-     * what the app had picked ahead is dropped, "play next" ([first]) goes right after the current
-     * track, "add to queue" after the tracks queued by hand before it (in the order they were
-     * added), and both before the rest of the album or playlist that plays. With nothing of the
-     * list left after them, the music goes on with recommendations from the last track queued
-     * (an album track added from its album goes on with the album: see [addAlbumFromTrack]).
-     * Before, "add to queue" went to the very end, behind twenty-odd recommended tracks.
+     * Queues tracks the user picked, shuffled or not. There is no pool of recommendations in front
+     * of them: what the app had picked ahead by itself is dropped, "play next" ([first]) goes right
+     * after the current track (before what was queued by hand earlier), "add to queue" after the
+     * tracks queued by hand before it, in the order they were added — both before the rest of the
+     * album or playlist that plays. With nothing of the list left after them, the music goes on
+     * from the last track queued: the rest of its album when it was queued from an opened album
+     * ([OpenAlbum]), else recommendations from it.
      */
     private fun queueByHand(items: List<MediaItem>, first: Boolean) {
         if (items.isEmpty()) return
+        // Queued while its album is open (a menu, a swipe, a selection): the album is remembered.
+        for (item in items) {
+            OpenAlbum.queueFrom(item.mediaId)?.let { handAlbum[item.mediaId] = it }
+        }
         val wasRadio = currentQueue.isRecommendations || currentQueue.endsWithRadio
         if (wasRadio) {
             loadMoreJob?.cancel()
@@ -2263,14 +2279,30 @@ class MusicService :
         }
         RecommendedTracks.unmark(items)
         dropUpcomingRecommendations()
-        var at = player.currentMediaItemIndex + 1
-        if (!first) {
-            while (at < player.mediaItemCount && player.getMediaItemAt(at).mediaId in handQueued) at++
+        val newIds = items.mapTo(HashSet()) { it.mediaId }
+        val upcoming = upcomingIndices()
+        // The hand-queued run right after the current track ("add to queue" goes behind it).
+        val handRun = upcoming.takeWhile { player.getMediaItemAt(it).mediaId in handQueued && player.getMediaItemAt(it).mediaId !in newIds }
+        val listLeftAfter = upcoming.any { player.getMediaItemAt(it).mediaId !in handQueued } ||
+            currentQueue.hasNextListPage() && !currentQueue.isRecommendations
+        if (player.shuffleModeEnabled) {
+            val current = player.currentMediaItemIndex
+            val played = playedShuffleIndices(current)
+            val insertAt = current + 1
+            player.addMediaItems(insertAt, items)
+            fun shifted(i: Int) = if (i >= insertAt) i + items.size else i
+            val added = (insertAt until insertAt + items.size).toList()
+            val run = handRun.map(::shifted)
+            val rest = upcoming.drop(handRun.size).map(::shifted)
+            val order = (played.map(::shifted) + current + (if (first) added + run else run + added) + rest).distinct()
+            val missing = (0 until player.mediaItemCount).filter { it !in order }
+            player.setShuffleOrder(DefaultShuffleOrder((order + missing).toIntArray(), System.currentTimeMillis()))
+        } else {
+            val at = (if (first) player.currentMediaItemIndex + 1 else (handRun.lastOrNull() ?: player.currentMediaItemIndex) + 1)
+                .coerceIn(0, player.mediaItemCount)
+            player.addMediaItems(at, items)
         }
-        at = at.coerceIn(0, player.mediaItemCount)
-        val listLeftAfter = at < player.mediaItemCount || currentQueue.hasNextListPage() && !currentQueue.isRecommendations
-        player.addMediaItems(at, items)
-        handQueued.addAll(items.map { it.mediaId })
+        handQueued.addAll(newIds)
         if (!listLeftAfter) {
             // What follows grows from the last track queued, not from the old radio's seed.
             loadMoreJob?.cancel()
@@ -2281,10 +2313,10 @@ class MusicService :
 
     /** Takes the not-yet-played tracks the app recommended by itself out of the queue. */
     private fun dropUpcomingRecommendations() {
-        val current = player.currentMediaItemIndex
-        for (i in player.mediaItemCount - 1 downTo current + 1) {
-            if (RecommendedTracks.isRecommended(player.getMediaItemAt(i).mediaId)) player.removeMediaItem(i)
-        }
+        upcomingIndices()
+            .filter { RecommendedTracks.isRecommended(player.getMediaItemAt(it).mediaId) }
+            .sortedDescending()
+            .forEach { player.removeMediaItem(it) }
     }
 
     fun addToQueue(items: List<MediaItem>) {
@@ -2306,7 +2338,7 @@ class MusicService :
             }
         }
 
-        if (!player.shuffleModeEnabled && player.mediaItemCount > 0) {
+        if (player.mediaItemCount > 0) {
             queueByHand(items, first = false)
             return
         }
@@ -2903,7 +2935,8 @@ class MusicService :
 
         // Auto load more songs from queue (lazy load: keep QUEUE_PRELOAD_AHEAD_THRESHOLD items ahead)
         if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
-            player.mediaItemCount - player.currentMediaItemIndex <= QUEUE_PRELOAD_AHEAD_THRESHOLD
+            (player.mediaItemCount - player.currentMediaItemIndex <= QUEUE_PRELOAD_AHEAD_THRESHOLD ||
+                player.shuffleModeEnabled && !player.hasNextMediaItem())
         ) {
             loadMoreOfQueue(resumeWhenLoaded = false)
         }
@@ -3047,10 +3080,12 @@ class MusicService :
         // skipped, doubled or queued out of order (a chat's tracks went round, an artist's shuffle
         // went to recommendations after the first ten). The initial load fetches what follows.
         if (queueLoadJob?.isActive == true) return
-        // Shuffling an album or playlist plays the list alone: no radio after it.
+        // Shuffling an album or playlist plays the whole list first: what follows it is added once
+        // its last track plays (added earlier, it would be mixed into the list).
         if (player.shuffleModeEnabled && !currentQueue.isRecommendations && !currentQueue.hasNextListPage()) {
             val currentId = player.currentMediaItem?.mediaId
-            if (currentId == null || !RecommendedTracks.isRecommended(currentId)) return
+            val inRadio = currentId != null && RecommendedTracks.isRecommended(currentId)
+            if (!inRadio && player.hasNextMediaItem() && player.playbackState != Player.STATE_ENDED) return
         }
         val queue = currentQueue
         loadMoreJob = scope.launch(SilentHandler) {
@@ -3068,16 +3103,14 @@ class MusicService :
                 return@launch
             }
             if (player.playbackState == STATE_IDLE && !resumeWhenLoaded) return@launch
+            val hadNext = player.hasNextMediaItem()
             val firstNew = player.mediaItemCount
             player.addMediaItems(mediaItems)
             // Don't re-shuffle here: ExoPlayer's DefaultShuffleOrder.cloneAndInsert()
             // already places newly added items at random positions within the existing
-            // shuffle order, preserving the sequence the user is currently listening to.
-            if (resumeWhenLoaded && player.playbackState == Player.STATE_ENDED) {
-                player.seekTo(firstNew, 0)
-                player.prepare()
-                player.play()
-            }
+            // shuffle order, preserving the sequence the user is currently listening to
+            // (with nothing left to play, the new ones follow the current track).
+            afterAppended(firstNew, hadNext, resumeWhenLoaded)
         }
     }
 

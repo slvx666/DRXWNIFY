@@ -162,6 +162,19 @@ fun AlbumScreen(
             songs
         }
 
+    // While this album is open, a track of it queued by hand (any way) goes on with the album
+    // once the queue runs out on it.
+    val openAlbum by androidx.compose.runtime.rememberUpdatedState(albumWithSongs)
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val token = Any()
+        com.metrolist.music.playback.OpenAlbum.open(token) { mediaId ->
+            val album = openAlbum ?: return@open null
+            val index = album.songs.indexOfFirst { it.id == mediaId }
+            if (index < 0) null else LocalAlbumRadio(album, startIndex = index)
+        }
+        onDispose { com.metrolist.music.playback.OpenAlbum.close(token) }
+    }
+
     var inSelectMode by rememberSaveable { mutableStateOf(false) }
     val selection =
         rememberSaveable(

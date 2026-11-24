@@ -295,6 +295,24 @@ fun VkPlaylistScreen(
     val downloads by downloadUtil.visibleDownloads.collectAsState()
     val exported by com.metrolist.music.utils.DownloadExportState.exported.collectAsState()
 
+    // A VK album that is open: a track of it queued by hand goes on with the album afterwards.
+    val openTracks by androidx.compose.runtime.rememberUpdatedState(tracks)
+    androidx.compose.runtime.DisposableEffect(playlist?.isAlbum) {
+        val token = Any()
+        if (playlist?.isAlbum == true) {
+            com.metrolist.music.playback.OpenAlbum.open(token) { mediaId ->
+                val list = openTracks
+                val index = list.indexOfFirst { SourceSearch.mediaIdOf(it) == mediaId }
+                if (index < 0) null else ListQueue(
+                    title = playlist?.title,
+                    items = list.map { SourceSearch.mediaItemOf(it) },
+                    startIndex = index,
+                )
+            }
+        }
+        onDispose { com.metrolist.music.playback.OpenAlbum.close(token) }
+    }
+
     fun play(list: List<ProviderMatch>, index: Int, shuffle: Boolean = false) {
         if (list.isEmpty()) return
         val ordered = if (shuffle) list.shuffled() else list

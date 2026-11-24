@@ -134,6 +134,31 @@ fun SpotifyAlbumScreen(
         }
     }
 
+    // While this album is open, a track of it queued by hand (a menu, a swipe, a selection) goes
+    // on with the album once the queue runs out on it.
+    val openTracks by androidx.compose.runtime.rememberUpdatedState(tracks)
+    val openAlbumId by androidx.compose.runtime.rememberUpdatedState(album?.id)
+    val openMatches by androidx.compose.runtime.rememberUpdatedState(spotifyToYt)
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val token = Any()
+        com.metrolist.music.playback.OpenAlbum.open(token) { mediaId ->
+            val albumId = openAlbumId ?: return@open null
+            val list = openTracks
+            val catalogId = com.metrolist.music.playback.SpotifyMetadataRegistry.get(mediaId)?.id
+                ?: com.metrolist.music.resolver.FallbackIds.catalogIdOf(mediaId)
+                ?: openMatches.entries.firstOrNull { it.value == mediaId }?.key
+                ?: mediaId
+            val index = list.indexOfFirst { it.id == catalogId }
+            if (index < 0) null else SpotifyPlaylistQueue(
+                playlistId = "album_$albumId",
+                initialTracks = list,
+                startIndex = index,
+                mapper = viewModel.mapper,
+            )
+        }
+        onDispose { com.metrolist.music.playback.OpenAlbum.close(token) }
+    }
+
     // Which album tracks are in the user's Spotify likes (for the heart badge).
     val likedTracks by com.metrolist.music.playback.SpotifyLikeCache.liked.collectAsState()
     LaunchedEffect(tracks) {

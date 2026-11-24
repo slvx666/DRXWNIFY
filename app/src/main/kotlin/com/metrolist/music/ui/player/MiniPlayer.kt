@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -1348,8 +1349,10 @@ private fun FavoriteButton(
     val isGothic = currentPresetFav == AppThemePreset.GOTHIC
     val isCustomFav = isSatanic || isGothic
     val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    // Satanic's heart (with its dagger when liked) is taller than the button: not clipped to a circle.
+    val tallHeart = isSatanic && com.metrolist.music.ui.theme.ThemeIcons.likeIsTall
     val buttonModifier = if (isCustomFav) {
-        Modifier
+        if (tallHeart) Modifier.size(36.dp) else Modifier
             .size(36.dp)
             .clip(CircleShape.tui())
     } else {
@@ -1380,7 +1383,15 @@ private fun FavoriteButton(
             painter = painterResource(com.metrolist.music.playback.LikeTarget.icon(isLiked, likeSyncs || isEpisode)),
             contentDescription = null,
             tint = favTint,
-            modifier = if (isSatanic && com.metrolist.music.ui.theme.ThemeIcons.likeIsTall) Modifier.size(width = 15.dp, height = 38.dp) else Modifier.size(20.dp),
+            // The heart's weight sits to the right of its box: nudged left to look centred. The
+            // dagger version is drawn larger so the heart itself is as big as the plain one.
+            modifier = if (tallHeart) {
+                Modifier
+                    .offset(x = (-2).dp)
+                    .requiredSize(width = if (isLiked) 16.5.dp else 14.5.dp, height = if (isLiked) 41.dp else 36.dp)
+            } else {
+                Modifier.size(20.dp)
+            },
         )
     }
 }
