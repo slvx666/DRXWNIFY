@@ -701,7 +701,9 @@ private fun ThumbnailItem(
                         .fillMaxSize()
                 }
             )
-            .padding(horizontal = PlayerHorizontalPadding)
+            // A round cover seeks from the very edges of the screen: the side margin is laid out
+            // inside the tap area then, not around it.
+            .then(if (isRing) Modifier else Modifier.padding(horizontal = PlayerHorizontalPadding))
             .graphicsLayer {
                 // Render entire thumbnail item on separate hardware layer for smooth animations
                 compositingStrategy = CompositingStrategy.Offscreen
@@ -758,7 +760,8 @@ private fun ThumbnailItem(
                         }
                     }
                 )
-            },
+            }
+            .then(if (isRing) Modifier.padding(horizontal = PlayerHorizontalPadding) else Modifier),
         contentAlignment = Alignment.Center
     ) {
         if (isRing) {

@@ -411,20 +411,26 @@ object AudioFallbackEngine {
                         "${playing?.let { "%.2f".format(it.confidence) } ?: "?"}), best found ${best.provider} ~$bestKbps kbps " +
                         "(${"%.2f".format(best.confidence)}) → " +
                         when {
-                            moreExact -> "the exact track, used from the next play/download"
-                            betterSound -> "offered, used from the next play/download"
+                            moreExact && switchesVersions() -> "the exact track, used from the next play/download"
+                            moreExact -> "the exact track, offered (arrow)"
+                            betterSound && switchesVersions() -> "offered, used from the next play/download"
+                            betterSound -> "offered (arrow), used for downloads"
                             else -> "nothing better"
                         } +
                         "\n  " + outcome.report.joinToString("\n  "),
                 )
                 val keep = (outcome.matches + listOfNotNull(playing)).distinctBy { it.provider to it.trackId }
                 if (moreExact) {
-                    memory.put(query.cacheKey, best)
-                    remember(query, keep, best)
+                    if (switchesVersions()) {
+                        memory.put(query.cacheKey, best)
+                        remember(query, keep, best)
+                    } else {
+                        SourceUpgrades.offer(catalogId, best, bestKbps)
+                    }
                     return@launch
                 }
                 if (!betterSound) return@launch
-                if (!speed) {
+                if (!speed && switchesVersions()) {
                     memory.put(query.cacheKey, best)
                     remember(query, keep, best)
                 }
@@ -530,16 +536,19 @@ object AudioFallbackEngine {
         val winnerKbps = effectiveKbps(winner)
         val better = !same && bestKbps >= winnerKbps + MIN_UPGRADE_KBPS &&
             best.confidence >= winner.confidence - ParallelAudioResolver.AUTO_CONFIDENCE_MARGIN
-        if (!better) {
+        if (!better || !switchesVersions()) {
             // The alternates are kept all the same (a stream failure can switch without a search).
             remember(query, late.matches, winner)
-            return
         }
-        memory.put(query.cacheKey, best)
-        remember(query, late.matches, best)
+        if (!better) return
+        if (switchesVersions()) {
+            memory.put(query.cacheKey, best)
+            remember(query, late.matches, best)
+        }
         AudioDiagnostics.info(
             "better version for ${query.label()}: ${best.provider} ~$bestKbps kbps " +
-                "(${"%.2f".format(best.confidence)}) instead of ${winner.provider} ~$winnerKbps kbps — used from the next play/download",
+                "(${"%.2f".format(best.confidence)}) instead of ${winner.provider} ~$winnerKbps kbps — " +
+                if (switchesVersions()) "used from the next play/download" else "offered (arrow), used for downloads",
         )
         query.catalogId?.let { SourceUpgrades.offer(it, best, bestKbps) }
     }
@@ -612,10 +621,19 @@ object AudioFallbackEngine {
 
     /** Stored matches that still pass the gates, best first (a manual pick always first). */
     private fun storedCandidates(query: AudioQuery): List<ProviderMatch> {
-        val matches = storedMatches(query).mapNotNull { it.toMatch() }.filter { isPlausible(query, it) }
+        val rows = storedMatches(query).mapNotNull { row -> row.toMatch()?.takeIf { isPlausible(query, it) }?.let { row.selected to it } }
+        val matches = rows.map { it.second }
         val manual = matches.filter { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }
-        return manual + ParallelAudioResolver.inPickOrder(matches - manual.toSet(), ::rank)
+        // Auto and Speed keep the version that played: alternates found later (VK at 320 behind a
+        // YouTube that answered first) used to be re-sorted ahead of it, so the track changed version
+        // from one play to the next. Only Quality moves to the better-sounding one by itself.
+        val chosen = if (switchesVersions()) emptyList() else rows.filter { it.first }.map { it.second } - manual.toSet()
+        return manual + chosen + ParallelAudioResolver.inPickOrder(matches - manual.toSet() - chosen.toSet(), ::rank)
     }
+
+    /** Only Quality changes a track's version by itself; Auto and Speed only show the arrow. */
+    private fun switchesVersions(): Boolean =
+        ResolverPreferences.pickMode == com.metrolist.music.constants.SourcePickMode.QUALITY
 
     private fun isPlausible(query: AudioQuery, match: ProviderMatch): Boolean {
         if (match.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE) return true
@@ -1063,7 +1081,7 @@ object AudioFallbackEngine {
 
         // Quality mode: what was chosen before it existed is compared with every source once.
         val catalogId = query.catalogId
-        if (catalogId != null && ResolverPreferences.pickMode != com.metrolist.music.constants.SourcePickMode.SPEED &&
+        if (catalogId != null && switchesVersions() &&
             !wasQualityChecked(catalogId) && storedCandidates(query).none { it.confidence >= ParallelAudioResolver.MANUAL_CONFIDENCE }
         ) {
             runCatching { resolve(query, failed, forceRace = true) }
