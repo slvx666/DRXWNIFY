@@ -159,7 +159,17 @@ class BottomSheetState(
     private val onAnchorChanged: (Int) -> Unit,
     val collapsedBound: Dp,
     private val anchor: () -> Int = { collapsedAnchor },
+    private val settlingState: androidx.compose.runtime.MutableState<Boolean> = androidx.compose.runtime.mutableStateOf(false),
 ) : DraggableState by draggableState {
+    /**
+     * The collapsed mini player sliding to its new height after the screen changed (the bottom bar
+     * came or went). It counts as collapsed meanwhile: the slide used to read as "being opened" —
+     * the whole player was built under the new screen (the stutter on opening an album or
+     * "Together"), and the mini player and bottom bar faded by the progress (half transparent, then
+     * a jump).
+     */
+    val isSettling: Boolean get() = settlingState.value
+
     /** Expanded, or on its way there, as opposed to settling at its collapsed or dismissed height. */
     val isOpenedByUser: Boolean
         get() = anchor() == expandedAnchor || (value > collapsedBound + 1.dp && anchor() != collapsedAnchor && anchor() != dismissedAnchor)
@@ -177,7 +187,7 @@ class BottomSheetState(
     }
 
     val isCollapsed by derivedStateOf {
-        value == collapsedBound
+        value == collapsedBound || settlingState.value
     }
 
     val isExpanded by derivedStateOf {
@@ -185,10 +195,12 @@ class BottomSheetState(
     }
 
     val progress by derivedStateOf {
-        1f - (animatable.upperBound!! - animatable.value) / (animatable.upperBound!! - collapsedBound)
+        if (settlingState.value) 0f
+        else 1f - (animatable.upperBound!! - animatable.value) / (animatable.upperBound!! - collapsedBound)
     }
 
     fun collapse(animationSpec: AnimationSpec<Dp>) {
+        settlingState.value = false
         onAnchorChanged(collapsedAnchor)
         coroutineScope.launch {
             animatable.animateTo(collapsedBound, animationSpec)
@@ -196,6 +208,7 @@ class BottomSheetState(
     }
 
     fun expand(animationSpec: AnimationSpec<Dp>) {
+        settlingState.value = false
         onAnchorChanged(expandedAnchor)
         coroutineScope.launch {
             animatable.animateTo(animatable.upperBound!!, animationSpec)
@@ -219,6 +232,7 @@ class BottomSheetState(
     }
 
     fun dismiss() {
+        settlingState.value = false
         onAnchorChanged(dismissedAnchor)
         coroutineScope.launch {
             animatable.animateTo(animatable.lowerBound!!)
@@ -226,11 +240,13 @@ class BottomSheetState(
     }
     
     suspend fun dismissAndWait() {
+        settlingState.value = false
         onAnchorChanged(dismissedAnchor)
         animatable.animateTo(animatable.lowerBound!!)
     }
 
     fun snapTo(value: Dp) {
+        settlingState.value = false
         coroutineScope.launch {
             animatable.snapTo(value)
         }
@@ -341,6 +357,7 @@ fun rememberBottomSheetState(
     val animatable = remember {
         Animatable(0.dp, Dp.VectorConverter)
     }
+    val settling = remember { androidx.compose.runtime.mutableStateOf(false) }
 
     return remember(dismissedBound, expandedBound, collapsedBound, coroutineScope) {
         val initialValue = when (previousAnchor) {
@@ -351,12 +368,27 @@ fun rememberBottomSheetState(
         }
 
         animatable.updateBounds(dismissedBound.coerceAtMost(expandedBound), expandedBound)
+        val collapsedSlide = previousAnchor == collapsedAnchor && animatable.value != initialValue
+        if (collapsedSlide) settling.value = true
         coroutineScope.launch {
-            animatable.animateTo(initialValue, NavigationBarAnimationSpec)
+            try {
+                // The same 300 ms as the bottom bar's slide, so the two move together.
+                animatable.animateTo(
+                    initialValue,
+                    if (collapsedSlide) {
+                        androidx.compose.animation.core.tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                    } else {
+                        NavigationBarAnimationSpec
+                    },
+                )
+            } finally {
+                if (collapsedSlide && animatable.targetValue == initialValue) settling.value = false
+            }
         }
 
         BottomSheetState(
             draggableState = DraggableState { delta ->
+                settling.value = false
                 coroutineScope.launch {
                     animatable.snapTo(animatable.value - with(density) { delta.toDp() })
                 }
@@ -366,6 +398,7 @@ fun rememberBottomSheetState(
             animatable = animatable,
             collapsedBound = collapsedBound,
             anchor = { previousAnchor },
+            settlingState = settling,
         )
     }
 }

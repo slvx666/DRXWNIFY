@@ -81,6 +81,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1212,16 +1213,24 @@ class MainActivity : ComponentActivity() {
                                                 Modifier
                                                     .fillMaxWidth()
                                                     .align(Alignment.BottomCenter)
-                                                    .height(
-                                                        // On the main tabs the band stays below the mini player,
-                                                        // leaving a small gap; elsewhere it reaches its top edge.
-                                                        if (shouldShowNavigationBar) {
-                                                            (playerBottomSheetState.collapsedBound - MiniPlayerHeight - 6.dp)
-                                                                .coerceAtLeast(0.dp)
+                                                    // Measured at layout, not composition: while the mini player
+                                                    // slides to its new height the band follows it frame by frame
+                                                    // (it jumped there at once and the page showed between them).
+                                                    .layout { measurable, constraints ->
+                                                        val top = if (playerBottomSheetState.isSettling) {
+                                                            playerBottomSheetState.value
                                                         } else {
                                                             playerBottomSheetState.collapsedBound
-                                                        },
-                                                    )
+                                                        }
+                                                        // On the main tabs the band stays below the mini player,
+                                                        // leaving a small gap; elsewhere it reaches its top edge.
+                                                        val band = if (shouldShowNavigationBar) (top - MiniPlayerHeight - 6.dp).coerceAtLeast(0.dp) else top
+                                                        val h = band.roundToPx().coerceAtLeast(0)
+                                                        val placeable = measurable.measure(
+                                                            androidx.compose.ui.unit.Constraints.fixed(constraints.maxWidth, h),
+                                                        )
+                                                        layout(constraints.maxWidth, h) { placeable.place(0, 0) }
+                                                    }
                                                     .graphicsLayer {
                                                         alpha = (1f - playerBottomSheetState.progress * 4f).coerceIn(0f, 1f)
                                                         // Goes down with the mini player (a chat's sticker panel).

@@ -69,12 +69,21 @@ object AppIntroState {
     @Volatile
     private var due: Boolean? = null
 
-    /** Decided once per process, before [markActive] of this launch can move the timestamp. */
+    private const val KEY_VERSION = "intro_version"
+
+    /**
+     * Decided once per process, before [markActive] of this launch can move the timestamp. Also
+     * the first start of a new version: its first launch is the slow one (nothing compiled yet), and
+     * the intro covers home and the library loading.
+     */
     fun isDue(context: android.content.Context): Boolean = due ?: run {
-        val last = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
-            .getLong(KEY_LAST_ACTIVE, 0L)
+        val prefs = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+        val last = prefs.getLong(KEY_LAST_ACTIVE, 0L)
         val now = System.currentTimeMillis()
-        (last == 0L || now - last >= IDLE_BEFORE_INTRO_MS || now < last).also { due = it }
+        val version = com.metrolist.music.BuildConfig.VERSION_CODE
+        val newVersion = prefs.getInt(KEY_VERSION, -1) != version
+        if (newVersion) prefs.edit().putInt(KEY_VERSION, version).apply()
+        (newVersion || last == 0L || now - last >= IDLE_BEFORE_INTRO_MS || now < last).also { due = it }
     }
 
     /** The app was in use just now (leaving the screen, or music playing in the background). */
@@ -91,20 +100,20 @@ private val RiseEasing = CubicBezierEasing(0.2f, 0.8f, 0.3f, 1f)
 
 private val IconSize = 208.dp
 private const val ICON_IN_MS = 400
-private const val ICON_OUT_MS = 600
+private const val ICON_OUT_MS = 450
 private const val LETTERS_START_MS = 280L
 private const val LETTER_STAGGER_MS = 60L
 private const val LETTER_FADE_MS = 450
 private const val LETTER_OUT_MS = 450
 private const val LETTER_OUT_STAGGER_MS = 30L
-private const val SHIMMER_MS = 900
+private const val SHIMMER_MS = 600
 /** After the shimmer pass, wait at most this long for home/library before opening anyway. */
-private const val READY_GRACE_MS = 1_000L
+private const val READY_GRACE_MS = 500L
 /** Pause after the shimmer before the letters start leaving; the icon and app fade follow later. */
 private const val LETTERS_OUT_DELAY_MS = 200L
 /** After the letters start leaving (not after the shimmer). */
 private const val ICON_OUT_DELAY_MS = 200L
-private const val APP_FADE_IN_MS = 1_000
+private const val APP_FADE_IN_MS = 600
 
 /**
  * Launch intro drawn over the app while home and library load underneath. It plays on every fresh
