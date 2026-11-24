@@ -4799,7 +4799,7 @@ class MusicService :
             } else {
                 val spec = dataSpec.buildUpon().setUri(url.toUri()).setKey(cacheKey).build()
                 if (youtube != null) noteYoutubeOpen(url)
-                return if (youtube != null) spec.subrange(0, CHUNK_LENGTH) else spec
+                return spec
             }
         }
         if (!bypassCache && usePlayerCache && playerCache.holdsWhole(cacheKey)) {
@@ -4850,10 +4850,14 @@ class MusicService :
         // The rest of a track already playing from a YouTube video comes from that same video: a
         // better version found meanwhile is for the next play ("used from the next play"), and
         // switching in the middle fed the YouTube container another upload's bytes.
+        // Also after a break-off (recoverBrokenCopy empties the cache and its owner): "Alias" broke off
+        // at 0:31 on YouTube and went on from VK — another master, half as loud.
         val serving = fallbackServing[mediaId]
+        val owner = cacheOwners.getString(cacheKey, null)
         val keepServing = dataSpec.position > 0 && depth == 0 && serving != null &&
             serving.provider == AudioProviderId.YOUTUBE &&
-            cacheOwners.getString(cacheKey, null) == "${AudioProviderId.YOUTUBE.name}:${serving.trackId}"
+            (owner == null || owner == "${AudioProviderId.YOUTUBE.name}:${serving.trackId}") &&
+            serving.provider !in failures.providers && serving.trackId !in failures.tracks
         val plan = if (keepServing) {
             AudioFallbackEngine.StreamPlan.YouTube(serving!!.trackId)
         } else runCatching {
@@ -4970,8 +4974,8 @@ class MusicService :
                     data.streamUrl to System.currentTimeMillis() + (data.streamExpiresInSeconds * 1000L)
                 noteYoutubeOpen(data.streamUrl)
                 AudioDiagnostics.info("playing $mediaId via YOUTUBE (${plan.videoId})")
+                // Read whole: YoutubeResumingDataSource fetches it in ranged pieces itself.
                 dataSpec.buildUpon().setUri(data.streamUrl.toUri()).setKey(cacheKey).build()
-                    .subrange(0, CHUNK_LENGTH)
             }
         }
     }
@@ -5419,19 +5423,12 @@ class MusicService :
                         ),
                     )
                     /*
-                     * The .subrange() is NOT optional and must match the fresh-resolution path
-                     * below. ExoPlayer opens a track with position=0 / length=LENGTH_UNSET, and
-                     * media3's HttpUtil.buildRangeRequestHeader returns null for exactly that
-                     * pair — so without a subrange the media GET carries no Range header at all.
-                     * googlevideo answers a Range-less request with 403 on every YouTube Music
-                     * art track (`- Topic` uploads, i.e. nearly everything played here) while
-                     * serving the ranged request with 206.
-                     *
-                     * That asymmetry made playback fail only for songs whose URL was already in
-                     * songUrlCache — first play resolved fresh and worked, replaying or skipping
-                     * back to it took this branch and 403'd.
+                     * No .subrange() here any more: YoutubeResumingDataSource (below the cache)
+                     * sends every googlevideo request ranged, in PIECE-sized parts. A Range-less
+                     * request gets 403 on `- Topic` uploads, and 512 KB pieces handed to the player
+                     * ended in EOFs — one landing between two audio blocks ended the track early.
                      */
-                    return@Factory dataSpec.withUri(it.first.toUri()).subrange(0, CHUNK_LENGTH)
+                    return@Factory dataSpec.withUri(it.first.toUri())
                 }
             } else {
                 Timber.tag("MusicService").i("BYPASSING CACHE for $mediaId due to quality change")
@@ -5563,7 +5560,7 @@ class MusicService :
                 songUrlCache[mediaId] =
                     streamUrl to System.currentTimeMillis() + (nonNullPlayback.streamExpiresInSeconds * 1000L)
                 noteYoutubeOpen(streamUrl)
-                return@Factory dataSpec.withUri(streamUrl.toUri()).subrange(0, CHUNK_LENGTH)
+                return@Factory dataSpec.withUri(streamUrl.toUri())
             }
         }
     }
