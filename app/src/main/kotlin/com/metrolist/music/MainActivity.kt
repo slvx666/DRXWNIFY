@@ -1378,8 +1378,9 @@ class MainActivity : ComponentActivity() {
                                 com.metrolist.music.ui.theme.ThemeContentBackground(
                                     visible = (
                                         currentRoute == "home" || currentRoute == "library" ||
-                                            // The experimental themes dress every tab, not only these two.
-                                            (experimentalTheme && (currentRoute == "search_input" || currentRoute == "listen_together" || currentRoute == "settings" || currentRoute == "chats" || currentRoute?.startsWith("chat") == true || currentRoute == "friends"))
+                                            // The experimental themes dress every tab, not only these two
+                                            // (settings stay plain paper, the owner's wish).
+                                            (experimentalTheme && (currentRoute == "search_input" || currentRoute == "listen_together" || currentRoute == "chats" || currentRoute?.startsWith("chat") == true || currentRoute == "friends"))
                                         ) &&
                                         !playerBottomSheetState.isExpanded,
                                     route = currentRoute,

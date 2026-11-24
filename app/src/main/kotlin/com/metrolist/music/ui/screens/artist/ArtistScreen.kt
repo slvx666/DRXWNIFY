@@ -71,6 +71,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -183,9 +186,23 @@ fun ArtistScreen(
             -(systemBarsTopPadding + AppBarHeight).roundToPx()
         }
 
-    val transparentAppBar by remember {
+    // The bar comes in with the scroll, not at once: it starts once the artist's name is close
+    // under it and is fully there when the name has gone under it (where the name stands on
+    // screen is measured; until then, and on the other header, the old 100 px rule).
+    var nameTop by remember { androidx.compose.runtime.mutableFloatStateOf(Float.NaN) }
+    var nameBottom by remember { androidx.compose.runtime.mutableFloatStateOf(Float.NaN) }
+    val barBottomPx = with(density) { (systemBarsTopPadding + AppBarHeight).toPx() }
+    val barLeadPx = with(density) { 24.dp.toPx() }
+    val barProgress by remember {
         derivedStateOf {
-            lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset < 100
+            when {
+                lazyListState.firstVisibleItemIndex > 0 -> 1f
+                nameTop.isNaN() -> if (lazyListState.firstVisibleItemScrollOffset < 100) 0f else 1f
+                else -> {
+                    val span = (nameBottom - nameTop) + barLeadPx
+                    ((barBottomPx + span - nameBottom) / span).coerceIn(0f, 1f)
+                }
+            }
         }
     }
 
@@ -394,7 +411,13 @@ fun ArtistScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     fontSize = 32.sp,
-                                    modifier = Modifier.padding(bottom = 8.dp),
+                                    modifier = Modifier
+                                        .padding(bottom = 8.dp)
+                                        .onGloballyPositioned { c ->
+                                            val r = c.boundsInRoot()
+                                            nameTop = r.top
+                                            nameBottom = r.bottom
+                                        },
                                 )
 
                                 // Genres from Last.fm / MusicBrainz, the same tags as on friends' profiles.
@@ -1240,7 +1263,14 @@ fun ArtistScreen(
     }
 
     TopAppBar(
-        title = { if (!transparentAppBar) Text(artistPage?.artist?.title.orEmpty()) },
+        title = {
+            Text(
+                artistPage?.artist?.title.orEmpty(),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.graphicsLayer { alpha = barProgress },
+            )
+        },
         navigationIcon = {
             IconButton(
                 onClick = navController::navigateUp,
@@ -1269,11 +1299,9 @@ fun ArtistScreen(
                 )
             }
         },
-        colors =
-            if (transparentAppBar) {
-                TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            } else {
-                TopAppBarDefaults.topAppBarColors()
-            },
+        colors = TopAppBarDefaults.topAppBarColors().let { base ->
+            val bar = base.containerColor.copy(alpha = base.containerColor.alpha * barProgress)
+            TopAppBarDefaults.topAppBarColors(containerColor = bar, scrolledContainerColor = bar)
+        },
     )
 }
