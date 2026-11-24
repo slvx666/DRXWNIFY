@@ -470,7 +470,9 @@ class HomeViewModel @Inject constructor(
         prepareJob = viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 val session = newRadioSession()
-                val first = session.next(6)
+                // Prepared in the background, so it can be long: the dice queue used to start with 6
+                // tracks, and swiping past them waited ~10 s for the next ones to be worked out.
+                val first = session.next(PREPARED_RADIO_TRACKS)
                 if (first.isNotEmpty()) preparedRadio = session to first
             }
         }
@@ -1297,3 +1299,5 @@ class HomeViewModel @Inject constructor(
         }
     }
 }
+
+private const val PREPARED_RADIO_TRACKS = 25

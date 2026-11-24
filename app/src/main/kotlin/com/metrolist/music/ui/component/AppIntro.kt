@@ -69,7 +69,7 @@ object AppIntroState {
     @Volatile
     private var due: Boolean? = null
 
-    private const val KEY_VERSION = "intro_version"
+    private const val KEY_VERSION = "intro_install_stamp"
 
     /**
      * Decided once per process, before [markActive] of this launch can move the timestamp. Also
@@ -80,9 +80,10 @@ object AppIntroState {
         val prefs = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
         val last = prefs.getLong(KEY_LAST_ACTIVE, 0L)
         val now = System.currentTimeMillis()
-        val version = com.metrolist.music.BuildConfig.VERSION_CODE
-        val newVersion = prefs.getInt(KEY_VERSION, -1) != version
-        if (newVersion) prefs.edit().putInt(KEY_VERSION, version).apply()
+        // Every install counts (as for the welcome): a rebuilt release of the same version too.
+        val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
+        val newVersion = prefs.getLong(KEY_VERSION, -1L) != version
+        if (newVersion) prefs.edit().putLong(KEY_VERSION, version).apply()
         (newVersion || last == 0L || now - last >= IDLE_BEFORE_INTRO_MS || now < last).also { due = it }
     }
 

@@ -1883,7 +1883,11 @@ class MusicService :
         }
         val skip = skipWhenMoreFrom != null && skipWhenMoreFrom == player.currentMediaItem?.mediaId
         skipWhenMoreFrom = null
-        if (skip || resume && player.playbackState == Player.STATE_ENDED) {
+        // The queue already played out while the next tracks were still being worked out (a slow
+        // "For you" round): they play at once. Left as they were, the player stayed "ended" on the
+        // new track, and play started the whole queue over from its first track.
+        val ended = player.playbackState == Player.STATE_ENDED && player.repeatMode == REPEAT_MODE_OFF
+        if (skip || (resume || ended) && player.playbackState == Player.STATE_ENDED) {
             player.seekTo(firstNew, 0)
             player.prepare()
             player.play()
