@@ -73,22 +73,39 @@ class YoutubeResumingDataSource(
     private fun openAt(spec: DataSpec): Long {
         val length = try {
             upstream.open(spec)
-        } catch (e: HttpDataSource.InvalidResponseCodeException) {
-            // A spent address answers a piece past the start with 403: a fresh one instead.
-            if (e.responseCode != 403 || spec.position == 0L) throw e
+        } catch (e: java.io.IOException) {
+            // A spent address answers a piece past the start with 403 (or 410/416, or drops the
+            // connection): a fresh one instead. The start itself is the resolver's to deal with.
+            if (spec.position == 0L) throw e
+            if (e is HttpDataSource.InvalidResponseCodeException && e.responseCode in 500..599) throw e
             val fresh = renew(spec) ?: throw e
             runCatching { upstream.close() }
             return openAt(fresh)
         }
         address = spec.uri
         (totalFrom(upstream.responseHeaders) ?: clenOf(spec.uri))?.let { fileLength = it }
+        // An empty answer past the start, while the file goes on: the address is spent.
+        if (length == 0L && spec.position > 0 && (fileLength == C.LENGTH_UNSET.toLong() || spec.position < fileLength)) {
+            renew(spec)?.let { fresh ->
+                runCatching { upstream.close() }
+                return openAt(fresh)
+            }
+        }
         return length
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
         while (true) {
-            val n = upstream.read(buffer, offset, length)
+            val n = try {
+                upstream.read(buffer, offset, length)
+            } catch (e: java.io.IOException) {
+                // The connection dropped in the middle of the piece (mobile networks, a spent
+                // address closing it): read on from the same byte, as for a piece cut short.
+                if (!watching || origin == null) throw e
+                if (!resumeFromHere()) throw e
+                continue
+            }
             if (n != C.RESULT_END_OF_INPUT) {
                 read += n
                 if (n > 0) freshTries = 0
@@ -108,10 +125,28 @@ class YoutubeResumingDataSource(
         }
     }
 
+    /** Reopens the piece at the byte reached, with a fresh address; false when there is none. */
+    private fun resumeFromHere(): Boolean {
+        val piece = origin ?: return false
+        val rest = piece.buildUpon()
+            .setUri(address ?: piece.uri)
+            .setPosition(piece.position + read)
+            .setLength(if (piece.length == C.LENGTH_UNSET.toLong()) C.LENGTH_UNSET.toLong() else piece.length - read)
+            .build()
+        if (rest.length == 0L) return false
+        val fresh = renew(rest) ?: return false
+        runCatching { upstream.close() }
+        return runCatching { openAt(fresh) }.isSuccess.also { ok ->
+            if (ok) onResumed(piece.key, piece.position + read)
+        }
+    }
+
     /** The piece ended before its promised bytes, and the file goes on past where it stopped. */
     private fun cutShort(): Boolean {
         val piece = origin ?: return false
         if (promised != C.LENGTH_UNSET.toLong() && read >= promised) return false
+        // Fewer bytes than the answer promised: cut off on the way.
+        if (promised != C.LENGTH_UNSET.toLong()) return true
         val reached = piece.position + read
         if (fileLength != C.LENGTH_UNSET.toLong()) return reached < fileLength
         // Nothing says how long the file is: only an empty piece past the start counts as a break.

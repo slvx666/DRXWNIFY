@@ -5590,16 +5590,24 @@ class MusicService :
             // "No source has this track" or server errors (HTTP 5xx, 404, unreachable host) are final:
             // retrying them keeps the player stuck for minutes instead of immediately triggering fallback.
             object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(1) {
-                override fun getMinimumLoadableRetryCount(dataType: Int): Int = 1
+                // While the buffer still plays, a load that broke is tried again a few times before
+                // the player is told: with only two tries a YouTube piece that ended early twice
+                // (an address spent at ~1 MB) became a player error, and the song went silent for
+                // seconds while it was set up again from scratch.
+                override fun getMinimumLoadableRetryCount(dataType: Int): Int = 3
 
-                override fun getRetryDelayMsFor(info: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long =
+                override fun getRetryDelayMsFor(info: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
                     // A stream server out of reach, 5xx gateway/server error, or fatal response:
                     // the error goes straight to fallback (another upload or source) instead of retries.
-                    if (isNoAudioSource(info.exception) || hasUnreachableHost(info.exception) || isFatalServerError(info.exception) || info.errorCount >= 2) {
-                        androidx.media3.common.C.TIME_UNSET
-                    } else {
-                        super.getRetryDelayMsFor(info)
+                    if (isNoAudioSource(info.exception) || hasUnreachableHost(info.exception) || isFatalServerError(info.exception)) {
+                        return androidx.media3.common.C.TIME_UNSET
                     }
+                    // A piece that ended early or a dropped connection: read on, a little later each time.
+                    val brokeOff = generateSequence(info.exception as Throwable?) { it.cause }.take(8)
+                        .any { it is java.io.EOFException || it is java.net.SocketException || it is java.net.ProtocolException || it is java.net.SocketTimeoutException }
+                    if (brokeOff && info.errorCount <= 6) return minOf(400L * (info.errorCount - 1), 2_000L)
+                    return if (info.errorCount >= 2) androidx.media3.common.C.TIME_UNSET else super.getRetryDelayMsFor(info)
+                }
             },
         )
 
