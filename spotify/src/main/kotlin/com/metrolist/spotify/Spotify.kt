@@ -57,6 +57,18 @@ import kotlinx.serialization.json.putJsonObject
  * https://github.com/sonic-liberation/hetu_spotify_gql_client
  */
 object Spotify {
+    /**
+     * When the catalog last answered, last failed on its side (5xx), last refused for too many
+     * requests (429) and last could not be reached at all (no connection, timeout — often a VPN):
+     * the app tells the listener why the music waits instead of standing silent.
+     */
+    object Health {
+        @Volatile var lastOk = 0L
+        @Volatile var lastServerError = 0L
+        @Volatile var lastRateLimited = 0L
+        @Volatile var lastUnreachable = 0L
+    }
+
     @Volatile
     var accessToken: String? = null
 
@@ -273,15 +285,20 @@ object Spotify {
             )
 
             val response =
-                gqlClient.post(GQL_URL) {
-                    header("Authorization", "Bearer $token")
-                    language?.let { header("Accept-Language", it) }
-                    setBody(
-                        TextContent(
-                            body.toString(),
-                            ContentType.Application.Json.withParameter("charset", "UTF-8"),
-                        ),
-                    )
+                try {
+                    gqlClient.post(GQL_URL) {
+                        header("Authorization", "Bearer $token")
+                        language?.let { header("Accept-Language", it) }
+                        setBody(
+                            TextContent(
+                                body.toString(),
+                                ContentType.Application.Json.withParameter("charset", "UTF-8"),
+                            ),
+                        )
+                    }
+                } catch (e: java.io.IOException) {
+                    Health.lastUnreachable = System.currentTimeMillis()
+                    throw e
                 }
 
             log("D", "GQL POST $operationName -> ${response.status.value}")
@@ -292,6 +309,7 @@ object Spotify {
             if (response.status == HttpStatusCode.TooManyRequests) {
                 val retryAfter = response.headers["Retry-After"]?.toLongOrNull() ?: (2L * (attempt + 1))
                 if (attempt < maxRetries - 1) {
+                    Health.lastRateLimited = System.currentTimeMillis()
                     log("W", "GQL $operationName -> 429, waiting ${retryAfter}s (attempt ${attempt + 1}/$maxRetries)")
                     delay(retryAfter * 1000)
                     continue
@@ -303,6 +321,7 @@ object Spotify {
             }
             if (response.status.value !in 200..299) {
                 val bodyText = response.bodyAsText()
+                if (response.status.value >= 500) Health.lastServerError = System.currentTimeMillis()
                 log("E", "GQL $operationName FAILED: ${response.status.value} — ${bodyText.take(200)}")
                 throw SpotifyException(response.status.value, "GraphQL error ${response.status.value}: $bodyText")
             }
@@ -319,6 +338,7 @@ object Spotify {
                 throw SpotifyException(400, "GraphQL: $errorMsg")
             }
 
+            Health.lastOk = System.currentTimeMillis()
             return GqlResult(json = responseJson, isPersistedQueryNotFound = false)
         }
 

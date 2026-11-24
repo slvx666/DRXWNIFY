@@ -81,6 +81,9 @@ abstract class SpotifyPagedQueue(
     private suspend fun toItem(track: SpotifyTrack): MediaItem? =
         if (quickItems) mapper.quickMetadata(track).toMediaItem() else mapper.resolveToMediaItem(track)
 
+    /** Empty continuation rounds in a row before the queue gives up for now. */
+    protected open val maxFruitlessRounds: Int = MAX_FRUITLESS_ROUNDS
+
     /** How many times [continueWith] may extend the queue; an endless radio lifts the limit. */
     protected open val maxContinuationRounds: Int = MAX_CONTINUATION_ROUNDS
 
@@ -254,7 +257,7 @@ abstract class SpotifyPagedQueue(
                 val fresh = more.filter { it.id !in known }
                 allTracks.addAll(fresh)
                 // An endless queue must not spin on the network when a seed brings nothing new.
-                if (fresh.isEmpty() && ++fruitless >= MAX_FRUITLESS_ROUNDS) break
+                if (fresh.isEmpty() && ++fruitless >= maxFruitlessRounds) break
             }
         }
 

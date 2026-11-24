@@ -273,6 +273,14 @@ private const val QUEUE_PRELOAD_AHEAD_THRESHOLD = 20
 private const val SHUFFLE_PRELOAD_MAX_ITEMS = 500
 
 /** Waits before each try at a new radio when the recommendations ran out (the first try at once). */
+/** One try at a new radio (catalog, YouTube, "For you") before the next kind is asked. */
+private const val NEXT_RADIO_TRY_MS = 6_000L
+
+/** Silence with the next tracks still loading, before the listener is told why. */
+private const val SLOW_RECOMMENDATIONS_HINT_MS = 4_000L
+
+private const val RECOMMENDATIONS_HINT_EVERY_MS = 120_000L
+
 private val RECOMMENDATIONS_RETRY_MS = longArrayOf(0L, 3_000L, 10_000L, 20_000L, 30_000L, 60_000L, 60_000L, 120_000L, 120_000L)
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
@@ -1844,7 +1852,10 @@ class MusicService :
                 if (wait > 0) delay(wait)
                 if (currentQueue !== spent || player.mediaItemCount == 0) return@launch
                 val (radio, items) = albumAfterQueue()?.takeIf { it.second.isNotEmpty() || it.first.hasNextPage() }
-                    ?: nextRadio() ?: continue
+                    ?: nextRadio() ?: run {
+                        if (!player.hasNextMediaItem()) explainSlowRecommendations()
+                        null
+                    } ?: continue
                 if (currentQueue !== spent) return@launch
                 if (items.isEmpty()) {
                     // The album's first window was all queued already: its next page follows.
@@ -1861,6 +1872,36 @@ class MusicService :
                 return@launch
             }
             AudioDiagnostics.warn("recommendations ran out and no new radio could be started")
+        }
+    }
+
+    @Volatile private var lastRecommendationsHint = 0L
+
+    /**
+     * A short toast on why the next tracks are late: no internet, the catalog unreachable (usually
+     * the VPN — a tip to switch its server), the catalog failing or limiting requests on its side
+     * (YouTube's radio takes over), or just slow. At most once in [RECOMMENDATIONS_HINT_EVERY_MS].
+     */
+    private fun explainSlowRecommendations() {
+        val now = System.currentTimeMillis()
+        if (now - lastRecommendationsHint < RECOMMENDATIONS_HINT_EVERY_MS) return
+        lastRecommendationsHint = now
+        val online = runCatching {
+            connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+                ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        }.getOrDefault(true)
+        val health = com.metrolist.spotify.Spotify.Health
+        fun recent(at: Long) = at > 0 && now - at < 90_000L && at >= health.lastOk
+        val message = when {
+            !online -> R.string.recs_hint_offline
+            recent(health.lastUnreachable) -> R.string.recs_hint_vpn
+            recent(health.lastRateLimited) -> R.string.recs_hint_rate_limited
+            recent(health.lastServerError) -> R.string.recs_hint_catalog_down
+            else -> R.string.recs_hint_slow
+        }
+        AudioDiagnostics.info("next tracks are late: told the listener (${resources.getResourceEntryName(message)})")
+        scope.launch(Dispatchers.Main) {
+            Toast.makeText(this@MusicService, message, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -1938,9 +1979,10 @@ class MusicService :
             .distinctBy { it.mediaId }
             .also { RecommendedTracks.mark(it) }
 
-        for (seed in seeds) {
-            val radio = runCatching { catalogRadioFrom(seed) }.getOrNull() ?: continue
-            val items = usable(runCatching { withContext(Dispatchers.IO) { radio.nextPage() } }.getOrDefault(emptyList()))
+        // Each try is bounded: the catalog answering 500 kept the music standing for a minute.
+        for (seed in seeds.take(1)) {
+            val radio = runCatching { kotlinx.coroutines.withTimeoutOrNull(NEXT_RADIO_TRY_MS) { catalogRadioFrom(seed) } }.getOrNull() ?: continue
+            val items = usable(runCatching { kotlinx.coroutines.withTimeoutOrNull(NEXT_RADIO_TRY_MS) { withContext(Dispatchers.IO) { radio.nextPage() } } }.getOrNull().orEmpty())
             if (items.isNotEmpty()) return radio to items
         }
         // A catalog track that played from YouTube has a video: YouTube's radio from it when the
@@ -1952,7 +1994,7 @@ class MusicService :
         }.distinct()
         for (seed in videoSeeds.filter { it.length == 11 && it.all { c -> c.isLetterOrDigit() || c == '_' || c == '-' } }) {
             val radio = YouTubeQueue(endpoint = WatchEndpoint(videoId = seed))
-            val items = usable(runCatching { withContext(Dispatchers.IO) { radio.getInitialStatus().items } }.getOrDefault(emptyList()))
+            val items = usable(runCatching { kotlinx.coroutines.withTimeoutOrNull(NEXT_RADIO_TRY_MS) { withContext(Dispatchers.IO) { radio.getInitialStatus().items } } }.getOrNull().orEmpty())
             if (items.isNotEmpty()) return radio to items
         }
         if (com.metrolist.music.catalog.Catalog.isActive) {
@@ -1962,7 +2004,7 @@ class MusicService :
                 mapper = SpotifyYouTubeMapper(database),
                 preload = null,
             )
-            val items = usable(runCatching { withContext(Dispatchers.IO) { forYou.nextPage() } }.getOrDefault(emptyList()))
+            val items = usable(runCatching { kotlinx.coroutines.withTimeoutOrNull(NEXT_RADIO_TRY_MS) { withContext(Dispatchers.IO) { forYou.nextPage() } } }.getOrNull().orEmpty())
             if (items.isNotEmpty()) return forYou to items
         }
         return null
@@ -3104,6 +3146,12 @@ class MusicService :
             if (!inRadio && player.hasNextMediaItem() && player.playbackState != Player.STATE_ENDED) return
         }
         val queue = currentQueue
+        // Nothing left to play while the next tracks are still being worked out: after a few
+        // seconds the listener is told why (no internet, the catalog down, a VPN), not left in silence.
+        scope.launch(SilentHandler) {
+            delay(SLOW_RECOMMENDATIONS_HINT_MS)
+            if (loadMoreJob?.isActive == true && currentQueue === queue && !player.hasNextMediaItem()) explainSlowRecommendations()
+        }
         loadMoreJob = scope.launch(SilentHandler) {
             val mediaItems =
                 withContext(Dispatchers.IO) {

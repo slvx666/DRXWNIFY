@@ -2362,4 +2362,9 @@ Such tracks are audio only: play them, queue them and download them — but they
     <string name="embed_lyrics_progress">Lyrics: %1$d of %2$d</string>
     <string name="embed_lyrics_counts">Written %1$d · not found %2$d · errors %3$d</string>
     <string name="embed_lyrics_done">Lyrics written into %1$d tracks · not found %2$d · errors %3$d</string>
+    <string name="recs_hint_offline">No internet — the music goes on as soon as it is back</string>
+    <string name="recs_hint_vpn">Spotify is not answering — probably the VPN. Try another server</string>
+    <string name="recs_hint_rate_limited">Spotify is limiting requests — taking recommendations from YouTube</string>
+    <string name="recs_hint_catalog_down">Spotify is having trouble — taking recommendations from YouTube</string>
+    <string name="recs_hint_slow">The next tracks take longer than usual — slow network</string>
 </resources>

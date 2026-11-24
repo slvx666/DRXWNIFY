@@ -49,13 +49,19 @@ class ForYouQueue(
         continuation.withLock {
             val s = session ?: sessionFactory().also { session = it }
             val queued = alreadyQueued.mapTo(HashSet()) { it.id }
-            s.next(CHUNK).filter { it.id !in queued }
+            // Bounded: with the catalog answering 500 for a minute the radio stood still on its last
+            // track that long. Nothing in time → the player goes on with another radio at once.
+            kotlinx.coroutines.withTimeoutOrNull(CONTINUE_TIMEOUT_MS) { s.next(CHUNK) }.orEmpty().filter { it.id !in queued }
         }
 
     override suspend fun fetchPage(offset: Int, limit: Int): PageResult =
         PageResult(tracks = emptyList(), total = 0, rawCount = 0)
 
+    // One empty round is enough: the player's own fallbacks (YouTube's radio) take over then.
+    override val maxFruitlessRounds: Int = 1
+
     private companion object {
         const val CHUNK = 20
+        const val CONTINUE_TIMEOUT_MS = 6_000L
     }
 }

@@ -2319,4 +2319,9 @@
     <string name="embed_lyrics_progress">Текст: %1$d из %2$d</string>
     <string name="embed_lyrics_counts">Вшито %1$d · не найдено %2$d · ошибок %3$d</string>
     <string name="embed_lyrics_done">Текст вшит в %1$d треков · не найдено %2$d · ошибок %3$d</string>
+    <string name="recs_hint_offline">Нет интернета — музыка продолжится, как только он появится</string>
+    <string name="recs_hint_vpn">Spotify не отвечает — похоже, дело в VPN. Попробуй сменить сервер</string>
+    <string name="recs_hint_rate_limited">Spotify ограничил запросы — беру рекомендации с YouTube</string>
+    <string name="recs_hint_catalog_down">Сбой у Spotify — беру рекомендации с YouTube</string>
+    <string name="recs_hint_slow">Следующие треки ищутся дольше обычного — сеть медленная</string>
 </resources>
