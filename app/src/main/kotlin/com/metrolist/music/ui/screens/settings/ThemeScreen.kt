@@ -65,6 +65,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
@@ -473,10 +474,27 @@ fun ModeCircle(
         )
     }
     
+    // Satanic shows its own three papers: the old book, the withered dusk book, black.
+    val satanic = com.metrolist.music.ui.theme.LocalAppThemePreset.current == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
     val fillColor = when {
         targetPureBlack -> Color.Black
-        effectiveDark -> modeColorScheme.surface
+        satanic && targetMode == DarkMode.OFF -> com.metrolist.music.ui.theme.SatanicDay.page
+        satanic && targetMode == DarkMode.ON -> com.metrolist.music.ui.theme.SatanicDusk.page
         else -> modeColorScheme.surface
+    }
+    // The ring and tick must stand out from the circle they mark: the theme's accent when it
+    // does, otherwise whichever of the theme's ink or page contrasts more (a black circle in a
+    // black theme gets a light ring, not a black one).
+    val markColor = run {
+        val scheme = MaterialTheme.colorScheme
+        fun contrast(a: Color, b: Color): Float {
+            val la = a.luminance() + 0.05f
+            val lb = b.luminance() + 0.05f
+            return maxOf(la, lb) / minOf(la, lb)
+        }
+        val accent = scheme.primary
+        if (contrast(accent, fillColor) >= 3f) accent
+        else listOf(scheme.onSurface, scheme.surface, Color.White, Color.Black).maxBy { contrast(it, fillColor) }
     }
     
     // Animated border width
@@ -521,7 +539,7 @@ fun ModeCircle(
                 if (borderWidth > 0.dp) {
                     Modifier.border(
                         width = borderWidth,
-                        color = MaterialTheme.colorScheme.inversePrimary,
+                        color = markColor,
                         shape = CircleShape
                     )
                 } else {
@@ -565,7 +583,7 @@ fun ModeCircle(
                     Icon(
                         painter = painterResource(R.drawable.check),
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.inversePrimary,
+                        tint = markColor,
                         modifier = Modifier.size(20.dp)
                     )
                 }

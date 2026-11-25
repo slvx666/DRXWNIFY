@@ -156,10 +156,18 @@ fun rememberCoverViewerState(): CoverViewerState {
     return remember(host) { CoverViewerState(context.applicationContext, host) }
 }
 
-/** Marks the cover this state opens: the viewer grows out of it and hides it while open. */
-fun Modifier.coverSource(state: CoverViewerState, cornerRadius: androidx.compose.ui.unit.Dp = 12.dp): Modifier =
+/**
+ * Marks the cover this state opens: the viewer grows out of it and hides it while open. A round
+ * cover passes [circle] (and [rotation] when it spins) so the photo grows out of the circle as it is.
+ */
+fun Modifier.coverSource(
+    state: CoverViewerState,
+    cornerRadius: androidx.compose.ui.unit.Dp = 12.dp,
+    circle: Boolean = false,
+    rotation: (() -> Float)? = null,
+): Modifier =
     this.composed {
-        photoViewerSource(LocalPhotoViewer.current, state.sourceId, cornerRadius)
+        photoViewerSource(LocalPhotoViewer.current, state.sourceId, cornerRadius, circle, rotation)
     }
 
 /**

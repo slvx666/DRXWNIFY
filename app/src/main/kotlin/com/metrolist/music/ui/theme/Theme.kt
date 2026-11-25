@@ -39,7 +39,9 @@ fun MetrolistTheme(
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val presetScheme = preset.colorScheme(darkTheme)
+    // Satanic's middle mode (dark, not pure black) is the withered old book: a light scheme.
+    val satanicDusk = preset == AppThemePreset.SATANIC && darkTheme && !pureBlack
+    val presetScheme = if (satanicDusk) SatanicDusk.scheme(dark = false) else preset.colorScheme(darkTheme)
     // Determine if system dynamic colors should be used (Android S+ and default theme color)
     val useSystemDynamicColor = (themeColor == DefaultThemeColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
 
@@ -108,6 +110,12 @@ fun Bitmap.extractGradientColors(): List<Color> {
     else
         listOf(Color(0xFF595959), Color(0xFF0D0D0D))
 }
+
+/**
+ * Whether this scheme draws light ink on a dark page. Read from the ink against the page rather
+ * than a fixed luminance cut, so a dim paper (Satanic's dusk book) still counts as light.
+ */
+fun ColorScheme.isDarkScheme(): Boolean = onSurface.luminance() > surface.luminance()
 
 fun ColorScheme.pureBlack(apply: Boolean) =
     if (apply) copy(

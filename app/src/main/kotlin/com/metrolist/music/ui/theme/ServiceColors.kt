@@ -69,6 +69,6 @@ object ServiceColors {
 /** The colour of [source] in the current theme. */
 @Composable
 fun serviceColor(source: MetadataSource): Color {
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val dark = MaterialTheme.colorScheme.isDarkScheme()
     return ServiceColors.themed(source, LocalAppThemePreset.current, dark)
 }

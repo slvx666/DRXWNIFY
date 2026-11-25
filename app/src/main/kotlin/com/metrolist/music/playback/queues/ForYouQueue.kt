@@ -50,8 +50,11 @@ class ForYouQueue(
             val s = session ?: sessionFactory().also { session = it }
             val queued = alreadyQueued.mapTo(HashSet()) { it.id }
             // Bounded: with the catalog answering 500 for a minute the radio stood still on its last
-            // track that long. Nothing in time → the player goes on with another radio at once.
-            kotlinx.coroutines.withTimeoutOrNull(CONTINUE_TIMEOUT_MS) { s.next(CHUNK) }.orEmpty().filter { it.id !in queued }
+            // track that long. The session keeps its next tracks ready, so this is usually instant;
+            // what arrived in time is taken (a short chunk beats none), nothing → the player goes on
+            // with another radio at once.
+            kotlinx.coroutines.withTimeoutOrNull(CONTINUE_TIMEOUT_MS) { s.next(CHUNK, waitMs = CONTINUE_WAIT_MS) }
+                .orEmpty().filter { it.id !in queued }
         }
 
     override suspend fun fetchPage(offset: Int, limit: Int): PageResult =
@@ -62,6 +65,7 @@ class ForYouQueue(
 
     private companion object {
         const val CHUNK = 20
-        const val CONTINUE_TIMEOUT_MS = 6_000L
+        const val CONTINUE_WAIT_MS = 5_000L
+        const val CONTINUE_TIMEOUT_MS = 8_000L
     }
 }

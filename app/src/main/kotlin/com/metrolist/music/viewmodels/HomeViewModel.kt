@@ -451,84 +451,95 @@ class HomeViewModel @Inject constructor(
     /** True while the "For you" radio's first tracks are being picked (the dice spins). */
     val forYouStarting = MutableStateFlow(false)
 
-    /** A radio session with its first tracks already picked, so the dice starts at once. */
+    /**
+     * The next dice's session, finding its first tracks in the background since the page opened:
+     * the dice then starts at once instead of working a radio out from scratch.
+     */
     @Volatile
-    private var preparedRadio: Pair<com.metrolist.music.playback.ForYouRecommender.Session, List<SpotifyTrack>>? = null
-    private var prepareJob: kotlinx.coroutines.Job? = null
+    private var preparedSession: com.metrolist.music.playback.ForYouRecommender.Session? = null
 
-    private fun newRadioSession(excludeAlso: String? = null) =
+    private fun newRadioSession() =
         com.metrolist.music.playback.ForYouRecommender.Session(
             database,
             context.dataStore.get(HideExplicitKey, false),
             // The covers on the page are left out: the radio should bring something new.
-            // The tapped track is playing already: it must not come back later in the radio either.
-            exclude = forYou.value.orEmpty().map { it.id } + listOfNotNull(excludeAlso),
+            exclude = forYou.value.orEmpty().map { it.id },
         )
 
     private fun prepareRadio() {
-        if (prepareJob?.isActive == true) return
-        prepareJob = viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                val session = newRadioSession()
-                // Ready quickly (a few tracks), then grown in the background: asked for 25 at once it
-                // was seldom ready when the dice was tapped, and the dice then built a radio from
-                // scratch (20 s). Grown, the queue doesn't wait for its next tracks either.
-                val first = session.next(6)
-                if (first.isEmpty()) return@runCatching
-                val prepared = session to first
-                preparedRadio = prepared
-                val more = session.next(PREPARED_RADIO_TRACKS - first.size)
-                if (more.isNotEmpty() && preparedRadio === prepared) preparedRadio = session to (first + more)
-            }
-        }
+        if (preparedSession != null) return
+        preparedSession = newRadioSession().also { it.warm(PREPARED_RADIO_TRACKS) }
     }
 
-    /** The radio from a tapped cover: that track plays immediately, the rest follows. */
+    /** The covers changed: the prepared session (which leaves them out) is made again. */
+    private fun renewPreparedRadio() {
+        preparedSession?.close()
+        preparedSession = null
+        prepareRadio()
+    }
+
+    /**
+     * The radio from a tapped cover: that track plays at once, then songs of artists similar to it,
+     * and on from those — not the dice's general mix.
+     */
     fun forYouRadioFrom(
         start: SpotifyTrack,
         mapper: com.metrolist.music.playback.SpotifyYouTubeMapper,
     ): com.metrolist.music.playback.queues.SpotifyPagedQueue {
         starterRadio(start, mapper)?.let { return it }
-        // The prepared picks follow the tapped track straight away, so the next track is there
-        // to swipe to from the start instead of arriving after the radio has been worked out.
-        val ready = preparedRadio?.also { preparedRadio = null }
-        prepareRadio()
-        val session = ready?.first
-        return com.metrolist.music.playback.queues.ForYouQueue(
-            startTracks = listOf(start) + ready?.second.orEmpty().filter { it.id != start.id },
-            sessionFactory = {
-                session ?: kotlinx.coroutines.withContext(Dispatchers.IO) { newRadioSession(excludeAlso = start.id) }
-            },
+        return com.metrolist.music.playback.queues.TrackRadioQueue(
+            start = start,
             mapper = mapper,
             preload = mapper.quickMetadata(start),
         )
     }
 
-    /** The dice: fresh picks (prepared in the background, so usually instant). */
+    /**
+     * The dice: recommendations from the listener's likes (see ForYouRecommender). Prepared in the
+     * background, so usually instant; never more than [DICE_WAIT_MS] of thinking — then it plays
+     * what it has, or covers not on the first page, or liked songs, while the radio catches up.
+     */
     suspend fun forYouRadio(
         mapper: com.metrolist.music.playback.SpotifyYouTubeMapper,
     ): com.metrolist.music.playback.queues.SpotifyPagedQueue? {
         starterRadio(null, mapper)?.let { return it }
-        val ready = preparedRadio?.also { preparedRadio = null } ?: run {
+        val session = preparedSession?.also { preparedSession = null } ?: newRadioSession()
+        val first = if (session.ready() >= DICE_FIRST_TRACKS) {
+            session.next(DICE_FIRST_TRACKS, waitMs = 0)
+        } else {
             forYouStarting.value = true
             try {
                 kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    val session = newRadioSession()
-                    session to session.next(6)
-                }
+                    kotlinx.coroutines.withTimeoutOrNull(DICE_WAIT_MS + 500) { session.next(DICE_FIRST_TRACKS, waitMs = DICE_WAIT_MS) }
+                }.orEmpty()
             } finally {
                 forYouStarting.value = false
             }
         }
         prepareRadio()
-        val (session, first) = ready
-        if (first.isEmpty()) return null
+        val start = first.ifEmpty { diceFallback() }.ifEmpty {
+            session.close()
+            return null
+        }
         return com.metrolist.music.playback.queues.ForYouQueue(
-            startTracks = first,
+            startTracks = start,
             sessionFactory = { session },
             mapper = mapper,
-            preload = mapper.quickMetadata(first.first()),
+            preload = mapper.quickMetadata(start.first()),
         )
+    }
+
+    /**
+     * The catalog didn't answer in time: the music starts anyway — with covers from the later
+     * pages (recommendations too, just not new), else a few liked songs.
+     */
+    private fun diceFallback(): List<SpotifyTrack> {
+        val covers = forYou.value.orEmpty().drop(DICE_FIRST_PAGE).shuffled().take(DICE_FIRST_TRACKS)
+        if (covers.isNotEmpty()) return covers
+        val source = com.metrolist.music.catalog.Catalog.source ?: return emptyList()
+        return com.metrolist.music.catalog.LikedSongsCache.peek(source.name)?.tracks.orEmpty()
+            .filter { it.id.isNotEmpty() && !it.isLocal }
+            .shuffled().take(DICE_FIRST_TRACKS)
     }
 
     /**
@@ -601,7 +612,12 @@ class HomeViewModel @Inject constructor(
         val wanted = kotlin.math.round(site.size * share).toInt()
         if (wanted <= 0) return site
         val own = runCatching {
-            com.metrolist.music.playback.ForYouRecommender.Session(database, hideExplicit, exclude = site.map { it.id }).next(wanted)
+            val session = com.metrolist.music.playback.ForYouRecommender.Session(database, hideExplicit, exclude = site.map { it.id })
+            try {
+                session.next(wanted)
+            } finally {
+                session.close()
+            }
         }.onFailure { Timber.w(it, "home: own picks for a newcomer failed") }.getOrDefault(emptyList())
         if (own.isEmpty()) return site
         val out = site.toMutableList()
@@ -628,8 +644,10 @@ class HomeViewModel @Inject constructor(
         }
         if (built.isNotEmpty() || forYou.value == null) forYou.value = built.ifEmpty { null }
         if (built.isNotEmpty()) saveForYou(built)
-        preparedRadio = null
-        prepareRadio()
+        renewPreparedRadio()
+        // The whole Liked Songs read in the background (for the next covers and dice), not only
+        // for those who open the list.
+        com.metrolist.music.catalog.LikedSongsSync.start()
     }
 
     private val forYouFile get() = java.io.File(context.filesDir, "for_you_last.json")
@@ -1306,3 +1324,12 @@ class HomeViewModel @Inject constructor(
 }
 
 private const val PREPARED_RADIO_TRACKS = 25
+
+/** The dice plays this many at first; the rest of its radio follows from the same session. */
+private const val DICE_FIRST_TRACKS = 6
+
+/** The longest the dice may think (the listener's limit is 3–5 s, everything included). */
+private const val DICE_WAIT_MS = 3_000L
+
+/** Covers on the first page (a 3×3 page less the dice): the fallback picks from beyond them. */
+private const val DICE_FIRST_PAGE = 8

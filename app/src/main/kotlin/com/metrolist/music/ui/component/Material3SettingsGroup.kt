@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.unit.dp
 import com.metrolist.music.ui.theme.AppThemePreset
 import com.metrolist.music.ui.theme.LocalAppThemePreset
+import com.metrolist.music.ui.theme.isDarkScheme
 
 /**
  * A Material 3 Expressive style settings group component
@@ -72,7 +73,7 @@ fun Material3SettingsGroup(
     // Satanic's light page is an old book: each item is drawn like the mini player — its yellower
     // paper, an ink edge and a faint second line inside it.
     val bookPage = preset == AppThemePreset.SATANIC &&
-        MaterialTheme.colorScheme.surface.luminance() >= 0.4f
+        !MaterialTheme.colorScheme.isDarkScheme()
     Column(
         modifier = Modifier
             .fillMaxWidth()

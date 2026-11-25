@@ -80,7 +80,8 @@ private fun rememberDecorationClock(running: Boolean): MutableFloatState {
 
 private const val FRAME_STEP_MS = 33L
 
-private fun Color.isDark() = luminance() < 0.4f
+// Below the dimmest paper (Satanic's dusk book, ~0.2) and above every night container.
+private fun Color.isDark() = luminance() < 0.18f
 
 /**
  * The top bar's background with the theme's ornament behind the title and actions: Gruvbox's

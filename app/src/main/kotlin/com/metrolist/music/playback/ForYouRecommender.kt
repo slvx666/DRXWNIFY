@@ -5,10 +5,9 @@
 
 package com.metrolist.music.playback
 
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import com.metrolist.music.catalog.AccountLikes
 import com.metrolist.music.catalog.Catalog
+import com.metrolist.music.catalog.LikedSongsCache
 import com.metrolist.music.constants.ArtistSortType
 import com.metrolist.music.constants.MetadataSource
 import com.metrolist.music.constants.SongSortType
@@ -17,165 +16,472 @@ import com.metrolist.music.utils.SPOTIFY_ID_PREFIX
 import com.metrolist.spotify.Spotify
 import com.metrolist.spotify.models.SpotifyHomeFeedItem
 import com.metrolist.spotify.models.SpotifyTrack
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
-import java.time.Duration
-import java.time.LocalDateTime
-import kotlin.math.exp
 
 /**
- * The home page's "For you" row.
+ * The home page's "For you" covers and the dice's endless radio.
  *
- * 1. With Spotify connected, Spotify's own personal mixes come first — Discover Weekly, the Daily
- *    Mixes, Release Radar: they are made from the whole listening history and beat anything that can
- *    be rebuilt here.
- * 2. Otherwise (or to fill up) the row is grown from the listener's taste as the app sees it: what
- *    was played lately (recent plays count most), liked, and followed. Each strong artist brings
- *    tracks of artists close to it.
+ * Both grow from the listener's whole taste, not from what played a moment ago: each round draws
+ * six liked tracks of the main account at random (its whole Liked Songs, the app's own likes),
+ * takes two artists the catalog lists as similar to each one's artist, and a couple of random
+ * popular songs of each. With too few likes, followed artists and the most played ones overall fill
+ * in. Every round draws other likes, so the radio wanders across everything the listener likes.
  *
- * Whatever the source, the result is filtered against that taste: nothing already liked or recently
+ * Built for speed: Spotify's gateway answers 500 to a burst of artist overviews, so a round is a
+ * handful of requests (the overviews are shared and kept, see Spotify.artistUnion), each one cut off
+ * after a few seconds, and tracks are handed out as they arrive — the first ones after two requests,
+ * not after the whole round. A session keeps its next tracks ready in the background.
+ *
+ * Whatever the source, the result is filtered against the taste: nothing already liked or recently
  * played, at most two tracks per artist, and — for someone who hardly listens to Cyrillic-titled
- * music — no Cyrillic-titled tracks, which is what used to slip Russian songs into the row.
+ * music — no Cyrillic-titled tracks.
  */
 object ForYouRecommender {
     /** 35 covers + the dice = 36 cells: four full pages of 3×3. */
     const val TARGET = 35
     private const val MAX_PER_ARTIST = 2
 
+    /** Liked tracks drawn per round; each brings artists similar to its own. */
+    private const val SEEDS_PER_ROUND = 6
+    private const val RELATED_PER_SEED = 2
+    private const val TRACKS_PER_RELATED = 2
+
+    /** Among an artist's popular songs, picks are made from this many. */
+    private const val TOP_TRACKS_POOL = 10
+
+    /** One catalog request: a stuck connection (the client waits 30 s) must not hold a round. */
+    private const val REQUEST_TIMEOUT_MS = 6_000L
+
+    /** Tracks a session keeps ready beyond what was asked for, so the radio never waits. */
+    private const val AHEAD = 20
+    private const val MAX_EMPTY_ROUNDS = 6
+    private const val EMPTY_ROUND_PAUSE_MS = 1_500L
+
+    /** How long [Session.next] waits by default (the covers, built in the background). */
+    const val DEFAULT_WAIT_MS = 25_000L
+
     /** Below this share of Cyrillic in what was listened to, Cyrillic results are left out. */
     private const val CYRILLIC_MIN_SHARE = 0.15
 
-    private const val ID_KEY = "id:"
-    private const val NAME_KEY = "name:"
-
     private data class Taste(
-        /** Artist key (catalog id when known, else lower-case name) → weight. */
-        val artists: Map<String, Double>,
-        val artistNames: Map<String, String>,
         /** "artist|title" of everything liked or recently played: not recommended again. */
         val knownTracks: Set<String>,
         val cyrillicShare: Double,
     )
 
-    // What every session needs and that changes slowly, kept between sessions: each dice and each
-    // radio used to work it all out again — the linked accounts' likes (up to 15 s), then up to 20
-    // artists looked up one after another by name (VK and Yandex artists carry no Spotify id) —
-    // and the dice thought for most of a minute.
+    /** An artist a round grows from: its catalog id when known, else it is looked up by name. */
+    private data class Seed(val id: String?, val name: String) {
+        val key: String get() = nameKey(name)
+    }
+
+    private class Seeds(
+        /** One entry per liked track (an artist liked often is drawn more often). */
+        val liked: List<Seed>,
+        val followed: List<Seed>,
+        /** The most played artists of all time. */
+        val listened: List<Seed>,
+    ) {
+        val isEmpty: Boolean get() = liked.isEmpty() && followed.isEmpty() && listened.isEmpty()
+    }
+
+    // Changes slowly and every session needs it: kept for a while instead of read again per dice.
     @Volatile private var sharedTaste: Pair<Long, Taste>? = null
-    @Volatile private var sharedSeeds: Pair<Long, List<Pair<String, Double>>>? = null
+    @Volatile private var sharedSeeds: Pair<Long, Seeds>? = null
     @Volatile private var sharedMixes: Pair<Long, List<SpotifyTrack>>? = null
     private val artistByName = java.util.concurrent.ConcurrentHashMap<String, String>()
     private const val SHARED_TTL_MS = 30 * 60 * 1000L
 
+    @Volatile private var searchTargetCache: Pair<Long, MetadataSource?>? = null
+
+    private val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private fun <T> Pair<Long, T>?.fresh(): T? = this?.takeIf { System.currentTimeMillis() - it.first < SHARED_TTL_MS }?.second
 
+    /** The liked list was read anew (LikedSongsSync): the next session draws from all of it. */
+    fun likesChanged() {
+        sharedSeeds = null
+        sharedTaste = null
+    }
+
     /** The tracks shown on the home page. */
-    suspend fun build(database: MusicDatabase, hideExplicit: Boolean): List<SpotifyTrack> =
-        Session(database, hideExplicit).next(TARGET)
+    suspend fun build(database: MusicDatabase, hideExplicit: Boolean): List<SpotifyTrack> {
+        val session = Session(database, hideExplicit)
+        return try {
+            session.next(TARGET)
+        } finally {
+            session.close()
+        }
+    }
 
     /**
-     * An endless stream of recommendations, handed out in chunks as they are needed — the way a
-     * Spotify radio keeps going: nothing is repeated within a session ([exclude] and everything
-     * already handed out), Spotify's mixes are used up first, then every further chunk is grown
-     * from a different, weighted-random set of the listener's artists.
+     * An endless stream of recommendations, handed out in chunks as they are needed. Nothing is
+     * repeated within a session ([exclude] and everything already handed out), and what was handed
+     * out in the last days comes back only when there is nothing new.
      */
     class Session(
         private val database: MusicDatabase,
         private val hideExplicit: Boolean,
         exclude: Collection<String> = emptySet(),
     ) {
-        // What was handed out in the last days is left out too (see ForYouSeen); only when there is
-        // nothing new left does it come back.
+        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val lock = Any()
         private val used = HashSet(exclude)
-        private val seenBefore = ForYouSeen.recent()
+        private val pooledIds = HashSet<String>()
+        private val pooledKeys = HashSet<String>()
+        private val perArtist = HashMap<String, Int>()
+
+        /** Ready to hand out, in order. */
         private val pool = ArrayDeque<SpotifyTrack>()
-        private var taste: Taste? = null
-        private var seedIds: List<Pair<String, Double>>? = null
+
+        /** The rest of a round in progress (an artist's second song), spread in when the round ends. */
+        private val later = ArrayList<SpotifyTrack>()
+
+        /** Handed out in the last days: used only when there is nothing else. */
+        private val heardPool = ArrayList<SpotifyTrack>()
+        private val seenBefore = ForYouSeen.recent()
+
+        private val changed = MutableStateFlow(0L)
+        private var want = 0
+        private var filling = false
+
+        @Volatile private var exhausted = false
+        private var added = 0
+
+        private val prepareLock = Mutex()
+        private val nextLock = Mutex()
+
+        @Volatile private var taste: Taste? = null
+        @Volatile private var seeds: Seeds? = null
+        private val seedsUsed = HashSet<String>()
+        private var rounds = 0
         private var mixesTried = false
-        private var emptyRounds = 0
 
-        private val lock = kotlinx.coroutines.sync.Mutex()
-
-        /** Thread-safe: the pool and the "used" set are only touched by one caller at a time. */
-        suspend fun next(count: Int): List<SpotifyTrack> = lock.withLock { nextLocked(count) }
-
-        private suspend fun nextLocked(count: Int): List<SpotifyTrack> {
-            if (!Catalog.ensureAuthenticated()) return emptyList()
-            val t = taste ?: (sharedTaste.fresh() ?: taste(database).also { sharedTaste = System.currentTimeMillis() to it })
-                .also { taste = it }
-            // Every call has its own budget of rounds: a few failed ones in a row (the network
-            // dropped, the catalog said "too many requests") used to end the session for good, and
-            // the radio ran dry an hour later with nothing ever asked for again.
-            emptyRounds = 0
-            while (pool.count { it.id !in used && it.id !in seenBefore } < count && emptyRounds < MAX_EMPTY_ROUNDS) {
-                val more = if (!mixesTried) {
-                    mixesTried = true
-                    runCatching {
-                        // Spotify's own mixes whenever Spotify is linked, whatever the main account is.
-                        if (!Catalog.state.value.spotifyConnected) emptyList()
-                        else sharedMixes.fresh() ?: madeForYou().also { if (it.isNotEmpty()) sharedMixes = System.currentTimeMillis() to it }
-                    }.onFailure { Timber.w(it, "forYou: Spotify mixes unavailable") }.getOrDefault(emptyList())
-                } else {
-                    fromTaste(t, seeds(t))
-                }
-                val fresh = diversify(filter(more, t, hideExplicit).filter { it.id !in used && pool.none { p -> p.id == it.id } })
-                // A round that brought nothing not heard lately counts as empty (else it never ends).
-                if (fresh.none { it.id !in seenBefore }) emptyRounds++ else emptyRounds = 0
-                pool.addAll(fresh)
-            }
-            val out = ArrayList<SpotifyTrack>()
-            val skippedAsSeen = ArrayList<SpotifyTrack>()
-            while (out.size < count) {
-                val track = pool.removeFirstOrNull() ?: break
-                if (track.id in used) continue
-                if (track.id in seenBefore) {
-                    skippedAsSeen += track
-                    continue
-                }
-                used.add(track.id)
-                out += track
-            }
-            // Nothing new enough: better an older recommendation than an empty radio — the ones
-            // heard longest ago first.
-            skippedAsSeen.sortBy { ForYouSeen.seenAt(it.id) }
-            for (track in skippedAsSeen) {
-                if (out.size >= count) break
-                if (used.add(track.id)) out += track
-            }
-            ForYouSeen.record(out.map { it.id })
-            return out
+        /** Starts finding the first [count] tracks in the background (the dice prepared ahead). */
+        fun warm(count: Int) {
+            scope.launch { if (runCatching { prepare() }.getOrDefault(false)) fill(count) }
         }
 
-        // Kept once found; an empty answer (the catalog unreachable for a moment) is asked again next time.
-        private suspend fun seeds(t: Taste): List<Pair<String, Double>> =
-            seedIds ?: (sharedSeeds.fresh() ?: resolveSeeds(t).also { if (it.isNotEmpty()) sharedSeeds = System.currentTimeMillis() to it })
-                .also { if (it.isNotEmpty()) seedIds = it }
+        /** Tracks ready to hand out right now. */
+        fun ready(): Int = synchronized(lock) { pool.size + later.size }
+
+        /** Stops the background work of a session no longer used. */
+        fun close() = scope.cancel()
+
+        /**
+         * Up to [count] tracks: as many as arrived within [waitMs] (all of them when the catalog
+         * answers), never waiting longer. The next ones are found meanwhile.
+         */
+        suspend fun next(count: Int, waitMs: Long = DEFAULT_WAIT_MS): List<SpotifyTrack> = nextLock.withLock {
+            if (count <= 0) return@withLock emptyList()
+            withTimeoutOrNull(waitMs) {
+                if (prepare()) {
+                    fill(count)
+                    changed.first { ready() >= count || exhausted }
+                }
+                Unit
+            }
+            val out = take(count)
+            fill(AHEAD)
+            ForYouSeen.record(out.map { it.id })
+            out
+        }
+
+        private suspend fun prepare(): Boolean = prepareLock.withLock {
+            if (taste != null && seeds != null) return@withLock true
+            if (!Catalog.ensureAuthenticated()) return@withLock false
+            taste = sharedTaste.fresh() ?: taste(database).also { sharedTaste = System.currentTimeMillis() to it }
+            seeds = sharedSeeds.fresh() ?: seeds(database).also { if (!it.isEmpty) sharedSeeds = System.currentTimeMillis() to it }
+            true
+        }
+
+        private fun take(count: Int): List<SpotifyTrack> = synchronized(lock) {
+            val out = ArrayList<SpotifyTrack>()
+            fun from(source: MutableList<SpotifyTrack>) {
+                while (out.size < count && source.isNotEmpty()) {
+                    val track = source.removeAt(0)
+                    if (used.add(track.id)) out += track
+                }
+            }
+            from(pool)
+            from(later)
+            // Nothing new enough: better an older recommendation than an empty radio — the ones
+            // heard longest ago first.
+            if (out.isEmpty() || (exhausted && out.size < count)) {
+                heardPool.sortBy { ForYouSeen.seenAt(it.id) }
+                from(heardPool)
+            }
+            out
+        }
+
+        /** Keeps [count] tracks ready, one round after another, in the background. */
+        private fun fill(count: Int) {
+            synchronized(lock) {
+                want = count
+                if (filling) return
+                filling = true
+                exhausted = false
+            }
+            scope.launch {
+                var empty = 0
+                try {
+                    while (true) {
+                        synchronized(lock) {
+                            if (ready() >= want || empty >= MAX_EMPTY_ROUNDS) {
+                                if (empty >= MAX_EMPTY_ROUNDS) exhausted = true
+                                filling = false
+                                return@launch
+                            }
+                        }
+                        val brought = runCatching { round() }
+                            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                            .getOrDefault(0)
+                        if (brought == 0) {
+                            empty++
+                            changed.update { it + 1 }
+                            delay(EMPTY_ROUND_PAUSE_MS * empty)
+                        } else {
+                            empty = 0
+                        }
+                    }
+                } finally {
+                    synchronized(lock) { filling = false }
+                    changed.update { it + 1 }
+                }
+            }
+        }
+
+        /** One round; the number of new tracks it brought. */
+        private suspend fun round(): Int {
+            val s = seeds ?: return 0
+            val before = synchronized(lock) { added }
+            val picked = pickSeeds(s, fast = rounds == 0)
+            rounds++
+            if (picked.isEmpty()) {
+                // No likes, follows or listens at all: Spotify's own mixes, once.
+                if (!mixesTried) {
+                    mixesTried = true
+                    emit(runCatching { mixes() }.getOrDefault(emptyList()))
+                }
+            } else {
+                // The first round is the one someone is waiting for: popular songs only (two requests
+                // to the first track). The rounds after it run in the background and dig deeper.
+                val deep = rounds > 1
+                coroutineScope { picked.forEach { seed -> launch { grow(seed, deep) } } }
+            }
+            synchronized(lock) {
+                pool.addAll(later.shuffled())
+                later.clear()
+            }
+            changed.update { it + 1 }
+            val brought = synchronized(lock) { added } - before
+            Timber.d("forYou: round %d from %s → %d tracks", rounds, picked.map { it.name }, brought)
+            return brought
+        }
+
+        /**
+         * [SEEDS_PER_ROUND] artists of liked tracks drawn at random, each artist once, not one of
+         * the last rounds' while others are left. The first round prefers artists whose catalog id
+         * is known (no name lookup before the first tracks).
+         */
+        private fun pickSeeds(s: Seeds, fast: Boolean): List<Seed> {
+            val out = LinkedHashMap<String, Seed>()
+            fun takeFrom(list: List<Seed>) {
+                if (out.size >= SEEDS_PER_ROUND || list.isEmpty()) return
+                val candidates = list.shuffled().let { l -> if (fast) l.sortedBy { if (it.id != null) 0 else 1 } else l }
+                for (seed in candidates) {
+                    if (out.size >= SEEDS_PER_ROUND) break
+                    val key = seed.key
+                    if (key.isEmpty() || key in seedsUsed || key in out) continue
+                    out[key] = seed
+                }
+            }
+            fun takeAll() {
+                takeFrom(s.liked)
+                takeFrom(s.followed)
+                takeFrom(s.listened)
+            }
+            takeAll()
+            if (out.size < SEEDS_PER_ROUND && seedsUsed.isNotEmpty()) {
+                seedsUsed.clear()
+                takeAll()
+            }
+            seedsUsed += out.keys
+            return out.values.toList()
+        }
+
+        /**
+         * Songs of artists similar to [seed]'s, put in the pool as each artist's answer arrives.
+         * [deep]: one popular song per similar artist and one from deeper in its releases, plus a
+         * deeper song of an artist one step further (similar to a similar one — often a smaller
+         * name), instead of popular songs only.
+         */
+        private suspend fun grow(seed: Seed, deep: Boolean) {
+            val id = resolve(seed) ?: return
+            val related = timed { Catalog.relatedArtists(id) }.orEmpty()
+                .filter { it.id.isNotBlank() && it.id != id }
+                .take(20)
+                .shuffled()
+                .take(RELATED_PER_SEED)
+            if (related.isEmpty()) {
+                // No similar artists known: the artist's own songs (not the liked ones).
+                val top = topTracks(id)
+                emit(top.shuffled().take(if (deep) 1 else TRACKS_PER_RELATED))
+                if (deep) emit(deepTracks(id, top, 1), soon = false)
+                return
+            }
+            coroutineScope {
+                related.forEach { artist ->
+                    launch {
+                        val top = topTracks(artist.id)
+                        if (!deep) {
+                            emit(top.shuffled().take(TRACKS_PER_RELATED))
+                            return@launch
+                        }
+                        emit(top.shuffled().take(1))
+                        emit(deepTracks(artist.id, top, 1), soon = false)
+                    }
+                }
+                if (deep) {
+                    launch {
+                        val near = related.mapTo(HashSet()) { it.id } + id
+                        // Its list comes with the overview already read for its songs: no extra request.
+                        val further = timed { Catalog.relatedArtists(related.random().id) }.orEmpty()
+                            .filter { it.id.isNotBlank() && it.id !in near }
+                            .randomOrNull() ?: return@launch
+                        emit(deepTracks(further.id, topTracks(further.id), 1), soon = false)
+                    }
+                }
+            }
+        }
+
+        /** [soon]: one of these goes into the pool at once; else all wait for the round's end. */
+        private fun emit(tracks: List<SpotifyTrack>, soon: Boolean = true) {
+            val t = taste ?: return
+            val fresh = filter(tracks, t, hideExplicit)
+            if (fresh.isEmpty()) return
+            synchronized(lock) {
+                var first = soon
+                for (track in fresh) {
+                    val key = trackKey(track.artists.firstOrNull()?.name.orEmpty(), track.name)
+                    if (track.id in used || track.id in pooledIds || key in pooledKeys) continue
+                    val artist = track.artists.firstOrNull()?.name?.lowercase().orEmpty()
+                    val n = perArtist[artist] ?: 0
+                    if (n >= MAX_PER_ARTIST) continue
+                    perArtist[artist] = n + 1
+                    pooledIds += track.id
+                    pooledKeys += key
+                    when {
+                        track.id in seenBefore -> heardPool += track
+                        // One song per artist right away; the second waits for the round's end, so
+                        // the same artist doesn't play twice in a row.
+                        first -> {
+                            pool.addLast(track)
+                            first = false
+                            added++
+                        }
+                        else -> {
+                            later += track
+                            added++
+                        }
+                    }
+                }
+            }
+            changed.update { it + 1 }
+        }
     }
 
-    private const val MAX_EMPTY_ROUNDS = 6
+    private suspend fun <T> timed(block: suspend () -> Result<T>): T? =
+        withTimeoutOrNull(REQUEST_TIMEOUT_MS) { block().getOrNull() }
 
-    private const val ACCOUNT_LIKES_WAIT_MS = 15_000L
+    /** An artist's popular songs (the first [TOP_TRACKS_POOL]). */
+    private suspend fun topTracks(artistId: String): List<SpotifyTrack> =
+        timed { Catalog.artistTopTracks(artistId) }?.tracks.orEmpty().take(TOP_TRACKS_POOL)
+
+    /** Album requests at once: a round asks for one per artist, and they must not come as a burst. */
+    private val albumGate = kotlinx.coroutines.sync.Semaphore(2)
+
+    /**
+     * [count] songs from deeper in an artist's releases — a random album or single, a song that is
+     * not among its popular ones ([top]), the less played ones more likely: what a radio of popular
+     * songs alone never reaches. The release list comes with the artist's overview (no extra
+     * request on Spotify); the release itself is one request, kept for a day.
+     */
+    private suspend fun deepTracks(artistId: String, top: List<SpotifyTrack>, count: Int): List<SpotifyTrack> {
+        val releases = timed { Catalog.latestReleases(artistId) }.orEmpty().filter { it.id.isNotBlank() }
+        val release = releases.randomOrNull() ?: return emptyList()
+        val topIds = top.mapTo(HashSet()) { it.id }
+        val topNames = top.mapTo(HashSet()) { nameKey(it.name) }
+        val songs = albumGate.withPermit { timed { Catalog.album(release.id) } }?.tracks?.items.orEmpty()
+            .filter { t ->
+                t.id.isNotBlank() && t.id !in topIds && nameKey(t.name) !in topNames &&
+                    // Its own song, not a guest's on a split or a compilation.
+                    t.artists.any { it.id == artistId }
+            }
+        if (songs.isEmpty()) return emptyList()
+        // Half of the time the least played half of the release: the true deep cuts.
+        val known = songs.filter { it.playCount != null }.sortedBy { it.playCount }
+        val pool = if (known.size >= 4 && kotlin.random.Random.nextBoolean()) known.take(known.size / 2) else songs
+        return pool.shuffled().take(count)
+    }
+
+    /** The catalog id of [seed]'s artist: known, remembered, or found by its exact name. */
+    private suspend fun resolve(seed: Seed): String? {
+        seed.id?.let { return it }
+        val target = searchTarget() ?: return null
+        val cacheKey = "$target|${seed.key}"
+        artistByName[cacheKey]?.let { return it }
+        return withTimeoutOrNull(REQUEST_TIMEOUT_MS) { exactArtist(target, seed.name) }
+            ?.also { artistByName[cacheKey] = it }
+    }
+
+    /** Where names are looked up: Spotify when it can be reached (no VPN: the main account's catalog). */
+    private suspend fun searchTarget(): MetadataSource? {
+        searchTargetCache?.takeIf { System.currentTimeMillis() - it.first < 5 * 60_000L }?.let { return it.second }
+        val spotify = withTimeoutOrNull(REQUEST_TIMEOUT_MS) { Catalog.ensureSearchable(MetadataSource.SPOTIFY) } == true
+        val target = if (spotify) MetadataSource.SPOTIFY else Catalog.source
+        searchTargetCache = System.currentTimeMillis() to target
+        return target
+    }
+
+    /**
+     * A name counts only when the catalog has an artist of exactly that name: a SoundCloud uploader
+     * ("mellstroyCR7") used to bring whoever came up first, and that stranger's "similar" with it.
+     */
+    private suspend fun exactArtist(target: MetadataSource, name: String): String? {
+        val wanted = nameKey(name).ifEmpty { return null }
+        return Catalog.searchIn(target, name, listOf("artist"), 5).getOrNull()?.artists?.items.orEmpty()
+            .firstOrNull { it.id.isNotEmpty() && nameKey(it.name) == wanted }?.id
+    }
+
+    private fun nameKey(name: String): String = name.lowercase().filter { it.isLetterOrDigit() }
+
+    /** A catalog id kept in the app's database ("spotify:…"); other ids (YouTube channels) are not one. */
+    private fun dbCatalogId(id: String?): String? =
+        id?.takeIf { it.startsWith(SPOTIFY_ID_PREFIX) }?.removePrefix(SPOTIFY_ID_PREFIX)?.takeIf { it.isNotBlank() }
 
     // ── Taste ────────────────────────────────────────────────────────────────────────────────────
 
+    /** What is not recommended again, and how much Cyrillic is listened to. Read from what is at hand. */
     private suspend fun taste(database: MusicDatabase): Taste {
-        val weights = HashMap<String, Double>()
-        val names = HashMap<String, String>()
         val known = HashSet<String>()
         var cyrillic = 0
         var total = 0
-
-        fun addArtist(id: String?, name: String, weight: Double) {
-            if (name.isBlank()) return
-            val key = id?.takeIf { it.startsWith(SPOTIFY_ID_PREFIX) }?.let { ID_KEY + it.removePrefix(SPOTIFY_ID_PREFIX) }
-                ?: (NAME_KEY + name.trim().lowercase())
-            weights[key] = (weights[key] ?: 0.0) + weight
-            names.putIfAbsent(key, name)
-        }
 
         fun sample(artist: String, title: String) {
             total++
@@ -183,42 +489,72 @@ object ForYouRecommender {
             known += trackKey(artist, title)
         }
 
-        // Recent plays, the strongest signal; a play two weeks ago counts about half as much.
-        val now = LocalDateTime.now()
         database.events().first().take(600).forEach { e ->
-            val ageDays = Duration.between(e.event.timestamp, now).toHours() / 24.0
-            val decay = exp(-ageDays / 20.0)
-            val artists = e.song.artists
-            sample(artists.firstOrNull()?.name.orEmpty(), e.song.song.title)
-            artists.take(2).forEach { addArtist(it.id, it.name, 3.0 * decay) }
+            sample(e.song.artists.firstOrNull()?.name.orEmpty(), e.song.song.title)
         }
-
-        database.likedSongs(SongSortType.CREATE_DATE, descending = true).first().take(300).forEach { s ->
+        database.likedSongs(SongSortType.CREATE_DATE, descending = true).first().forEach { s ->
             sample(s.artists.firstOrNull()?.name.orEmpty(), s.song.title)
-            s.artists.take(2).forEach { addArtist(it.id, it.name, 2.0) }
         }
-
-        database.artistsBookmarked(ArtistSortType.CREATE_DATE, descending = true).first().forEach { a ->
-            addArtist(a.artist.id, a.artist.name, 3.0)
-        }
-
-        // Likes and follows in the linked accounts (Spotify, Yandex Music, VK) count like the app's own.
-        val account = withTimeoutOrNull(ACCOUNT_LIKES_WAIT_MS) { AccountLikes.all() } ?: AccountLikes.lastKnown()
-        account.tracks.forEach { t ->
-            sample(t.artist, t.title)
-            t.artists.forEach { (id, name) -> addArtist(id?.let { SPOTIFY_ID_PREFIX + it }, name, 2.0) }
-        }
-        account.artists.forEach { addArtist(null, it, 3.0) }
+        mainLiked().forEach { t -> sample(t.artists.firstOrNull()?.name.orEmpty(), t.name) }
+        // The linked accounts as they were last read: asking them takes up to 15 s, so they are
+        // refreshed behind for the next time instead.
+        AccountLikes.lastKnown().tracks.forEach { sample(it.artist, it.title) }
+        background.launch { runCatching { AccountLikes.all() } }
 
         return Taste(
-            artists = weights,
-            artistNames = names,
             knownTracks = known,
             cyrillicShare = if (total == 0) 1.0 else cyrillic.toDouble() / total,
         )
     }
 
-    // ── Sources ──────────────────────────────────────────────────────────────────────────────────
+    /** The main account's whole Liked Songs, as kept on the device (no request). */
+    private fun mainLiked(): List<SpotifyTrack> =
+        Catalog.source?.let { runCatching { LikedSongsCache.get(it.name) }.getOrNull() }?.tracks.orEmpty()
+
+    private suspend fun seeds(database: MusicDatabase): Seeds {
+        val likedKeys = HashSet<String>()
+        val liked = ArrayList<Seed>()
+        fun like(artistId: String?, artist: String, title: String) {
+            if (artist.isBlank()) return
+            if (likedKeys.add(trackKey(artist, title))) liked += Seed(artistId?.takeIf { it.isNotBlank() }, artist)
+        }
+        // The main account's likes, the whole list; then the likes made in the app.
+        mainLiked().forEach { t ->
+            val a = t.artists.firstOrNull() ?: return@forEach
+            like(a.id, a.name, t.name)
+        }
+        database.likedSongs(SongSortType.CREATE_DATE, descending = true).first().forEach { s ->
+            val a = s.artists.firstOrNull() ?: return@forEach
+            like(dbCatalogId(a.id), a.name, s.song.title)
+        }
+        val account = AccountLikes.lastKnown()
+        // Liked Songs not read on this device yet: the accounts' latest likes as last read.
+        if (liked.size < SEEDS_PER_ROUND * 4) {
+            account.tracks.forEach { t ->
+                val (id, name) = t.artists.firstOrNull() ?: return@forEach
+                like(id, name, t.title)
+            }
+        }
+        val followed = (
+            database.artistsBookmarked(ArtistSortType.CREATE_DATE, descending = true).first()
+                .map { Seed(dbCatalogId(it.artist.id), it.artist.name) } +
+                account.artists.map { Seed(null, it) }
+            ).distinctBy { it.key }
+        val listened = runCatching { database.mostPlayedArtists(fromTimeStamp = 0L, limit = 40).first() }
+            .getOrDefault(emptyList())
+            .map { Seed(dbCatalogId(it.artist.id), it.artist.name) }
+        Timber.i("forYou: seeds from %d likes, %d followed, %d most played", liked.size, followed.size, listened.size)
+        return Seeds(liked, followed, listened)
+    }
+
+    // ── Spotify's mixes (only without any taste to grow from) ────────────────────────────────────
+
+    private suspend fun mixes(): List<SpotifyTrack> {
+        if (!Catalog.state.value.spotifyConnected) return emptyList()
+        sharedMixes.fresh()?.let { return it }
+        return withTimeoutOrNull(REQUEST_TIMEOUT_MS * 2) { madeForYou() }.orEmpty()
+            .also { if (it.isNotEmpty()) sharedMixes = System.currentTimeMillis() to it }
+    }
 
     /** Tracks of Spotify's personal mixes, interleaved so no single mix dominates. */
     private suspend fun madeForYou(): List<SpotifyTrack> = coroutineScope {
@@ -227,7 +563,6 @@ object ForYouRecommender {
             .filterIsInstance<SpotifyHomeFeedItem.Playlist>()
             .filter { p -> p.madeForUsername != null || MIX_NAME.containsMatchIn(p.name) }
             .distinctBy { it.id }
-            .sortedBy { p -> MIX_PRIORITY.indexOfFirst { it.containsMatchIn(p.name) }.let { if (it < 0) 99 else it } }
             .take(6)
         val lists = playlists.map { p ->
             async {
@@ -237,77 +572,7 @@ object ForYouRecommender {
                     .shuffled()
             }
         }.awaitAll()
-        interleave(lists)
-    }
-
-    /**
-     * Catalog ids of the listener's strongest artists (top 20) with their weights. Spotify first, as
-     * everywhere; when it can't be reached (no VPN) the account's catalog, the followed Spotify
-     * artists looked up there by name. A name counts only when the catalog has an artist of exactly
-     * that name: a SoundCloud uploader ("mellstroyCR7") used to bring whoever came up first, and the
-     * row filled with that stranger's "similar" (Polish pop, lo-fi jazz).
-     */
-    private suspend fun resolveSeeds(taste: Taste): List<Pair<String, Double>> {
-        val spotify = Catalog.ensureSearchable(MetadataSource.SPOTIFY)
-        val target = if (spotify) MetadataSource.SPOTIFY else Catalog.source ?: return emptyList()
-        // Side by side (a few at a time), not one after another, and remembered by name.
-        val gate = kotlinx.coroutines.sync.Semaphore(4)
-        return coroutineScope {
-            taste.artists.entries.sortedByDescending { it.value }.take(20).map { (key, weight) ->
-                async {
-                    val name = taste.artistNames[key] ?: key.removePrefix(NAME_KEY)
-                    val id = if (key.startsWith(ID_KEY) && spotify) key.removePrefix(ID_KEY)
-                    else artistByName["$target|$name"] ?: gate.withPermit { exactArtist(target, name) }
-                        ?.also { artistByName["$target|$name"] = it }
-                    id?.let { it to weight }
-                }
-            }.awaitAll().filterNotNull().distinctBy { it.first }
-        }
-    }
-
-    private suspend fun exactArtist(target: MetadataSource, name: String): String? {
-        val wanted = nameKey(name).ifEmpty { return null }
-        return Catalog.searchIn(target, name, listOf("artist"), 5).getOrNull()?.artists?.items.orEmpty()
-            .firstOrNull { it.id.isNotEmpty() && nameKey(it.name) == wanted }?.id
-    }
-
-    private fun nameKey(name: String): String = name.lowercase().filter { it.isLetterOrDigit() }
-
-    /**
-     * One round of tracks from artists close to the listener's: six seeds drawn at random,
-     * weighted by how much each is listened to, so consecutive rounds wander across the taste.
-     */
-    private suspend fun fromTaste(taste: Taste, seeds: List<Pair<String, Double>>): List<SpotifyTrack> = coroutineScope {
-        if (seeds.isEmpty()) return@coroutineScope emptyList()
-        val seedSet = seeds.mapTo(HashSet()) { it.first }
-        // Wider each round (more seeds, more of their related artists, deeper into their tracks):
-        // a narrow pick kept landing on the same few popular songs day after day.
-        val picked = weightedSample(seeds, 8)
-        val lists = picked.map { seed ->
-            async {
-                val related = Catalog.relatedArtists(seed).getOrNull().orEmpty()
-                    .filter { it.id.isNotEmpty() && it.id !in seedSet }
-                    .take(20)
-                    .shuffled()
-                    .take(4)
-                related.flatMap { artist ->
-                    Catalog.artistTopTracks(artist.id).getOrNull()?.tracks.orEmpty().shuffled().take(3)
-                }
-            }
-        }.awaitAll()
-        interleave(lists)
-    }
-
-    private fun weightedSample(items: List<Pair<String, Double>>, count: Int): List<String> {
-        val left = items.toMutableList()
-        val out = ArrayList<String>()
-        while (out.size < count && left.isNotEmpty()) {
-            val total = left.sumOf { it.second.coerceAtLeast(0.01) }
-            var r = kotlin.random.Random.nextDouble(total)
-            val index = left.indexOfFirst { r -= it.second.coerceAtLeast(0.01); r <= 0 }.let { if (it < 0) left.lastIndex else it }
-            out += left.removeAt(index).first
-        }
-        return out
+        interleave(lists).shuffled()
     }
 
     // ── Filtering ────────────────────────────────────────────────────────────────────────────────
@@ -320,18 +585,6 @@ object ForYouRecommender {
                 trackKey(artist, t.name) !in taste.knownTracks &&
                 (taste.cyrillicShare >= CYRILLIC_MIN_SHARE || !(hasCyrillic(t.name) || t.artists.any { hasCyrillic(it.name) }))
         }
-
-    /** At most [MAX_PER_ARTIST] per artist, spread out rather than back to back. */
-    private fun diversify(tracks: List<SpotifyTrack>): List<SpotifyTrack> {
-        val perArtist = HashMap<String, Int>()
-        val kept = tracks.filter { t ->
-            val key = t.artists.firstOrNull()?.name?.lowercase().orEmpty()
-            val n = perArtist[key] ?: 0
-            if (n >= MAX_PER_ARTIST) false else { perArtist[key] = n + 1; true }
-        }
-        val byArtist = kept.groupBy { it.artists.firstOrNull()?.name?.lowercase().orEmpty() }.values.map { it.toMutableList() }
-        return interleave(byArtist)
-    }
 
     private fun <T> interleave(lists: List<List<T>>): List<T> {
         val queues = lists.map { ArrayDeque(it) }
@@ -349,11 +602,5 @@ object ForYouRecommender {
     private val MIX_NAME = Regex(
         "Discover Weekly|Daily Mix|Release Radar|Mix|daylist|Открытия недели|Микс|Радар новинок",
         RegexOption.IGNORE_CASE,
-    )
-    private val MIX_PRIORITY = listOf(
-        Regex("Discover Weekly|Открытия недели", RegexOption.IGNORE_CASE),
-        Regex("Daily Mix|Микс дня", RegexOption.IGNORE_CASE),
-        Regex("Release Radar|Радар новинок", RegexOption.IGNORE_CASE),
-        Regex("Mix|Микс", RegexOption.IGNORE_CASE),
     )
 }

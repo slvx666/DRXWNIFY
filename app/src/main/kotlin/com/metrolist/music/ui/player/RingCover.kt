@@ -56,6 +56,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
+import com.metrolist.music.ui.theme.isDarkScheme
 
 /**
  * The "ring" slider style: instead of a bar under the cover, the cover is round and the track's
@@ -68,9 +69,15 @@ const val RING_COVER_SHARE = 0.84f
  * to a stop over ~0.8 s instead of freezing, and speeds up the same way again.
  */
 @Composable
-fun Modifier.ringSpin(playerConnection: PlayerConnection, active: Boolean): Modifier {
+fun Modifier.ringSpin(
+    playerConnection: PlayerConnection,
+    active: Boolean,
+    /** Where the current angle is kept, for whoever needs it (the cover viewer's flight). */
+    angleState: androidx.compose.runtime.MutableFloatState? = null,
+): Modifier {
     if (!active) return this
-    var angle by remember { mutableFloatStateOf(0f) }
+    val ownAngle = remember { mutableFloatStateOf(0f) }
+    var angle by (angleState ?: ownAngle)
     val speed = remember { Animatable(0f) }
     val playing by playerConnection.isPlaying.collectAsState()
     LaunchedEffect(playing) {
@@ -125,7 +132,7 @@ fun RingProgress(
     val isSatanic = preset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC
     val isGothic = preset == com.metrolist.music.ui.theme.AppThemePreset.GOTHIC
     val isCustomRing = isSatanic || isGothic
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val themeAccent = when {
         isSatanic -> com.metrolist.music.ui.theme.SatanicThemeConfig.getAccent(isDark)
         isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getAccent(isDark)

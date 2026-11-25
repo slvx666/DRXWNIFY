@@ -50,6 +50,7 @@ import com.metrolist.music.playback.rememberTrackLiked
 import com.metrolist.music.playback.rememberLikeSyncs
 import com.metrolist.music.ui.theme.SatanicThemeConfig
 import com.metrolist.music.utils.makeTimeString
+import com.metrolist.music.ui.theme.isDarkScheme
 
 /**
  * Custom player controls for the SATANIC Theme matching Reference 01:
@@ -83,7 +84,7 @@ fun SatanicPlayerControls(
     onArtistLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val primaryText = SatanicThemeConfig.getPrimaryText(isDark)
     val secondaryText = SatanicThemeConfig.getSecondaryText(isDark)
     val mutedText = SatanicThemeConfig.getMutedText(isDark)

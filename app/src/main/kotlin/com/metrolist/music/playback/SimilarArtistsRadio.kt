@@ -28,17 +28,21 @@ object SimilarArtistsRadio {
     /** Below this many new songs, recently heard ones are let back in rather than running dry. */
     private const val MIN_FRESH = 8
 
+    private const val REQUEST_TIMEOUT_MS = 5_000L
+
     suspend fun build(seed: SpotifyTrack, limit: Int = 50): List<SpotifyTrack> = coroutineScope {
         val artistId = seed.artists.firstNotNullOfOrNull { it.id?.takeIf { id -> id.isNotBlank() } }
             ?: return@coroutineScope emptyList()
 
-        val seedTopDeferred = async { Catalog.artistTopTracks(artistId).getOrNull()?.tracks.orEmpty() }
-        val related = Catalog.relatedArtists(artistId).getOrNull().orEmpty()
+        // Each request cut off on its own: one stuck connection (the client waits 30 s) used to run
+        // the whole radio into its time limit, and every artist that had answered was lost with it.
+        suspend fun top(id: String) =
+            kotlinx.coroutines.withTimeoutOrNull(REQUEST_TIMEOUT_MS) { Catalog.artistTopTracks(id).getOrNull() }?.tracks.orEmpty()
+        val seedTopDeferred = async { top(artistId) }
+        val related = kotlinx.coroutines.withTimeoutOrNull(REQUEST_TIMEOUT_MS) { Catalog.relatedArtists(artistId).getOrNull() }.orEmpty()
             .filter { it.id.isNotBlank() && it.id != artistId }
             .take(RELATED_ARTISTS)
-        val relatedTops = related.map { artist ->
-            async { Catalog.artistTopTracks(artist.id).getOrNull()?.tracks.orEmpty() }
-        }.awaitAll()
+        val relatedTops = related.map { artist -> async { top(artist.id) } }.awaitAll()
         val seedTop = seedTopDeferred.await()
 
         val seen = HashSet<String>()

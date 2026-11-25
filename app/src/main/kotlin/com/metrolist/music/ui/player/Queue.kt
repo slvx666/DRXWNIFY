@@ -150,6 +150,7 @@ import com.metrolist.music.constants.SleepTimerFadeOutKey
 import com.metrolist.music.constants.SleepTimerStopAfterCurrentSongKey
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.material3.Button
+import com.metrolist.music.ui.theme.isDarkScheme
 
 
 @SuppressLint("UnrememberedMutableState")
@@ -277,7 +278,7 @@ fun Queue(
         collapsedContent = {
             val currentPreset = LocalAppThemePreset.current
             if (currentPreset == AppThemePreset.SATANIC || currentPreset == AppThemePreset.GOTHIC) {
-                val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+                val isDark = MaterialTheme.colorScheme.isDarkScheme()
                 val buttonColor = if (currentPreset == AppThemePreset.SATANIC) {
                     if (isDark) Color.White else SatanicThemeConfig.LightPrimaryText
                 } else {

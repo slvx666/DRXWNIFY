@@ -47,7 +47,8 @@ import kotlin.random.Random
  *    titles with a faint displaced ghost, scanlines over the pages.
  */
 
-private fun Color.dark() = luminance() < 0.4f
+// Below the dimmest paper (Satanic's dusk book, ~0.2) and above every night container.
+private fun Color.dark() = luminance() < 0.18f
 
 /** The top bar's ornament for the themes of this file; false when [preset] isn't one of them. */
 @Composable

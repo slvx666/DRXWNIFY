@@ -90,8 +90,7 @@ object ServiceStats {
 
     /** Yandex Music: likes by month (the last 12) and the most liked artists. */
     suspend fun yandexStats(force: Boolean = false): Result<YandexStats> {
-        // "yandex2": the copies before it had no artist pictures.
-        val saved = read<YandexStats>("yandex2")
+        val saved = read<YandexStats>("yandex3")
         if (!force && saved != null && System.currentTimeMillis() - saved.at < DAY_MS) return Result.success(saved)
         return runCatching {
             val refs = YandexMusic.likedTrackRefs().getOrThrow()
@@ -105,19 +104,26 @@ object ServiceStats {
                 MonthCount(m.toString(), months[m] ?: 0)
             }
             val tracks = YandexMusic.allLikedSongs().getOrDefault(emptyList())
-            val byArtist = tracks.groupBy { it.track.artists.firstOrNull()?.name }.filterKeys { it != null }
+            val byArtist = tracks
+                .filter { it.track.artists.firstOrNull()?.name?.trim()?.isNotEmpty() == true }
+                .groupBy { it.track.artists.first().name.trim().lowercase() }
             val artists = kotlinx.coroutines.coroutineScope {
-                byArtist.entries.sortedByDescending { it.value.size }.take(15).map { (name, liked) ->
+                byArtist.entries.sortedByDescending { it.value.size }.take(15).map { (_, liked) ->
+                    val displayName = liked.mapNotNull { it.track.artists.firstOrNull()?.name?.trim() }
+                        .groupingBy { it }.eachCount()
+                        .maxByOrNull { it.value }?.key ?: liked.first().track.artists.first().name.trim()
                     val track = liked.first().track
                     async {
                         // The artist's own picture (the liked track names the artist by id).
-                        val picture = track.artists.firstOrNull()?.id?.takeIf { it.isNotBlank() }
-                            ?.let { YandexMusic.artist(it).getOrNull()?.images?.maxByOrNull { img -> img.width ?: 0 }?.url }
-                        ArtistCount(name!!, liked.size, track, picture ?: track.album?.images?.firstOrNull()?.url)
+                        val picture = liked.firstNotNullOfOrNull { l ->
+                            l.track.artists.firstOrNull()?.id?.takeIf { it.isNotBlank() }
+                                ?.let { YandexMusic.artist(it).getOrNull()?.images?.maxByOrNull { img -> img.width ?: 0 }?.url }
+                        }
+                        ArtistCount(displayName, liked.size, track, picture ?: track.album?.images?.firstOrNull()?.url)
                     }
                 }.map { it.await() }
             }
-            YandexStats(refs.size, byMonth, artists, System.currentTimeMillis()).also { write("yandex2", it) }
+            YandexStats(refs.size, byMonth, artists, System.currentTimeMillis()).also { write("yandex3", it) }
         }.recoverCatching { e -> saved ?: throw e }
     }
 
@@ -127,7 +133,7 @@ object ServiceStats {
      * library takes a few seconds to read; kept a day like the others.
      */
     suspend fun vkStats(force: Boolean = false): Result<YandexStats> {
-        val saved = read<YandexStats>("vk1")
+        val saved = read<YandexStats>("vk2")
         if (!force && saved != null && System.currentTimeMillis() - saved.at < DAY_MS) return Result.success(saved)
         return runCatching {
             val tracks = VkCatalog.myTracks(force = force)
@@ -141,25 +147,32 @@ object ServiceStats {
                 val m = now.minusMonths(back.toLong())
                 MonthCount(m.toString(), months[m] ?: 0)
             }
-            val byArtist = tracks.groupBy { it.artists.firstOrNull()?.name?.trim().orEmpty() }.filterKeys { it.isNotBlank() }
+            val byArtist = tracks
+                .filter { it.artists.firstOrNull()?.name?.trim()?.isNotEmpty() == true }
+                .groupBy { it.artists.first().name.trim().lowercase() }
             val artists = kotlinx.coroutines.coroutineScope {
-                byArtist.entries.sortedByDescending { it.value.size }.take(15).map { (name, liked) ->
+                byArtist.entries.sortedByDescending { it.value.size }.take(15).map { (_, liked) ->
+                    val displayName = liked.map { it.artists.first().name.trim() }
+                        .groupingBy { it }.eachCount()
+                        .maxByOrNull { it.value }?.key ?: liked.first().artists.first().name.trim()
                     val track = VkCatalog.trackOf(liked.first())
                     async {
                         // The artist's own photo when VK knows the artist (official releases), else a cover.
-                        val photo = track.artists.firstOrNull()?.id?.takeIf { it.isNotBlank() }
-                            ?.let { VkCatalog.artist(it).getOrNull()?.images?.maxByOrNull { img -> img.width ?: 0 }?.url }
-                        ArtistCount(name, liked.size, track, photo ?: liked.firstNotNullOfOrNull { it.album?.cover ?: it.thumb })
+                        val photo = liked.firstNotNullOfOrNull { l ->
+                            l.artists.firstOrNull()?.id?.takeIf { it.isNotBlank() }
+                                ?.let { VkCatalog.artist(it).getOrNull()?.images?.maxByOrNull { img -> img.width ?: 0 }?.url }
+                        }
+                        ArtistCount(displayName, liked.size, track, photo ?: liked.firstNotNullOfOrNull { it.album?.cover ?: it.thumb })
                     }
                 }.map { it.await() }
             }
-            YandexStats(tracks.size, byMonth, artists, System.currentTimeMillis()).also { write("vk1", it) }
+            YandexStats(tracks.size, byMonth, artists, System.currentTimeMillis()).also { write("vk2", it) }
         }.recoverCatching { e -> saved ?: throw e }
     }
 
     /** YouTube Music: likes and the most liked artists from the Liked Music ("LM") playlist. */
     suspend fun youtubeStats(force: Boolean = false): Result<YandexStats> {
-        val saved = read<YandexStats>("youtube1")
+        val saved = read<YandexStats>("youtube2")
         if (!force && saved != null && System.currentTimeMillis() - saved.at < DAY_MS) return Result.success(saved)
         return runCatching {
             val initial = YouTube.playlist("LM").getOrThrow()
@@ -173,9 +186,13 @@ object ServiceStats {
                 rounds++
             }
             check(allSongs.isNotEmpty()) { "YouTube Music library is empty" }
-            val byArtist = allSongs.groupBy { it.artists.firstOrNull()?.name?.trim().orEmpty() }
-                .filterKeys { it.isNotBlank() }
-            val artists = byArtist.entries.sortedByDescending { it.value.size }.take(15).map { (name, songs) ->
+            val byArtist = allSongs
+                .filter { it.artists.firstOrNull()?.name?.trim()?.isNotEmpty() == true }
+                .groupBy { it.artists.first().name.trim().lowercase() }
+            val artists = byArtist.entries.sortedByDescending { it.value.size }.take(15).map { (_, songs) ->
+                val displayName = songs.mapNotNull { it.artists.firstOrNull()?.name?.trim() }
+                    .groupingBy { it }.eachCount()
+                    .maxByOrNull { it.value }?.key ?: songs.first().artists.first().name.trim()
                 val first = songs.first()
                 val fakeTrack = SpotifyTrack(
                     id = first.id,
@@ -183,14 +200,14 @@ object ServiceStats {
                     artists = first.artists.map { SpotifySimpleArtist(id = it.id, name = it.name) },
                     album = first.album?.let { SpotifySimpleAlbum(id = it.id.orEmpty(), name = it.name, images = listOf(SpotifyImage(url = first.thumbnail, height = 300, width = 300))) },
                 )
-                ArtistCount(name, songs.size, fakeTrack, first.thumbnail)
+                ArtistCount(displayName, songs.size, fakeTrack, first.thumbnail)
             }
             val now = YearMonth.now()
             val byMonth = (11 downTo 0).map { back ->
                 val m = now.minusMonths(back.toLong())
                 MonthCount(m.toString(), if (back == 0) allSongs.size else 0)
             }
-            YandexStats(allSongs.size, byMonth, artists, System.currentTimeMillis()).also { write("youtube1", it) }
+            YandexStats(allSongs.size, byMonth, artists, System.currentTimeMillis()).also { write("youtube2", it) }
         }.recoverCatching { e -> saved ?: throw e }
     }
 
@@ -285,7 +302,8 @@ object MonthReview {
             .filter { com.metrolist.music.portrait.Listening.kept(it.event.playTime, it.song.song.duration * 1000L) }
         // Anything to make pages of: two tracks and two artists are enough (a page without data is left out).
         if (inMonth.map { it.song.id }.toSet().size < MIN_TRACKS) return null
-        if (inMonth.mapNotNull { it.song.artists.firstOrNull()?.name }.toSet().size < MIN_ARTISTS) return null
+        val artistOf = { e: com.metrolist.music.db.entities.EventWithSong -> e.song.artists.firstOrNull()?.name?.trim() }
+        if (inMonth.mapNotNull { artistOf(it)?.lowercase() }.filter { it.isNotBlank() }.toSet().size < MIN_ARTISTS) return null
         val minutes = inMonth.sumOf { it.event.playTime } / 60_000L
         val topTracks = inMonth.groupBy { it.song.id }.entries.sortedByDescending { it.value.size }.take(21).map { (_, events) ->
             val e = events.first()
@@ -300,9 +318,10 @@ object MonthReview {
                 sinceCount = all.count { it.song.id == e.song.id },
             )
         }
-        val artistOf = { e: com.metrolist.music.db.entities.EventWithSong -> e.song.artists.firstOrNull()?.name }
-        val topArtists = inMonth.filter { artistOf(it) != null }.groupBy { artistOf(it)!! }.entries
-            .sortedByDescending { it.value.size }.take(11).map { (name, events) ->
+        val topArtists = inMonth.filter { !artistOf(it).isNullOrBlank() }
+            .groupBy { artistOf(it)!!.lowercase() }.entries
+            .sortedByDescending { it.value.size }.take(11).map { (_, events) ->
+                val name = events.mapNotNull(artistOf).groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: artistOf(events.first())!!
                 Item(
                     title = name,
                     subtitle = null,
@@ -316,18 +335,23 @@ object MonthReview {
                     streakDays = longestRun(events.map { it.event.timestamp.toLocalDate() }.toSet()),
                 )
             }
-        val before = all.filter { it.event.timestamp < start }.mapNotNull(artistOf).toSet()
-        val newArtists = inMonth.mapNotNull(artistOf).toSet().count { it !in before }
+        val before = all.filter { it.event.timestamp < start }.mapNotNull(artistOf).filter { it.isNotBlank() }.map { it.lowercase() }.toSet()
+        val newArtists = inMonth.mapNotNull(artistOf).filter { it.isNotBlank() }.map { it.lowercase() }.toSet().count { it !in before }
         val byDay = inMonth.groupBy { it.event.timestamp.toLocalDate() }.mapValues { (_, v) -> v.sumOf { it.event.playTime } / 60_000L }
         val busiest = byDay.maxByOrNull { it.value }
         val topHour = inMonth.groupingBy { it.event.timestamp.hour }.eachCount().maxByOrNull { it.value }?.key
         // Genres: each listen counts for its artist's genres (the 30 most played artists are looked up).
-        val listensByArtist = inMonth.mapNotNull(artistOf).groupingBy { it }.eachCount()
-        val topNames = listensByArtist.entries.sortedByDescending { it.value }.take(30).map { it.key }
+        val listensByArtistLower = inMonth.mapNotNull(artistOf).filter { it.isNotBlank() }
+            .groupingBy { it.lowercase() }.eachCount()
+        val artistDisplayNames = inMonth.mapNotNull(artistOf).filter { it.isNotBlank() }
+            .groupBy { it.lowercase() }
+            .mapValues { (_, names) -> names.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: names.first() }
+        val topNames = listensByArtistLower.entries.sortedByDescending { it.value }.take(30).map { (lower, _) -> artistDisplayNames[lower] ?: lower }
         runCatching { com.metrolist.music.portrait.Genres.ensure(topNames) }
         val genreCounts = HashMap<String, Int>()
         topNames.forEach { name ->
-            com.metrolist.music.portrait.Genres.cached(name).take(2).forEach { g -> genreCounts.merge(g, listensByArtist[name] ?: 0, Int::plus) }
+            val lower = name.lowercase()
+            com.metrolist.music.portrait.Genres.cached(name).take(2).forEach { g -> genreCounts.merge(g, listensByArtistLower[lower] ?: 0, Int::plus) }
         }
         val genres = genreCounts.entries.sortedByDescending { it.value }.take(5).map { it.key to it.value }
         // How the taste moved: the leading genre of each half of the month.
@@ -350,32 +374,40 @@ object MonthReview {
         }
         val genreEarly = leading(inMonth.filter { it.event.timestamp < half })
         val genreLate = leading(inMonth.filter { it.event.timestamp >= half })
-        val listenedArtistsInMonth = inMonth.mapNotNull(artistOf).toSet()
+        // Liked artists of the month: songs that were liked DURING this month (likedDate within the month),
+        // and whose primary artist (or the song itself) was actually listened to in this month.
+        // Grouped case-insensitively so case variants (e.g. scarlxrd / Scarlxrd) are merged.
+        val listenedArtistsLower = inMonth.mapNotNull(artistOf).filter { it.isNotBlank() }.map { it.lowercase() }.toSet()
+        val inMonthSongIds = inMonth.map { it.song.id }.toSet()
         val allLiked = runCatching { database.likedSongsByCreateDateAsc().first() }.getOrDefault(emptyList())
-        val likedInMonth = allLiked.filter {
-            it.song.liked &&
-            it.song.likedDate != null &&
-            it.song.likedDate >= start &&
-            it.song.likedDate < end &&
-            it.artists.any { a -> listenedArtistsInMonth.any { listened -> listened.equals(a.name.trim(), ignoreCase = true) } }
+        val likedInMonth = allLiked.filter { song ->
+            song.song.liked &&
+            song.song.likedDate != null &&
+            song.song.likedDate >= start &&
+            song.song.likedDate < end &&
+            (song.id in inMonthSongIds || song.artists.firstOrNull()?.name?.trim()?.lowercase() in listenedArtistsLower)
         }
         val likedArtists = likedInMonth
-            .groupBy { it.artists.firstOrNull()?.name?.trim().orEmpty() }
-            .filterKeys { it.isNotBlank() }
+            .filter { it.artists.firstOrNull()?.name?.trim()?.isNotEmpty() == true }
+            .groupBy { it.artists.first().name.trim().lowercase() }
             .entries
             .sortedWith(
                 compareByDescending<Map.Entry<String, List<com.metrolist.music.db.entities.Song>>> { it.value.size }
-                    .thenByDescending { entry -> listensByArtist[entry.key] ?: 0 }
+                    .thenByDescending { entry -> listensByArtistLower[entry.key] ?: 0 }
             )
             .take(10)
-            .map { (name, songs) ->
+            .map { (_, songs) ->
+                val name = songs.mapNotNull { it.artists.firstOrNull()?.name?.trim() }
+                    .groupingBy { it }.eachCount()
+                    .maxByOrNull { it.value }?.key ?: songs.first().artists.first().name.trim()
+                val topSong = songs.maxByOrNull { s -> inMonth.count { it.song.id == s.id } } ?: songs.first()
                 Item(
                     title = name,
                     subtitle = null,
                     count = songs.size,
                     image = songs.firstNotNullOfOrNull { it.artists.firstOrNull()?.thumbnailUrl }
-                        ?: songs.firstOrNull()?.song?.thumbnailUrl,
-                    songId = songs.firstOrNull()?.id,
+                        ?: topSong.song.thumbnailUrl,
+                    songId = topSong.id,
                 )
             }
         return Review(
@@ -385,7 +417,7 @@ object MonthReview {
             topTracks = topTracks,
             topArtists = topArtists,
             newArtists = newArtists,
-            distinctArtists = inMonth.mapNotNull(artistOf).toSet().size,
+            distinctArtists = inMonth.mapNotNull(artistOf).filter { it.isNotBlank() }.map { it.lowercase() }.toSet().size,
             distinctTracks = inMonth.map { it.song.id }.toSet().size,
             busiestDay = busiest?.key,
             busiestDayMinutes = busiest?.value ?: 0,

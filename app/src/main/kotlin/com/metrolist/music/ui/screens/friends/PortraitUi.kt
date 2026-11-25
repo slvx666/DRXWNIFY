@@ -64,6 +64,7 @@ import com.metrolist.music.portrait.ProfilePortrait
 import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
+import com.metrolist.music.ui.theme.isDarkScheme
 
 /**
  * A genre's own hue, anywhere on the colour wheel (the golden ratio spreads close names apart).
@@ -95,7 +96,7 @@ fun huesFor(genres: List<String>): Map<String, Float> {
 }
 
 @Composable
-private fun isDark() = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+private fun isDark() = MaterialTheme.colorScheme.isDarkScheme()
 
 /** The strong colour of [genre] (bars, dots). */
 @Composable

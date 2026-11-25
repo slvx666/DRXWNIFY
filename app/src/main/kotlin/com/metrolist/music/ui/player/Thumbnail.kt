@@ -768,12 +768,19 @@ private fun ThumbnailItem(
             // Circular cover inside a ring progress (Satanic / Gothic seals, or Street / Breakcore seals, or standard ring)
             val ringSpinOn by rememberPreference(com.metrolist.music.constants.RingCoverSpinKey, defaultValue = true)
             val playing = isCurrent || item.mediaId == currentMediaId
+            val spinAngle = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+            val spinning = ringSpinOn && playing
             Box(Modifier.size(dimensions.thumbnailSize), contentAlignment = Alignment.Center) {
                 Box(
                     modifier = Modifier
                         .size(dimensions.thumbnailSize * RING_COVER_SHARE)
-                        .coverSource(coverViewer)
-                        .then(if (isRing) Modifier.ringSpin(playerConnection, active = ringSpinOn && playing) else Modifier)
+                        // Round and turned: the viewer opens out of the circle at its angle.
+                        .coverSource(
+                            coverViewer,
+                            circle = true,
+                            rotation = { if (spinning) spinAngle.floatValue else 0f },
+                        )
+                        .then(if (isRing) Modifier.ringSpin(playerConnection, active = spinning, angleState = spinAngle) else Modifier)
                         .clip(androidx.compose.foundation.shape.CircleShape)
                 ) {
                     if (hidePlayerThumbnail) {

@@ -41,7 +41,7 @@ object GothicThemeConfig {
     val LightAccent = Color(0xFF574766)
 
     @Composable
-    fun isDarkTheme(): Boolean = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    fun isDarkTheme(): Boolean = MaterialTheme.colorScheme.isDarkScheme()
 
     fun getBackground(isDark: Boolean) = if (isDark) Background else LightBackground
     fun getSurface(isDark: Boolean) = if (isDark) Surface else LightSurface

@@ -544,26 +544,32 @@ class MainActivity : ComponentActivity() {
 
         val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
         val isSystemInDarkTheme = isSystemInDarkTheme()
-        val useDarkTheme =
+        val appThemePreset by rememberEnumPreference(
+            com.metrolist.music.constants.AppThemePresetKey,
+            defaultValue = com.metrolist.music.ui.theme.AppThemePreset.STANDARD,
+        )
+        val pureBlackEnabled by rememberPreference(PureBlackKey, defaultValue = false)
+        val wantsDark =
             remember(darkTheme, isSystemInDarkTheme) {
                 if (darkTheme == DarkMode.AUTO) isSystemInDarkTheme else darkTheme == DarkMode.ON
             }
+        // Satanic's middle mode (dark, not pure black) is the withered old book: drawn as a light
+        // theme on a much darker, browner paper.
+        val satanicDusk = appThemePreset == com.metrolist.music.ui.theme.AppThemePreset.SATANIC &&
+            wantsDark && !pureBlackEnabled
+        com.metrolist.music.ui.theme.SatanicThemeConfig.dusk = satanicDusk
+        val useDarkTheme = wantsDark && !satanicDusk
 
         LaunchedEffect(useDarkTheme) {
             setSystemBarAppearance(useDarkTheme)
         }
 
-        val pureBlackEnabled by rememberPreference(PureBlackKey, defaultValue = false)
         val pureBlack =
             remember(pureBlackEnabled, useDarkTheme) {
                 pureBlackEnabled && useDarkTheme
             }
 
         val (selectedThemeColorInt) = rememberPreference(SelectedThemeColorKey, defaultValue = DefaultThemeColor.toArgb())
-        val appThemePreset by rememberEnumPreference(
-            com.metrolist.music.constants.AppThemePresetKey,
-            defaultValue = com.metrolist.music.ui.theme.AppThemePreset.STANDARD,
-        )
         val themeAnimations by rememberPreference(com.metrolist.music.constants.ThemeAnimationsKey, defaultValue = true)
         val selectedThemeColor = Color(selectedThemeColorInt)
 
@@ -624,7 +630,7 @@ class MainActivity : ComponentActivity() {
         com.metrolist.music.ui.theme.ThemeRuntime.preset = appThemePreset
         com.metrolist.music.ui.theme.ThemeRuntime.isDark = useDarkTheme
         MetrolistTheme(
-            darkTheme = useDarkTheme,
+            darkTheme = wantsDark,
             pureBlack = pureBlack,
             themeColor = themeColor,
             preset = appThemePreset,

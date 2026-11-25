@@ -129,6 +129,19 @@ internal val SatanicDay = Tone(
     error = c(0xFF1F1F1F),
 )
 
+// Dusk (the middle mode) is the same book, far older: the paper has gone brown and withered, as if
+// it had lain in a damp crypt for a century and is falling apart. Still dark ink on paper — a light
+// scheme — only much gloomier. Mirrored by the Dusk* colours in SatanicThemeConfig.
+internal val SatanicDusk = Tone(
+    page = c(0xFFA0957B),
+    steps = listOf(c(0xFFA69B82), c(0xFF9C9077), c(0xFF968A71), c(0xFF8E826A), c(0xFF867A62)),
+    ink = c(0xFF0B0907), inkSoft = c(0xFF2C271F),
+    accent = c(0xFF0B0907), onAccent = c(0xFFB2A78D),
+    accentContainer = c(0xFF847860), onAccentContainer = c(0xFF0B0907),
+    outline = c(0xFF463F32), outlineSoft = c(0xFF7D725B),
+    error = c(0xFF1C1611),
+)
+
 // ── Gothic: night stone with a hint of dusk violet; day is grey stone. Quiet, no grandeur. ──
 
 internal val GothicNight = Tone(

@@ -35,7 +35,7 @@ fun ThemePlayerDecor(ring: Boolean, color: Color, modifier: Modifier = Modifier)
             val frame = SatanicThemeConfig.rememberAsset(SatanicThemeConfig.PATH_ALBUM_FRAME)
             if (frame != null) {
                 // Drawn white for the dark page; on the light page its rings and four crosses are ink.
-                val light = androidx.compose.material3.MaterialTheme.colorScheme.surface.luminance() >= 0.4f
+                val light = !androidx.compose.material3.MaterialTheme.colorScheme.isDarkScheme()
                 androidx.compose.foundation.Image(
                     bitmap = frame,
                     contentDescription = null,

@@ -59,6 +59,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.metrolist.music.R
 import com.metrolist.music.ui.screens.OptionStats
+import com.metrolist.music.ui.theme.isDarkScheme
 
 @Composable
 fun <E> ChipsRow(
@@ -69,7 +70,7 @@ fun <E> ChipsRow(
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
 ) {
     val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     Row(
         modifier =
         modifier
@@ -137,7 +138,7 @@ fun <Int> ChoiceChipsRow(
     )
 
     val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
 
     Row(
         modifier =

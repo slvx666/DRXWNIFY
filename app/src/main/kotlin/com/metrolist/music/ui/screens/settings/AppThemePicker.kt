@@ -268,7 +268,8 @@ private fun ThemePresetCard(
                 .clickable(onClick = onClick),
         ) {
             // The preview is drawn in the theme itself (the standard one with the default seed).
-            MetrolistTheme(darkTheme = dark, preset = preset, animations = false) {
+            // Satanic's dark card shows its black, not the dusk book its middle mode would give.
+            MetrolistTheme(darkTheme = dark, pureBlack = dark && preset == AppThemePreset.SATANIC, preset = preset, animations = false) {
                 Column(
                     Modifier
                         .fillMaxSize()

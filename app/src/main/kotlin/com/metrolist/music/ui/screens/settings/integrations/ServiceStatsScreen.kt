@@ -272,7 +272,8 @@ private suspend fun spotifyStory(
         val own = tops.tracks.firstOrNull { t -> t.artists.any { it.id == a.id || it.name.equals(a.name, ignoreCase = true) } }
         MonthReview.Item(title = a.name, subtitle = null, count = 0, image = biggest(a.images), songId = own?.id ?: tracks.firstOrNull()?.id)
     }
-    val byId = tops.tracks.associateBy { it.id }
+    val allSpotifyTracks = HashMap<String, com.metrolist.spotify.models.SpotifyTrack>()
+    tops.tracks.forEach { allSpotifyTracks[it.id] = it }
     val mapper = com.metrolist.music.playback.SpotifyYouTubeMapper(database)
     // The genres: an artist counts by its place among the top artists and by its tracks among the top tracks.
     val weights = HashMap<String, Int>()
@@ -282,62 +283,96 @@ private suspend fun spotifyStory(
     val songs = genreSongs(genres, tops.tracks.map { it.id to it.artists.firstOrNull()?.name })
 
     val likedArtists = runCatching {
+        // Active artists the user actually listened to during this period
+        val activeArtists = (tops.artists.map { it.name.trim().lowercase() } +
+            tops.tracks.flatMap { it.artists.map { a -> a.name.trim().lowercase() } }).filter { it.isNotBlank() }.toSet()
+
+        // 1. Check which of the user's top tracks in this period are in "Liked Songs"
+        val topTrackIds = tops.tracks.map { it.id }.filter { it.isNotBlank() }
+        val savedMap = com.metrolist.spotify.Spotify.tracksSaved(topTrackIds).getOrDefault(emptyMap())
+        val likedTopTracks = tops.tracks.filter { savedMap[it.id] == true }
+
+        // Track IDs liked per artist (using lowercase keys for matching)
+        val artistLikedIds = HashMap<String, MutableSet<String>>()
+        val artistDisplayNames = HashMap<String, String>()
+
+        for (track in likedTopTracks) {
+            val artistName = track.artists.firstOrNull()?.name?.trim().orEmpty()
+            if (artistName.isNotBlank()) {
+                val key = artistName.lowercase()
+                artistDisplayNames.putIfAbsent(key, artistName)
+                artistLikedIds.getOrPut(key) { mutableSetOf() }.add(track.id)
+            }
+        }
+
+        // 2. Also check recent liked songs from Spotify library (for active artists only)
         val cutoff = when (range) {
             ServiceStats.Range.SHORT -> java.time.Instant.now().minus(java.time.Duration.ofDays(28))
             ServiceStats.Range.MEDIUM -> java.time.Instant.now().minus(java.time.Duration.ofDays(180))
             ServiceStats.Range.LONG -> java.time.Instant.EPOCH
         }
-        val allTracks = mutableListOf<com.metrolist.spotify.models.SpotifySavedTrack>()
+
+        val maxPages = if (range == ServiceStats.Range.LONG) 4 else 2
         var offset = 0
         val pageSize = 50
-        while (offset < 500) {
+        while (offset < maxPages * pageSize) {
             val page = com.metrolist.spotify.Spotify.likedSongs(limit = pageSize, offset = offset).getOrNull() ?: break
             val items = page.items
             if (items.isEmpty()) break
             var reachedEnd = false
             for (item in items) {
+                allSpotifyTracks.putIfAbsent(item.track.id, item.track)
+                val artistName = item.track.artists.firstOrNull()?.name?.trim().orEmpty()
+                val key = artistName.lowercase()
+                // Strictly only artists the user listened to in this period
+                if (key.isBlank() || key !in activeArtists) continue
+
                 val instant = item.addedAt?.let { ts ->
                     runCatching { java.time.Instant.parse(ts) }.getOrNull()
                 }
-                if (range == ServiceStats.Range.LONG) {
-                    allTracks.add(item)
-                } else if (instant != null) {
-                    if (instant.isAfter(cutoff)) {
-                        allTracks.add(item)
-                    } else {
-                        reachedEnd = true
-                        break
-                    }
+                if (range == ServiceStats.Range.LONG || instant == null || instant.isAfter(cutoff)) {
+                    artistDisplayNames.putIfAbsent(key, artistName)
+                    artistLikedIds.getOrPut(key) { mutableSetOf() }.add(item.track.id)
+                } else {
+                    reachedEnd = true
                 }
             }
             if (reachedEnd || items.size < pageSize) break
             offset += pageSize
         }
-        val byArtist = allTracks.groupBy { it.track.artists.firstOrNull()?.name?.trim().orEmpty() }
-            .filterKeys { it.isNotBlank() }
-        byArtist.entries
+
+        artistLikedIds.entries
+            .filter { it.value.isNotEmpty() }
             .sortedWith(
-                compareByDescending<Map.Entry<String, List<com.metrolist.spotify.models.SpotifySavedTrack>>> { it.value.size }
+                compareByDescending<Map.Entry<String, Set<String>>> { it.value.size }
                     .thenBy { entry ->
-                        val idx = tops.artists.indexOfFirst { it.name.equals(entry.key, ignoreCase = true) }
+                        val idx = tops.artists.indexOfFirst { it.name.trim().equals(entry.key, ignoreCase = true) }
                         if (idx >= 0) idx else 999
                     }
             )
             .take(10)
-            .map { (name, list) ->
-                val first = list.first().track
+            .map { (key, trackIds) ->
+                val displayName = artistDisplayNames[key] ?: key
+                val artistObj = tops.artists.firstOrNull { it.name.trim().equals(key, ignoreCase = true) }
+                val topTrack = tops.tracks.firstOrNull { it.id in trackIds }
+                    ?: tops.tracks.firstOrNull { t -> t.artists.any { it.name.trim().equals(key, ignoreCase = true) } }
+                    ?: trackIds.firstNotNullOfOrNull { allSpotifyTracks[it] }
                 MonthReview.Item(
-                    title = name,
+                    title = displayName,
                     subtitle = null,
-                    count = list.size,
-                    image = biggest(first.album?.images) ?: tops.artists.firstOrNull { it.name.equals(name, ignoreCase = true) }?.let { biggest(it.images) },
-                    songId = first.id,
+                    count = trackIds.size,
+                    image = artistObj?.let { biggest(it.images) }
+                        ?: biggest(topTrack?.album?.images),
+                    songId = topTrack?.id ?: trackIds.firstOrNull(),
                 )
             }
     }.getOrDefault(emptyList())
 
-    return serviceReview("Spotify", period, items, artists) { id -> byId[id]?.let { mapper.resolveToMediaItem(it) } }
-        .copy(genres = genres, genreSongs = songs, likedArtists = likedArtists)
+    return serviceReview("Spotify", period, items, artists) { id ->
+        val track = allSpotifyTracks[id]
+            ?: runCatching { com.metrolist.spotify.Spotify.getTrack(id).getOrNull() }.getOrNull()
+        track?.let { mapper.resolveToMediaItem(it) }
+    }.copy(genres = genres, genreSongs = songs, likedArtists = likedArtists)
 }
 
 /** The tracks (by key) whose artist is of the top genre: one of them plays on the genres page. */
@@ -366,7 +401,9 @@ private suspend fun yandexStory(
     // The genres of the most liked artists, each by how many of its tracks are liked.
     val genres = MonthReview.genrePortrait(y.artists.associate { it.name to it.count })
     val songs = genreSongs(genres, y.artists.mapNotNull { a -> a.track?.let { it.id to a.name } })
-    return serviceReview(name, period, emptyList(), artists) { id -> byId[id]?.let { mapper.resolveToMediaItem(it) } }.copy(
+    return serviceReview(name, period, emptyList(), artists) { id ->
+        byId[id]?.let { mapper.resolveToMediaItem(it) }
+    }.copy(
         genres = genres,
         genreSongs = songs,
         likesTotal = y.total,

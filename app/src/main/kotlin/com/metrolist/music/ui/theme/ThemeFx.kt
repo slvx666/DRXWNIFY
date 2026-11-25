@@ -97,7 +97,7 @@ private fun frac(x: Float) = x - floor(x)
 @Composable
 fun SatanicHomeBackground(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val bgPath = SatanicThemeConfig.getHomeBg(isDark)
     val bgColor = SatanicThemeConfig.getBackground(isDark)
     val bitmap = remember(bgPath) { SatanicThemeConfig.getAssetBitmap(context, bgPath) }
@@ -120,7 +120,7 @@ fun SatanicHomeBackground(modifier: Modifier = Modifier) {
 @Composable
 fun SatanicLibraryBackground(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val bgPath = SatanicThemeConfig.getLibraryBg(isDark)
     val bgColor = SatanicThemeConfig.getBackground(isDark)
     val bitmap = remember(bgPath) { SatanicThemeConfig.getAssetBitmap(context, bgPath) }
@@ -143,7 +143,7 @@ fun SatanicLibraryBackground(modifier: Modifier = Modifier) {
 @Composable
 fun SatanicPlayerBackground(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val bgPath = SatanicThemeConfig.getPlayerBg(isDark)
     val bgColor = SatanicThemeConfig.getBackground(isDark)
     val bitmap = remember(bgPath) { SatanicThemeConfig.getAssetBitmap(context, bgPath) }
@@ -164,7 +164,7 @@ fun SatanicPlayerBackground(modifier: Modifier = Modifier) {
 @Composable
 fun SatanicChatBackground(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val bgPath = SatanicThemeConfig.getChatBg(isDark)
     val bgColor = SatanicThemeConfig.getBackground(isDark)
     val bitmap = remember(bgPath) { SatanicThemeConfig.getAssetBitmap(context, bgPath) }
@@ -221,7 +221,7 @@ private fun SatanicAsh(ink: Color) {
 @Composable
 fun GothicHomeBackground(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val bgPath = GothicThemeConfig.getHomeBg(isDark)
     val bgColor = GothicThemeConfig.getBackground(isDark)
     val bitmap = remember(bgPath) { GothicThemeConfig.getAssetBitmap(context, bgPath) }
@@ -244,7 +244,7 @@ fun GothicHomeBackground(modifier: Modifier = Modifier) {
 @Composable
 fun GothicLibraryBackground(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val bgPath = GothicThemeConfig.getLibraryBg(isDark)
     val bgColor = GothicThemeConfig.getBackground(isDark)
     val bitmap = remember(bgPath) { GothicThemeConfig.getAssetBitmap(context, bgPath) }
@@ -267,7 +267,7 @@ fun GothicLibraryBackground(modifier: Modifier = Modifier) {
 @Composable
 fun GothicPlayerBackground(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val bgPath = GothicThemeConfig.getPlayerBg(isDark)
     val bgColor = GothicThemeConfig.getBackground(isDark)
     val bitmap = remember(bgPath) { GothicThemeConfig.getAssetBitmap(context, bgPath) }
@@ -288,7 +288,7 @@ fun GothicPlayerBackground(modifier: Modifier = Modifier) {
 @Composable
 fun GothicChatBackground(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val bgPath = GothicThemeConfig.getChatBg(isDark)
     val bgColor = GothicThemeConfig.getBackground(isDark)
     val bitmap = remember(bgPath) { GothicThemeConfig.getAssetBitmap(context, bgPath) }
@@ -311,7 +311,7 @@ private class Mote(val x: Float, val speed: Float, val size: Float, val phase: F
 @Composable
 private fun GothicBackground(modifier: Modifier) {
     val ink = MaterialTheme.colorScheme.onSurface
-    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val dark = MaterialTheme.colorScheme.isDarkScheme()
     val animate = LocalThemeAnimations.current
     Box(modifier.fillMaxSize()) {
         Canvas(Modifier.fillMaxSize().graphicsLayer()) {
@@ -374,7 +374,7 @@ private fun GothicDust(ink: Color) {
 private fun StreetBackground(modifier: Modifier) {
     val paint = MaterialTheme.colorScheme.primary
     val ink = MaterialTheme.colorScheme.onSurface
-    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val dark = MaterialTheme.colorScheme.isDarkScheme()
     Canvas(modifier.fillMaxSize().graphicsLayer()) {
         val r = Random(404)
         // Concrete: specks and a few scuffs.
@@ -423,7 +423,7 @@ private fun tagStrokes(r: Random): List<List<Pair<Float, Float>>> = List(4) { s 
 @Composable
 private fun BreakcoreBackground(modifier: Modifier) {
     val ink = MaterialTheme.colorScheme.onSurface
-    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val dark = MaterialTheme.colorScheme.isDarkScheme()
     val animate = LocalThemeAnimations.current
     // Slow on purpose: the doodles boil four times a second, the grain flickers with them.
     val clock = rememberFxClock(animate, frameMs = 250)

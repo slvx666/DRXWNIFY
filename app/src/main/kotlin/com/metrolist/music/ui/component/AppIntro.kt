@@ -55,14 +55,12 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Played once per process (rotating the screen or reopening the activity doesn't replay it), and
- * only after the app has gone unused for [IDLE_BEFORE_INTRO_MS]: a quick return opens straight
- * into the app.
+ * only on the first start after an install or update; every other start opens straight into the app.
  */
 object AppIntroState {
     @Volatile
     var played = false
 
-    private const val IDLE_BEFORE_INTRO_MS = 8L * 60 * 60 * 1000
     private const val PREFS = "app_intro"
     private const val KEY_LAST_ACTIVE = "last_active"
 
@@ -78,13 +76,12 @@ object AppIntroState {
      */
     fun isDue(context: android.content.Context): Boolean = due ?: run {
         val prefs = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
-        val last = prefs.getLong(KEY_LAST_ACTIVE, 0L)
-        val now = System.currentTimeMillis()
         // Every install counts (as for the welcome): a rebuilt release of the same version too.
         val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime }.getOrDefault(0L)
         val newVersion = prefs.getLong(KEY_VERSION, -1L) != version
         if (newVersion) prefs.edit().putLong(KEY_VERSION, version).apply()
-        (newVersion || last == 0L || now - last >= IDLE_BEFORE_INTRO_MS || now < last).also { due = it }
+        // Only after an install or update (as for the welcome), never after a long break.
+        newVersion.also { due = it }
     }
 
     /** The app was in use just now (leaving the screen, or music playing in the background). */

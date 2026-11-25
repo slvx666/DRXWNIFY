@@ -338,6 +338,9 @@ class SpotifyLibraryViewModel @Inject constructor(
     }
 
     init {
+        // Opening the library: the whole Liked Songs are read behind, page by page (the dice and the
+        // covers draw from every like), unless that was done lately.
+        com.metrolist.music.catalog.LikedSongsSync.start(delayMs = 3_000L)
         // The Year order on Albums: the years the library didn't bring are read in the background.
         viewModelScope.launch {
             combine(yearSortActive, unfilteredEntries.map { it.size }, ::Pair).collect { (active, _) ->

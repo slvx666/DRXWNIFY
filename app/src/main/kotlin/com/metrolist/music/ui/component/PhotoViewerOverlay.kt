@@ -126,6 +126,10 @@ private const val CLOSE_DURATION_MS = 260
 class PhotoViewerHostState {
     private val sourceBounds = mutableStateMapOf<String, Rect>()
     private val sourceCornerRadiiPx = mutableStateMapOf<String, Float>()
+    /** Round sources (the player's ring cover): the corner follows the size, so it stays a circle. */
+    private val circleSources = mutableStateMapOf<String, Boolean>()
+    /** Sources drawn turned (the spinning ring cover): their current angle in degrees. */
+    private val sourceRotations = HashMap<String, () -> Float>()
 
     internal var session by mutableStateOf<PhotoViewerSession?>(null)
         private set
@@ -158,19 +162,34 @@ class PhotoViewerHostState {
         if (session != null) dismissRequestCount++
     }
 
-    internal fun registerSource(id: String, bounds: Rect, cornerRadiusPx: Float) {
+    internal fun registerSource(id: String, bounds: Rect, cornerRadiusPx: Float, circle: Boolean = false, rotation: (() -> Float)? = null) {
         sourceBounds[id] = bounds
         sourceCornerRadiiPx[id] = cornerRadiusPx
+        if (circle) circleSources[id] = true else circleSources.remove(id)
+        if (rotation != null) sourceRotations[id] = rotation else sourceRotations.remove(id)
     }
 
     internal fun unregisterSource(id: String) {
         sourceBounds.remove(id)
         sourceCornerRadiiPx.remove(id)
+        circleSources.remove(id)
+        sourceRotations.remove(id)
         if (hiddenSourceId == id && session == null) hiddenSourceId = null
     }
 
     internal fun sourceRect(id: String): Rect? = sourceBounds[id]
     internal fun sourceCornerRadiusPx(id: String): Float = sourceCornerRadiiPx[id] ?: 0f
+    internal fun isCircleSource(id: String): Boolean = circleSources[id] == true
+
+    /** The source's turn now, folded to -180..180 so the photo always takes the short way. */
+    internal fun sourceRotation(id: String): Float {
+        val a = (sourceRotations[id]?.invoke() ?: 0f) % 360f
+        return when {
+            a > 180f -> a - 360f
+            a < -180f -> a + 360f
+            else -> a
+        }
+    }
     internal fun updateHiddenSource(id: String?) {
         hiddenSourceId = id
     }
@@ -195,10 +214,18 @@ class PhotoViewerHostState {
 @Composable
 fun rememberPhotoViewerHostState(): PhotoViewerHostState = remember { PhotoViewerHostState() }
 
+/**
+ * @param circle the source is drawn round: the photo grows out of a circle and shrinks back into
+ *   one, the corners easing between round and square as it flies.
+ * @param rotation the source's current turn in degrees (a spinning cover): the photo starts at that
+ *   angle and straightens as it opens, and turns back to it as it closes.
+ */
 fun Modifier.photoViewerSource(
     state: PhotoViewerHostState,
     id: String,
-    cornerRadius: Dp = 12.dp
+    cornerRadius: Dp = 12.dp,
+    circle: Boolean = false,
+    rotation: (() -> Float)? = null,
 ): Modifier = composed {
     val density = LocalDensity.current
     val cornerRadiusPx = with(density) { cornerRadius.toPx() }
@@ -208,7 +235,7 @@ fun Modifier.photoViewerSource(
     }
     this
         .graphicsLayer { alpha = if (hidden) 0f else 1f }
-        .onGloballyPositioned { state.registerSource(id, it.boundsInRoot(), cornerRadiusPx) }
+        .onGloballyPositioned { state.registerSource(id, it.boundsInRoot(), cornerRadiusPx, circle, rotation) }
 }
 
 /** The same request everywhere in the viewer, so the transition and the page share one cached bitmap. */
@@ -264,6 +291,8 @@ fun PhotoViewerHost(
     val animationProgress = progress.value.coerceIn(0f, 1f)
     val openingSourceRect = state.sourceRect(openingItem.id) ?: fallbackSourceRect(containerSize)
     val openingSourceCornerRadiusPx = state.sourceCornerRadiusPx(openingItem.id)
+    // A spinning source's angle when the photo leaves it; it straightens out on the way.
+    val openingSourceRotation = remember(session.nonce) { state.sourceRotation(openingItem.id) }
     val dismissSwipeThresholdPx = computeDismissSwipeThresholdPx(density, containerSize.height)
     val openingTargetRect = computeTargetRect(
         containerSize,
@@ -432,10 +461,27 @@ fun PhotoViewerHost(
                 lerpRect(closing.startRect, end, 1f - animationProgress)
             }
         }
-        val transitionCornerRadius = when (phase) {
+        // How round the flying photo is: 1 at a round source, 0 when open. Taken against the
+        // photo's size at every frame, so a circle stays a circle while it grows and only then
+        // eases its corners out to a square (no step from a circle to a rounded square).
+        val circleSource = when (phase) {
+            PhotoViewerPhase.Opening -> state.isCircleSource(openingItem.id)
+            PhotoViewerPhase.Interactive -> false
+            PhotoViewerPhase.Closing -> closing?.endId?.let { state.isCircleSource(it) } == true
+        }
+        val transitionCornerRadius = if (circleSource) {
+            val roundness = circleRoundness(1f - animationProgress)
+            roundness * minOf(transitionRect.width, transitionRect.height) / 2f
+        } else when (phase) {
             PhotoViewerPhase.Opening -> lerpFloat(openingSourceCornerRadiusPx, 0f, animationProgress)
             PhotoViewerPhase.Interactive -> 0f
             PhotoViewerPhase.Closing -> lerpFloat(0f, closing?.endCornerRadiusPx ?: 0f, 1f - animationProgress)
+        }
+        val transitionRotation = when (phase) {
+            PhotoViewerPhase.Opening -> openingSourceRotation * (1f - animationProgress)
+            PhotoViewerPhase.Interactive -> 0f
+            // Back to the cover's live angle: it kept turning while the photo was open.
+            PhotoViewerPhase.Closing -> (closing?.endId?.let { state.sourceRotation(it) } ?: 0f) * (1f - animationProgress)
         }
 
         if (transitionRect != Rect.Zero) {
@@ -444,6 +490,7 @@ fun PhotoViewerHost(
                 contentDescription = transitionItem.contentDescription,
                 rect = transitionRect,
                 cornerRadiusPx = transitionCornerRadius,
+                rotationDegrees = transitionRotation,
             )
         }
     }
@@ -455,6 +502,7 @@ private fun TransitionPhoto(
     contentDescription: String?,
     rect: Rect,
     cornerRadiusPx: Float,
+    rotationDegrees: Float = 0f,
 ) {
     if (rect.width <= 1f || rect.height <= 1f) return
     val density = LocalDensity.current
@@ -462,7 +510,12 @@ private fun TransitionPhoto(
         modifier = Modifier
             .offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
             .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
-            .clip(RoundedCornerShape(with(density) { cornerRadiusPx.toDp() }))
+            .graphicsLayer {
+                // Clipped on the layer (antialiased outline), turned with it as one piece.
+                rotationZ = rotationDegrees
+                shape = RoundedCornerShape(cornerRadiusPx.coerceAtLeast(0f))
+                clip = true
+            }
     ) {
         Image(
             painter = painter,
@@ -726,6 +779,16 @@ private fun fallbackSourceRect(containerSize: IntSize): Rect {
 
 private fun computeCurrentDisplayRect(baseRect: Rect, translation: Offset): Rect =
     baseRect.translate(translation)
+
+/**
+ * Roundness of a photo flying from a circle, by how far it still is from open (1 at the circle).
+ * Eases out of the circle gently (flat at the start) and is square a little before the photo
+ * lands, smoothly at both ends, so nothing snaps at the start of the flight or at its end.
+ */
+private fun circleRoundness(towardsSource: Float): Float {
+    val t = ((towardsSource - 0.15f) / 0.85f).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
 
 private fun lerpRect(start: Rect, stop: Rect, fraction: Float): Rect {
     val t = fraction.coerceIn(0f, 1f)

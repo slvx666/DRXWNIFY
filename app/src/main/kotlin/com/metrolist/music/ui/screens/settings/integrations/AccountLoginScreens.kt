@@ -116,6 +116,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
+import com.metrolist.music.ui.theme.isDarkScheme
 
 /** Connects a Yandex Music account (metadata + library source) through Yandex's OAuth page. */
 @Composable
@@ -1007,7 +1008,7 @@ private fun styleScript(css: String): String =
 @Composable
 private fun yandexPageScript(): String {
     val css = yandexPageCss()
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val dark = MaterialTheme.colorScheme.isDarkScheme()
     return remember(css, dark) {
         styleScript(css) + YANDEX_LOGIN_HINT_SCRIPT + if (dark) {
             "document.querySelectorAll('[data-theme][data-color=light]').forEach(function(e){e.setAttribute('data-color','dark')});"

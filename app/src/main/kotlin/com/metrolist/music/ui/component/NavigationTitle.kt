@@ -44,6 +44,7 @@ import com.metrolist.music.R
 import com.metrolist.music.ui.theme.AppThemePreset
 import com.metrolist.music.ui.theme.LocalAppThemePreset
 import com.metrolist.music.ui.theme.SatanicThemeConfig
+import com.metrolist.music.ui.theme.isDarkScheme
 
 /**
  * Section titles without their "Play all" button and arrow (the home page: a title alone reads
@@ -65,7 +66,7 @@ fun NavigationTitle(
 ) {
     val plain = LocalPlainSectionTitles.current
     val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val context = LocalContext.current
     val dividerPainter =
         if (isSatanic) {

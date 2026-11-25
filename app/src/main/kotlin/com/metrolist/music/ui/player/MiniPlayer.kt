@@ -136,6 +136,7 @@ import kotlinx.coroutines.withContext
 import com.metrolist.music.ui.theme.PlayerColorExtractor
 import com.metrolist.music.ui.component.LocalMenuState
 import com.metrolist.music.ui.menu.AddToPlaylistDialog
+import com.metrolist.music.ui.theme.isDarkScheme
 
 /**
  * Stable wrapper for progress state - reads values only during draw phase
@@ -206,7 +207,7 @@ private fun NewMiniPlayer(
     val useDarkTheme =
         remember(darkTheme, isSystemInDarkTheme) {
             if (darkTheme == DarkMode.AUTO) isSystemInDarkTheme else darkTheme == DarkMode.ON
-        }
+        } && !com.metrolist.music.ui.theme.SatanicThemeConfig.dusk // Satanic dusk draws light
 
     // Player states - only collect what's needed at this level
     val playbackState by playerConnection.playbackState.collectAsState()
@@ -305,7 +306,7 @@ private fun NewMiniPlayer(
     val isSatanic = currentPreset == AppThemePreset.SATANIC
     val isGothic = currentPreset == AppThemePreset.GOTHIC
     val isCustomThemeMini = isSatanic || isGothic
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
 
     // Memoize colors
     val backgroundColor = when {
@@ -597,7 +598,7 @@ private fun NewMiniPlayerPlayButton(
     val currentPresetPlay = LocalAppThemePreset.current
     val isSatanic = currentPresetPlay == AppThemePreset.SATANIC
     val isGothic = currentPresetPlay == AppThemePreset.GOTHIC
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val trackColor = when {
         isSatanic -> SatanicThemeConfig.getBorder(isDark).copy(alpha = 0.5f)
         isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getBorder(isDark).copy(alpha = 0.5f)
@@ -734,7 +735,7 @@ private fun NewMiniPlayerSongInfo(
             val currentPresetText = LocalAppThemePreset.current
             val isSatanic = currentPresetText == AppThemePreset.SATANIC
             val isGothic = currentPresetText == AppThemePreset.GOTHIC
-            val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+            val isDark = MaterialTheme.colorScheme.isDarkScheme()
             val titleColor = when {
                 isSatanic -> SatanicThemeConfig.getPrimaryText(isDark)
                 isGothic -> com.metrolist.music.ui.theme.GothicThemeConfig.getPrimaryText(isDark)
@@ -1164,7 +1165,7 @@ private fun SubscribeButton(
     val isSatanic = currentPresetSub == AppThemePreset.SATANIC
     val isGothic = currentPresetSub == AppThemePreset.GOTHIC
     val isCustomBtn = isSatanic || isGothic
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val buttonModifier = if (isCustomBtn) {
         Modifier
             .size(36.dp)
@@ -1251,7 +1252,7 @@ private fun DownloadButton(
     val isSatanic = currentPresetDl == AppThemePreset.SATANIC
     val isGothic = currentPresetDl == AppThemePreset.GOTHIC
     val isCustomDl = isSatanic || isGothic
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val buttonModifier = if (isCustomDl) {
         Modifier
             .size(36.dp)
@@ -1348,7 +1349,7 @@ private fun FavoriteButton(
     val isSatanic = currentPresetFav == AppThemePreset.SATANIC
     val isGothic = currentPresetFav == AppThemePreset.GOTHIC
     val isCustomFav = isSatanic || isGothic
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     // Satanic's heart (with its dagger when liked) is taller than the button: not clipped to a circle.
     val tallHeart = isSatanic && com.metrolist.music.ui.theme.ThemeIcons.likeIsTall
     val buttonModifier = if (isCustomFav) {

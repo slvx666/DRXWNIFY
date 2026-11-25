@@ -90,6 +90,7 @@ import com.metrolist.music.viewmodels.SpotifyLibraryViewModel.Filter
 import com.metrolist.music.viewmodels.SpotifyLibraryViewModel.Sort
 import com.metrolist.spotify.models.SpotifyLibraryEntry
 import java.net.URLEncoder
+import com.metrolist.music.ui.theme.isDarkScheme
 
 private val SpotifyGreen = Color(0xFF1ED760)
 
@@ -439,7 +440,7 @@ fun LibraryChips(
 private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
     val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
     if (isSatanic) {
-        val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+        val isDark = MaterialTheme.colorScheme.isDarkScheme()
         val context = LocalContext.current
         val activeFramePainter =
             SatanicThemeConfig.loadBitmapAsset(
@@ -500,7 +501,7 @@ private fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun CloseChip(onClick: () -> Unit) {
     val isSatanic = LocalAppThemePreset.current == AppThemePreset.SATANIC
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     Surface(
         shape = CircleShape,
         color = if (isSatanic) SatanicThemeConfig.getSurface(isDark) else MaterialTheme.colorScheme.surfaceContainerHighest,

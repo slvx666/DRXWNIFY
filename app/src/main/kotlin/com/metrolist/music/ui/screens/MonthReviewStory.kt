@@ -348,9 +348,12 @@ private fun servicePages(r: MonthReview.Review, round: Int): List<StoryPage> = b
         add(StoryPage("topArtist", 11_000, topArtist.songId, fullVolumeAtMs = 2_900) { TopArtistPage(r, topArtist) })
         if (r.topArtists.size > 1) add(StoryPage("topArtists", 12_000, topArtist.songId, top = true) { TopArtistsPage(r, r.topArtists) })
     }
-    // Third to last: the top liked artists
+    // Third to last: the top liked artists (plays the top 1 liked artist's music)
     if (r.likedArtists.isNotEmpty()) {
-        add(StoryPage("likedArtists", 13_000, r.likedArtists.firstOrNull()?.songId, top = true) { LikedArtistsPage(r, r.likedArtists) })
+        val topLikedSongId = r.likedArtists.firstOrNull()?.songId
+            ?: r.topArtists.firstOrNull()?.songId
+            ?: r.topTracks.firstOrNull()?.songId
+        add(StoryPage("likedArtists", 13_000, topLikedSongId, fullVolumeAtMs = 2_900, top = true) { LikedArtistsPage(r, r.likedArtists) })
     }
     // Second to last, as in the app's own review: the genres the tops make.
     if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000, genreSong(r, round), fullVolumeAtMs = 2_700) { GenresPage(r) })
@@ -376,9 +379,12 @@ private fun appPages(r: MonthReview.Review, round: Int): List<StoryPage> = build
         add(StoryPage("topArtist", 11_000, topArtist.songId, fullVolumeAtMs = 2_900) { TopArtistPage(r, topArtist) })
         if (r.topArtists.size > 1) add(StoryPage("topArtists", 12_000, topArtist.songId, top = true) { TopArtistsPage(r, r.topArtists) })
     }
-    // Third to last: the top liked artists
+    // Third to last: the top liked artists (plays the top 1 liked artist's music)
     if (r.likedArtists.isNotEmpty()) {
-        add(StoryPage("likedArtists", 13_000, r.likedArtists.firstOrNull()?.songId, top = true) { LikedArtistsPage(r, r.likedArtists) })
+        val topLikedSongId = r.likedArtists.firstOrNull()?.songId
+            ?: r.topArtists.firstOrNull()?.songId
+            ?: r.topTracks.firstOrNull()?.songId
+        add(StoryPage("likedArtists", 13_000, topLikedSongId, fullVolumeAtMs = 2_900, top = true) { LikedArtistsPage(r, r.likedArtists) })
     }
     // The top genre's page plays one of its songs, another one each round.
     if (r.genres.isNotEmpty()) add(StoryPage("genres", 11_000, genreSong(r, round), fullVolumeAtMs = 2_700) { GenresPage(r) })
@@ -792,9 +798,10 @@ private fun LikedArtistsPage(r: MonthReview.Review, items: List<MonthReview.Item
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Black,
                 )
-                if (r.service == null) {
+                val subtitle = if (r.service != null) r.period else stringResource(R.string.story_liked_disclaimer)
+                if (!subtitle.isNullOrBlank()) {
                     Text(
-                        stringResource(R.string.story_liked_disclaimer),
+                        subtitle,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

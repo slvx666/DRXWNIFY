@@ -50,6 +50,7 @@ import com.metrolist.music.ui.theme.GothicFace
 import com.metrolist.music.ui.theme.GothicThemeConfig
 import com.metrolist.music.ui.theme.SatanicThemeConfig
 import com.metrolist.music.utils.makeTimeString
+import com.metrolist.music.ui.theme.isDarkScheme
 
 /**
  * Custom player controls for the GOTHIC Theme matching Satanic player layout 1:1:
@@ -84,7 +85,7 @@ fun GothicPlayerControls(
     onArtistLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.4f
+    val isDark = MaterialTheme.colorScheme.isDarkScheme()
     val primaryText = GothicThemeConfig.getPrimaryText(isDark)
     val secondaryText = GothicThemeConfig.getSecondaryText(isDark)
     val mutedText = GothicThemeConfig.getMutedText(isDark)

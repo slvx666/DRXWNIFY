@@ -258,7 +258,7 @@ fun BottomSheetPlayer(
     val useDarkTheme =
         remember(darkTheme, isSystemInDarkTheme) {
             if (darkTheme == DarkMode.AUTO) isSystemInDarkTheme else darkTheme == DarkMode.ON
-        }
+        } && !com.metrolist.music.ui.theme.SatanicThemeConfig.dusk // Satanic dusk draws light
 
     val shouldUseDarkButtonColors =
         remember(playerBackground, useDarkTheme) {
