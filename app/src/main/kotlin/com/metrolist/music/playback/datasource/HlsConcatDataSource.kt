@@ -669,10 +669,22 @@ class HlsConcatDataSource(
         private val segmentCache = LruCache<String, ByteArray>(4)
 
         /** Fully assembled tracks ("whole" mode); the player reopens them on every seek. */
-        private val wholeCache = LruCache<String, ByteArray>(2)
+        private val wholeCache = byteCache(TRACK_CACHE_BYTES)
 
         /** Streamed tracks once complete, padded to the length the player was told. */
-        private val streamedCache = LruCache<String, ByteArray>(2)
+        private val streamedCache = byteCache(TRACK_CACHE_BYTES)
+
+        /**
+         * At most two tracks and at most this many bytes: two long tracks were 30 MB and more per
+         * cache, held next to everything else in a 256 MB heap. One very long track still fits alone
+         * (a track that doesn't fit would be fetched again on every seek).
+         */
+        private const val TRACK_CACHE_BYTES = 32 * 1024 * 1024
+
+        private fun byteCache(maxBytes: Int) = object : LruCache<String, ByteArray>(maxBytes) {
+            // Each entry counts at least half: never more than two, whatever their size.
+            override fun sizeOf(key: String, value: ByteArray): Int = maxOf(value.size, maxBytes / 2)
+        }
 
         /** Tracks being streamed, by playlist url (a seek reopens the same one). */
         private val streams = object : LinkedHashMap<String, WholeStream>(4, 0.75f, true) {
@@ -781,7 +793,9 @@ class HlsConcatDataSource(
                 at += c.size
             }
             exact = joined
-            wholeCache.put(playlistUrl, joined)
+            // A streamed track is reopened from streamedCache (its padded copy, below); keeping the
+            // joined copy too held every VK track twice — 10–15 MB each in a 256 MB heap.
+            if (declared <= 0) wholeCache.put(playlistUrl, joined)
             MeasuredAudio.analyze(joined)?.let { MeasuredAudio.record(playlistUrl, it) }
             if (declared > 0) {
                 if (total > declared) {
@@ -794,6 +808,8 @@ class HlsConcatDataSource(
                 fillSilence(filled, joined.size)
                 padded = filled
                 streamedCache.put(playlistUrl, filled)
+                // Reads go to the padded copy from now on: the segments are not needed any more.
+                chunks.fill(null)
             }
             com.metrolist.music.resolver.AudioDiagnostics.info(
                 "hls streamed: ${total / 1024} KB in ${System.currentTimeMillis() - started} ms, " +

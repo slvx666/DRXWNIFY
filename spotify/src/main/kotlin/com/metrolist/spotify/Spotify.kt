@@ -1958,56 +1958,68 @@ object Spotify {
     // ── Artists (GQL: queryArtistOverview) ───────────────────────────────
 
     /**
-     * Runs the queryArtistOverview GQL query for [artistId] and returns the
-     * `data.artistUnion` object (or throws). Shared by [artist],
-     * [artistTopTracks] and [artistRelatedArtists], which only differ in which
-     * fields of the union they read.
+     * What is read from an artist's queryArtistOverview, parsed once: the profile, the discography,
+     * "appears on", the popular tracks and the related artists. Kept instead of the response: the
+     * parsed JSON tree of an overview (headers, galleries, merch, concerts, playlists, videos and
+     * the whole discography) is megabytes, and the hundreds the recommendations read filled the
+     * 256 MB heap — endless GC (the UI and the sound stuttering), then OutOfMemoryError. These
+     * objects are a small fraction of that, so enough of them are kept for the recommendations not
+     * to fetch the same artists again round after round (which made Spotify's gateway answer 500).
      */
-    /** queryArtistOverview is shared by artist/discography/top tracks/related: reuse it for a few minutes. */
-    private val artistUnionCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, JsonObject>>()
+    private class ArtistOverview(
+        val artist: SpotifyArtist,
+        val discography: ArtistDiscography,
+        val appearsOn: List<SpotifyAlbum>,
+        val topTracks: List<SpotifyTrack>,
+        val related: List<SpotifyArtist>,
+    )
+
+    private val artistOverviewCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, ArtistOverview>>()
 
     /** Overviews being fetched now: a second caller for the same artist waits for that answer. */
-    private val artistUnionInFlight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<JsonObject>>()
+    private val artistOverviewInFlight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<ArtistOverview>>()
 
     /**
      * At most a few overview queries at once. The recommendations asked for dozens in one burst
      * (related artists, then each one's top tracks, round after round) and Spotify's gateway
      * answered 500 / "connection closed" for the lot, the music standing silent meanwhile.
      */
-    private val artistUnionGate = kotlinx.coroutines.sync.Semaphore(ARTIST_OVERVIEW_PARALLEL)
+    private val artistOverviewGate = kotlinx.coroutines.sync.Semaphore(ARTIST_OVERVIEW_PARALLEL)
 
-    private suspend fun artistUnion(artistId: String): JsonObject {
+    private suspend fun artistOverview(artistId: String): ArtistOverview {
         val now = System.currentTimeMillis()
-        artistUnionCache[artistId]?.takeIf { now - it.first < ARTIST_OVERVIEW_TTL_MS }?.let { return it.second }
-        // Kept, not dropped all at once at 50: a round of recommendations alone reads more than
-        // that, so every round fetched the same artists again. The oldest go first.
-        if (artistUnionCache.size > ARTIST_OVERVIEW_CACHE_MAX) {
-            artistUnionCache.entries.sortedBy { it.value.first }
-                .take(artistUnionCache.size - ARTIST_OVERVIEW_CACHE_MAX + ARTIST_OVERVIEW_CACHE_MAX / 4)
-                .forEach { artistUnionCache.remove(it.key) }
+        artistOverviewCache[artistId]?.takeIf { now - it.first < ARTIST_OVERVIEW_TTL_MS }?.let { return it.second }
+        // The oldest go first once full (not all at once: a round of recommendations alone reads
+        // dozens, and dropping everything made every round fetch the same artists again).
+        if (artistOverviewCache.size > ARTIST_OVERVIEW_CACHE_MAX) {
+            artistOverviewCache.entries.sortedBy { it.value.first }
+                .take(artistOverviewCache.size - ARTIST_OVERVIEW_CACHE_MAX + ARTIST_OVERVIEW_CACHE_MAX / 4)
+                .forEach { artistOverviewCache.remove(it.key) }
         }
-        val mine = kotlinx.coroutines.CompletableDeferred<JsonObject>()
-        val running = artistUnionInFlight.putIfAbsent(artistId, mine)
+        val mine = kotlinx.coroutines.CompletableDeferred<ArtistOverview>()
+        val running = artistOverviewInFlight.putIfAbsent(artistId, mine)
         if (running != null) return running.await()
         return try {
-            artistUnionGate.withPermit { fetchArtistUnion(artistId) }
-                .also { union ->
-                    artistUnionCache[artistId] = System.currentTimeMillis() to union
-                    mine.complete(union)
+            artistOverviewGate.withPermit { fetchArtistOverview(artistId) }
+                .also { overview ->
+                    artistOverviewCache[artistId] = System.currentTimeMillis() to overview
+                    mine.complete(overview)
                 }
         } catch (e: Throwable) {
             mine.completeExceptionally(e)
             throw e
         } finally {
-            artistUnionInFlight.remove(artistId, mine)
+            artistOverviewInFlight.remove(artistId, mine)
         }
     }
 
     private const val ARTIST_OVERVIEW_PARALLEL = 4
     private const val ARTIST_OVERVIEW_TTL_MS = 30 * 60 * 1000L
-    private const val ARTIST_OVERVIEW_CACHE_MAX = 400
 
-    private suspend fun fetchArtistUnion(artistId: String): JsonObject {
+    /** Parsed overviews are small: this keeps several rounds of recommendations without a refetch. */
+    private const val ARTIST_OVERVIEW_CACHE_MAX = 300
+
+    private suspend fun fetchArtistOverview(artistId: String): ArtistOverview {
         val response =
             graphqlPost(
                 operationName = "queryArtistOverview",
@@ -2016,22 +2028,65 @@ object Spotify {
                     put("locale", "")
                 },
             )
-        return response.obj("data")?.obj("artistUnion")
+        val union = response.obj("data")?.obj("artistUnion")
             ?: throw SpotifyException(500, "Invalid queryArtistOverview response")
+        return parseArtistOverview(artistId, union)
+    }
+
+    private fun parseArtistOverview(artistId: String, union: JsonObject): ArtistOverview {
+        val artist = SpotifyArtist(
+            id = artistId,
+            name = union.obj("profile")?.str("name") ?: "",
+            images = parseGqlImages(union.obj("visuals")?.obj("avatarImage")?.arr("sources")),
+            uri = "spotify:artist:$artistId",
+            monthlyListeners = union.obj("stats")?.int("monthlyListeners")?.toLong(),
+        )
+
+        val disco = union.obj("discography")
+        fun parseGroup(key: String, type: String): List<SpotifyAlbum> =
+            disco?.obj(key)?.arr("items")?.mapNotNull { elem ->
+                // Each discography item wraps a `releases.items[]` list; take the primary release.
+                val release = elem.jsonObject.obj("releases")?.arr("items")
+                    ?.firstOrNull()?.jsonObject
+                    ?: elem.jsonObject // some payloads inline the release directly
+                parseGqlRelease(release, type)
+            }?.distinctBy { it.id } ?: emptyList()
+        val discography = ArtistDiscography(
+            albums = parseGroup("albums", "album"),
+            singles = parseGroup("singles", "single"),
+            compilations = parseGroup("compilations", "compilation"),
+            latest = disco?.obj("latest")?.let { parseGqlRelease(it, it.str("type")?.lowercase() ?: "album") },
+        )
+
+        // Releases of OTHER artists the artist appears on; their artists are kept so a row can say
+        // whose release it is.
+        val appearsOn = union.obj("relatedContent")?.obj("appearsOn")?.arr("items").orEmpty().mapNotNull { elem ->
+            val release = elem.jsonObject.obj("releases")?.arr("items")?.firstOrNull()?.jsonObject
+                ?: elem.jsonObject
+            val type = release.str("type")?.lowercase() ?: "album"
+            val album = parseGqlRelease(release, type) ?: return@mapNotNull null
+            val artists = release.obj("artists")?.arr("items")?.mapNotNull { parseGqlSimpleArtist(it.jsonObject) }.orEmpty()
+            album.copy(artists = artists)
+        }.distinctBy { it.id }
+
+        val topTracks = disco?.obj("topTracks")?.arr("items").orEmpty().mapNotNull { elem ->
+            val trackObj = elem.jsonObject.obj("track") ?: return@mapNotNull null
+            parseGqlTrack(trackObj)
+        }
+
+        // From the overview: the rate-limited REST /related-artists endpoint is never needed.
+        val related = union.obj("relatedContent")?.obj("relatedArtists")?.arr("items").orEmpty().mapNotNull { elem ->
+            val uri = elem.jsonObject.str("uri") ?: return@mapNotNull null
+            val name = elem.jsonObject.obj("profile")?.str("name") ?: return@mapNotNull null
+            val images = parseGqlImages(elem.jsonObject.obj("visuals")?.obj("avatarImage")?.arr("sources"))
+            SpotifyArtist(id = uri.substringAfterLast(":"), name = name, images = images, uri = uri)
+        }
+
+        return ArtistOverview(artist, discography, appearsOn, topTracks, related)
     }
 
     suspend fun artist(artistId: String): Result<SpotifyArtist> =
-        runCatching {
-            val artistData = artistUnion(artistId)
-
-            SpotifyArtist(
-                id = artistId,
-                name = artistData.obj("profile")?.str("name") ?: "",
-                images = parseGqlImages(artistData.obj("visuals")?.obj("avatarImage")?.arr("sources")),
-                uri = "spotify:artist:$artistId",
-                monthlyListeners = artistData.obj("stats")?.int("monthlyListeners")?.toLong(),
-            )
-        }
+        runCatching { artistOverview(artistId).artist }
 
     /**
      * The artist's releases via REST (/v1/artists/{id}/albums). Carries `album_type` so callers can
@@ -2053,97 +2108,30 @@ object Spotify {
         }
 
     /**
-     * The artist's full discography via the same queryArtistOverview GQL payload that powers
-     * [artist] and [artistTopTracks]. This is the reliable source: the REST /artists/{id}/albums
-     * endpoint was silently returning nothing for some artists (leaving the artist screen showing only
-     * the top-10 tracks), whereas the GQL discography that the top tracks already came from is
-     * consistently populated. Groups are returned separately so "Albums" means albums.
+     * The artist's full discography from the same queryArtistOverview that powers [artist] and
+     * [artistTopTracks]. The reliable source: the REST /artists/{id}/albums endpoint was silently
+     * returning nothing for some artists. Groups are returned separately so "Albums" means albums.
      */
     suspend fun artistDiscography(artistId: String): Result<ArtistDiscography> =
-        runCatching {
-            val artistData = artistUnion(artistId)
-            val disco = artistData.obj("discography")
-
-            fun parseGroup(key: String, type: String): List<SpotifyAlbum> =
-                disco?.obj(key)?.arr("items")?.mapNotNull { elem ->
-                    // Each discography item wraps a `releases.items[]` list; take the primary release.
-                    val release = elem.jsonObject.obj("releases")?.arr("items")
-                        ?.firstOrNull()?.jsonObject
-                        ?: elem.jsonObject // some payloads inline the release directly
-                    parseGqlRelease(release, type)
-                }?.distinctBy { it.id } ?: emptyList()
-
-            ArtistDiscography(
-                albums = parseGroup("albums", "album"),
-                singles = parseGroup("singles", "single"),
-                compilations = parseGroup("compilations", "compilation"),
-                latest = disco?.obj("latest")?.let { parseGqlRelease(it, it.str("type")?.lowercase() ?: "album") },
-            )
-        }
+        runCatching { artistOverview(artistId).discography }
 
     /**
      * Releases of OTHER artists the artist appears on (features, collaborations, compilations) —
-     * Spotify's "Appears On", from the same queryArtistOverview payload (relatedContent.appearsOn).
-     * Album artists are kept so the row can say whose release it is.
+     * Spotify's "Appears On" (relatedContent.appearsOn of the overview).
      */
     suspend fun artistAppearsOn(artistId: String): Result<List<SpotifyAlbum>> =
-        runCatching {
-            val items = artistUnion(artistId).obj("relatedContent")?.obj("appearsOn")?.arr("items")
-                ?: JsonArray(emptyList())
-            items.mapNotNull { elem ->
-                val release = elem.jsonObject.obj("releases")?.arr("items")?.firstOrNull()?.jsonObject
-                    ?: elem.jsonObject
-                val type = release.str("type")?.lowercase() ?: "album"
-                val album = parseGqlRelease(release, type) ?: return@mapNotNull null
-                val artists = release.obj("artists")?.arr("items")?.mapNotNull { parseGqlSimpleArtist(it.jsonObject) }.orEmpty()
-                album.copy(artists = artists)
-            }.distinctBy { it.id }
-        }
+        runCatching { artistOverview(artistId).appearsOn }
 
+    @Suppress("UNUSED_PARAMETER")
     suspend fun artistTopTracks(
         artistId: String,
         market: String = "US",
     ): Result<ArtistTopTracksResponse> =
-        runCatching {
-            val artistData = artistUnion(artistId)
+        runCatching { ArtistTopTracksResponse(tracks = artistOverview(artistId).topTracks) }
 
-            val topTracksItems =
-                artistData.obj("discography")
-                    ?.obj("topTracks")?.arr("items") ?: JsonArray(emptyList())
-
-            val tracks =
-                topTracksItems.mapNotNull { elem ->
-                    val trackObj = elem.jsonObject.obj("track") ?: return@mapNotNull null
-                    parseGqlTrack(trackObj)
-                }
-
-            ArtistTopTracksResponse(tracks = tracks)
-        }
-
-    /**
-     * Extracts related artists from the GQL queryArtistOverview endpoint.
-     * This avoids the rate-limited REST /related-artists endpoint entirely.
-     */
+    /** Related artists from the overview (avoids the rate-limited REST /related-artists endpoint). */
     suspend fun artistRelatedArtists(artistId: String): Result<List<SpotifyArtist>> =
-        runCatching {
-            val artistData = artistUnion(artistId)
-
-            val relatedItems =
-                artistData.obj("relatedContent")
-                    ?.obj("relatedArtists")
-                    ?.arr("items")
-                    ?: JsonArray(emptyList())
-
-            relatedItems.mapNotNull { elem ->
-                val uri = elem.jsonObject.str("uri") ?: return@mapNotNull null
-                val id = uri.substringAfterLast(":")
-                val name = elem.jsonObject.obj("profile")?.str("name") ?: return@mapNotNull null
-                val images = parseGqlImages(
-                    elem.jsonObject.obj("visuals")?.obj("avatarImage")?.arr("sources")
-                )
-                SpotifyArtist(id = id, name = name, images = images, uri = uri)
-            }
-        }
+        runCatching { artistOverview(artistId).related }
 
     fun isAuthenticated(): Boolean = accessToken != null
 }

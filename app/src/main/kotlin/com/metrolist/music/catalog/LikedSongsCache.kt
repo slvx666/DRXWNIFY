@@ -8,6 +8,8 @@ package com.metrolist.music.catalog
 import com.metrolist.spotify.models.SpotifyTrack
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
+import kotlinx.serialization.json.encodeToStream
 import java.io.File
 
 /**
@@ -15,6 +17,7 @@ import java.io.File
  * screen used to fetch every page again (80 requests for 4000 tracks), each time: now the last list
  * shows at once and the account is only asked whether it changed.
  */
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 object LikedSongsCache {
     /** Younger than this, the list is shown without asking the account at all. */
     const val FRESH_MS = 10 * 60_000L
@@ -49,7 +52,7 @@ object LikedSongsCache {
     fun get(account: String): Cached? {
         val entry = memory?.takeIf { it.account == account } ?: runCatching {
             val file = fileOf(account)?.takeIf { it.exists() } ?: return null
-            Entry(account, file.lastModified(), json.decodeFromString(Snapshot.serializer(), file.readText()))
+            Entry(account, file.lastModified(), file.inputStream().buffered().use { json.decodeFromStream(Snapshot.serializer(), it) })
                 .also { memory = it }
         }.getOrNull() ?: return null
         return Cached(entry.snapshot.tracks, entry.snapshot.total, System.currentTimeMillis() - entry.at)
@@ -67,7 +70,8 @@ object LikedSongsCache {
         val known = added ?: memory?.takeIf { it.account == account }?.snapshot?.added.orEmpty()
         val snapshot = Snapshot(total, tracks, known)
         memory = Entry(account, System.currentTimeMillis(), snapshot)
-        runCatching { fileOf(account)?.writeText(json.encodeToString(Snapshot.serializer(), snapshot)) }
+        // Streamed: the whole list as one string was a spike of megabytes on every save.
+        runCatching { fileOf(account)?.outputStream()?.buffered()?.use { json.encodeToStream(Snapshot.serializer(), snapshot, it) } }
     }
 
     /** When each kept track was liked, as far as known. */
