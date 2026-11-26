@@ -226,7 +226,7 @@ private fun localReleases(context: android.content.Context): List<ReleaseInfo> =
         tagName = "2.4.0",
         versionName = "2.4.0",
         description = context.getString(com.metrolist.music.R.string.changelog_2_4_0),
-        releaseDate = "2026-11-25",
+        releaseDate = "2026-11-26",
         assets = emptyList(),
     ),
     ReleaseInfo(
